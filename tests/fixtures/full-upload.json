@@ -1,0 +1,11 @@
+{
+  "protocol_version": 1,
+  "client_run_id": "redacted-run",
+  "snapshot_id": "redacted-snapshot",
+  "snapshot_mode": "full",
+  "part_index": 0,
+  "part_count": 1,
+  "observed_at": "2026-09-18T12:00:00Z",
+  "shops_seen": ["shop-redacted"],
+  "shops": [{"shop_key":"shop-redacted","vendor_key":"vendor-redacted","vendor_name":"Example Vendor","title":"Example Shop","shop_type":"sell","map_name":"prontera","x":100,"y":120,"items":[{"item_key":"slot-0","item_id":1234,"name":"Example Sword","upgrade":7,"slots":2,"cards":[0,0,0,0],"price":100000,"quantity":1,"options":[{"type":1,"value":5,"param":0},{"type":2,"value":3,"param":1}]}]}]
+}
