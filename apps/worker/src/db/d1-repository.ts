@@ -1,7 +1,6 @@
-import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/workers-types';
-import type { SearchFilters } from '@lastroweb/protocol';
+import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { assertBatchBounds } from './repository';
-import type { BatchRow, HistoryRow, ListingChange, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
+import type { BatchRow, ListingRow, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
 import type { MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike } from './repository';
 
 type Row = Record<string, unknown>;
