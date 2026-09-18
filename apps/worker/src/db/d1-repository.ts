@@ -1,6 +1,7 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { assertBatchBounds } from './repository';
 import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext, DEFAULT_CURSOR_SECRET } from '../domain/search';
+import { makeTransitionKey } from '../domain/transitions';
 import type { BatchRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 
@@ -283,13 +284,35 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
         return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: true, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
       }
       const scopedSessions = `(SELECT id FROM shop_sessions WHERE id IN (${scopeSql}) AND started_at <= ?1 AND last_seen_at=?1)`;
-      const staleSql = `UPDATE listings SET missing_streak=missing_streak+1,status=CASE WHEN missing_streak+1>=2 THEN 'missing' ELSE status END,last_changed_at=?1 WHERE shop_session_id IN ${scopedSessions} AND shop_session_id IN (SELECT id FROM shop_sessions WHERE initial_sync_complete=1) AND status IN ('active','missing') AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`;
-      const staleResult = await db.prepare(staleSql).bind(input.observedAt, scopePayload, batchPayload).run();
+      const stalePredicate = `shop_session_id IN ${scopedSessions} AND shop_session_id IN (SELECT id FROM shop_sessions WHERE initial_sync_complete=1) AND status IN ('active','missing') AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`;
+      const candidateRows = await many<Row>(db.prepare(`SELECT id,quantity,state_version FROM listings WHERE ${stalePredicate} AND missing_streak=1 AND quantity>0`).bind(input.observedAt, scopePayload, batchPayload));
+      const inferredCandidates = await Promise.all(candidateRows.map(async (row) => ({
+        listingId: Number(row.id),
+        soldQuantity: Number(row.quantity),
+        fromQuantity: Number(row.quantity),
+        toQuantity: 0,
+        reason: 'missing_streak',
+        observedAt: input.observedAt,
+        newStateVersion: Number(row.state_version) + 1,
+        transitionKey: await makeTransitionKey(Number(row.id), Number(row.state_version), Number(row.quantity), 0, 'missing_streak'),
+      })));
+      const staleSql = `UPDATE listings SET missing_streak=missing_streak+1,status=CASE WHEN missing_streak+1>=2 THEN 'missing' ELSE status END,last_changed_at=?1,state_version=state_version+1 WHERE ${stalePredicate}`;
+      const writes = [db.prepare(staleSql).bind(input.observedAt, scopePayload, batchPayload)];
+      if (inferredCandidates.length > 0) {
+        writes.push(db.prepare(`INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key)
+          SELECT json_extract(value,'$.listingId'),json_extract(value,'$.soldQuantity'),json_extract(value,'$.fromQuantity'),json_extract(value,'$.toQuantity'),json_extract(value,'$.reason'),json_extract(value,'$.observedAt'),json_extract(value,'$.transitionKey')
+          FROM json_each(?1)
+          WHERE EXISTS (SELECT 1 FROM listings l WHERE l.id=json_extract(value,'$.listingId') AND l.state_version=json_extract(value,'$.newStateVersion') AND l.missing_streak=2 AND l.status='missing' AND l.last_changed_at=json_extract(value,'$.observedAt'))`).bind(JSON.stringify(inferredCandidates)));
+      }
+      assertBatchBounds(writes.length, 3 + (inferredCandidates.length > 0 ? 1 : 0));
+      const writeResults = await db.batch(writes);
+      const staleResult = writeResults[0] ?? { meta: { changes: 0 } };
       const markedRow = await one<Row>(db.prepare(`SELECT COUNT(*) AS count FROM listings WHERE shop_session_id IN ${scopedSessions} AND shop_session_id IN (SELECT id FROM shop_sessions WHERE initial_sync_complete=1) AND status IN ('active','missing') AND missing_streak=1 AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`).bind(input.observedAt, scopePayload, batchPayload));
       const expiredResult = await db.prepare(`UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id IN ${scopedSessions} AND status IN ('active','missing') AND EXISTS (SELECT 1 FROM shop_sessions ss WHERE ss.id=listings.shop_session_id AND ss.ended_at IS NOT NULL AND ss.ended_at <= ?1)`).bind(input.observedAt, scopePayload).run();
       const shopsRow = await one<Row>(db.prepare(`SELECT COUNT(DISTINCT s.id) AS count FROM shops s JOIN shop_sessions ss ON ss.shop_id=s.id WHERE ss.id IN ${scopedSessions} AND ss.ended_at IS NULL`).bind(input.observedAt, scopePayload));
       const candidates = Number(staleResult.meta?.changes ?? 0);
-      return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline, shops: Number(shopsRow?.count ?? 0), candidates, markedMissing: Number(markedRow?.count ?? 0), inferredSold: 0, expired: Number(expiredResult.meta?.changes ?? 0) };
+      const inferredSold = inferredCandidates.length > 0 ? Number(writeResults[1]?.meta?.changes ?? 0) : 0;
+      return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline, shops: Number(shopsRow?.count ?? 0), candidates, markedMissing: Number(markedRow?.count ?? 0), inferredSold, expired: Number(expiredResult.meta?.changes ?? 0) };
     },
     async searchListings(filters) {
       const params: unknown[] = [];

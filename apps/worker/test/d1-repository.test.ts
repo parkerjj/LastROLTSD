@@ -161,4 +161,29 @@ describe('D1 repository', () => {
     expect(result.baseline).toBe(true);
     expect(statements.some((sql) => sql.startsWith('UPDATE listings SET missing_streak'))).toBe(false);
   });
+
+  it('records one low-confidence sold event when a listing reaches its second full-snapshot miss', async () => {
+    const preparedSql: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        preparedSql.push(sql);
+        return {
+          bind: (..._values: unknown[]) => ({
+            first: async <T>() => {
+              if (sql.includes('initial_sync_complete=0')) return { count: 0 } as T;
+              if (sql.includes('missing_streak=1')) return { count: 0 } as T;
+              if (sql.includes('COUNT(DISTINCT s.id)')) return { count: 1 } as T;
+              return null;
+            },
+            all: async <T>() => sql.includes('missing_streak=1') ? { results: [{ id: 9, quantity: 3, state_version: 4 }] as T[] } : { results: [] as T[] },
+            run: async () => ({ meta: { changes: 1 } }),
+          }),
+        } as never;
+      },
+      batch: async (statements: unknown[]) => statements.map((_, index) => ({ meta: { changes: index === 1 ? 1 : 3 } })),
+    };
+    const result = await createD1Repository(db as never).reconcileSnapshot!({ sourceId: 's1', snapshotId: 'snap', observedAt: 10, batchIds: ['snap/0'], sessionIds: [7] });
+    expect(result.inferredSold).toBe(1);
+    expect(preparedSql.some((sql) => sql.includes('sold_events') && sql.includes('missing_streak=2'))).toBe(true);
+  });
 });
