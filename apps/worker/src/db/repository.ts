@@ -11,6 +11,9 @@ export interface MarketRepository {
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow>;
   completeBatch(sourceId: string, batchId: string, response: UploadResultLike): Promise<void>;
   loadListingsByFingerprint(sessionId: number, fingerprints: string[]): Promise<ListingRow[]>;
+  createListing?(input: { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }): Promise<ListingRow>;
+  insertHistory?(input: { listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }): Promise<void>;
+  insertSoldEvent?(input: { listingId: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; observedAt: number; transitionKey: string }): Promise<boolean>;
   applyListingChanges(changes: ListingChange[]): Promise<{ updated: number; conflicts: number }>;
   markShopHeartbeats(sourceId: string, shopKeys: string[], observedAt: number): Promise<number>;
   finalizeSnapshot(sourceId: string, snapshotId: string, observedAt: number): Promise<void>;

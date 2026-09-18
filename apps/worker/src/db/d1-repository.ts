@@ -67,6 +67,13 @@ export function createD1Repository(db: D1Database): MarketRepository {
       const rows = await many<Row>(db.prepare(`SELECT * FROM listings WHERE shop_session_id=?1 AND item_fingerprint IN (${placeholders})`).bind(sessionId, ...fingerprints));
       return rows.map(listingFromRow);
     },
+    async createListing(input) {
+      const row = await one<Row>(db.prepare(`INSERT INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,'active',?15,?15,?15,?16) RETURNING *`).bind(input.sessionId, input.fingerprint, input.itemKey ?? null, input.itemId, input.itemName, input.itemNameNormalized, input.upgrade, input.slots, input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0, input.price, input.quantity, input.observedAt, input.batchId));
+      if (!row) throw new Error('listing insert returned no row');
+      return listingFromRow(row);
+    },
+    async insertHistory(input) { await db.prepare('INSERT INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId).run(); },
+    async insertSoldEvent(input) { const result = await db.prepare('INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(input.listingId, input.soldQuantity, input.fromQuantity, input.toQuantity, input.reason, input.observedAt, input.transitionKey).run(); return Number(result.meta?.changes ?? 0) > 0; },
     async applyListingChanges(changes) {
       assertBatchBounds(changes.length, changes.length * 7);
       const statements = changes.map((change) => db.prepare(`UPDATE listings SET price=?1,quantity=?2,last_quantity=quantity,status=?3,last_seen_at=?4,last_changed_at=?4,state_version=state_version+1,last_batch_id=?5,missing_streak=0 WHERE id=?6 AND state_version=?7`).bind(change.price, change.quantity, change.status, change.observedAt, change.batchId, change.listingId, change.expectedVersion));
