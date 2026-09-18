@@ -18,4 +18,4 @@ export interface SearchFilters {
   price_min?: number; price_max?: number; map?: string; shop_type?: 'buy' | 'sell';
   include_stale?: boolean; limit: number; cursor?: string; sort: 'price_asc' | 'price_desc' | 'updated_desc';
 }
-export interface SearchPage<T> { items: T[]; next_cursor: string | null }
+export interface SearchPage<T> { items: T[]; nextCursor: string | null }

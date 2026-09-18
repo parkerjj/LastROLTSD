@@ -24,6 +24,9 @@ export function serializeSearchForm(form: HTMLFormElement): SearchFilters {
     return Number.isSafeInteger(type) && Number.isSafeInteger(value) && Number.isSafeInteger(param) ? { type, value, param } : null;
   }).filter((option): option is { type: number; value: number; param: number } => option !== null);
   if (optionRows.length > 0) {
+    delete (filters as Record<string, unknown>).option_type;
+    delete (filters as Record<string, unknown>).option_value;
+    delete (filters as Record<string, unknown>).option_param;
     const mode = form.querySelector<HTMLInputElement>('input[name="option_mode"]:checked')?.value === 'any' ? 'any' : 'all';
     (filters as Record<string, unknown>).options = optionRows;
     (filters as Record<string, unknown>).option_mode = mode;

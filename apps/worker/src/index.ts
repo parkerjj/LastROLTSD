@@ -21,18 +21,21 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
     const started = Date.now();
     const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
     c.header('x-request-id', requestId);
-    await next();
-    const declaredBytes = Number(c.req.header('content-length') ?? 0);
-    recordMetric({ requestId, route: c.req.path, status: c.res.status, elapsedMs: Date.now() - started, ...(Number.isFinite(declaredBytes) && declaredBytes > 0 ? { bodyBytes: declaredBytes } : {}) });
+    try {
+      await next();
+    } finally {
+      const declaredBytes = Number(c.req.header('content-length') ?? 0);
+      recordMetric({ requestId, route: c.req.path, status: c.res.status, elapsedMs: Date.now() - started, ...(Number.isFinite(declaredBytes) && declaredBytes > 0 ? { bodyBytes: declaredBytes } : {}) });
+    }
   });
 
   app.get('/api/health', async (c) => c.json(await healthPayload(env)));
 
   if (env.DB) {
-    const repository = createD1Repository(env.DB);
-    registerSearchRoute(app, repository);
+    const repository = createD1Repository(env.DB, env.CURSOR_SECRET);
+    registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
-    registerHistoryRoute(app, repository);
+    registerHistoryRoute(app, repository, env.CURSOR_SECRET);
     registerUploadRoute(app, env, repository, createListingStateService(repository));
     registerAdminRoutes(app, env, repository);
   }

@@ -75,9 +75,10 @@ describe('upload route', () => {
     const key = 'route-secret';
     const app = new Hono();
     const repository = repo(await hashApiKey(key));
-    const limiter = { fetch: async () => new Response(null, { status: 429 }) };
+    const limiter = { fetch: async () => new Response(null, { status: 429, headers: { 'retry-after': '17' } }) };
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024, UPLOAD_LIMITER: limiter as never }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
     const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: '{}' });
     expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('17');
   });
 });

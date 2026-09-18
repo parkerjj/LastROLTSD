@@ -22,7 +22,7 @@ describe('search filters', () => {
     const secret = 'test-cursor-secret-which-is-long-enough';
     const cursor = encodeCursor({ sort: 'price_asc', sortValue: 20, id: 4 }, secret);
     const [body, signature] = cursor.split('.');
-    expect(signature).toBe(createHmac('sha256', secret).update(body).digest('base64url'));
+    expect(signature).toBe(createHmac('sha256', secret).update(body ?? '').digest('base64url'));
     expect(() => decodeCursor(cursor, undefined, 'different-cursor-secret')).toThrow('Invalid cursor');
   });
   it('parses repeated structured option filters with all/any mode', () => {

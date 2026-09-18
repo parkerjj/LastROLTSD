@@ -14,7 +14,7 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
       const source = await requireSource(c.req.raw, repo);
       if (env.UPLOAD_LIMITER) {
         const limiterResponse = await env.UPLOAD_LIMITER.fetch('https://lastroweb.invalid/upload-limit', { method: 'POST', headers: { 'x-source-id': source.id } });
-        if (limiterResponse.status === 429) return jsonError('rate_limited', 'Upload rate limit exceeded', 429, id);
+        if (limiterResponse.status === 429) { const response = jsonError('rate_limited', 'Upload rate limit exceeded', 429, id); response.headers.set('retry-after', limiterResponse.headers.get('retry-after') ?? '60'); return response; }
         if (!limiterResponse.ok) return jsonError('service_unavailable', 'Upload limiter unavailable', 503, id);
       }
       const idempotencyKey = c.req.header('idempotency-key');
