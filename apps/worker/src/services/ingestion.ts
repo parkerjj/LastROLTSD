@@ -9,7 +9,7 @@ import { createSnapshotReconciler } from './snapshot-reconciler';
 
 export interface NormalizedObservation { fingerprint: string; item: UploadItem; sessionId: number; shopKey: string; }
 export interface StateBatchResult { processedListings: number; changedListings: number; soldEvents: number; }
-export interface ListingStateService { applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; }
+export interface ListingStateService { applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; applyBatchObservationsBulk?(source: AuthenticatedSource, sessions: Map<number, ShopSessionRow>, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; }
 export interface UploadResult extends UploadResultLike {}
 export class IngestionError extends Error { constructor(public readonly status: 400 | 409 | 503, message: string) { super(message); this.name = 'IngestionError'; } }
 
@@ -93,8 +93,11 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       await repo.markShopHeartbeats(source.id, request.shops_seen.slice(index, index + 40), Date.parse(request.observed_at));
     }
     }
-    const result = request.snapshot_mode === 'heartbeat' ? { processedListings: 0, changedListings: 0, soldEvents: 0 } : await applyBySession(source, state, observations, sessionByShop, batch.batchId, Date.parse(request.observed_at));
-    if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
+    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    const result = request.snapshot_mode === 'heartbeat' ? { processedListings: 0, changedListings: 0, soldEvents: 0 } : state.applyBatchObservationsBulk ? await state.applyBatchObservationsBulk(source, sessionsById, observations, batch.batchId, Date.parse(request.observed_at)) : await applyBySession(source, state, observations, sessionByShop, batch.batchId, Date.parse(request.observed_at));
+    if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObservedBulk) {
+      await repo.markListingsObservedBulk(observations.map((observation) => ({ sessionId: observation.sessionId, fingerprint: observation.fingerprint })), batch.batchId, Date.parse(request.observed_at));
+    } else if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
     const bySession = new Map<number, string[]>();
     for (const observation of observations) bySession.set(observation.sessionId, [...(bySession.get(observation.sessionId) ?? []), observation.fingerprint]);
     for (const [sessionId, fingerprints] of bySession) {

@@ -46,3 +46,12 @@ it('rejects oversized history cursors before reaching the repository', async () 
   expect(response.status).toBe(400);
   expect(called).toBe(false);
 });
+
+it('returns inferred sale details alongside price history', async () => {
+  const app = new Hono();
+  registerHistoryRoute(app, { getListingHistory: async () => ({ items: [{ id: 1, listingId: 1, observedAt: 10, price: 100, quantity: 0, eventType: 'quantity_changed', batchId: 'b' }], inferredSales: [{ observedAt: 10, soldQuantity: 2, fromQuantity: 2, toQuantity: 0, reason: 'sold_out' }], nextCursor: null }) } as never);
+  const response = await app.request('/api/v1/market/listings/1/history');
+  expect(response.status).toBe(200);
+  const body = await response.json() as any;
+  expect(body.inferredSales[0].reason).toBe('sold_out');
+});

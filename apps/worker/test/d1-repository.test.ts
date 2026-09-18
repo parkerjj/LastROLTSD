@@ -186,4 +186,67 @@ describe('D1 repository', () => {
     expect(result.inferredSold).toBe(1);
     expect(preparedSql.some((sql) => sql.includes('sold_events') && sql.includes('missing_streak=2'))).toBe(true);
   });
+
+  it('provides JSON1 bulk listing operations with bounded batch statements', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    await repo.insertNewListingsBulk!([{ sessionId: 1, fingerprint: 'fp', itemId: 1, itemName: 'Item', itemNameNormalized: 'item', upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 1, batchId: 'b', options: [{ type: 2, value: 3, param: 0 }, { type: 1, value: 4, param: 0 }] }]);
+    await repo.applyListingTransitionsBulk!([{ listingId: 1, shopSessionId: 1, expectedVersion: 0, price: 9, quantity: 0, status: 'sold_out', observedAt: 2, batchId: 'b2', history: { eventType: 'quantity_changed' }, soldEvent: { soldQuantity: 1, fromQuantity: 1, toQuantity: 0, reason: 'sold_out', transitionKey: 'k' } }]);
+    await repo.markListingsObservedBulk!([{ sessionId: 1, fingerprint: 'fp' }], 'b2', 2);
+    expect(db.statements.filter((statement) => statement.sql.includes('json_each')).length).toBeGreaterThanOrEqual(7);
+    expect(db.statements.some((statement) => statement.sql.includes('listing_options'))).toBe(true);
+  });
+
+  it('returns bounded inferred sale details from the history repository', async () => {
+    const statements: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        statements.push(sql);
+        return {
+          bind: (..._values: unknown[]) => ({
+            first: async <T>() => sql.startsWith('SELECT id FROM listings') ? ({ id: 1 } as T) : null,
+            all: async <T>() => sql.includes('listing_price_history')
+              ? { results: [{ id: 1, listing_id: 1, observed_at: 10, price: 100, quantity: 0, event_type: 'quantity_changed', batch_id: 'b' }] as T[] }
+              : { results: [{ observed_at: 10, sold_quantity: 2, from_quantity: 2, to_quantity: 0, reason: 'sold_out' }] as T[] },
+          }),
+        } as never;
+      },
+    };
+    const page = await createD1Repository(db as never).getListingHistory(1, 50);
+    expect(page?.inferredSales).toEqual([{ observedAt: 10, soldQuantity: 2, fromQuantity: 2, toQuantity: 0, reason: 'sold_out' }]);
+    expect(statements.some((sql) => sql.includes('FROM sold_events') && sql.includes('LIMIT'))).toBe(true);
+  });
+
+  it('uses one JSON1 heartbeat statement per bounded chunk', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    await repo.markShopHeartbeats('s1', Array.from({ length: 40 }, (_, index) => 'shop-' + index), 10);
+    const heartbeat = db.statements.find((statement) => statement.sql.includes('UPDATE shops'))!;
+    expect(heartbeat.sql).toContain('json_each');
+    expect(heartbeat.bound).toHaveLength(3);
+    expect(db.statements.filter((statement) => statement.sql.includes('UPDATE shops'))).toHaveLength(1);
+  });
+
+  it('records snapshot participants with one JSON1 insert', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    await repo.recordSnapshotSessions!('s1', 'snap', Array.from({ length: 300 }, (_, index) => index + 1), 10);
+    const writes = db.statements.filter((statement) => statement.sql.includes('INSERT OR IGNORE INTO snapshot_sessions'));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.sql).toContain('json_each');
+    expect(writes[0]?.bound).toHaveLength(4);
+  });
+
+  it('chunks single-listing options before applying the D1 bound-parameter limit', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    const options = Array.from({ length: 21 }, (_, index) => ({ type: 1, value: index, param: 0 }));
+
+    await repo.insertListingOptions!({ listingId: 1, options });
+
+    const optionWrites = db.statements.filter((statement) => statement.sql.includes('INSERT OR REPLACE INTO listing_options'));
+    expect(optionWrites).toHaveLength(21);
+    expect(optionWrites.slice(0, 12).reduce((sum, statement) => sum + statement.bound.length, 0)).toBe(72);
+    expect(optionWrites.slice(12).reduce((sum, statement) => sum + statement.bound.length, 0)).toBe(54);
+  });
 });

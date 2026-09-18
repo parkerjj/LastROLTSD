@@ -50,4 +50,12 @@ Successful responses contain `accepted`, `batch_id`, `duplicate`, processed/chan
 
 `GET /api/v1/market/search` accepts bounded text, exact item ID, map, shop type, price range, structured option filters, `limit` (maximum 50), allowlisted sort values, and an opaque keyset `cursor`. Query values are bound parameters; offset pagination and arbitrary SQL sort fields are not accepted. Search responses use `Cache-Control: public, max-age=30, s-maxage=30` and return `nextCursor` for the next keyset page.
 
-`GET /api/v1/options` returns the versioned option dictionary with an ETag and 24-hour cache. `GET /api/v1/market/listings/:id/history` returns bounded price/quantity events and a keyset cursor.
+`GET /api/v1/options` returns the versioned option dictionary with an ETag and 24-hour cache. `GET /api/v1/market/listings/:id/history` returns bounded price/quantity events, inferred-sale evidence, and a keyset cursor. When present, `inferredSales` contains `observedAt`, `soldQuantity`, `fromQuantity`, `toQuantity`, and a reason (`quantity_decrease`, `sold_out`, or low-confidence `missing_streak`); it is derived from immutable `sold_events` and is never inferred from an omitted delta item.
+
+```json
+{
+  "items": [{"id": 42, "listingId": 7, "observedAt": 1726660800000, "price": 100000, "quantity": 0, "eventType": "quantity_changed", "batchId": "redacted-snapshot/0"}],
+  "inferredSales": [{"observedAt": 1726660800000, "soldQuantity": 1, "fromQuantity": 1, "toQuantity": 0, "reason": "sold_out"}],
+  "nextCursor": null
+}
+```

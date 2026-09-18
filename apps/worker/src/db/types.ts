@@ -10,6 +10,7 @@ export interface ListingRow { id: number; shopSessionId: number; itemFingerprint
 export interface ListingChange { listingId: number; expectedVersion: number; price: number; quantity: number; status: string; observedAt: number; batchId: string; }
 export interface ListingSearchRow extends ListingRow { shopKey: string; title: string; vendorName: string; mapName: string; shopType: 'buy' | 'sell'; options: ListingOption[]; }
 export interface HistoryRow { id: number; listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string; }
+export interface InferredSaleRow { observedAt: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; }
 export interface OptionDictionaryRow { version: string; optionType: number; optionValue: number; optionParam: number; name: string; description: string; searchTokens: string; }
 export interface ListingOption {
   type: number;

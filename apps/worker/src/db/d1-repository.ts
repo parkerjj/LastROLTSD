@@ -2,7 +2,7 @@ import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types'
 import { assertBatchBounds } from './repository';
 import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext, DEFAULT_CURSOR_SECRET } from '../domain/search';
 import { makeTransitionKey } from '../domain/transitions';
-import type { BatchRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
+import type { BatchRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 
 type Row = Record<string, unknown>;
@@ -130,6 +130,19 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const rows = await many<Row>(db.prepare(`SELECT * FROM listings WHERE shop_session_id=?1 AND item_fingerprint IN (${placeholders})`).bind(sessionId, ...fingerprints));
       return rows.map(listingFromRow);
     },
+    async loadListingsByObservations(observations) {
+      if (observations.length === 0) return [];
+      const payload = JSON.stringify(observations);
+      const rows = await many<Row>(db.prepare(`SELECT l.* FROM listings l JOIN json_each(?1) input ON l.shop_session_id=CAST(json_extract(input.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(input.value,'$.fingerprint')`).bind(payload));
+      return rows.map(listingFromRow);
+    },
+    async markListingsObservedBulk(observations, batchId, observedAt) {
+      if (observations.length === 0) return 0;
+      const payload = JSON.stringify(observations);
+      assertBatchBounds(1, 3);
+      const result = await db.prepare(`UPDATE listings SET last_seen_at=?3,last_batch_id=?2,missing_streak=0,status=CASE WHEN quantity=0 THEN 'sold_out' ELSE 'active' END WHERE EXISTS (SELECT 1 FROM json_each(?1) input WHERE listings.shop_session_id=CAST(json_extract(input.value,'$.sessionId') AS INTEGER) AND listings.item_fingerprint=json_extract(input.value,'$.fingerprint'))`).bind(payload, batchId, observedAt).run();
+      return Number(result.meta?.changes ?? 0);
+    },
     async loadListingById(listingId, sessionId) {
       const statement = sessionId === undefined
         ? db.prepare('SELECT * FROM listings WHERE id=?1 LIMIT 1').bind(listingId)
@@ -173,11 +186,26 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const first = inputs[0]!;
       return (await this.loadListingsByFingerprint(first.sessionId, inputs.map((input) => input.fingerprint))).filter((listing) => inputs.some((input) => input.fingerprint === listing.itemFingerprint));
     },
+    async insertNewListingsBulk(inputs) {
+      if (inputs.length === 0) return;
+      const payload = JSON.stringify(inputs.map((input) => ({ ...input, itemKey: input.itemKey ?? null, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], options: [...input.options].sort((a, b) => a.type - b.type || a.value - b.value || a.param - b.param).map((option) => ({ type: option.type, value: option.value, param: option.param, displayValue: option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null })) })));
+      const insert = db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
+        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1)`);
+      const history = db.prepare(`INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
+        SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),'first_seen',json_extract(item.value,'$.batchId') FROM json_each(?1) item JOIN listings l ON l.shop_session_id=CAST(json_extract(item.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId')`);
+      const options = db.prepare(`INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value)
+        SELECT l.id,CAST(option.key AS INTEGER),json_extract(option.value,'$.type'),json_extract(option.value,'$.value'),json_extract(option.value,'$.param'),json_extract(option.value,'$.displayValue') FROM json_each(?1) item JOIN listings l ON l.shop_session_id=CAST(json_extract(item.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId') JOIN json_each(json_extract(item.value,'$.options')) option`);
+      assertBatchBounds(3, 3);
+      await db.batch([insert.bind(payload), history.bind(payload), options.bind(payload)]);
+    },
     async insertListingOptions(input: { listingId: number; options: ListingOption[] }) {
       if (input.options.length === 0) return;
       const options = [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param);
-      assertBatchBounds(options.length, options.length * 5);
-      await db.batch(options.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, index, option.type, option.value, option.param, option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null)));
+      for (let offset = 0; offset < options.length; offset += BULK_BATCH_SIZE) {
+        const chunk = options.slice(offset, offset + BULK_BATCH_SIZE);
+        assertBatchBounds(chunk.length, chunk.length * 6);
+        await db.batch(chunk.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, offset + index, option.type, option.value, option.param, option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null)));
+      }
     },
     async insertHistory(input) { await db.prepare('INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId).run(); },
     async insertHistoriesBatch(inputs) {
@@ -231,15 +259,43 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       }
       return { updated, conflicts, soldEvents, conflictIds };
     },
+    async applyListingTransitionsBulk(changes) {
+      if (changes.length === 0) return { updated: 0, conflicts: 0, soldEvents: 0, conflictIds: [] };
+      const payload = JSON.stringify(changes.map((change) => ({ ...change, history: change.history ?? null, soldEvent: change.soldEvent ?? null })));
+      const update = db.prepare(`UPDATE listings SET
+        price=(SELECT json_extract(input.value,'$.price') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
+        quantity=(SELECT json_extract(input.value,'$.quantity') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
+        last_quantity=quantity,
+        status=(SELECT json_extract(input.value,'$.status') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
+        last_seen_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
+        last_changed_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
+        state_version=state_version+1,
+        last_batch_id=(SELECT json_extract(input.value,'$.batchId') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
+        missing_streak=0
+      WHERE EXISTS (SELECT 1 FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id AND listings.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER) AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER))
+      RETURNING id`);
+      const history = db.prepare(`INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
+        SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),json_extract(item.value,'$.history.eventType'),json_extract(item.value,'$.batchId')
+        FROM json_each(?1) item JOIN listings l ON l.id=CAST(json_extract(item.value,'$.listingId') AS INTEGER) AND l.shop_session_id=CAST(json_extract(item.value,'$.shopSessionId') AS INTEGER) AND l.state_version=CAST(json_extract(item.value,'$.expectedVersion') AS INTEGER)+1 AND l.last_batch_id=json_extract(item.value,'$.batchId')
+        WHERE json_type(item.value,'$.history')='object'`);
+      const sold = db.prepare(`INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key)
+        SELECT l.id,json_extract(item.value,'$.soldEvent.soldQuantity'),json_extract(item.value,'$.soldEvent.fromQuantity'),json_extract(item.value,'$.soldEvent.toQuantity'),json_extract(item.value,'$.soldEvent.reason'),json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.soldEvent.transitionKey')
+        FROM json_each(?1) item JOIN listings l ON l.id=CAST(json_extract(item.value,'$.listingId') AS INTEGER) AND l.shop_session_id=CAST(json_extract(item.value,'$.shopSessionId') AS INTEGER) AND l.state_version=CAST(json_extract(item.value,'$.expectedVersion') AS INTEGER)+1 AND l.last_batch_id=json_extract(item.value,'$.batchId')
+        WHERE json_type(item.value,'$.soldEvent')='object'`);
+      assertBatchBounds(3, 3);
+      const results = await db.batch([update.bind(payload), history.bind(payload), sold.bind(payload)]);
+      const returned = new Set<number>(((results[0] as unknown as { results?: Row[] })?.results ?? []).map((row) => Number(row.id)));
+      const conflictIds = changes.filter((change) => !returned.has(change.listingId)).map((change) => change.listingId);
+      return { updated: returned.size, conflicts: conflictIds.length, soldEvents: Number(results[2]?.meta?.changes ?? 0), conflictIds };
+    },
     async markShopHeartbeats(sourceId, shopKeys, observedAt) {
       if (shopKeys.length === 0) return 0;
       let updated = 0;
       for (let offset = 0; offset < shopKeys.length; offset += 40) {
         const chunk = shopKeys.slice(offset, offset + 40);
-        assertBatchBounds(chunk.length, chunk.length * 3);
-        const statements = chunk.map((key) => db.prepare('UPDATE shops SET last_seen_at=?1,updated_at=?1,status=CASE WHEN status=\'closed\' THEN status ELSE \'active\' END WHERE source_id=?2 AND shop_key=?3').bind(observedAt, sourceId, key));
-        const results = await db.batch(statements);
-        updated += results.reduce((sum, result) => sum + Number(result.meta?.changes ?? 0), 0);
+        assertBatchBounds(1, 3);
+        const result = await db.prepare('UPDATE shops SET last_seen_at=?3,updated_at=?3,status=CASE WHEN status=\'closed\' THEN status ELSE \'active\' END WHERE source_id=?2 AND EXISTS (SELECT 1 FROM json_each(?1) input WHERE shops.shop_key=input.value)').bind(JSON.stringify(chunk), sourceId, observedAt).run();
+        updated += Number(result.meta?.changes ?? 0);
       }
       return updated;
     },
@@ -257,11 +313,10 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       return missing;
     },
     async recordSnapshotSessions(sourceId, snapshotId, sessionIds, observedAt) {
-      for (let offset = 0; offset < sessionIds.length; offset += BULK_BATCH_SIZE) {
-        const chunk = sessionIds.slice(offset, offset + BULK_BATCH_SIZE);
-        assertBatchBounds(chunk.length, chunk.length * 4);
-        await db.batch(chunk.map((sessionId) => db.prepare('INSERT OR IGNORE INTO snapshot_sessions(source_id,snapshot_id,shop_session_id,observed_at) VALUES(?1,?2,?3,?4)').bind(sourceId, snapshotId, sessionId, observedAt)));
-      }
+      if (sessionIds.length === 0) return;
+      assertBatchBounds(1, 4);
+      const payload = JSON.stringify(sessionIds.map((id) => ({ id })));
+      await db.prepare('INSERT OR IGNORE INTO snapshot_sessions(source_id,snapshot_id,shop_session_id,observed_at) SELECT ?2,?3,CAST(json_extract(value,\'$.id\') AS INTEGER),?4 FROM json_each(?1)').bind(payload, sourceId, snapshotId, observedAt).run();
     },
     async getSnapshotSessionIds(sourceId, snapshotId) {
       const rows = await many<Row>(db.prepare('SELECT shop_session_id FROM snapshot_sessions WHERE source_id=?1 AND snapshot_id=?2 ORDER BY shop_session_id').bind(sourceId, snapshotId));
@@ -365,7 +420,9 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       params.push(Math.min(50, Math.max(1, limit)) + 1); sql += ` ORDER BY id DESC LIMIT ?${params.length}`;
       const rows = await many<Row>(db.prepare(sql).bind(...params));
       const items = rows.slice(0, Number(params.at(-1)) - 1).map((row) => ({ id: Number(row.id), listingId: Number(row.listing_id), observedAt: Number(row.observed_at), price: Number(row.price), quantity: Number(row.quantity), eventType: String(row.event_type), batchId: String(row.batch_id) }));
-      return { items, nextCursor: rows.length > items.length && items.at(-1) ? encodeHistoryCursor(items.at(-1)!.id, cursorSecret) : null };
+      const saleRows = await many<Row>(db.prepare('SELECT observed_at,sold_quantity,from_quantity,to_quantity,reason FROM sold_events WHERE listing_id=?1 ORDER BY id DESC LIMIT ?2').bind(listingId, Math.min(50, Math.max(1, limit))));
+      const inferredSales: InferredSaleRow[] = saleRows.map((row) => ({ observedAt: Number(row.observed_at), soldQuantity: Number(row.sold_quantity), fromQuantity: Number(row.from_quantity), toQuantity: Number(row.to_quantity), reason: String(row.reason) }));
+      return { items, inferredSales, nextCursor: rows.length > items.length && items.at(-1) ? encodeHistoryCursor(items.at(-1)!.id, cursorSecret) : null };
     },
     async getOptionDictionary(version) {
       const statement = version ? db.prepare('SELECT * FROM option_dictionary WHERE version=?1 ORDER BY option_type,option_value,option_param').bind(version) : db.prepare('SELECT * FROM option_dictionary WHERE version=(SELECT MAX(version) FROM option_dictionary) ORDER BY option_type,option_value,option_param');

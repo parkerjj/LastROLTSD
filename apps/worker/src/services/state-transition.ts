@@ -76,7 +76,7 @@ export async function applyListingObservation(input: ListingObservation, repo: M
 }
 
 export function createListingStateService(repo: MarketRepository): ListingStateService {
-  return { async applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult> {
+  const applyBatchObservations = async (source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult> => {
     let changedListings = 0; let soldEvents = 0;
     const existing: ListingRow[] = [];
     for (let offset = 0; offset < observations.length; offset += LOOKUP_CHUNK_SIZE) {
@@ -139,5 +139,68 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
       }
     }
     return { processedListings: observations.length, changedListings, soldEvents };
-  } };
+  };
+
+  const applyBatchObservationsBulk = async (source: AuthenticatedSource, sessions: Map<number, ShopSessionRow>, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult> => {
+    if (observations.length === 0) return { processedListings: 0, changedListings: 0, soldEvents: 0 };
+    if (repo.loadListingsByObservations && repo.insertNewListingsBulk) {
+      const existing = await repo.loadListingsByObservations(observations.map((observation) => ({ sessionId: observation.sessionId, fingerprint: observation.fingerprint })));
+      const byKey = new Map(existing.map((listing) => [listing.shopSessionId + ':' + listing.itemFingerprint, listing]));
+      const newInputs = observations.filter((observation) => !byKey.has(observation.sessionId + ':' + observation.fingerprint)).map((observation) => ({ ...newListingInput(observation, observedAt, batchId), options: observation.item.options }));
+      if (newInputs.length > 0) await repo.insertNewListingsBulk(newInputs);
+      const plans: TransitionPlan[] = [];
+      for (const observation of observations) {
+        const listing = byKey.get(observation.sessionId + ':' + observation.fingerprint);
+        if (!listing) continue;
+        const session = sessions.get(observation.sessionId);
+        if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+        const plan = await makePlan(listing, observation.item, observedAt, batchId, session.initialSyncComplete);
+        if (plan.change.history) plans.push(plan);
+      }
+      if (plans.length > 0 && repo.applyListingTransitionsBulk) {
+        const result = await repo.applyListingTransitionsBulk(plans.map((plan) => plan.change));
+        let changedListings = result.updated;
+        let soldEvents = result.soldEvents;
+        if (result.conflicts > 0) {
+          if (!result.conflictIds) throw new IngestionError(409, 'Listing state changed during upload');
+          const conflictIds = new Set(result.conflictIds ?? []);
+          for (const plan of plans.filter((candidate) => conflictIds.has(candidate.listing.id))) {
+            const refreshed = repo.loadListingById ? await repo.loadListingById(plan.listing.id, plan.listing.shopSessionId) : null;
+            if (!refreshed) throw new IngestionError(409, 'Listing state changed during upload');
+            const session = sessions.get(plan.listing.shopSessionId);
+            if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+            const retry = await makePlan(refreshed, plan.item, observedAt, batchId, session.initialSyncComplete);
+            const retryResult = await repo.applyListingTransitionsBulk([retry.change]);
+            if (retryResult.conflicts > 0) throw new IngestionError(409, 'Listing state changed during upload');
+            changedListings += retryResult.updated;
+            soldEvents += retryResult.soldEvents;
+          }
+        }
+        return { processedListings: observations.length, changedListings, soldEvents };
+      }
+      if (plans.length > 0 && repo.applyListingTransitions) {
+        let changedListings = 0;
+        let soldEvents = 0;
+        for (const plan of plans) {
+          const result = await applyListingObservation({ listing: plan.listing, item: plan.item, observedAt, batchId, baselineComplete: sessions.get(plan.listing.shopSessionId)?.initialSyncComplete ?? false }, repo);
+          if (result.updated) changedListings += 1;
+          if (result.soldEvent) soldEvents += 1;
+        }
+        return { processedListings: observations.length, changedListings, soldEvents };
+      }
+      return { processedListings: observations.length, changedListings: 0, soldEvents: 0 };
+    }
+    const groups = new Map<number, NormalizedObservation[]>();
+    for (const observation of observations) groups.set(observation.sessionId, [...(groups.get(observation.sessionId) ?? []), observation]);
+    let total: StateBatchResult = { processedListings: 0, changedListings: 0, soldEvents: 0 };
+    for (const [sessionId, group] of groups) {
+      const session = sessions.get(sessionId);
+      if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+      const next = await applyBatchObservations(source, session, group, batchId, observedAt);
+      total = { processedListings: total.processedListings + next.processedListings, changedListings: total.changedListings + next.changedListings, soldEvents: total.soldEvents + next.soldEvents };
+    }
+    return total;
+  };
+
+  return { applyBatchObservations, applyBatchObservationsBulk };
 }

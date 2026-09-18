@@ -119,4 +119,29 @@ describe('upload ingestion', () => {
     expect(result.processedListings).toBe(2);
     expect(seen).toEqual([9]);
   });
+
+  it('uses one bulk state pass for observations from multiple shops', async () => {
+    const repo = fakeRepo();
+    const sessions = [
+      { id: 11, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null },
+      { id: 12, shopId: 2, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null },
+    ];
+    repo.getOrCreateSessions = async () => sessions;
+    const multiShop = { ...request, shops: [request.shops[0], { ...request.shops[0], shop_key: 'shop-2', vendor_key: 'vendor-2' }] } as any;
+    const bulkCalls: number[] = [];
+    const state = { applyBatchObservations: async () => { throw new Error('per-session state pass should not be used'); }, applyBatchObservationsBulk: async (_source: any, activeSessions: Map<number, any>, observations: any[]) => { bulkCalls.push(activeSessions.size); return { processedListings: observations.length, changedListings: 0, soldEvents: 0 }; } } as any;
+    const result = await ingestUpload(source, multiShop, 'snap/0', repo, state);
+    expect(result.processedListings).toBe(2);
+    expect(bulkCalls).toEqual([2]);
+  });
+
+  it('marks all observed listings with one bulk observation update', async () => {
+    const repo = fakeRepo();
+    const observed: unknown[] = [];
+    repo.markListingsObservedBulk = async (input: unknown[]) => { observed.push(input); return input.length; };
+    const state = { applyBatchObservationsBulk: async (_source: any, _sessions: any, observations: any[]) => ({ processedListings: observations.length, changedListings: 0, soldEvents: 0 }) } as any;
+    await ingestUpload(source, request, 'snap/0', repo, state);
+    expect(observed).toHaveLength(1);
+    expect((observed[0] as unknown[]).length).toBe(1);
+  });
 });

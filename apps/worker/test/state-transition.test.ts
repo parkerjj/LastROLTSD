@@ -83,4 +83,49 @@ describe('listing state transition', () => {
       'b', 2,
     )).rejects.toMatchObject({ status: 409 });
   });
+
+  it('uses one bulk lookup and insert pass across sessions', async () => {
+    const observations = [
+      { fingerprint: 'a', sessionId: 1, shopKey: 'one', item: { item_id: 1, name: 'A', upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] } },
+      { fingerprint: 'b', sessionId: 2, shopKey: 'two', item: { item_id: 2, name: 'B', upgrade: 0, slots: 0, cards: [], price: 20, quantity: 1, options: [{ type: 2, value: 3, param: 0 }] } },
+    ];
+    const calls: string[] = [];
+    const repository = {
+      loadListingsByObservations: async (input: unknown[]) => { calls.push('load:' + input.length); return []; },
+      insertNewListingsBulk: async (input: unknown[]) => { calls.push('insert:' + input.length); },
+    } as any;
+    const sessions = new Map([[1, { id: 1, initialSyncComplete: false }], [2, { id: 2, initialSyncComplete: true }]]);
+    const result = await createListingStateService(repository).applyBatchObservationsBulk!({ id: 's1' } as any, sessions as any, observations as any, 'b', 2);
+    expect(result.processedListings).toBe(2);
+    expect(calls).toEqual(['load:2', 'insert:2']);
+  });
+
+  it('reloads and retries a bulk optimistic conflict once', async () => {
+    const existing = { ...listing, shopSessionId: 1, itemFingerprint: 'a', quantity: 5, stateVersion: 2 };
+    let attempts = 0;
+    const repository = {
+      loadListingsByObservations: async () => [existing],
+      insertNewListingsBulk: async () => {},
+      applyListingTransitionsBulk: async () => { attempts += 1; return attempts === 1 ? { updated: 0, conflicts: 1, soldEvents: 0, conflictIds: [1] } : { updated: 1, conflicts: 0, soldEvents: 1, conflictIds: [] }; },
+      loadListingById: async () => ({ ...existing, quantity: 4, stateVersion: 3 }),
+    } as any;
+    const sessions = new Map([[1, { id: 1, initialSyncComplete: true }]]);
+    const result = await createListingStateService(repository).applyBatchObservationsBulk!({ id: 's1' } as any, sessions as any, [{ fingerprint: 'a', sessionId: 1, shopKey: 'one', item: { item_id: 1, name: 'A', upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] } }] as any, 'b', 2);
+    expect(attempts).toBe(2);
+    expect(result.changedListings).toBe(1);
+  });
+
+  it('does not drop existing changes when bulk transition support is unavailable', async () => {
+    const existing = { ...listing, shopSessionId: 1, itemFingerprint: 'a', quantity: 5, stateVersion: 2 };
+    const transitions: unknown[] = [];
+    const repository = {
+      loadListingsByObservations: async () => [existing],
+      insertNewListingsBulk: async () => {},
+      applyListingTransitions: async (changes: unknown[]) => { transitions.push(changes); return { updated: 1, conflicts: 0, soldEvents: 0, conflictIds: [] }; },
+    } as any;
+    const sessions = new Map([[1, { id: 1, initialSyncComplete: true }]]);
+    const result = await createListingStateService(repository).applyBatchObservationsBulk!({ id: 's1' } as any, sessions as any, [{ fingerprint: 'a', sessionId: 1, shopKey: 'one', item: { item_id: 1, name: 'A', upgrade: 0, slots: 0, cards: [], price: 11, quantity: 5, options: [] } }] as any, 'b', 2);
+    expect(result.changedListings).toBe(1);
+    expect(transitions).toHaveLength(1);
+  });
 });
