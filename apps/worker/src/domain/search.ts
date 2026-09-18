@@ -55,8 +55,23 @@ export function parseSearchParams(url: URL): SearchFilters {
   const map = url.searchParams.get('map')?.trim(); if (map) filters.map = map.slice(0, 80);
   const shopType = url.searchParams.get('shop_type'); if (shopType && shopType !== 'buy' && shopType !== 'sell') throw new SearchValidationError('Invalid shop_type'); if (shopType === 'buy' || shopType === 'sell') filters.shop_type = shopType;
   const includeStale = url.searchParams.get('include_stale'); if (includeStale !== null) { if (includeStale !== 'true' && includeStale !== 'false') throw new SearchValidationError('Invalid include_stale'); filters.include_stale = includeStale === 'true'; }
+  const optionTokens = url.searchParams.getAll('option');
+  if (optionTokens.length > 0) {
+    const options = optionTokens.map((token) => {
+      const parts = token.split(':');
+      if (parts.length !== 3 || parts.some((part) => !/^-?\d+$/.test(part))) throw new SearchValidationError('Invalid option');
+      const values = parts.map(Number);
+      if (values.some((value) => !Number.isSafeInteger(value))) throw new SearchValidationError('Invalid option');
+      return { type: values[0]!, value: values[1]!, param: values[2]! };
+    });
+    const mode = url.searchParams.get('option_mode') ?? 'all';
+    if (mode !== 'all' && mode !== 'any') throw new SearchValidationError('Invalid option_mode');
+    filters.options = options;
+    filters.option_mode = mode;
+  }
   const cursor = url.searchParams.get('cursor'); if (cursor) { if (cursor.length > MAX_CURSOR_LENGTH || !/^[A-Za-z0-9_.-]+$/.test(cursor)) throw new SearchValidationError('Invalid cursor'); filters.cursor = cursor; }
   if (filters.price_min !== undefined && filters.price_max !== undefined && filters.price_min > filters.price_max) throw new SearchValidationError('Invalid price range');
+  if (cursor) decodeCursor(cursor, { sort, context: searchCursorContext(filters) });
   return filters;
 }
 
@@ -73,7 +88,8 @@ export function decodeCursor(value: string, expected?: CursorExpectation): { sor
 }
 
 export function searchCursorContext(filters: SearchFilters): string {
-  return JSON.stringify({ q: filters.q ?? null, item_id: filters.item_id ?? null, option_type: filters.option_type ?? null, option_value: filters.option_value ?? null, option_param: filters.option_param ?? null, price_min: filters.price_min ?? null, price_max: filters.price_max ?? null, map: filters.map ?? null, shop_type: filters.shop_type ?? null, include_stale: filters.include_stale ?? false, sort: filters.sort });
+  const options = [...(filters.options ?? [])].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param);
+  return JSON.stringify({ q: filters.q ?? null, item_id: filters.item_id ?? null, option_type: filters.option_type ?? null, option_value: filters.option_value ?? null, option_param: filters.option_param ?? null, options: options.length > 0 ? options : null, option_mode: filters.option_mode ?? 'all', price_min: filters.price_min ?? null, price_max: filters.price_max ?? null, map: filters.map ?? null, shop_type: filters.shop_type ?? null, include_stale: filters.include_stale ?? false, sort: filters.sort });
 }
 export function encodeHistoryCursor(id: number): string {
   if (!Number.isSafeInteger(id) || id <= 0) throw new SearchValidationError('Invalid cursor');

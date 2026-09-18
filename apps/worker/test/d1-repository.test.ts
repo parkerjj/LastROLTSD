@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createD1Repository } from '../src/db/d1-repository';
-import { encodeCursor } from '../src/domain/search';
+import { encodeCursor, searchCursorContext } from '../src/domain/search';
 
 class Prepared {
   public bound: unknown[] = [];
@@ -46,8 +46,9 @@ describe('D1 repository', () => {
   it('applies a decoded keyset cursor to SQL and returns structured options', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    const cursor = encodeCursor({ sort: 'price_asc', sortValue: 20, id: 7 });
-    const page = await repo.searchListings({ limit: 1, sort: 'price_asc', cursor, option_type: 1 } as never);
+    const filters = { limit: 1, sort: 'price_asc' as const, option_type: 1 };
+    const cursor = encodeCursor({ sort: filters.sort, sortValue: 20, id: 7, context: searchCursorContext(filters) });
+    const page = await repo.searchListings({ ...filters, cursor });
     const search = db.statements.find((statement) => statement.sql.includes('FROM listings'));
     expect(search?.sql).toContain('l.price > ?');
     expect(search?.sql).toContain('l.price = ?');
