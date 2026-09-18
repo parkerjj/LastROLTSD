@@ -7,6 +7,8 @@ import { registerSearchRoute } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
 import { registerHistoryRoute } from './routes/history';
 import { createListingStateService } from './services/state-transition';
+import { registerAdminRoutes } from './routes/admin';
+import { runRetention } from './services/retention';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -22,6 +24,7 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository);
     registerUploadRoute(app, env, repository, createListingStateService(repository));
+    registerAdminRoutes(app, env, repository);
   }
 
   (app as any).get('*', async (c: any) => {
@@ -41,6 +44,9 @@ const defaultApp = createApp({
 export default {
   fetch(request: Request, env: AppEnv): Response | Promise<Response> {
     return createApp(env).fetch(request);
+  },
+  async scheduled(_event: ScheduledEvent, env: AppEnv): Promise<void> {
+    if (env.DB) await runRetention(Date.now(), {}, createD1Repository(env.DB));
   },
 };
 

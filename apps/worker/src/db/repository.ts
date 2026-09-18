@@ -41,6 +41,10 @@ export interface MarketRepository {
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
   getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; nextCursor: string | null }>;
   getOptionDictionary(version?: string): Promise<OptionDictionaryRow[]>;
+  deleteExpiredHistory?(before: number, limit: number): Promise<number>;
+  deleteExpiredSoldEvents?(before: number, limit: number): Promise<number>;
+  countExpiredHistory?(before: number): Promise<number>;
+  countExpiredSoldEvents?(before: number): Promise<number>;
 }
 
 export interface UploadResultLike { accepted: boolean; batchId: string; duplicate: boolean; processedShops: number; processedListings: number; changedListings: number; soldEvents: number; next: string | null; }

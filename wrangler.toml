@@ -13,6 +13,9 @@ ENVIRONMENT = "local"
 BUILD_VERSION = "dev"
 MAX_BODY_BYTES = "524288"
 
+[triggers]
+crons = ["0 3 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "lastroweb-local"

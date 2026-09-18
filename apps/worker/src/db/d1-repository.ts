@@ -143,6 +143,10 @@ export function createD1Repository(db: D1Database): MarketRepository {
       const rows = await many<Row>(statement);
       return rows.map((row) => ({ version: String(row.version), optionType: Number(row.option_type), optionValue: Number(row.option_value), optionParam: Number(row.option_param), name: String(row.name), description: String(row.description), searchTokens: String(row.search_tokens) }));
     },
+    async deleteExpiredHistory(before, limit) { const result = await db.prepare('DELETE FROM listing_price_history WHERE id IN (SELECT id FROM listing_price_history WHERE observed_at < ?1 ORDER BY id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
+    async deleteExpiredSoldEvents(before, limit) { const result = await db.prepare('DELETE FROM sold_events WHERE id IN (SELECT id FROM sold_events WHERE observed_at < ?1 ORDER BY id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
+    async countExpiredHistory(before) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM listing_price_history WHERE observed_at < ?1').bind(before)); return Number(row?.count ?? 0); },
+    async countExpiredSoldEvents(before) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM sold_events WHERE observed_at < ?1').bind(before)); return Number(row?.count ?? 0); },
   };
 }
 

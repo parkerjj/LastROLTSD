@@ -7,6 +7,7 @@ export interface AppEnv {
   BUILD_VERSION: string;
   MAX_BODY_BYTES: number;
   UPLOAD_LIMITER?: Fetcher | undefined;
+  ADMIN_SECRET?: string | undefined;
 }
 
 export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
@@ -18,5 +19,6 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     BUILD_VERSION: String(bindings.BUILD_VERSION ?? 'dev'),
     MAX_BODY_BYTES: Number.isFinite(maxBody) && maxBody > 0 ? maxBody : 512 * 1024,
     UPLOAD_LIMITER: bindings.UPLOAD_LIMITER as Fetcher | undefined,
+    ADMIN_SECRET: bindings.ADMIN_SECRET as string | undefined,
   };
 }
