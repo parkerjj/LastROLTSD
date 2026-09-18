@@ -12,3 +12,4 @@ worktrees/
 .superpowers/
 *.local
 *.log
+*.tsbuildinfo

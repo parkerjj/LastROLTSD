@@ -28,7 +28,7 @@ describe('upload schema', () => {
   it('rejects missing snapshot, invalid part and unsafe values', () => {
     expect(() => parseUploadRequest({ ...valid, snapshot_id: '' })).toThrow(UploadValidationError);
     expect(() => parseUploadRequest({ ...valid, part_index: 2 })).toThrow(UploadValidationError);
-    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], items: [{ ...valid.shops[0].items[0], price: -1 }] }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0]!, items: [{ ...valid.shops[0]!.items[0]!, price: -1 }] }] })).toThrow(UploadValidationError);
     expect(() => parseUploadRequest({ ...valid, snapshot_mode: 'unknown' })).toThrow(UploadValidationError);
   });
 });
