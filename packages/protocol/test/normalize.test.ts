@@ -17,4 +17,34 @@ describe('normalization', () => {
     expect(normalizeOption({ type: '1', value: 2, param: '3' })).toEqual({ type: 1, value: 2, param: 3 });
     expect(() => normalizeOption({ type: 1.2, value: 2, param: 0 })).toThrow();
   });
+
+  it('deduplicates identical option tuples before fingerprinting and storage', () => {
+    const normalized = normalizeItem({ item_id: 42, name: 'Sword', price: 100, quantity: 1, options: [
+      { type: 2, value: 1, param: 0, display_value: 'z' },
+      { type: 1, value: 5, param: 0 },
+      { type: 2, value: 1, param: 0, display_value: 'a' },
+    ] });
+    expect(normalized.options).toEqual([
+      { type: 1, value: 5, param: 0 },
+      { type: 2, value: 1, param: 0, display_value: 'a' },
+    ]);
+  });
+
+  it('deduplicates identical option tuples after sorting', () => {
+    const normalized = normalizeItem({
+      item_id: 42,
+      name: 'Sword',
+      price: 10,
+      quantity: 1,
+      options: [
+        { type: 2, value: 4, param: 1 },
+        { type: 1, value: 8, param: 0 },
+        { type: 2, value: 4, param: 1 },
+      ],
+    });
+    expect(normalized.options).toEqual([
+      { type: 1, value: 8, param: 0 },
+      { type: 2, value: 4, param: 1 },
+    ]);
+  });
 });

@@ -1,6 +1,6 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { assertBatchBounds } from './repository';
-import { decodeCursor, encodeCursor } from '../domain/search';
+import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext } from '../domain/search';
 import type { BatchRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike } from './repository';
 
@@ -201,7 +201,7 @@ export function createD1Repository(db: D1Database): MarketRepository {
       if (filters.map) where.push(`s.map_name=${add(filters.map.normalize('NFKC').trim())}`);
       if (filters.shop_type) where.push(`s.shop_type=${add(filters.shop_type)}`);
       if (filters.option_type !== undefined) { where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(filters.option_type)}${filters.option_value === undefined ? '' : ` AND lo.option_value=${add(filters.option_value)}`}${filters.option_param === undefined ? '' : ` AND lo.option_param=${add(filters.option_param)}`})`); }
-      const cursor = filters.cursor ? decodeCursor(filters.cursor) : null;
+      const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: searchCursorContext(filters) }) : null;
       const sortColumn = filters.sort === 'updated_desc' ? 'l.last_seen_at' : 'l.price';
       if (cursor) {
         const value = add(cursor.sortValue);
@@ -227,18 +227,18 @@ export function createD1Repository(db: D1Database): MarketRepository {
       }
       const last = items.at(-1);
       const sortValue = last ? (filters.sort === 'updated_desc' ? last.lastSeenAt : last.price) : 0;
-      return { items, nextCursor: rows.length > limit && last ? encodeCursor({ sortValue, id: last.id }) : null };
+      return { items, nextCursor: rows.length > limit && last ? encodeCursor({ sort: filters.sort, sortValue, id: last.id, context: searchCursorContext(filters) }) : null };
     },
     async getListingHistory(listingId, limit, cursor) {
       const listing = await one<Row>(db.prepare('SELECT id FROM listings WHERE id=?1 LIMIT 1').bind(listingId));
       if (!listing) return null;
       const params: unknown[] = [listingId];
       let sql = 'SELECT * FROM listing_price_history WHERE listing_id=?1';
-      if (cursor) { params.push(Number(cursor)); sql += ` AND id<?${params.length}`; }
+      if (cursor) { params.push(decodeHistoryCursor(cursor)); sql += ` AND id<?${params.length}`; }
       params.push(Math.min(50, Math.max(1, limit)) + 1); sql += ` ORDER BY id DESC LIMIT ?${params.length}`;
       const rows = await many<Row>(db.prepare(sql).bind(...params));
       const items = rows.slice(0, Number(params.at(-1)) - 1).map((row) => ({ id: Number(row.id), listingId: Number(row.listing_id), observedAt: Number(row.observed_at), price: Number(row.price), quantity: Number(row.quantity), eventType: String(row.event_type), batchId: String(row.batch_id) }));
-      return { items, nextCursor: rows.length > items.length ? String(items.at(-1)?.id ?? '') : null };
+      return { items, nextCursor: rows.length > items.length && items.at(-1) ? encodeHistoryCursor(items.at(-1)!.id) : null };
     },
     async getOptionDictionary(version) {
       const statement = version ? db.prepare('SELECT * FROM option_dictionary WHERE version=?1 ORDER BY option_type,option_value,option_param').bind(version) : db.prepare('SELECT * FROM option_dictionary WHERE version=(SELECT MAX(version) FROM option_dictionary) ORDER BY option_type,option_value,option_param');
