@@ -95,7 +95,12 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
       if (plan.change.history) plans.push(plan);
     }
     if (newObservations.length > 0) {
-      if (repo.createListingsBatch && repo.insertHistoriesBatch && repo.insertListingOptionsBatch) {
+      if (repo.createListingsBundleBatch) {
+        for (let offset = 0; offset < newObservations.length; offset += CREATE_CHUNK_SIZE) {
+          const chunk = newObservations.slice(offset, offset + CREATE_CHUNK_SIZE);
+          await repo.createListingsBundleBatch(chunk.map((observation) => ({ ...newListingInput(observation, observedAt, batchId), options: observation.item.options as never })));
+        }
+      } else if (repo.createListingsBatch && repo.insertHistoriesBatch && repo.insertListingOptionsBatch) {
         for (let offset = 0; offset < newObservations.length; offset += CREATE_CHUNK_SIZE) {
           const chunk = newObservations.slice(offset, offset + CREATE_CHUNK_SIZE);
           const created = await repo.createListingsBatch(chunk.map((observation) => newListingInput(observation, observedAt, batchId)));

@@ -51,6 +51,7 @@ export interface MarketRepository {
   markListingsObserved?(sessionId: number, fingerprints: string[], batchId: string, observedAt: number): Promise<number>;
   createListing?(input: { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }): Promise<ListingRow>;
   createListingsBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }>): Promise<ListingRow[]>;
+  createListingsBundleBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string; options: ListingOption[] }>): Promise<ListingRow[]>;
   insertHistory?(input: { listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }): Promise<void>;
   insertHistoriesBatch?(inputs: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }>): Promise<void>;
   insertListingOptionsBatch?(inputs: Array<{ listingId: number; options: ListingOption[] }>): Promise<void>;

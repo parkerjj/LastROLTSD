@@ -111,6 +111,22 @@ export function createD1Repository(db: D1Database): MarketRepository {
         SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1) RETURNING *`).bind(payload));
       return rows.map(listingFromRow);
     },
+    async createListingsBundleBatch(inputs) {
+      if (inputs.length === 0) return [];
+      const payload = JSON.stringify(inputs.map((input) => ({ ...input, itemKey: input.itemKey ?? null, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], options: input.options.map((option) => ({ type: option.type, value: option.value, param: option.param, displayValue: option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null })) })));
+      const insert = db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
+        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1)`);
+      const history = db.prepare(`INSERT INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
+        SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),'first_seen',json_extract(item.value,'$.batchId')
+        FROM json_each(?1) item JOIN listings l ON l.shop_session_id=json_extract(item.value,'$.sessionId') AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId')`);
+      const options = db.prepare(`INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value)
+        SELECT l.id,CAST(option.key AS INTEGER),json_extract(option.value,'$.type'),json_extract(option.value,'$.value'),json_extract(option.value,'$.param'),json_extract(option.value,'$.displayValue')
+        FROM json_each(?1) item JOIN listings l ON l.shop_session_id=json_extract(item.value,'$.sessionId') AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId')
+        JOIN json_each(json_extract(item.value,'$.options')) option`);
+      await db.batch([insert.bind(payload), history.bind(payload), options.bind(payload)]);
+      const first = inputs[0]!;
+      return (await this.loadListingsByFingerprint(first.sessionId, inputs.map((input) => input.fingerprint))).filter((listing) => inputs.some((input) => input.fingerprint === listing.itemFingerprint));
+    },
     async insertListingOptions(input: { listingId: number; options: ListingOption[] }) {
       if (input.options.length === 0) return;
       const options = [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param);
