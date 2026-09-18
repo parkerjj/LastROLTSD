@@ -14,6 +14,7 @@ export interface UploadRequest {
 }
 export interface SearchFilters {
   q?: string; item_id?: number; option_type?: number; option_value?: number; option_param?: number;
+  options?: Array<{ type: number; value: number; param: number }>; option_mode?: 'all' | 'any';
   price_min?: number; price_max?: number; map?: string; shop_type?: 'buy' | 'sell';
   include_stale?: boolean; limit: number; cursor?: string; sort: 'price_asc' | 'price_desc' | 'updated_desc';
 }

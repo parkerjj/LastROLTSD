@@ -17,8 +17,13 @@ th, td { padding: 11px 12px; border-bottom: 1px solid #e8edf1; text-align: left;
 th { background: #eef2f5; font-size: .76rem; text-transform: uppercase; }
 td small { display: block; color: #687582; margin-top: 3px; }
 .pager { display: flex; justify-content: flex-end; padding: 12px 0; }
+.option-filters { margin: 14px 0; border: 1px solid #d8dee5; padding: 10px; }
+.option-mode { display: flex; gap: 12px; margin-bottom: 8px; }
+.option-mode label { display: inline-flex; align-items: center; gap: 4px; }
+.option-row { display: grid; grid-template-columns: repeat(3, minmax(100px, 1fr)) auto; gap: 8px; align-items: end; margin: 8px 0; }
+.option-row button, #add-option { background: #52606d; border-color: #52606d; }
 #history-drawer { position: fixed; inset: 0 0 0 auto; width: min(420px, 100%); background: white; box-shadow: -4px 0 18px #17212b33; z-index: 2; overflow: auto; }
 .drawer-inner { padding: 20px; }
 .drawer-inner > button { float: right; }
 .drawer-inner li { display: grid; gap: 3px; padding: 10px 0; border-bottom: 1px solid #e8edf1; }
-@media (max-width: 760px) { main { padding: 16px; } header { display: block; } .filters { grid-template-columns: 1fr 1fr; } .filters label:first-child, .filters button { grid-column: 1 / -1; } }
+@media (max-width: 760px) { main { padding: 16px; } header { display: block; } .filters { grid-template-columns: 1fr 1fr; } .filters label:first-child, .filters button { grid-column: 1 / -1; } .option-row { grid-template-columns: 1fr 1fr; } .option-row button { grid-column: 1 / -1; } }

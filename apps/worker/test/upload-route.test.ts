@@ -57,4 +57,27 @@ describe('upload route', () => {
     expect(limited.status).toBe(413);
     expect((await limited.json() as { error: { code: string } }).error.code).toBe('payload_too_large');
   });
+
+  it('does not expose unexpected internal error messages', async () => {
+    const key = 'route-secret';
+    const app = new Hono();
+    const repository = repo(await hashApiKey(key));
+    repository.getBatch = async () => { throw new Error('SQLITE_CONSTRAINT_PRIVATE_DETAIL'); };
+    registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify({ protocol_version: 1, client_run_id: 'run', snapshot_id: 'snap', snapshot_mode: 'heartbeat', part_index: 0, part_count: 1, observed_at: '2026-09-18T12:00:00Z', shops_seen: [], shops: [] }) });
+    expect(response.status).toBe(500);
+    const body = await response.json() as { error: { message: string } };
+    expect(body.error.message).toBe('Unexpected internal error');
+    expect(body.error.message).not.toContain('SQLITE');
+  });
+
+  it('maps an optional source limiter rejection to 429', async () => {
+    const key = 'route-secret';
+    const app = new Hono();
+    const repository = repo(await hashApiKey(key));
+    const limiter = { fetch: async () => new Response(null, { status: 429 }) };
+    registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024, UPLOAD_LIMITER: limiter as never }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: '{}' });
+    expect(response.status).toBe(429);
+  });
 });

@@ -12,6 +12,11 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
     const id = requestId(c.req.raw);
     try {
       const source = await requireSource(c.req.raw, repo);
+      if (env.UPLOAD_LIMITER) {
+        const limiterResponse = await env.UPLOAD_LIMITER.fetch(new Request('https://lastroweb.invalid/upload-limit', { method: 'POST', headers: { 'x-source-id': source.id } }));
+        if (limiterResponse.status === 429) return jsonError('rate_limited', 'Upload rate limit exceeded', 429, id);
+        if (!limiterResponse.ok) return jsonError('service_unavailable', 'Upload limiter unavailable', 503, id);
+      }
       const idempotencyKey = c.req.header('idempotency-key');
       if (!isValidIdempotencyKey(idempotencyKey)) return jsonError('bad_request', 'Idempotency-Key header is required', 400, id);
       const raw = await c.req.raw.text();
@@ -30,7 +35,8 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
       if (error instanceof IngestionError) return jsonError(error.status === 400 ? 'bad_request' : error.status === 409 ? 'conflict' : 'service_unavailable', error.message, error.status, id);
       const status = typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number' ? error.status : 500;
       const code = status === 409 ? 'conflict' : status === 413 ? 'payload_too_large' : status === 429 ? 'rate_limited' : status === 503 ? 'service_unavailable' : 'internal_error';
-      return jsonError(code, error instanceof Error ? error.message : 'Unexpected error', status, id);
+      console.error(JSON.stringify({ metric: 'lastroweb.upload_error', request_id: id, error_class: error instanceof Error ? error.name : 'UnknownError' }));
+      return jsonError(code, 'Unexpected internal error', status, id);
     }
   });
 }

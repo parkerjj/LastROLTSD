@@ -40,7 +40,10 @@ export function createD1Repository(db: D1Database): MarketRepository {
         await db.prepare('UPDATE shop_sessions SET last_seen_at=?1 WHERE id=?2').bind(input.observedAt, current.id).run();
         return { id: Number(current.id), shopId: Number(current.shop_id), clientRunId: String(current.client_run_id), startedAt: Number(current.started_at), lastSeenAt: input.observedAt, endedAt: null, initialSyncComplete: bool(current.initial_sync_complete), lastCompleteSnapshotId: current.last_complete_snapshot_id ? String(current.last_complete_snapshot_id) : null };
       }
-      if (current) await db.prepare('UPDATE shop_sessions SET ended_at=?1 WHERE id=?2').bind(input.observedAt, current.id).run();
+      if (current) {
+        await db.prepare('UPDATE shop_sessions SET ended_at=?1 WHERE id=?2').bind(input.observedAt, current.id).run();
+        await db.prepare("UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id=?2 AND status IN ('active','missing')").bind(input.observedAt, current.id).run();
+      }
       const row = await one<Row>(db.prepare('INSERT INTO shop_sessions(shop_id,client_run_id,started_at,last_seen_at) VALUES(?1,?2,?3,?3) RETURNING *').bind(input.shopId, input.clientRunId, input.observedAt));
       if (!row) throw new Error('session insert returned no row');
       return { id: Number(row.id), shopId: Number(row.shop_id), clientRunId: String(row.client_run_id), startedAt: Number(row.started_at), lastSeenAt: Number(row.last_seen_at), endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null };
@@ -67,6 +70,12 @@ export function createD1Repository(db: D1Database): MarketRepository {
     },
     async completeBatch(sourceId, batchId, response: UploadResultLike) {
       await db.prepare('UPDATE upload_batches SET status=\'accepted\',processed_shops=?1,processed_listings=?2,changed_listings=?3,sold_events=?4,response_json=?5 WHERE source_id=?6 AND batch_id=?7').bind(response.processedShops, response.processedListings, response.changedListings, response.soldEvents, JSON.stringify(response), sourceId, batchId).run();
+    },
+    async retryBatch(sourceId, batchId) {
+      await db.prepare("UPDATE upload_batches SET status='processing',response_json=NULL WHERE source_id=?1 AND batch_id=?2 AND status='rejected'").bind(sourceId, batchId).run();
+    },
+    async failBatch(sourceId, batchId) {
+      await db.prepare("UPDATE upload_batches SET status='rejected',response_json=NULL WHERE source_id=?1 AND batch_id=?2 AND status='processing'").bind(sourceId, batchId).run();
     },
     async loadListingsByFingerprint(sessionId, fingerprints) {
       if (fingerprints.length === 0) return [];
@@ -200,7 +209,10 @@ export function createD1Repository(db: D1Database): MarketRepository {
       if (filters.price_max !== undefined) where.push(`l.price<=${add(filters.price_max)}`);
       if (filters.map) where.push(`s.map_name=${add(filters.map.normalize('NFKC').trim())}`);
       if (filters.shop_type) where.push(`s.shop_type=${add(filters.shop_type)}`);
-      if (filters.option_type !== undefined) { where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(filters.option_type)}${filters.option_value === undefined ? '' : ` AND lo.option_value=${add(filters.option_value)}`}${filters.option_param === undefined ? '' : ` AND lo.option_param=${add(filters.option_param)}`})`); }
+      if (filters.options && filters.options.length > 0) {
+        const clauses = filters.options.map((option) => `EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(option.type)} AND lo.option_value=${add(option.value)} AND lo.option_param=${add(option.param)})`);
+        where.push(filters.option_mode === 'any' ? `(${clauses.join(' OR ')})` : clauses.join(' AND '));
+      } else if (filters.option_type !== undefined) { where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(filters.option_type)}${filters.option_value === undefined ? '' : ` AND lo.option_value=${add(filters.option_value)}`}${filters.option_param === undefined ? '' : ` AND lo.option_param=${add(filters.option_param)}`})`); }
       const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: searchCursorContext(filters) }) : null;
       const sortColumn = filters.sort === 'updated_desc' ? 'l.last_seen_at' : 'l.price';
       if (cursor) {

@@ -78,4 +78,16 @@ describe('upload ingestion', () => {
     await ingestUpload(source, heartbeatRequest, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
     expect(heartbeatCalls).toEqual([40, 40, 1]);
   });
+
+  it('marks a failed batch rejected so retries do not remain stuck processing', async () => {
+    const repo = fakeRepo();
+    let failed = false;
+    repo.failBatch = async () => { failed = true; };
+    const state = { applyBatchObservations: async () => { throw new Error('temporary write failure'); } };
+    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toThrow('temporary write failure');
+    expect(failed).toBe(true);
+    const failedBatch = await repo.getBatch('s1', 'snap/0');
+    repo.getBatch = async () => failedBatch ? { ...failedBatch, status: 'rejected' } : null;
+    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toMatchObject({ status: 503 });
+  });
 });

@@ -99,8 +99,9 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
         for (let offset = 0; offset < newObservations.length; offset += CREATE_CHUNK_SIZE) {
           const chunk = newObservations.slice(offset, offset + CREATE_CHUNK_SIZE);
           const created = await repo.createListingsBatch(chunk.map((observation) => newListingInput(observation, observedAt, batchId)));
+          const observationsByFingerprint = new Map(chunk.map((observation) => [observation.fingerprint, observation]));
           await repo.insertHistoriesBatch(created.map((listing) => ({ listingId: listing.id, observedAt, price: listing.price, quantity: listing.quantity, eventType: 'first_seen', batchId })));
-          await repo.insertListingOptionsBatch(created.map((listing, index) => ({ listingId: listing.id, options: chunk[index]!.item.options })));
+          await repo.insertListingOptionsBatch(created.map((listing) => ({ listingId: listing.id, options: observationsByFingerprint.get(listing.itemFingerprint)?.item.options ?? [] })));
         }
       } else {
         if (!repo.createListing) throw new Error('repository cannot create listings');

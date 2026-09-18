@@ -44,44 +44,52 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'Idempotency-Key must match the canonical snapshot part');
   const hash = await payloadHash(request);
   const duplicate = await repo.getBatch(source.id, batchId);
+  let batch: Awaited<ReturnType<MarketRepository['insertBatch']>>;
   if (duplicate) {
     if (duplicate.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
     if (duplicate.responseJson) return { ...(JSON.parse(duplicate.responseJson) as UploadResult), duplicate: true };
-    throw new IngestionError(409, 'Batch is already processing');
+    if (duplicate.status === 'rejected') throw new IngestionError(503, 'Previous processing attempt failed');
+    else throw new IngestionError(409, 'Batch is already processing');
   }
-  const batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
+  batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
   if (batch.inserted === false) {
     if (batch.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
     if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
+    if (batch.status === 'rejected') throw new IngestionError(503, 'Previous processing attempt failed');
     throw new IngestionError(409, 'Batch is already processing');
   }
-  const observations: NormalizedObservation[] = [];
-  const sessionByShop = new Map<string, ShopSessionRow>();
-  for (const shopInput of request.shops) {
+  try {
+    const observations: NormalizedObservation[] = [];
+    const sessionByShop = new Map<string, ShopSessionRow>();
+    for (const shopInput of request.shops) {
     const session = await getOrStartShopSession(source.id, shopInput.shop_key, request.client_run_id, Date.parse(request.observed_at), repo, { vendorKey: shopInput.vendor_key, vendorName: shopInput.vendor_name, title: shopInput.title, shopType: shopInput.shop_type, mapName: shopInput.map_name, x: shopInput.x, y: shopInput.y });
     sessionByShop.set(shopInput.shop_key, session);
     for (const rawItem of shopInput.items) {
       const item = normalizeItem(rawItem as unknown as Record<string, unknown>);
       observations.push({ fingerprint: await computeItemFingerprint({ sourceId: source.id, shopSessionId: session.id, ...(item.item_key === undefined ? {} : { itemKey: item.item_key }), itemId: item.item_id, upgrade: item.upgrade, slots: item.slots, cards: item.cards, options: item.options }), item, sessionId: session.id, shopKey: shopInput.shop_key });
     }
-  }
-  if (request.snapshot_mode === 'heartbeat') {
+    }
+    if (request.snapshot_mode === 'heartbeat') {
     for (let index = 0; index < request.shops_seen.length; index += 40) {
       await repo.markShopHeartbeats(source.id, request.shops_seen.slice(index, index + 40), Date.parse(request.observed_at));
     }
-  }
-  const result = request.snapshot_mode === 'heartbeat' ? { processedListings: 0, changedListings: 0, soldEvents: 0 } : await applyBySession(source, state, observations, sessionByShop, batch.batchId, Date.parse(request.observed_at));
-  if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
+    }
+    const result = request.snapshot_mode === 'heartbeat' ? { processedListings: 0, changedListings: 0, soldEvents: 0 } : await applyBySession(source, state, observations, sessionByShop, batch.batchId, Date.parse(request.observed_at));
+    if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
     const bySession = new Map<number, string[]>();
     for (const observation of observations) bySession.set(observation.sessionId, [...(bySession.get(observation.sessionId) ?? []), observation.fingerprint]);
     for (const [sessionId, fingerprints] of bySession) {
       for (let index = 0; index < fingerprints.length; index += 40) await repo.markListingsObserved(sessionId, fingerprints.slice(index, index + 40), batch.batchId, Date.parse(request.observed_at));
     }
+    }
+    const response: UploadResult = { accepted: true, batchId, duplicate: false, processedShops: request.shops.length, processedListings: result.processedListings, changedListings: result.changedListings, soldEvents: result.soldEvents, next: null };
+    await repo.completeBatch(source.id, batch.batchId, response);
+    if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, Date.parse(request.observed_at));
+    return response;
+  } catch (error) {
+    if (repo.failBatch) await repo.failBatch(source.id, batch.batchId);
+    throw error;
   }
-  const response: UploadResult = { accepted: true, batchId, duplicate: false, processedShops: request.shops.length, processedListings: result.processedListings, changedListings: result.changedListings, soldEvents: result.soldEvents, next: null };
-  await repo.completeBatch(source.id, batch.batchId, response);
-  if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, Date.parse(request.observed_at));
-  return response;
 }
 
 async function applyBySession(source: AuthenticatedSource, state: ListingStateService, observations: NormalizedObservation[], sessions: Map<string, ShopSessionRow>, batchId: string, observedAt: number): Promise<StateBatchResult> {

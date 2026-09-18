@@ -9,12 +9,22 @@ import { registerHistoryRoute } from './routes/history';
 import { createListingStateService } from './services/state-transition';
 import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
+import { recordMetric } from './observability';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
 
 export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
+
+  app.use('*', async (c, next) => {
+    const started = Date.now();
+    const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
+    c.header('x-request-id', requestId);
+    await next();
+    const declaredBytes = Number(c.req.header('content-length') ?? 0);
+    recordMetric({ requestId, route: c.req.path, status: c.res.status, elapsedMs: Date.now() - started, ...(Number.isFinite(declaredBytes) && declaredBytes > 0 ? { bodyBytes: declaredBytes } : {}) });
+  });
 
   app.get('/api/health', async (c) => c.json(await healthPayload(env)));
 

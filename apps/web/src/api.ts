@@ -3,7 +3,11 @@ import type { HistoryPage, ListingSearchResult, SearchFilters, SearchPage } from
 export class ApiError extends Error { constructor(public readonly status: number, message: string) { super(message); } }
 export class MarketApi {
   async search(filters: SearchFilters, signal?: AbortSignal): Promise<SearchPage<ListingSearchResult>> {
-    const params = new URLSearchParams(); for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value));
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (key === 'options' && Array.isArray(value)) { for (const option of value) params.append('option', `${option.type}:${option.value}:${option.param}`); continue; }
+      if (value !== undefined && value !== '') params.set(key, String(value));
+    }
     return this.request(`/api/v1/market/search?${params.toString()}`, signal);
   }
   async getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage> { const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''; return this.request(`/api/v1/market/listings/${listingId}/history${params}`, signal); }

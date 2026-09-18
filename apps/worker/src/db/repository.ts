@@ -41,6 +41,8 @@ export interface MarketRepository {
   getBatch(sourceId: string, batchId: string): Promise<BatchRow | null>;
   getSnapshotParts(sourceId: string, snapshotId: string): Promise<BatchRow[]>;
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow & { inserted?: boolean }>;
+  retryBatch?(sourceId: string, batchId: string): Promise<void>;
+  failBatch?(sourceId: string, batchId: string): Promise<void>;
   completeBatch(sourceId: string, batchId: string, response: UploadResultLike): Promise<void>;
   loadListingsByFingerprint(sessionId: number, fingerprints: string[]): Promise<ListingRow[]>;
   loadListingById?(listingId: number, sessionId?: number): Promise<ListingRow | null>;
