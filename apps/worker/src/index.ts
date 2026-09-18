@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { AppEnv } from './env';
+import { healthPayload } from './routes/health';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -7,13 +8,7 @@ export type WorkerVariables = { requestId: string };
 export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
 
-  app.get('/api/health', (c) =>
-    c.json({
-      ok: true,
-      version: env.BUILD_VERSION,
-      db: env.DB ? 'configured' : 'unconfigured',
-    }),
-  );
+  app.get('/api/health', async (c) => c.json(await healthPayload(env)));
 
   app.get('*', (c) => c.notFound());
 
