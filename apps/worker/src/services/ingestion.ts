@@ -44,14 +44,13 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'Idempotency-Key must match the canonical snapshot part');
   const hash = await payloadHash(request);
   const duplicate = await repo.getBatch(source.id, batchId);
-  let batch: Awaited<ReturnType<MarketRepository['insertBatch']>>;
   if (duplicate) {
     if (duplicate.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
     if (duplicate.responseJson) return { ...(JSON.parse(duplicate.responseJson) as UploadResult), duplicate: true };
     if (duplicate.status === 'rejected') throw new IngestionError(503, 'Previous processing attempt failed');
     else throw new IngestionError(409, 'Batch is already processing');
   }
-  batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
+  const batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
   if (batch.inserted === false) {
     if (batch.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
     if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };

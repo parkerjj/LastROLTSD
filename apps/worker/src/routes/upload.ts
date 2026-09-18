@@ -13,7 +13,7 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
     try {
       const source = await requireSource(c.req.raw, repo);
       if (env.UPLOAD_LIMITER) {
-        const limiterResponse = await env.UPLOAD_LIMITER.fetch(new Request('https://lastroweb.invalid/upload-limit', { method: 'POST', headers: { 'x-source-id': source.id } }));
+        const limiterResponse = await env.UPLOAD_LIMITER.fetch('https://lastroweb.invalid/upload-limit', { method: 'POST', headers: { 'x-source-id': source.id } });
         if (limiterResponse.status === 429) return jsonError('rate_limited', 'Upload rate limit exceeded', 429, id);
         if (!limiterResponse.ok) return jsonError('service_unavailable', 'Upload limiter unavailable', 503, id);
       }
