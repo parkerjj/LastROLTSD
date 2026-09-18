@@ -279,6 +279,9 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const scopeSql = `SELECT CAST(json_extract(value,'$.id') AS INTEGER) AS id FROM json_each(?2) WHERE json_extract(value,'$.observedAt')=?1`;
       const baselineRow = await one<Row>(db.prepare(`SELECT COUNT(*) AS count FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id WHERE s.source_id=?3 AND ss.id IN (${scopeSql}) AND ss.started_at <= ?1 AND ss.ended_at IS NULL AND ss.initial_sync_complete=0`).bind(input.observedAt, scopePayload, input.sourceId));
       const baseline = Number(baselineRow?.count ?? 0) > 0;
+      if (baseline) {
+        return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: true, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
+      }
       const scopedSessions = `(SELECT id FROM shop_sessions WHERE id IN (${scopeSql}) AND started_at <= ?1 AND last_seen_at=?1)`;
       const staleSql = `UPDATE listings SET missing_streak=missing_streak+1,status=CASE WHEN missing_streak+1>=2 THEN 'missing' ELSE status END,last_changed_at=?1 WHERE shop_session_id IN ${scopedSessions} AND shop_session_id IN (SELECT id FROM shop_sessions WHERE initial_sync_complete=1) AND status IN ('active','missing') AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`;
       const staleResult = await db.prepare(staleSql).bind(input.observedAt, scopePayload, batchPayload).run();

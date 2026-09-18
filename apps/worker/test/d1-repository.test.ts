@@ -142,4 +142,23 @@ describe('D1 repository', () => {
     const losing = createD1Repository({ prepare: () => ({ bind: (..._values: unknown[]) => ({ run: async () => ({ meta: { changes: 0 } }) }) }) } as never);
     expect(await losing.retryBatch!('s1', 'b')).toBe(false);
   });
+
+  it('does not reconcile any participant while the snapshot is still a baseline', async () => {
+    const statements: string[] = [];
+    const db = {
+      prepare(sql: string) {
+        statements.push(sql);
+        return {
+          bind: (..._values: unknown[]) => ({
+            first: async <T>() => sql.includes('initial_sync_complete=0') ? ({ count: 1 } as T) : null,
+            run: async () => ({ meta: { changes: 1 } }),
+          }),
+        } as never;
+      },
+    };
+    const repo = createD1Repository(db as never);
+    const result = await repo.reconcileSnapshot!({ sourceId: 's1', snapshotId: 'snap', observedAt: 10, batchIds: ['snap/0'], sessionIds: [7] });
+    expect(result.baseline).toBe(true);
+    expect(statements.some((sql) => sql.startsWith('UPDATE listings SET missing_streak'))).toBe(false);
+  });
 });
