@@ -9,5 +9,6 @@ test-results/
 coverage/
 .worktrees/
 worktrees/
+.superpowers/
 *.local
 *.log
