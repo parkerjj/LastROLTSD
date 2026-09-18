@@ -11,10 +11,11 @@
 ## Known non-blocking limitations
 
 1. Concurrent first insertion of the same (session, fingerprint) can be won by another request after the initial lookup. INSERT OR IGNORE is idempotent, but the losing request does not perform a second reload or transition. A future integration test can harden this.
-2. Bulk JSON1 paths use one JSON payload parameter and bounded statement counts. Monitor payload and SQL text size as limits evolve.
-3. History and sold-event retention defaults to 90 days; evaluate D1 free quotas before production scale-up. Current listings are not deleted.
-4. Wrangler/D1 migration smoke checks were reliable; programmatic Miniflare probing was not. Re-run a staging D1 smoke upload before production deployment.
-5. Preserve the hardening changes on branch codex/lastroweb-implementation; do not use destructive reset or checkout commands.
+2. History cursors are signed and listing queries remain path-scoped, but the cursor payload currently does not encode the listing ID. Reusing a valid cursor on another listing can skip older rows; bind cursors to listing IDs if strict cross-listing cursor isolation is required.
+3. Bulk JSON1 paths use one JSON payload parameter and bounded statement counts. Monitor payload and SQL text size as limits evolve.
+4. History and sold-event retention defaults to 90 days; evaluate D1 free quotas before production scale-up. Current listings are not deleted.
+5. Wrangler/D1 migration smoke checks were reliable; programmatic Miniflare probing was not. Re-run a staging D1 smoke upload before production deployment.
+6. Preserve the hardening changes on branch codex/lastroweb-implementation; do not use destructive reset or checkout commands.
 
 ## Safety reminders for future agents
 
