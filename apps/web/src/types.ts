@@ -1,0 +1,4 @@
+export interface SearchFilters { q?: string; item_id?: number; option_type?: number; option_value?: number; option_param?: number; price_min?: number; price_max?: number; map?: string; shop_type?: 'buy' | 'sell'; limit?: number; cursor?: string; sort?: string; }
+export interface ListingSearchResult { id: number; itemId: number; itemName: string; price: number; quantity: number; mapName: string; vendorName: string; title: string; options: Array<{ optionType: number; optionValue: number; optionParam: number; name?: string }>; lastSeenAt: number; }
+export interface SearchPage<T> { items: T[]; nextCursor: string | null; }
+export interface HistoryPage { items: Array<{ id: number; observedAt: number; price: number; quantity: number; eventType: string }>; nextCursor: string | null; }

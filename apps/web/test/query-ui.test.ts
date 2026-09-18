@@ -1,0 +1,7 @@
+import { describe, expect, it } from 'vitest';
+import { JSDOM } from 'jsdom';
+import { renderSearchResults } from '../src/render';
+
+describe('query UI rendering', () => {
+  it('renders empty and result states with history controls', () => { const dom = new JSDOM('<div id="results"></div>'); const element = dom.window.document.querySelector('#results') as HTMLElement; renderSearchResults(element, { items: [], nextCursor: null }, { filters: { limit: 20 }, loading: false, error: null, empty: true, cursor: null }); expect(element.textContent).toContain('No listings'); renderSearchResults(element, { items: [{ id: 1, itemId: 2, itemName: 'Sword', price: 10, quantity: 1, mapName: 'map', vendorName: 'vendor', title: 'shop', options: [], lastSeenAt: 1 }], nextCursor: 'next' }, { filters: { limit: 20 }, loading: false, error: null, empty: false, cursor: 'next' }); expect(element.querySelector('.history-button')).toBeTruthy(); expect(element.querySelector('#next-page')).not.toBeNull(); });
+});
