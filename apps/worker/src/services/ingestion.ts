@@ -5,6 +5,7 @@ import type { MarketRepository, UploadResultLike } from '../db/repository';
 import type { ShopSessionRow } from '../db/types';
 import type { AuthenticatedSource } from '../middleware/auth';
 import { getOrStartShopSession } from './session-manager';
+import { createSnapshotReconciler } from './snapshot-reconciler';
 
 export interface NormalizedObservation { fingerprint: string; item: UploadItem; sessionId: number; shopKey: string; }
 export interface StateBatchResult { processedListings: number; changedListings: number; soldEvents: number; }
@@ -40,8 +41,16 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   }
   if (request.snapshot_mode === 'heartbeat') await repo.markShopHeartbeats(source.id, request.shops_seen, Date.parse(request.observed_at));
   const result = request.snapshot_mode === 'heartbeat' ? { processedListings: 0, changedListings: 0, soldEvents: 0 } : await applyBySession(source, state, observations, sessionByShop, batch.batchId, Date.parse(request.observed_at));
+  if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
+    const bySession = new Map<number, string[]>();
+    for (const observation of observations) bySession.set(observation.sessionId, [...(bySession.get(observation.sessionId) ?? []), observation.fingerprint]);
+    for (const [sessionId, fingerprints] of bySession) {
+      for (let index = 0; index < fingerprints.length; index += 40) await repo.markListingsObserved(sessionId, fingerprints.slice(index, index + 40), batch.batchId, Date.parse(request.observed_at));
+    }
+  }
   const response: UploadResult = { accepted: true, batchId, duplicate: false, processedShops: request.shops.length, processedListings: result.processedListings, changedListings: result.changedListings, soldEvents: result.soldEvents, next: null };
   await repo.completeBatch(source.id, batch.batchId, response);
+  if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, Date.parse(request.observed_at));
   return response;
 }
 

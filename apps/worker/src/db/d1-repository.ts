@@ -2,7 +2,7 @@ import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/work
 import type { SearchFilters } from '@lastroweb/protocol';
 import { assertBatchBounds } from './repository';
 import type { BatchRow, HistoryRow, ListingChange, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
-import type { MarketRepository, UploadResultLike } from './repository';
+import type { MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike } from './repository';
 
 type Row = Record<string, unknown>;
 const one = async <T extends Row>(statement: D1PreparedStatement): Promise<T | null> => ((await statement.first<T>()) ?? null);
@@ -67,6 +67,13 @@ export function createD1Repository(db: D1Database): MarketRepository {
       const rows = await many<Row>(db.prepare(`SELECT * FROM listings WHERE shop_session_id=?1 AND item_fingerprint IN (${placeholders})`).bind(sessionId, ...fingerprints));
       return rows.map(listingFromRow);
     },
+    async markListingsObserved(sessionId, fingerprints, batchId, observedAt) {
+      if (fingerprints.length === 0) return 0;
+      if (fingerprints.length > 40) throw new Error('listing observation exceeds bounded batch size');
+      const placeholders = fingerprints.map((_, index) => `?${index + 4}`).join(',');
+      const result = await db.prepare(`UPDATE listings SET last_seen_at=?1,last_batch_id=?2,missing_streak=0,status=CASE WHEN quantity=0 THEN 'sold_out' ELSE 'active' END WHERE shop_session_id=?3 AND item_fingerprint IN (${placeholders})`).bind(observedAt, batchId, sessionId, ...fingerprints).run();
+      return Number(result.meta?.changes ?? 0);
+    },
     async createListing(input) {
       const row = await one<Row>(db.prepare(`INSERT INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,'active',?15,?15,?15,?16) RETURNING *`).bind(input.sessionId, input.fingerprint, input.itemKey ?? null, input.itemId, input.itemName, input.itemNameNormalized, input.upgrade, input.slots, input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0, input.price, input.quantity, input.observedAt, input.batchId));
       if (!row) throw new Error('listing insert returned no row');
@@ -90,6 +97,20 @@ export function createD1Repository(db: D1Database): MarketRepository {
     async finalizeSnapshot(sourceId, snapshotId, observedAt) {
       await db.prepare('UPDATE market_sources SET last_full_snapshot_at=?1 WHERE id=?2').bind(observedAt, sourceId).run();
       await db.prepare('UPDATE shop_sessions SET last_complete_snapshot_id=?1,initial_sync_complete=1 WHERE shop_id IN (SELECT id FROM shops WHERE source_id=?2) AND ended_at IS NULL').bind(snapshotId, sourceId).run();
+    },
+    async reconcileSnapshot(input: SnapshotReconciliationInput): Promise<ReconciliationResult> {
+      if (input.batchIds.length === 0) return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: false, baseline: false, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
+      const placeholders = input.batchIds.map((_, index) => `?${index + 2}`).join(',');
+      const params = [...input.batchIds, input.sourceId];
+      const baselineRow = await one<Row>(db.prepare(`SELECT COUNT(*) AS count FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id WHERE s.source_id=?1 AND ss.ended_at IS NULL AND ss.initial_sync_complete=0`).bind(input.sourceId));
+      const baseline = Number(baselineRow?.count ?? 0) > 0;
+      const staleSql = `UPDATE listings SET missing_streak=missing_streak+1,status=CASE WHEN missing_streak+1>=2 THEN 'missing' ELSE status END,last_changed_at=?1 WHERE shop_session_id IN (SELECT ss.id FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id WHERE s.source_id=?${input.batchIds.length + 2} AND ss.ended_at IS NULL AND ss.initial_sync_complete=1) AND status IN ('active','missing') AND (last_batch_id IS NULL OR last_batch_id NOT IN (${placeholders}))`;
+      const markedRow = await one<Row>(db.prepare(`SELECT COUNT(*) AS count FROM listings WHERE shop_session_id IN (SELECT ss.id FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id WHERE s.source_id=?1 AND ss.ended_at IS NULL AND ss.initial_sync_complete=1) AND status IN ('active','missing') AND missing_streak=1 AND (last_batch_id IS NULL OR last_batch_id NOT IN (${placeholders}))`).bind(input.sourceId, ...input.batchIds));
+      const staleResult = await db.prepare(staleSql).bind(input.observedAt, ...params).run();
+      const expiredResult = await db.prepare(`UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id IN (SELECT ss.id FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id WHERE s.source_id=?2 AND ss.ended_at IS NOT NULL) AND status IN ('active','missing')`).bind(input.observedAt, input.sourceId).run();
+      const shopsRow = await one<Row>(db.prepare('SELECT COUNT(DISTINCT s.id) AS count FROM shops s JOIN shop_sessions ss ON ss.shop_id=s.id WHERE s.source_id=?1 AND ss.ended_at IS NULL').bind(input.sourceId));
+      const candidates = Number(staleResult.meta?.changes ?? 0);
+      return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline, shops: Number(shopsRow?.count ?? 0), candidates, markedMissing: Number(markedRow?.count ?? 0), inferredSold: 0, expired: Number(expiredResult.meta?.changes ?? 0) };
     },
     async searchListings(filters) {
       const params: unknown[] = [];
