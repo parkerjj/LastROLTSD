@@ -31,7 +31,8 @@ export function createSnapshotReconciler(repo: MarketRepository) {
       const parts = await repo.getSnapshotParts(sourceId, snapshotId);
       const input = completeInput(sourceId, snapshotId, observedAt, parts);
       if (!input) return emptyResult(sourceId, snapshotId);
-      const result = await reconcile(input);
+      const sessionIds = repo.getSnapshotSessionIds ? await repo.getSnapshotSessionIds(sourceId, snapshotId) : [];
+      const result = await reconcile({ ...input, ...(sessionIds.length > 0 ? { sessionIds } : {}) });
       await repo.finalizeSnapshot(sourceId, snapshotId, observedAt);
       return result;
     },
@@ -39,7 +40,8 @@ export function createSnapshotReconciler(repo: MarketRepository) {
       const parts = await repo.getSnapshotParts(sourceId, snapshotId);
       const input = completeInput(sourceId, snapshotId, observedAt, parts);
       if (!input) return emptyResult(sourceId, snapshotId);
-      return reconcile(input);
+      const sessionIds = repo.getSnapshotSessionIds ? await repo.getSnapshotSessionIds(sourceId, snapshotId) : [];
+      return reconcile({ ...input, ...(sessionIds.length > 0 ? { sessionIds } : {}) });
     },
   };
 }

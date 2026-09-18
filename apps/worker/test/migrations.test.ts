@@ -11,6 +11,10 @@ describe('D1 migrations', () => {
     }
     expect(initial).toContain('UNIQUE(source_id, batch_id)');
     expect(initial).toContain('UNIQUE(source_id, snapshot_id, part_index)');
+    expect(initial).not.toContain('CREATE TABLE IF NOT EXISTS snapshot_sessions');
+    const followup = readFileSync(resolve(process.cwd(), 'migrations/0004_history_idempotency.sql'), 'utf8');
+    expect(followup).toContain('CREATE TABLE IF NOT EXISTS snapshot_sessions');
+    expect(followup).toContain('idx_history_batch_event');
     expect(initial).toContain('UNIQUE(source_id, shop_key)');
     expect(initial).toContain('UNIQUE(shop_session_id, item_fingerprint)');
     expect(initial).toContain('transition_key TEXT NOT NULL UNIQUE');

@@ -20,6 +20,8 @@ class FakeDb {
         ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0, display_value: 'Attack' }
       : sql.includes('FROM listings') && sql.includes('JOIN shop_sessions')
         ? { id: 2, shop_session_id: 1, item_fingerprint: 'fp', item_key: null, item_id: 9, item_name: 'Sword', item_name_normalized: 'sword', upgrade: 0, slots: 0, card0: 0, card1: 0, card2: 0, card3: 0, price: 20, quantity: 1, last_quantity: 1, status: 'active', state_version: 1, missing_streak: 0, last_seen_at: 200, shop_key: 'shop', title: 'Shop', vendor_name: 'Vendor', map_name: 'map', shop_type: 'sell' }
+      : sql.includes('ORDER BY CAST(input.key AS INTEGER)')
+        ? { id: 3, shop_id: 1, client_run_id: 'run', started_at: 1, last_seen_at: 2, ended_at: null, initial_sync_complete: 0, last_complete_snapshot_id: null, input_source_id: 's1', input_shop_key: 'second' }
         : null;
     const statement = new Prepared(sql, row);
     this.statements.push(statement);
@@ -91,5 +93,53 @@ describe('D1 repository', () => {
     const batch = await createD1Repository(db as never).insertBatch({ sourceId: 's1', batchId: 'snap/0', snapshotId: 'snap', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'hash', responseJson: null, receivedAt: 1 });
     expect(batch.id).toBe(4);
     expect((batch as any).inserted).toBe(false);
+  });
+
+  it('uses one JSON1 lookup result per distinct requested shop in request order', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    const inputs = [
+      { sourceId: 's1', shopKey: 'second', clientRunId: 'run', observedAt: 2, vendorKey: 'v', vendorName: 'V', title: 'Second', shopType: 'sell' as const, mapName: 'm', x: 1, y: 1 },
+      { sourceId: 's1', shopKey: 'second', clientRunId: 'run', observedAt: 2, vendorKey: 'v', vendorName: 'V', title: 'Second', shopType: 'sell' as const, mapName: 'm', x: 1, y: 1 },
+    ];
+    await repo.getOrCreateSessions!(inputs);
+    const lookup = [...db.statements].reverse().find((statement: Prepared) => statement.sql.includes('ORDER BY CAST(input.key AS INTEGER)'));
+    const sql = lookup?.sql ?? '';
+    expect(sql).toContain('ORDER BY CAST(input.key AS INTEGER)');
+    const payload = JSON.parse(String(lookup!.bound[0]));
+    expect(payload.map((input: { shopKey: string }) => input.shopKey)).toEqual(['second']);
+  });
+
+  it('includes JS NFKC-normalized vendor and title fields in the bulk JSON payload', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    await repo.getOrCreateSessions!([{ sourceId: 's1', shopKey: 'second', clientRunId: 'run', observedAt: 2, vendorKey: 'v', vendorName: '\uFF26endor', title: '\uFF33hop', shopType: 'sell', mapName: 'm', x: 1, y: 1 }]);
+    const vendorSql = db.statements.find((statement) => statement.sql.includes('INSERT INTO vendors'))!;
+    expect(vendorSql.sql).toContain("$.vendorNameNormalized");
+    expect(JSON.parse(String(vendorSql.bound[0]))[0].vendorNameNormalized).toBe('fendor');
+    const shopSql = db.statements.find((statement) => statement.sql.includes('INSERT INTO shops'))!;
+    expect(shopSql.sql).toContain("$.titleNormalized");
+    expect(JSON.parse(String(shopSql.bound[0]))[0].titleNormalized).toBe('shop');
+  });
+
+  it('uses JSON1 arrays for reconciliation scope instead of one SQL bind per session', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    await repo.reconcileSnapshot!({ sourceId: 's1', snapshotId: 'snap', observedAt: 2, batchIds: ['b'], sessionIds: Array.from({ length: 80 }, (_, index) => index + 1) });
+    const reconciliationSql = db.statements.find((statement) => statement.sql.includes('initial_sync_complete'))!;
+    expect(reconciliationSql.sql).toContain('json_each');
+    expect(reconciliationSql.bound.length).toBeLessThanOrEqual(3);
+    expect(reconciliationSql.sql).toContain('started_at <=');
+    expect(reconciliationSql.sql).toContain('ended_at IS NULL');
+    const expiredSql = db.statements.find((statement) => statement.sql.includes("status='expired'"))!;
+    expect(expiredSql.sql).toContain('ended_at <=');
+  });
+
+  it('returns the affected-row result of the conditional retry claim', async () => {
+    const statement = { bind: (..._values: unknown[]) => ({ run: async () => ({ meta: { changes: 1 } }) }) };
+    const repo = createD1Repository({ prepare: () => statement } as never);
+    expect(await repo.retryBatch!('s1', 'b')).toBe(true);
+    const losing = createD1Repository({ prepare: () => ({ bind: (..._values: unknown[]) => ({ run: async () => ({ meta: { changes: 0 } }) }) }) } as never);
+    expect(await losing.retryBatch!('s1', 'b')).toBe(false);
   });
 });

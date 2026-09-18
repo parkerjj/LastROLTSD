@@ -4,7 +4,7 @@ import { computeItemFingerprint } from '../domain/fingerprint';
 import type { MarketRepository, UploadResultLike } from '../db/repository';
 import type { ShopSessionRow } from '../db/types';
 import type { AuthenticatedSource } from '../middleware/auth';
-import { getOrStartShopSession } from './session-manager';
+import { getOrStartShopSessions } from './session-manager';
 import { createSnapshotReconciler } from './snapshot-reconciler';
 
 export interface NormalizedObservation { fingerprint: string; item: UploadItem; sessionId: number; shopKey: string; }
@@ -44,31 +44,51 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'Idempotency-Key must match the canonical snapshot part');
   const hash = await payloadHash(request);
   const duplicate = await repo.getBatch(source.id, batchId);
+  let batch: Awaited<ReturnType<MarketRepository['insertBatch']>> | undefined;
+  let retryingRejected = false;
   if (duplicate) {
     if (duplicate.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
     if (duplicate.responseJson) return { ...(JSON.parse(duplicate.responseJson) as UploadResult), duplicate: true };
-    if (duplicate.status === 'rejected') throw new IngestionError(503, 'Previous processing attempt failed');
+    if (duplicate.status === 'rejected' && repo.retryBatch) { if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(409, 'Batch retry was claimed by another request'); batch = { ...duplicate, status: 'processing' }; retryingRejected = true; }
     else throw new IngestionError(409, 'Batch is already processing');
   }
-  const batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
-  if (batch.inserted === false) {
-    if (batch.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
-    if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
-    if (batch.status === 'rejected') throw new IngestionError(503, 'Previous processing attempt failed');
-    throw new IngestionError(409, 'Batch is already processing');
+  if (!retryingRejected) {
+    batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
+    if (!batch) throw new IngestionError(503, 'Batch claim failed');
+    if (batch.inserted === false) {
+      if (batch.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
+      if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
+      if (batch.status === 'rejected' && repo.retryBatch) { if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(409, 'Batch retry was claimed by another request'); batch = { ...batch, status: 'processing' }; }
+      else throw new IngestionError(409, 'Batch is already processing');
+    }
   }
+  if (!batch) throw new IngestionError(503, 'Batch claim failed');
   try {
     const observations: NormalizedObservation[] = [];
     const sessionByShop = new Map<string, ShopSessionRow>();
+    const sessions = await getOrStartShopSessions(request.shops.map((shopInput) => ({ sourceId: source.id, shopKey: shopInput.shop_key, clientRunId: request.client_run_id, observedAt: Date.parse(request.observed_at), vendorKey: shopInput.vendor_key, vendorName: shopInput.vendor_name, title: shopInput.title, shopType: shopInput.shop_type, mapName: shopInput.map_name, x: shopInput.x, y: shopInput.y })), repo);
+    if (request.snapshot_mode !== 'full' && sessions.some((session) => !session.initialSyncComplete)) throw new IngestionError(409, 'The first upload for a shop session must be a full snapshot');
+    for (const [index, shopKey] of [...new Set(request.shops.map((shop) => shop.shop_key))].entries()) {
+      const session = sessions[index];
+      if (session) sessionByShop.set(shopKey, session);
+    }
     for (const shopInput of request.shops) {
-    const session = await getOrStartShopSession(source.id, shopInput.shop_key, request.client_run_id, Date.parse(request.observed_at), repo, { vendorKey: shopInput.vendor_key, vendorName: shopInput.vendor_name, title: shopInput.title, shopType: shopInput.shop_type, mapName: shopInput.map_name, x: shopInput.x, y: shopInput.y });
+    const session = sessionByShop.get(shopInput.shop_key);
+    if (!session) throw new IngestionError(503, 'Session disappeared during upload');
     sessionByShop.set(shopInput.shop_key, session);
     for (const rawItem of shopInput.items) {
       const item = normalizeItem(rawItem as unknown as Record<string, unknown>);
       observations.push({ fingerprint: await computeItemFingerprint({ sourceId: source.id, shopSessionId: session.id, ...(item.item_key === undefined ? {} : { itemKey: item.item_key }), itemId: item.item_id, upgrade: item.upgrade, slots: item.slots, cards: item.cards, options: item.options }), item, sessionId: session.id, shopKey: shopInput.shop_key });
     }
     }
+    if (request.snapshot_mode === 'full' && repo.recordSnapshotSessions) {
+      await repo.recordSnapshotSessions(source.id, request.snapshot_id, [...new Set(sessions.map((session) => session.id))], Date.parse(request.observed_at));
+    }
     if (request.snapshot_mode === 'heartbeat') {
+    if (repo.getUninitializedShopKeys) {
+      const uninitialized = await repo.getUninitializedShopKeys(source.id, request.shops_seen);
+      if (uninitialized.length > 0) throw new IngestionError(409, 'The first upload for a shop session must be a full snapshot');
+    }
     for (let index = 0; index < request.shops_seen.length; index += 40) {
       await repo.markShopHeartbeats(source.id, request.shops_seen.slice(index, index + 40), Date.parse(request.observed_at));
     }

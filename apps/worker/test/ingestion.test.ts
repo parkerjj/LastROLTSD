@@ -88,6 +88,35 @@ describe('upload ingestion', () => {
     expect(failed).toBe(true);
     const failedBatch = await repo.getBatch('s1', 'snap/0');
     repo.getBatch = async () => failedBatch ? { ...failedBatch, status: 'rejected' } : null;
-    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toMatchObject({ status: 503 });
+    let retried = false;
+    repo.retryBatch = async () => { retried = true; return true; };
+    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toThrow('temporary write failure');
+    expect(retried).toBe(true);
+  });
+
+  it('does not process a rejected batch when another retry wins the atomic claim', async () => {
+    const repo = fakeRepo();
+    repo.getBatch = async () => ({ id: 1, sourceId: 's1', batchId: 'snap/0', snapshotId: 'snap', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'unused', status: 'rejected', responseJson: null } as any);
+    repo.retryBatch = async () => false as any;
+    const state = { applyBatchObservations: async () => ({ processedListings: 1, changedListings: 1, soldEvents: 0 }) };
+    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('requires a full snapshot before accepting a delta for a new session', async () => {
+    const repo = fakeRepo();
+    const delta = { ...request, snapshot_mode: 'delta' as const };
+    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('maps repeated shop keys to the one deduplicated bulk session', async () => {
+    const repo = fakeRepo();
+    const session = { id: 9, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null };
+    repo.getOrCreateSessions = async () => [session];
+    const duplicateShops = { ...request, shops: [request.shops[0], { ...request.shops[0], items: [{ ...request.shops[0].items[0], item_id: 2 }] }] } as any;
+    const seen: number[] = [];
+    const state = { applyBatchObservations: async (_source: any, active: any, observations: any[]) => { seen.push(active.id); return { processedListings: observations.length, changedListings: 0, soldEvents: 0 }; } };
+    const result = await ingestUpload(source, duplicateShops, 'snap/0', repo, state);
+    expect(result.processedListings).toBe(2);
+    expect(seen).toEqual([9]);
   });
 });

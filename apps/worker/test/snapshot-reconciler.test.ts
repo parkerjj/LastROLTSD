@@ -68,4 +68,23 @@ describe('snapshot reconciliation', () => {
 
     expect(result.complete).toBe(false);
   });
+
+  it('passes the exact completed snapshot participant sessions to reconciliation', async () => {
+    const calls: any[] = [];
+    const repository = repo([batch(0, 1)]);
+    (repository as any).getSnapshotSessionIds = async () => [11, 12];
+    (repository as any).reconcileSnapshot = async (input: unknown) => { calls.push(input); return { complete: true, candidates: 0 }; };
+    const result = await createSnapshotReconciler(repository).finalizeSnapshot('s1', 'snap', 1000);
+    expect(result.complete).toBe(true);
+    expect(calls[0]).toMatchObject({ sessionIds: [11, 12] });
+  });
+
+  it('passes snapshot sessions to direct missing-list reconciliation', async () => {
+    const calls: any[] = [];
+    const repository = repo([batch(0, 1)]);
+    (repository as any).getSnapshotSessionIds = async () => [42];
+    (repository as any).reconcileSnapshot = async (input: unknown) => { calls.push(input); return { complete: true, candidates: 0 }; };
+    await createSnapshotReconciler(repository).reconcileMissingListings('s1', 'snap', 1000);
+    expect(calls[0]).toMatchObject({ sessionIds: [42] });
+  });
 });

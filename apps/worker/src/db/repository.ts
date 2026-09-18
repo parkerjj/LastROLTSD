@@ -31,6 +31,21 @@ export interface SnapshotReconciliationInput {
   snapshotId: string;
   observedAt: number;
   batchIds: string[];
+  sessionIds?: number[];
+}
+
+export interface ShopSessionContextInput {
+  sourceId: string;
+  shopKey: string;
+  clientRunId: string;
+  observedAt: number;
+  vendorKey: string;
+  vendorName: string;
+  title: string;
+  shopType: 'buy' | 'sell';
+  mapName: string;
+  x: number;
+  y: number;
 }
 
 export interface MarketRepository {
@@ -38,10 +53,11 @@ export interface MarketRepository {
   getOrCreateVendor(sourceId: string, input: VendorInput): Promise<VendorRow>;
   getOrCreateShop(sourceId: string, input: ShopInput): Promise<ShopRow>;
   getOrCreateSession(input: SessionInput): Promise<ShopSessionRow>;
+  getOrCreateSessions?(inputs: ShopSessionContextInput[]): Promise<ShopSessionRow[]>;
   getBatch(sourceId: string, batchId: string): Promise<BatchRow | null>;
   getSnapshotParts(sourceId: string, snapshotId: string): Promise<BatchRow[]>;
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow & { inserted?: boolean }>;
-  retryBatch?(sourceId: string, batchId: string): Promise<void>;
+  retryBatch?(sourceId: string, batchId: string): Promise<boolean>;
   failBatch?(sourceId: string, batchId: string): Promise<void>;
   completeBatch(sourceId: string, batchId: string, response: UploadResultLike): Promise<void>;
   loadListingsByFingerprint(sessionId: number, fingerprints: string[]): Promise<ListingRow[]>;
@@ -58,7 +74,10 @@ export interface MarketRepository {
   insertSoldEvent?(input: { listingId: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; observedAt: number; transitionKey: string }): Promise<boolean>;
   applyListingChanges(changes: ListingChange[]): Promise<{ updated: number; conflicts: number }>;
   markShopHeartbeats(sourceId: string, shopKeys: string[], observedAt: number): Promise<number>;
+  getUninitializedShopKeys?(sourceId: string, shopKeys: string[]): Promise<string[]>;
   finalizeSnapshot(sourceId: string, snapshotId: string, observedAt: number): Promise<void>;
+  recordSnapshotSessions?(sourceId: string, snapshotId: string, sessionIds: number[], observedAt: number): Promise<void>;
+  getSnapshotSessionIds?(sourceId: string, snapshotId: string): Promise<number[]>;
   reconcileSnapshot?(input: SnapshotReconciliationInput): Promise<ReconciliationResult>;
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
   getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; nextCursor: string | null } | null>;
