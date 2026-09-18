@@ -6,6 +6,16 @@ import type { ListingStateService, NormalizedObservation, StateBatchResult } fro
 import type { ListingTransitionChange, MarketRepository } from '../db/repository';
 import { buildSoldEvent } from './sold-events';
 import type { ShopSessionRow } from '../db/types';
+import { IngestionError } from './ingestion';
+
+const LOOKUP_CHUNK_SIZE = 40;
+const CREATE_CHUNK_SIZE = 20;
+
+type NewListingInput = { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string };
+
+function newListingInput(observation: NormalizedObservation, observedAt: number, batchId: string): NewListingInput {
+  return { sessionId: observation.sessionId, fingerprint: observation.fingerprint, ...(observation.item.item_key === undefined ? {} : { itemKey: observation.item.item_key }), itemId: observation.item.item_id, itemName: observation.item.name, itemNameNormalized: observation.item.name.normalize('NFKC').toLowerCase(), upgrade: observation.item.upgrade, slots: observation.item.slots, cards: observation.item.cards, price: observation.item.price, quantity: observation.item.quantity, observedAt, batchId };
+}
 
 export interface ListingObservation { listing: ListingRow; item: UploadItem; observedAt: number; batchId: string; baselineComplete: boolean; }
 export interface ObservationResult { updated: boolean; conflict: boolean; historyWritten: boolean; soldEvent: Awaited<ReturnType<typeof buildSoldEvent>>; listing: ListingRow; }
@@ -68,31 +78,50 @@ export async function applyListingObservation(input: ListingObservation, repo: M
 export function createListingStateService(repo: MarketRepository): ListingStateService {
   return { async applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult> {
     let changedListings = 0; let soldEvents = 0;
-    const existing = await repo.loadListingsByFingerprint(session.id, observations.map((observation) => observation.fingerprint));
+    const existing: ListingRow[] = [];
+    for (let offset = 0; offset < observations.length; offset += LOOKUP_CHUNK_SIZE) {
+      existing.push(...await repo.loadListingsByFingerprint(session.id, observations.slice(offset, offset + LOOKUP_CHUNK_SIZE).map((observation) => observation.fingerprint)));
+    }
     const byFingerprint = new Map(existing.map((listing) => [listing.itemFingerprint, listing]));
     const plans: TransitionPlan[] = [];
+    const newObservations: NormalizedObservation[] = [];
     for (const observation of observations) {
       const current = byFingerprint.get(observation.fingerprint);
       if (!current) {
-        if (!repo.createListing) throw new Error('repository cannot create listings');
-        const created = await repo.createListing({ sessionId: session.id, fingerprint: observation.fingerprint, ...(observation.item.item_key === undefined ? {} : { itemKey: observation.item.item_key }), itemId: observation.item.item_id, itemName: observation.item.name, itemNameNormalized: observation.item.name.normalize('NFKC').toLowerCase(), upgrade: observation.item.upgrade, slots: observation.item.slots, cards: observation.item.cards, price: observation.item.price, quantity: observation.item.quantity, observedAt, batchId });
-        if (repo.insertHistory) await repo.insertHistory({ listingId: created.id, observedAt, price: created.price, quantity: created.quantity, eventType: 'first_seen', batchId });
-        if (repo.insertListingOptions) await repo.insertListingOptions({ listingId: created.id, options: observation.item.options });
+        newObservations.push(observation);
         continue;
       }
       const plan = await makePlan(current, observation.item, observedAt, batchId, session.initialSyncComplete);
       if (plan.change.history) plans.push(plan);
     }
+    if (newObservations.length > 0) {
+      if (repo.createListingsBatch && repo.insertHistoriesBatch && repo.insertListingOptionsBatch) {
+        for (let offset = 0; offset < newObservations.length; offset += CREATE_CHUNK_SIZE) {
+          const chunk = newObservations.slice(offset, offset + CREATE_CHUNK_SIZE);
+          const created = await repo.createListingsBatch(chunk.map((observation) => newListingInput(observation, observedAt, batchId)));
+          await repo.insertHistoriesBatch(created.map((listing) => ({ listingId: listing.id, observedAt, price: listing.price, quantity: listing.quantity, eventType: 'first_seen', batchId })));
+          await repo.insertListingOptionsBatch(created.map((listing, index) => ({ listingId: listing.id, options: chunk[index]!.item.options })));
+        }
+      } else {
+        if (!repo.createListing) throw new Error('repository cannot create listings');
+        for (const observation of newObservations) {
+          const created = await repo.createListing(newListingInput(observation, observedAt, batchId));
+          if (repo.insertHistory) await repo.insertHistory({ listingId: created.id, observedAt, price: created.price, quantity: created.quantity, eventType: 'first_seen', batchId });
+          if (repo.insertListingOptions) await repo.insertListingOptions({ listingId: created.id, options: observation.item.options });
+        }
+      }
+    }
     if (plans.length > 0 && repo.applyListingTransitions) {
       const result = await repo.applyListingTransitions(plans.map((plan) => plan.change));
       changedListings += result.updated;
       soldEvents += result.soldEvents;
-      const conflictIds = new Set(result.conflictIds ?? []);
+      const conflictIds = new Set(result.conflictIds ?? plans.slice(0, result.conflicts).map((plan) => plan.listing.id));
       for (const plan of plans.filter((candidate) => conflictIds.has(candidate.listing.id))) {
         const refreshed = repo.loadListingById ? await repo.loadListingById(plan.listing.id, plan.listing.shopSessionId) : null;
-        if (!refreshed) continue;
+        if (!refreshed) throw new IngestionError(409, 'Listing state changed during upload');
         const retry = await makePlan(refreshed, plan.item, observedAt, batchId, session.initialSyncComplete);
         const retryResult = await repo.applyListingTransitions([retry.change]);
+        if (retryResult.conflicts) throw new IngestionError(409, 'Listing state changed during upload');
         changedListings += retryResult.updated;
         soldEvents += retryResult.soldEvents;
       }

@@ -23,8 +23,18 @@ export function isValidIdempotencyKey(value: string | undefined): value is strin
   return value !== undefined && value.length > 0 && value.length <= MAX_IDEMPOTENCY_KEY_LENGTH && value.trim() === value && /^[\x21-\x7e]+$/.test(value);
 }
 
+function normalizeUploadRequest(request: UploadRequest): UploadRequest {
+  return {
+    ...request,
+    shops: request.shops.map((shop) => ({
+      ...shop,
+      items: shop.items.map((item) => normalizeItem(item as unknown as Record<string, unknown>)),
+    })),
+  };
+}
+
 async function payloadHash(request: UploadRequest): Promise<string> {
-  const canonical = JSON.stringify(request);
+  const canonical = JSON.stringify(normalizeUploadRequest(request));
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -40,6 +50,11 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     throw new IngestionError(409, 'Batch is already processing');
   }
   const batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
+  if (batch.inserted === false) {
+    if (batch.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
+    if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
+    throw new IngestionError(409, 'Batch is already processing');
+  }
   const observations: NormalizedObservation[] = [];
   const sessionByShop = new Map<string, ShopSessionRow>();
   for (const shopInput of request.shops) {
@@ -50,7 +65,11 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       observations.push({ fingerprint: await computeItemFingerprint({ sourceId: source.id, shopSessionId: session.id, ...(item.item_key === undefined ? {} : { itemKey: item.item_key }), itemId: item.item_id, upgrade: item.upgrade, slots: item.slots, cards: item.cards, options: item.options }), item, sessionId: session.id, shopKey: shopInput.shop_key });
     }
   }
-  if (request.snapshot_mode === 'heartbeat') await repo.markShopHeartbeats(source.id, request.shops_seen, Date.parse(request.observed_at));
+  if (request.snapshot_mode === 'heartbeat') {
+    for (let index = 0; index < request.shops_seen.length; index += 40) {
+      await repo.markShopHeartbeats(source.id, request.shops_seen.slice(index, index + 40), Date.parse(request.observed_at));
+    }
+  }
   const result = request.snapshot_mode === 'heartbeat' ? { processedListings: 0, changedListings: 0, soldEvents: 0 } : await applyBySession(source, state, observations, sessionByShop, batch.batchId, Date.parse(request.observed_at));
   if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
     const bySession = new Map<number, string[]>();

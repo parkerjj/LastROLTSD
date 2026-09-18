@@ -46,7 +46,7 @@ describe('D1 repository', () => {
   it('applies a decoded keyset cursor to SQL and returns structured options', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    const cursor = encodeCursor({ sortValue: 20, id: 7 });
+    const cursor = encodeCursor({ sort: 'price_asc', sortValue: 20, id: 7 });
     const page = await repo.searchListings({ limit: 1, sort: 'price_asc', cursor, option_type: 1 } as never);
     const search = db.statements.find((statement) => statement.sql.includes('FROM listings'));
     expect(search?.sql).toContain('l.price > ?');
@@ -56,11 +56,39 @@ describe('D1 repository', () => {
     expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, displayValue: 'Attack' }]);
   });
 
+  it('rejects a cursor created for a different sort', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+    const cursor = encodeCursor({ sort: 'price_asc', sortValue: 20, id: 7 });
+    await expect(repo.searchListings({ limit: 1, sort: 'price_desc', cursor } as never)).rejects.toThrow(/cursor/i);
+  });
+
   it('maps structured option tuples in search rows', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
     const result = await repo.searchListings({ limit: 10, option_type: 2 } as never);
     expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, displayValue: 'Attack' }]);
     expect(db.statements.some((statement) => statement.sql.includes('listing_options'))).toBe(true);
+  });
+
+  it('reloads an existing batch after a concurrent unique insert conflict', async () => {
+    const existing = { id: 4, source_id: 's1', batch_id: 'snap/0', snapshot_id: 'snap', part_index: 0, part_count: 1, snapshot_mode: 'full', payload_hash: 'hash', status: 'processing', response_json: null };
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind: (..._values: unknown[]) => ({
+            first: async <T>() => {
+              if (sql.startsWith('INSERT INTO upload_batches')) throw new Error('UNIQUE constraint failed: upload_batches.source_id, upload_batches.batch_id');
+              return existing as T;
+            },
+            run: async () => ({ meta: { changes: 0 } }),
+          }),
+        } as never;
+      },
+      batch: async () => [],
+    };
+    const batch = await createD1Repository(db as never).insertBatch({ sourceId: 's1', batchId: 'snap/0', snapshotId: 'snap', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'hash', responseJson: null, receivedAt: 1 });
+    expect(batch.id).toBe(4);
+    expect((batch as any).inserted).toBe(false);
   });
 });

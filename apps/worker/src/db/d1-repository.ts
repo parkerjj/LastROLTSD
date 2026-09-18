@@ -5,6 +5,7 @@ import type { BatchRow, ListingRow, ListingOption, ListingSearchRow, SessionInpu
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike } from './repository';
 
 type Row = Record<string, unknown>;
+const BULK_BATCH_SIZE = 12;
 const one = async <T extends Row>(statement: D1PreparedStatement): Promise<T | null> => ((await statement.first<T>()) ?? null);
 const many = async <T extends Row>(statement: D1PreparedStatement): Promise<T[]> => (await statement.all<T>()).results ?? [];
 const bool = (value: unknown): boolean => Number(value) === 1;
@@ -53,9 +54,16 @@ export function createD1Repository(db: D1Database): MarketRepository {
       return rows.map(batchFromRow);
     },
     async insertBatch(input) {
-      const row = await one<Row>(db.prepare(`INSERT INTO upload_batches(source_id,batch_id,snapshot_id,part_index,part_count,snapshot_mode,payload_hash,status,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) RETURNING *`).bind(input.sourceId, input.batchId, input.snapshotId, input.partIndex, input.partCount, input.snapshotMode, input.payloadHash, input.status ?? 'processing', input.receivedAt));
-      if (!row) throw new Error('batch insert returned no row');
-      return batchFromRow(row);
+      try {
+        const row = await one<Row>(db.prepare(`INSERT INTO upload_batches(source_id,batch_id,snapshot_id,part_index,part_count,snapshot_mode,payload_hash,status,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) RETURNING *`).bind(input.sourceId, input.batchId, input.snapshotId, input.partIndex, input.partCount, input.snapshotMode, input.payloadHash, input.status ?? 'processing', input.receivedAt));
+        if (!row) throw new Error('batch insert returned no row');
+        return { ...batchFromRow(row), inserted: true };
+      } catch (error) {
+        if (!(error instanceof Error) || !/unique|constraint/i.test(error.message)) throw error;
+        const existing = await one<Row>(db.prepare('SELECT * FROM upload_batches WHERE source_id=?1 AND batch_id=?2 LIMIT 1').bind(input.sourceId, input.batchId));
+        if (!existing) throw error;
+        return { ...batchFromRow(existing), inserted: false };
+      }
     },
     async completeBatch(sourceId, batchId, response: UploadResultLike) {
       await db.prepare('UPDATE upload_batches SET status=\'accepted\',processed_shops=?1,processed_listings=?2,changed_listings=?3,sold_events=?4,response_json=?5 WHERE source_id=?6 AND batch_id=?7').bind(response.processedShops, response.processedListings, response.changedListings, response.soldEvents, JSON.stringify(response), sourceId, batchId).run();
@@ -86,13 +94,38 @@ export function createD1Repository(db: D1Database): MarketRepository {
       if (!row) throw new Error('listing insert returned no row');
       return listingFromRow(row);
     },
+    async createListingsBatch(inputs) {
+      if (inputs.length === 0) return [];
+      assertBatchBounds(1, 1);
+      const payload = JSON.stringify(inputs.map((input) => ({ ...input, itemKey: input.itemKey ?? null, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0] })));
+      const rows = await many<Row>(db.prepare(`INSERT INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
+        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1) RETURNING *`).bind(payload));
+      return rows.map(listingFromRow);
+    },
     async insertListingOptions(input: { listingId: number; options: ListingOption[] }) {
       if (input.options.length === 0) return;
       const options = [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param);
       assertBatchBounds(options.length, options.length * 5);
-      await db.batch(options.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, index, option.type, option.value, option.param, option.displayValue ?? null)));
+      await db.batch(options.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, index, option.type, option.value, option.param, option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null)));
     },
     async insertHistory(input) { await db.prepare('INSERT INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId).run(); },
+    async insertHistoriesBatch(inputs) {
+      if (inputs.length === 0) return;
+      for (let offset = 0; offset < inputs.length; offset += BULK_BATCH_SIZE) {
+        const chunk = inputs.slice(offset, offset + BULK_BATCH_SIZE);
+        assertBatchBounds(chunk.length, chunk.length * 6);
+        await db.batch(chunk.map((input) => db.prepare('INSERT INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId)));
+      }
+    },
+    async insertListingOptionsBatch(inputs) {
+      const rows = inputs.flatMap((input) => [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param).map((option, index) => ({ listingId: input.listingId, optionIndex: index, type: option.type, value: option.value, param: option.param, displayValue: option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null })));
+      if (rows.length === 0) return;
+      for (let offset = 0; offset < rows.length; offset += BULK_BATCH_SIZE) {
+        const chunk = rows.slice(offset, offset + BULK_BATCH_SIZE);
+        assertBatchBounds(chunk.length, chunk.length * 6);
+        await db.batch(chunk.map((row) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(row.listingId, row.optionIndex, row.type, row.value, row.param, row.displayValue)));
+      }
+    },
     async insertSoldEvent(input) { const result = await db.prepare('INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(input.listingId, input.soldQuantity, input.fromQuantity, input.toQuantity, input.reason, input.observedAt, input.transitionKey).run(); return Number(result.meta?.changes ?? 0) > 0; },
     async applyListingChanges(changes) {
       assertBatchBounds(changes.length, changes.length * 7);
@@ -129,10 +162,15 @@ export function createD1Repository(db: D1Database): MarketRepository {
     },
     async markShopHeartbeats(sourceId, shopKeys, observedAt) {
       if (shopKeys.length === 0) return 0;
-      assertBatchBounds(shopKeys.length, shopKeys.length * 3);
-      const statements = shopKeys.map((key) => db.prepare('UPDATE shops SET last_seen_at=?1,updated_at=?1,status=CASE WHEN status=\'closed\' THEN status ELSE \'active\' END WHERE source_id=?2 AND shop_key=?3').bind(observedAt, sourceId, key));
-      const results = await db.batch(statements);
-      return results.reduce((sum, result) => sum + Number(result.meta?.changes ?? 0), 0);
+      let updated = 0;
+      for (let offset = 0; offset < shopKeys.length; offset += 40) {
+        const chunk = shopKeys.slice(offset, offset + 40);
+        assertBatchBounds(chunk.length, chunk.length * 3);
+        const statements = chunk.map((key) => db.prepare('UPDATE shops SET last_seen_at=?1,updated_at=?1,status=CASE WHEN status=\'closed\' THEN status ELSE \'active\' END WHERE source_id=?2 AND shop_key=?3').bind(observedAt, sourceId, key));
+        const results = await db.batch(statements);
+        updated += results.reduce((sum, result) => sum + Number(result.meta?.changes ?? 0), 0);
+      }
+      return updated;
     },
     async finalizeSnapshot(sourceId, snapshotId, observedAt) {
       await db.prepare('UPDATE market_sources SET last_full_snapshot_at=?1 WHERE id=?2').bind(observedAt, sourceId).run();

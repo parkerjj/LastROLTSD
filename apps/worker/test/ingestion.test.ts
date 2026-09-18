@@ -36,4 +36,46 @@ describe('upload ingestion', () => {
   it('rejects an idempotency key that does not match the canonical snapshot part', async () => {
     await expect(ingestUpload(source, request, 'other/0', fakeRepo(), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 400 });
   });
+
+  it('treats equivalent option ordering as the same normalized payload', async () => {
+    const repo = fakeRepo();
+    const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: 0, soldEvents: 0 }) };
+    const firstRequest = {
+      ...request,
+      shops: [{ ...request.shops[0], items: [{ ...request.shops[0].items[0], options: [{ type: 2, value: 4, param: 1 }, { type: 1, value: 8, param: 0 }] }] }],
+    } as any;
+    const reorderedRequest = {
+      ...firstRequest,
+      shops: [{ ...firstRequest.shops[0], items: [{ ...firstRequest.shops[0].items[0], options: [{ type: 1, value: 8, param: 0 }, { type: 2, value: 4, param: 1 }] }] }],
+    } as any;
+    await ingestUpload(source, firstRequest, 'snap/0', repo, state);
+    const duplicate = await ingestUpload(source, reorderedRequest, 'snap/0', repo, state);
+    expect(duplicate.duplicate).toBe(true);
+  });
+
+  it('does not process a batch returned from a concurrent insert race', async () => {
+    const repo = fakeRepo();
+    let inserts = 0;
+    repo.getBatch = async () => null;
+    const originalInsert = repo.insertBatch;
+    repo.insertBatch = async (input: any) => {
+      inserts += 1;
+      if (inserts === 1) return originalInsert(input);
+      return { id: 1, ...input, status: 'accepted', responseJson: JSON.stringify({ accepted: true, batchId: 'snap/0', duplicate: false, processedShops: 1, processedListings: 1, changedListings: 0, soldEvents: 0, next: null }), inserted: false } as any;
+    };
+    const state = { applyBatchObservations: async () => ({ processedListings: 99, changedListings: 99, soldEvents: 99 }) };
+    await ingestUpload(source, request, 'snap/0', repo, state);
+    const duplicate = await ingestUpload(source, request, 'snap/0', repo, state);
+    expect(duplicate.duplicate).toBe(true);
+    expect(duplicate.processedListings).toBe(1);
+  });
+
+  it('chunks heartbeat shop updates into bounded calls', async () => {
+    const repo = fakeRepo();
+    const heartbeatCalls: number[] = [];
+    repo.markShopHeartbeats = async (_source, shops) => { heartbeatCalls.push(shops.length); return shops.length; };
+    const heartbeatRequest = { ...request, snapshot_mode: 'heartbeat', shops_seen: Array.from({ length: 81 }, (_, index) => `shop-${index}`), shops: [] } as any;
+    await ingestUpload(source, heartbeatRequest, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    expect(heartbeatCalls).toEqual([40, 40, 1]);
+  });
 });

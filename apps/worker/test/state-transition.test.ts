@@ -51,4 +51,36 @@ describe('listing state transition', () => {
     expect(optionCalls).toHaveLength(1);
     expect(optionCalls[0]).toMatchObject({ listingId: 7, options: [{ type: 2, value: 4, param: 1 }] });
   });
+
+  it('chunks fingerprint lookups and uses bounded bulk listing writes', async () => {
+    const lookupSizes: number[] = [];
+    const bulkCalls: unknown[] = [];
+    const observations = Array.from({ length: 41 }, (_, index) => ({
+      fingerprint: `fp-${index}`, sessionId: 1, shopKey: 'shop',
+      item: { item_id: index + 1, name: `Item ${index}`, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] },
+    }));
+    const repository = {
+      loadListingsByFingerprint: async (_sessionId: number, fingerprints: string[]) => { lookupSizes.push(fingerprints.length); return []; },
+      createListingsBatch: async (inputs: unknown[]) => { bulkCalls.push(inputs); return inputs.map((_, index) => ({ ...listing, id: index + 1 })); },
+      insertHistoriesBatch: async () => {},
+      insertListingOptionsBatch: async () => {},
+    } as any;
+    await createListingStateService(repository).applyBatchObservations({ id: 's1' } as any, { id: 1, initialSyncComplete: false } as any, observations, 'b', 2);
+    expect(lookupSizes).toEqual([40, 1]);
+    expect((bulkCalls as unknown[][]).map((call) => call.length)).toEqual([20, 20, 1]);
+  });
+
+  it('surfaces a 409-compatible error when the optimistic retry also conflicts', async () => {
+    const repository = {
+      loadListingsByFingerprint: async () => [listing],
+      loadListingById: async () => ({ ...listing, stateVersion: 3, quantity: 4 }),
+      applyListingTransitions: async () => ({ updated: 0, conflicts: 1, soldEvents: 0, conflictIds: [1] }),
+    } as any;
+    await expect(createListingStateService(repository).applyBatchObservations(
+      { id: 's1' } as any,
+      { id: 1, initialSyncComplete: true } as any,
+      [{ fingerprint: 'fp', sessionId: 1, shopKey: 'shop', item: { item_id: 1, name: 'Item', upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] } }],
+      'b', 2,
+    )).rejects.toMatchObject({ status: 409 });
+  });
 });

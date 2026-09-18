@@ -40,7 +40,7 @@ export interface MarketRepository {
   getOrCreateSession(input: SessionInput): Promise<ShopSessionRow>;
   getBatch(sourceId: string, batchId: string): Promise<BatchRow | null>;
   getSnapshotParts(sourceId: string, snapshotId: string): Promise<BatchRow[]>;
-  insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow>;
+  insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow & { inserted?: boolean }>;
   completeBatch(sourceId: string, batchId: string, response: UploadResultLike): Promise<void>;
   loadListingsByFingerprint(sessionId: number, fingerprints: string[]): Promise<ListingRow[]>;
   loadListingById?(listingId: number, sessionId?: number): Promise<ListingRow | null>;
@@ -48,7 +48,10 @@ export interface MarketRepository {
   insertListingOptions?(input: { listingId: number; options: ListingOption[] }): Promise<void>;
   markListingsObserved?(sessionId: number, fingerprints: string[], batchId: string, observedAt: number): Promise<number>;
   createListing?(input: { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }): Promise<ListingRow>;
+  createListingsBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }>): Promise<ListingRow[]>;
   insertHistory?(input: { listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }): Promise<void>;
+  insertHistoriesBatch?(inputs: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }>): Promise<void>;
+  insertListingOptionsBatch?(inputs: Array<{ listingId: number; options: ListingOption[] }>): Promise<void>;
   insertSoldEvent?(input: { listingId: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; observedAt: number; transitionKey: string }): Promise<boolean>;
   applyListingChanges(changes: ListingChange[]): Promise<{ updated: number; conflicts: number }>;
   markShopHeartbeats(sourceId: string, shopKeys: string[], observedAt: number): Promise<number>;
