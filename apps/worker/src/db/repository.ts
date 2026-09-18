@@ -9,6 +9,7 @@ export interface MarketRepository {
   getBatch(sourceId: string, batchId: string): Promise<BatchRow | null>;
   getSnapshotParts(sourceId: string, snapshotId: string): Promise<BatchRow[]>;
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow>;
+  completeBatch(sourceId: string, batchId: string, response: UploadResultLike): Promise<void>;
   loadListingsByFingerprint(sessionId: number, fingerprints: string[]): Promise<ListingRow[]>;
   applyListingChanges(changes: ListingChange[]): Promise<{ updated: number; conflicts: number }>;
   markShopHeartbeats(sourceId: string, shopKeys: string[], observedAt: number): Promise<number>;
@@ -17,6 +18,8 @@ export interface MarketRepository {
   getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; nextCursor: string | null }>;
   getOptionDictionary(version?: string): Promise<OptionDictionaryRow[]>;
 }
+
+export interface UploadResultLike { accepted: boolean; batchId: string; duplicate: boolean; processedShops: number; processedListings: number; changedListings: number; soldEvents: number; next: string | null; }
 
 export function assertBatchBounds(statementCount: number, boundValues: number): void {
   if (statementCount > 45) throw new Error('D1 batch statement limit exceeded');

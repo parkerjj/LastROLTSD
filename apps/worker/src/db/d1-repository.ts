@@ -2,7 +2,7 @@ import type { D1Database, D1PreparedStatement, D1Result } from '@cloudflare/work
 import type { SearchFilters } from '@lastroweb/protocol';
 import { assertBatchBounds } from './repository';
 import type { BatchRow, HistoryRow, ListingChange, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
-import type { MarketRepository } from './repository';
+import type { MarketRepository, UploadResultLike } from './repository';
 
 type Row = Record<string, unknown>;
 const one = async <T extends Row>(statement: D1PreparedStatement): Promise<T | null> => ((await statement.first<T>()) ?? null);
@@ -56,6 +56,9 @@ export function createD1Repository(db: D1Database): MarketRepository {
       const row = await one<Row>(db.prepare(`INSERT INTO upload_batches(source_id,batch_id,snapshot_id,part_index,part_count,snapshot_mode,payload_hash,status,received_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) RETURNING *`).bind(input.sourceId, input.batchId, input.snapshotId, input.partIndex, input.partCount, input.snapshotMode, input.payloadHash, input.status ?? 'processing', input.receivedAt));
       if (!row) throw new Error('batch insert returned no row');
       return batchFromRow(row);
+    },
+    async completeBatch(sourceId, batchId, response: UploadResultLike) {
+      await db.prepare('UPDATE upload_batches SET status=\'accepted\',processed_shops=?1,processed_listings=?2,changed_listings=?3,sold_events=?4,response_json=?5 WHERE source_id=?6 AND batch_id=?7').bind(response.processedShops, response.processedListings, response.changedListings, response.soldEvents, JSON.stringify(response), sourceId, batchId).run();
     },
     async loadListingsByFingerprint(sessionId, fingerprints) {
       if (fingerprints.length === 0) return [];
