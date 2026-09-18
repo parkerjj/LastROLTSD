@@ -3,5 +3,11 @@ import type { MarketRepository } from '../db/repository';
 import { withQueryCacheHeaders } from '../middleware/cache';
 
 export function registerOptionsRoute(app: Hono<any>, repo: MarketRepository): void {
-  app.get('/api/v1/options', async (c) => { const data = await repo.getOptionDictionary(c.req.query('version')); const etag = `"${btoa(JSON.stringify(data)).slice(0, 32)}"`; if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers: { etag, 'cache-control': 'public, max-age=86400' } }); return withQueryCacheHeaders(c.json({ items: data }), 'options', etag); });
+  app.get('/api/v1/options', async (c) => {
+    const data = await repo.getOptionDictionary(c.req.query('version'));
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(data)));
+    const etag = `"${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('').slice(0, 32)}"`;
+    if (c.req.header('if-none-match') === etag) return new Response(null, { status: 304, headers: { etag, 'cache-control': 'public, max-age=86400' } });
+    return withQueryCacheHeaders(c.json({ items: data }), 'options', etag);
+  });
 }
