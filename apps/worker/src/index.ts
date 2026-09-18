@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { AppEnv } from './env';
+import { resolveAppEnv, type AppEnv } from './env';
 import { healthPayload } from './routes/health';
 import { createD1Repository } from './db/d1-repository';
 import { registerUploadRoute } from './routes/upload';
@@ -35,19 +35,12 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
   return app;
 }
 
-const defaultApp = createApp({
-  ENVIRONMENT: 'production',
-  BUILD_VERSION: 'unknown',
-  MAX_BODY_BYTES: 512 * 1024,
-});
-
 export default {
-  fetch(request: Request, env: AppEnv): Response | Promise<Response> {
-    return createApp(env).fetch(request);
+  fetch(request: Request, bindings: Record<string, unknown>): Response | Promise<Response> {
+    return createApp(resolveAppEnv(bindings)).fetch(request);
   },
-  async scheduled(_event: ScheduledEvent, env: AppEnv): Promise<void> {
+  async scheduled(_event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
+    const env = resolveAppEnv(bindings);
     if (env.DB) await runRetention(Date.now(), {}, createD1Repository(env.DB));
   },
 };
-
-void defaultApp;

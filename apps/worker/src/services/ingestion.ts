@@ -13,14 +13,25 @@ export interface ListingStateService { applyBatchObservations(source: Authentica
 export interface UploadResult extends UploadResultLike {}
 export class IngestionError extends Error { constructor(public readonly status: 400 | 409 | 503, message: string) { super(message); this.name = 'IngestionError'; } }
 
+export const MAX_IDEMPOTENCY_KEY_LENGTH = 256;
+
+export function canonicalBatchId(request: Pick<UploadRequest, 'snapshot_id' | 'part_index'>): string {
+  return `${request.snapshot_id}/${request.part_index}`;
+}
+
+export function isValidIdempotencyKey(value: string | undefined): value is string {
+  return value !== undefined && value.length > 0 && value.length <= MAX_IDEMPOTENCY_KEY_LENGTH && value.trim() === value && /^[\x21-\x7e]+$/.test(value);
+}
+
 async function payloadHash(request: UploadRequest): Promise<string> {
   const canonical = JSON.stringify(request);
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function ingestUpload(source: AuthenticatedSource, request: UploadRequest, repo: MarketRepository, state: ListingStateService): Promise<UploadResult> {
-  const batchId = `${request.snapshot_id}/${request.part_index}`;
+export async function ingestUpload(source: AuthenticatedSource, request: UploadRequest, idempotencyKey: string, repo: MarketRepository, state: ListingStateService): Promise<UploadResult> {
+  const batchId = canonicalBatchId(request);
+  if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'Idempotency-Key must match the canonical snapshot part');
   const hash = await payloadHash(request);
   const duplicate = await repo.getBatch(source.id, batchId);
   if (duplicate) {

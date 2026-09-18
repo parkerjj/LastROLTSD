@@ -24,13 +24,16 @@ function fakeRepo(): MarketRepository {
 describe('upload ingestion', () => {
   it('accepts a baseline and returns the same result for a duplicate batch', async () => {
     const repo = fakeRepo(); const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: observations.length, soldEvents: 0 }) };
-    const first = await ingestUpload(source, request, repo, state);
-    const second = await ingestUpload(source, request, repo, state);
+    const first = await ingestUpload(source, request, 'snap/0', repo, state);
+    const second = await ingestUpload(source, request, 'snap/0', repo, state);
     expect(first.duplicate).toBe(false); expect(second.duplicate).toBe(true); expect(second.batchId).toBe(first.batchId); expect(second.processedListings).toBe(1);
   });
   it('rejects a duplicate batch with a changed payload', async () => {
     const repo = fakeRepo(); const state = { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) };
-    await ingestUpload(source, request, repo, state);
-    await expect(ingestUpload(source, { ...request, shops_seen: ['other'] }, repo, state)).rejects.toMatchObject({ status: 409 });
+    await ingestUpload(source, request, 'snap/0', repo, state);
+    await expect(ingestUpload(source, { ...request, shops_seen: ['other'] }, 'snap/0', repo, state)).rejects.toMatchObject({ status: 409 });
+  });
+  it('rejects an idempotency key that does not match the canonical snapshot part', async () => {
+    await expect(ingestUpload(source, request, 'other/0', fakeRepo(), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 400 });
   });
 });

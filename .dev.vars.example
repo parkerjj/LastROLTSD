@@ -3,3 +3,4 @@ BUILD_VERSION=dev
 MAX_BODY_BYTES=524288
 # UPLOAD_API_KEY is only used by local fixtures; never commit real keys.
 UPLOAD_API_KEY=replace-with-local-key
+ADMIN_SECRET=replace-with-local-admin-secret
