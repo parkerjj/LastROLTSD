@@ -359,3 +359,23 @@ README.md                              # project setup and scope
 - Search supports item ID, text, price, map, shop type, and structured option filters with keyset pagination.
 - The Worker serves the Vite UI and API from one origin with the documented cache and error behavior.
 - The repository contains no OpenKore source changes and no production credentials.
+
+## Completion Ledger
+
+- [x] Task 1: workspace/Worker/Vite scaffolding, health and build tests (`b6dcd74`)
+- [x] Task 2: protocol schemas, normalization and redacted fixtures (`71022bd`)
+- [x] Task 3: D1 migrations, constraints and indexes (`9e967d4`)
+- [x] Task 4: typed repository and runtime environment (`ece8f91`)
+- [x] Task 5: authentication, errors, limits and health (`e2be597`)
+- [x] Task 6: canonical fingerprints and quantity transitions (`e5147a0`)
+- [x] Task 7: upload ingestion, session management and idempotency (`2cea7e2`, `b76a43e`)
+- [x] Task 8: state versions, history and sold events (`237e434`, `c1bb899`, `b76a43e`)
+- [x] Task 9: complete full-snapshot reconciliation (`c14ba51`)
+- [x] Task 10: search, option dictionary, history and signed cursors (`97992c7`, `6ea65b9`, `be37c13`)
+- [x] Task 11: Vite query UI, option controls and history states (`5651ea0`, `5223f11`)
+- [x] Task 12: cache headers, static fallback and request metrics (`726f4f3`, `5223f11`)
+- [x] Task 13: bounded retention and admin preview (`251944f`)
+- [x] Task 14: integration and browser verification (`f35f759`)
+- [x] Task 15: API/deployment/operations documentation and contract check (`9959704`)
+
+Implementation commits and the independent review findings that required follow-up are captured above; the final verification commands are the release gate for the complete package.
