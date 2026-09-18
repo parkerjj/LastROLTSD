@@ -1,12 +1,12 @@
 import type { D1Database, Fetcher } from '@cloudflare/workers-types';
 
 export interface AppEnv {
-  DB?: D1Database;
-  ASSETS?: Fetcher;
+  DB?: D1Database | undefined;
+  ASSETS?: Fetcher | undefined;
   ENVIRONMENT: string;
   BUILD_VERSION: string;
   MAX_BODY_BYTES: number;
-  UPLOAD_LIMITER?: Fetcher;
+  UPLOAD_LIMITER?: Fetcher | undefined;
 }
 
 export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {

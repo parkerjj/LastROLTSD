@@ -15,10 +15,7 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
     }),
   );
 
-  app.get('*', async (c) => {
-    if (env.ASSETS) return env.ASSETS.fetch(c.req.raw);
-    return c.text('Not found', 404);
-  });
+  app.get('*', (c) => c.notFound());
 
   return app;
 }
@@ -30,7 +27,7 @@ const defaultApp = createApp({
 });
 
 export default {
-  fetch(request: Request, env: AppEnv): Promise<Response> {
+  fetch(request: Request, env: AppEnv): Response | Promise<Response> {
     return createApp(env).fetch(request);
   },
 };
