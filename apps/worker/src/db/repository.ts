@@ -1,5 +1,18 @@
 import type { SearchFilters, UploadItem } from '@lastroweb/protocol';
-import type { BatchRow, HistoryRow, ListingChange, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow, ShopInput } from './types';
+import type { BatchRow, HistoryRow, ListingChange, ListingOption, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow, ShopInput } from './types';
+
+export interface ListingTransitionChange {
+  listingId: number;
+  shopSessionId: number;
+  expectedVersion: number;
+  price: number;
+  quantity: number;
+  status: string;
+  observedAt: number;
+  batchId: string;
+  history?: { eventType: string };
+  soldEvent?: { soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; transitionKey: string };
+}
 
 export interface ReconciliationResult {
   sourceId: string;
@@ -30,6 +43,9 @@ export interface MarketRepository {
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow>;
   completeBatch(sourceId: string, batchId: string, response: UploadResultLike): Promise<void>;
   loadListingsByFingerprint(sessionId: number, fingerprints: string[]): Promise<ListingRow[]>;
+  loadListingById?(listingId: number, sessionId?: number): Promise<ListingRow | null>;
+  applyListingTransitions?(changes: ListingTransitionChange[]): Promise<{ updated: number; conflicts: number; soldEvents: number; conflictIds?: number[] }>;
+  insertListingOptions?(input: { listingId: number; options: ListingOption[] }): Promise<void>;
   markListingsObserved?(sessionId: number, fingerprints: string[], batchId: string, observedAt: number): Promise<number>;
   createListing?(input: { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }): Promise<ListingRow>;
   insertHistory?(input: { listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }): Promise<void>;
@@ -39,7 +55,7 @@ export interface MarketRepository {
   finalizeSnapshot(sourceId: string, snapshotId: string, observedAt: number): Promise<void>;
   reconcileSnapshot?(input: SnapshotReconciliationInput): Promise<ReconciliationResult>;
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
-  getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; nextCursor: string | null }>;
+  getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; nextCursor: string | null } | null>;
   getOptionDictionary(version?: string): Promise<OptionDictionaryRow[]>;
   deleteExpiredHistory?(before: number, limit: number): Promise<number>;
   deleteExpiredSoldEvents?(before: number, limit: number): Promise<number>;

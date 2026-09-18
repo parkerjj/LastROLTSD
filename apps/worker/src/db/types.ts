@@ -8,6 +8,12 @@ export interface ShopSessionRow { id: number; shopId: number; clientRunId: strin
 export interface BatchRow { id: number; sourceId: string; batchId: string; snapshotId: string; partIndex: number; partCount: number; snapshotMode: 'full' | 'delta' | 'heartbeat'; payloadHash: string; status: string; responseJson: string | null; }
 export interface ListingRow { id: number; shopSessionId: number; itemFingerprint: string; itemKey: string | null; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; lastQuantity: number; status: string; stateVersion: number; missingStreak: number; lastSeenAt: number; }
 export interface ListingChange { listingId: number; expectedVersion: number; price: number; quantity: number; status: string; observedAt: number; batchId: string; }
-export interface ListingSearchRow extends ListingRow { shopKey: string; title: string; vendorName: string; mapName: string; shopType: 'buy' | 'sell'; options: Array<{ type: number; value: number; param: number; displayValue?: string }>; }
+export interface ListingSearchRow extends ListingRow { shopKey: string; title: string; vendorName: string; mapName: string; shopType: 'buy' | 'sell'; options: ListingOption[]; }
 export interface HistoryRow { id: number; listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string; }
 export interface OptionDictionaryRow { version: string; optionType: number; optionValue: number; optionParam: number; name: string; description: string; searchTokens: string; }
+export interface ListingOption {
+  type: number;
+  value: number;
+  param: number;
+  displayValue?: string;
+}

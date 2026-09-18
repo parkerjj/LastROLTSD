@@ -1,7 +1,8 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { assertBatchBounds } from './repository';
-import type { BatchRow, ListingRow, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
-import type { MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike } from './repository';
+import { decodeCursor, encodeCursor } from '../domain/search';
+import type { BatchRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
+import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike } from './repository';
 
 type Row = Record<string, unknown>;
 const one = async <T extends Row>(statement: D1PreparedStatement): Promise<T | null> => ((await statement.first<T>()) ?? null);
@@ -66,6 +67,13 @@ export function createD1Repository(db: D1Database): MarketRepository {
       const rows = await many<Row>(db.prepare(`SELECT * FROM listings WHERE shop_session_id=?1 AND item_fingerprint IN (${placeholders})`).bind(sessionId, ...fingerprints));
       return rows.map(listingFromRow);
     },
+    async loadListingById(listingId, sessionId) {
+      const statement = sessionId === undefined
+        ? db.prepare('SELECT * FROM listings WHERE id=?1 LIMIT 1').bind(listingId)
+        : db.prepare('SELECT * FROM listings WHERE id=?1 AND shop_session_id=?2 LIMIT 1').bind(listingId, sessionId);
+      const row = await one<Row>(statement);
+      return row ? listingFromRow(row) : null;
+    },
     async markListingsObserved(sessionId, fingerprints, batchId, observedAt) {
       if (fingerprints.length === 0) return 0;
       if (fingerprints.length > 40) throw new Error('listing observation exceeds bounded batch size');
@@ -78,6 +86,12 @@ export function createD1Repository(db: D1Database): MarketRepository {
       if (!row) throw new Error('listing insert returned no row');
       return listingFromRow(row);
     },
+    async insertListingOptions(input: { listingId: number; options: ListingOption[] }) {
+      if (input.options.length === 0) return;
+      const options = [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param);
+      assertBatchBounds(options.length, options.length * 5);
+      await db.batch(options.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, index, option.type, option.value, option.param, option.displayValue ?? null)));
+    },
     async insertHistory(input) { await db.prepare('INSERT INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId).run(); },
     async insertSoldEvent(input) { const result = await db.prepare('INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(input.listingId, input.soldQuantity, input.fromQuantity, input.toQuantity, input.reason, input.observedAt, input.transitionKey).run(); return Number(result.meta?.changes ?? 0) > 0; },
     async applyListingChanges(changes) {
@@ -85,6 +99,33 @@ export function createD1Repository(db: D1Database): MarketRepository {
       const statements = changes.map((change) => db.prepare(`UPDATE listings SET price=?1,quantity=?2,last_quantity=quantity,status=?3,last_seen_at=?4,last_changed_at=?4,state_version=state_version+1,last_batch_id=?5,missing_streak=0 WHERE id=?6 AND state_version=?7`).bind(change.price, change.quantity, change.status, change.observedAt, change.batchId, change.listingId, change.expectedVersion));
       const results = await db.batch(statements);
       return { updated: results.filter((result) => Number(result.meta?.changes ?? 0) > 0).length, conflicts: results.filter((result) => Number(result.meta?.changes ?? 0) === 0).length };
+    },
+    async applyListingTransitions(changes: ListingTransitionChange[]) {
+      if (changes.length === 0) return { updated: 0, conflicts: 0, soldEvents: 0, conflictIds: [] };
+      const chunkSize = 4;
+      let updated = 0; let conflicts = 0; let soldEvents = 0; const conflictIds: number[] = [];
+      for (let offset = 0; offset < changes.length; offset += chunkSize) {
+        const chunk = changes.slice(offset, offset + chunkSize);
+        const statements: D1PreparedStatement[] = [];
+        let boundValues = 0;
+        const updateIndexes: number[] = []; const soldIndexes: number[] = [];
+        for (const change of chunk) {
+          assertBatchBounds(1, 8);
+          updateIndexes.push(statements.length);
+          statements.push(db.prepare('UPDATE listings SET price=?1,quantity=?2,last_quantity=quantity,status=?3,last_seen_at=?4,last_changed_at=?4,state_version=state_version+1,last_batch_id=?5,missing_streak=0 WHERE id=?6 AND shop_session_id=?7 AND state_version=?8').bind(change.price, change.quantity, change.status, change.observedAt, change.batchId, change.listingId, change.shopSessionId, change.expectedVersion));
+          boundValues += 8;
+          if (change.history) { boundValues += 8; statements.push(db.prepare('INSERT INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) SELECT ?1,?2,?3,?4,?5,?6 WHERE EXISTS (SELECT 1 FROM listings WHERE id=?1 AND shop_session_id=?7 AND state_version=?8 AND last_batch_id=?6)').bind(change.listingId, change.observedAt, change.price, change.quantity, change.history.eventType, change.batchId, change.shopSessionId, change.expectedVersion + 1)); }
+          if (change.soldEvent) { boundValues += 9; soldIndexes.push(statements.length); statements.push(db.prepare('INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key) SELECT ?1,?2,?3,?4,?5,?6,?7 WHERE EXISTS (SELECT 1 FROM listings WHERE id=?1 AND shop_session_id=?8 AND state_version=?9 AND last_batch_id=?6)').bind(change.listingId, change.soldEvent.soldQuantity, change.soldEvent.fromQuantity, change.soldEvent.toQuantity, change.soldEvent.reason, change.observedAt, change.soldEvent.transitionKey, change.shopSessionId, change.expectedVersion + 1)); }
+        }
+        assertBatchBounds(statements.length, boundValues);
+        const results = await db.batch(statements);
+        for (let index = 0; index < chunk.length; index += 1) {
+          const result = results[updateIndexes[index]!];
+          if (Number(result?.meta?.changes ?? 0) > 0) updated += 1; else { conflicts += 1; conflictIds.push(chunk[index]!.listingId); }
+        }
+        for (const index of soldIndexes) if (Number(results[index]?.meta?.changes ?? 0) > 0) soldEvents += 1;
+      }
+      return { updated, conflicts, soldEvents, conflictIds };
     },
     async markShopHeartbeats(sourceId, shopKeys, observedAt) {
       if (shopKeys.length === 0) return 0;
@@ -113,7 +154,7 @@ export function createD1Repository(db: D1Database): MarketRepository {
     },
     async searchListings(filters) {
       const params: unknown[] = [];
-      const where = ["l.status='active'"];
+      const where = [filters.include_stale ? "l.status IN ('active','missing')" : "l.status='active'"];
       const add = (value: unknown) => { params.push(value); return `?${params.length}`; };
       if (filters.q) { const q = `%${filters.q.normalize('NFKC').trim().toLowerCase()}%`; const p = add(q); where.push(`(l.item_name_normalized LIKE ${p} OR s.title_normalized LIKE ${p} OR v.name_normalized LIKE ${p})`); }
       if (filters.item_id !== undefined) where.push(`l.item_id=${add(filters.item_id)}`);
@@ -122,13 +163,37 @@ export function createD1Repository(db: D1Database): MarketRepository {
       if (filters.map) where.push(`s.map_name=${add(filters.map.normalize('NFKC').trim())}`);
       if (filters.shop_type) where.push(`s.shop_type=${add(filters.shop_type)}`);
       if (filters.option_type !== undefined) { where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(filters.option_type)}${filters.option_value === undefined ? '' : ` AND lo.option_value=${add(filters.option_value)}`}${filters.option_param === undefined ? '' : ` AND lo.option_param=${add(filters.option_param)}`})`); }
+      const cursor = filters.cursor ? decodeCursor(filters.cursor) : null;
+      const sortColumn = filters.sort === 'updated_desc' ? 'l.last_seen_at' : 'l.price';
+      if (cursor) {
+        const value = add(cursor.sortValue);
+        const sameValue = add(cursor.sortValue);
+        const id = add(cursor.id);
+        const operator = filters.sort === 'price_asc' ? '>' : '<';
+        where.push(`(${sortColumn} ${operator} ${value} OR (${sortColumn} = ${sameValue} AND l.id ${operator} ${id}))`);
+      }
       const limit = Math.min(50, Math.max(1, filters.limit)); params.push(limit + 1);
       const order = filters.sort === 'price_desc' ? 'l.price DESC,l.id DESC' : filters.sort === 'updated_desc' ? 'l.last_seen_at DESC,l.id DESC' : 'l.price ASC,l.id ASC';
       const rows = await many<Row>(db.prepare(`SELECT l.*,s.shop_key,s.title,v.name AS vendor_name,s.map_name,s.shop_type FROM listings l JOIN shop_sessions ss ON ss.id=l.shop_session_id JOIN shops s ON s.id=ss.shop_id JOIN vendors v ON v.id=s.vendor_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`).bind(...params));
       const items = rows.slice(0, limit).map(listingFromSearchRow);
-      return { items, nextCursor: rows.length > limit ? String(items.at(-1)?.id ?? '') : null };
+      if (items.length > 0) {
+        const ids = items.map((item) => item.id);
+        const optionPlaceholders = ids.map((_, index) => `?${index + 1}`).join(',');
+        const optionRows = await many<Row>(db.prepare(`SELECT listing_id,option_type,option_value,option_param,display_value FROM listing_options WHERE listing_id IN (${optionPlaceholders}) ORDER BY listing_id,option_index`).bind(...ids));
+        const optionsByListing = new Map<number, ListingOption[]>();
+        for (const row of optionRows) {
+          const listingId = Number(row.listing_id);
+          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param), ...(row.display_value === null || row.display_value === undefined ? {} : { displayValue: String(row.display_value) }) }]);
+        }
+        for (const item of items) item.options = optionsByListing.get(item.id) ?? [];
+      }
+      const last = items.at(-1);
+      const sortValue = last ? (filters.sort === 'updated_desc' ? last.lastSeenAt : last.price) : 0;
+      return { items, nextCursor: rows.length > limit && last ? encodeCursor({ sortValue, id: last.id }) : null };
     },
     async getListingHistory(listingId, limit, cursor) {
+      const listing = await one<Row>(db.prepare('SELECT id FROM listings WHERE id=?1 LIMIT 1').bind(listingId));
+      if (!listing) return null;
       const params: unknown[] = [listingId];
       let sql = 'SELECT * FROM listing_price_history WHERE listing_id=?1';
       if (cursor) { params.push(Number(cursor)); sql += ` AND id<?${params.length}`; }
