@@ -7,7 +7,7 @@ import { ingestUpload, type ListingStateService } from '../services/ingestion';
 import type { AppEnv } from '../env';
 import type { MarketRepository } from '../db/repository';
 
-export function registerUploadRoute(app: Hono, env: AppEnv, repo: MarketRepository, state: ListingStateService): void {
+export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRepository, state: ListingStateService): void {
   app.post('/api/v1/market/upload', async (c) => {
     const id = requestId(c.req.raw);
     try {
