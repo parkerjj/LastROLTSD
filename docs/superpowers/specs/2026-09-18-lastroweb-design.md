@@ -1,7 +1,7 @@
 # LastROWeb 设计方案
 
-状态：设计评审稿 v1.0  
-日期：2026-09-18  
+状态：历史基线设计；涉及商品目录、商店身份、上传 v2、中文搜索和 option 定义的内容由 `docs/superpowers/specs/2026-09-19-lastroweb-catalog-search-design.md` supersede。
+日期：2026-09-18
 范围：将 `croserver` 与 `croweb` 的市场上传、存储、查询功能整合为可开源、可部署到 Cloudflare 的单体 Web 项目。
 
 ## 1. 结论摘要
@@ -21,11 +21,12 @@
 
 核心原则：
 
-1. OpenKore 客户端先做去重，服务端仍以完整商品指纹和批次幂等做最后防线。
+1. OpenKore 只上传实时市场观测；商品中文名称、说明、别名和词条中文标签由 Worker/D1 静态字典维护。
 2. 第一次运行必须提交完整快照；后续可以提交增量，但必须定期提交完整快照以处理关店、断线和删除。
 3. 任何状态都按 `source_id` 隔离，禁止全局关闭商店。
-4. 词条以 `(type, value, param)` 的结构化数据保存，不能从商品名称中的 `[x Option]` 反解析。
+4. 词条以 `(type, value, param)` raw tuple 保存，中文定义按 `option_type` 管理，不能从商品名称中的 `[x Option]` 反解析。
 5. 首次完整快照只建立基线，不产生售出事件；售出事件必须是同一商店会话内的后续状态变化。
+6. 商店每次上传带必选 `uuid` 和 `shop_status`；服务端按规范化身份生成/解析 `shop_id` 并在响应中回显 uuid 映射。
 
 ## 2. 目标与非目标
 
@@ -155,14 +156,15 @@ LastROWeb/
 
 ### 5.3 `shops`
 
-逻辑商店信息。`UNIQUE(source_id, shop_key)`，字段包括：
+逻辑商店信息。`UNIQUE(source_id, identity_hash)`，内部主键继续使用 `shops.id`，对外返回由服务端生成的稳定 `shop_id`。字段包括：
 
-- `id`、`source_id`、`vendor_id`、`shop_key`、`title`、`title_normalized`；
+- `id`、`source_id`、`identity_version`、`identity_hash`、`shop_id`、`vendor_id`、`title`、`title_normalized`；
+- `vendor_account_id`（稳定账号标识）和可变的 `vendor_name`；
 - `shop_type`、`map_name`、`x`、`y`；
-- `status`（`active`/`stale`/`closed`）；
-- `last_seen_at`、`closed_at`、`updated_at`。
+- `status`（`active`/`stale`/`closed`）、`close_reason`；
+- `last_seen_at`、`last_status_observed_at`、`last_status_batch_id`、`closed_at`、`updated_at`。
 
-禁止存在不带 `source_id` 的商店唯一键或全局 `closeAllShop()` 逻辑。
+canonical identity 使用 `source_id`、`vendor_account_id`、`shop_type`、规范化地图、整数坐标和规范化商店标题；`vendor_name` 不参与 identity。`shop_id = "shop_v1_" + SHA-256(canonical_identity_json)`。客户端传入的 `shop_id` 仅作提示，服务端以 `(source_id, identity_hash)` 为准。禁止存在不带 `source_id` 的商店唯一键或全局 `closeAllShop()` 逻辑。
 
 ### 5.4 `shop_sessions`
 
@@ -178,7 +180,7 @@ LastROWeb/
 | `initial_sync_complete` | INTEGER | 1 后才允许售出推断 |
 | `last_complete_snapshot_id` | TEXT NULL | 最近完整快照 |
 
-同一 `shop_key` 在客户端重启或超过 TTL（默认 30 分钟）后创建新会话。售出事件永远不能跨会话比较。
+同一 `shop_id` 在客户端重启或超过 TTL（默认 30 分钟）后创建新会话；显式 `dismissed` 也结束当前会话，之后新的 `opening` 建立新会话。售出事件永远不能跨会话比较。
 
 ### 5.5 `listings`
 
@@ -191,7 +193,7 @@ UNIQUE(shop_session_id, item_fingerprint)
 字段：
 
 - `id`、`shop_session_id`、`item_fingerprint`；
-- `item_id`、`item_name`、`item_name_normalized`；
+- `item_id`；商品名称、说明和别名通过 `LEFT JOIN item_catalog/item_aliases` 动态解析；迁移窗口内允许存在 nullable 的 `item_name_legacy` 字段，但不能写入、搜索、展示或参与 fingerprint；
 - `upgrade`、`slots`、`card0`、`card1`、`card2`、`card3`；
 - `price`、`quantity`、`last_quantity`、`status`（`active`/`missing`/`sold_out`/`expired`）；
 - `first_seen_at`、`last_seen_at`、`last_changed_at`；
@@ -209,13 +211,13 @@ UNIQUE(shop_session_id, item_fingerprint)
 UNIQUE(listing_id, option_index)
 ```
 
-字段：`listing_id`、`option_index`、`option_type`、`option_value`、`option_param`、`display_value`（可选缓存）。
+字段：`listing_id`、`option_index`、`option_type`、`option_value`、`option_param`。v2 不接受客户端 `display_value`；v1 即使接收也不能作为展示权威。
 
 OpenKore 的 `[x Option]` 只表示数量。真实数据来自每个 5 字节记录解析出的 `(type, value, param)` 三元组，上传协议必须携带三元组，不能只上传标题。
 
-### 5.7 `option_dictionary`
+### 5.7 `option_definitions`（取代旧 `option_dictionary`）
 
-可版本化的词条字典：`version`、`option_type`、`option_value`、`option_param`、`name`、`description`、`search_tokens`。字典来源于 LastRO 规则/词条页面，作为可审查的数据文件导入；不把网页抓取放在每次请求中。
+旧的按精确 `(option_type, option_value, option_param)` 建字典模型由 `option_definitions` 取代。新模型按 `option_type` 保存 `data_version`、`handle`、`label_zh`、`description_template`、`value_type`、`unit`、`scale`、`allowed_operators`、`param_policy`、`repeat_policy` 和 `display_template`。raw tuple 永久保存在 `listing_options`；未知 type 仍可入库并以 raw tuple 展示。字典通过显式外部输入 importer 生成，不能在请求期间抓取网页。
 
 ### 5.8 历史表
 
@@ -246,7 +248,7 @@ CREATE UNIQUE INDEX idx_sold_transition
   ON sold_events(transition_key);
 ```
 
-不依赖 FTS5 作为首版硬要求。商品量较小时使用规范化字段和有上限的 `LIKE`；数据增长后再评估专用 `search_items`/FTS 表。
+中文包含搜索使用 D1 可验证的 FTS5 trigram 派生表处理三个或更多字符，并使用 `search_short_tokens` 处理一个或两个字符。商品和商店查询通过 `EXISTS`/JOIN 留在 SQLite 内完成，不把 item IDs 拉到 Worker 后拼接巨大 `IN` 列表。FTS/token 表可以从 catalog、alias、shop title 和 vendor name 权威字段重建；不能依赖 listing 上传名称。
 
 ## 6. 商品身份与词条规范化
 
@@ -269,7 +271,7 @@ sorted(options: option_type, option_value, option_param)
 
 ### 6.2 兼容旧协议
 
-首版可保留 `/API_Kore/UploadMarket` 兼容入口，但必须在 Worker 内转换为新协议。旧字段缺少词条时只能标记为 `options_incomplete`，不能猜测词条；新客户端应使用 `/api/v1/market/upload`。
+协议迁移期间可在 Worker 内兼容 `protocol_version=1`，但 v1 的 `items[].name`、`shop_key` 和客户端 option display text 不能参与身份、fingerprint、展示、catalog 导入或搜索。新客户端使用 `/api/v1/market/upload` 的 protocol v2；具体 v1 截止日期和 v2 字段见 2026-09-19 新设计文档。
 
 ## 7. 上传协议
 
@@ -288,18 +290,19 @@ API key 只用于映射 `source_id`；请求 JSON 中的 `source_id` 即使存�
 
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "client_run_id": "openkore-run-20260918-001",
   "snapshot_id": "snap-20260918-1200",
   "snapshot_mode": "full",
   "part_index": 0,
   "part_count": 1,
   "observed_at": "2026-09-18T12:00:00Z",
-  "shops_seen": ["shop-key-1", "shop-key-2"],
   "shops": [
     {
-      "shop_key": "shop-key-1",
-      "vendor_key": "owner-key-1",
+      "shop_id": "shop_v1_optional-client-cache",
+      "uuid": "5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1",
+      "shop_status": "opening",
+      "vendor_account_id": "account-123",
       "vendor_name": "Vendor",
       "title": "Selling equipment",
       "shop_type": "buy",
@@ -310,7 +313,6 @@ API key 只用于映射 `source_id`；请求 JSON 中的 `source_id` 即使存�
         {
           "item_key": "slot-0",
           "item_id": 1234,
-          "name": "Example Sword",
           "upgrade": 7,
           "slots": 2,
           "cards": [0, 0, 0, 0],
@@ -330,9 +332,10 @@ API key 只用于映射 `source_id`；请求 JSON 中的 `source_id` 即使存�
 
 - `full`：包含该数据源当前可见商店和商品；可以触发缺失处理。首次运行必须是 full。
 - `delta`：只包含变化商店和商品；只更新收到的对象，不因缺失生成售出。
-- `heartbeat`：只更新 `shops_seen`，用于没有商品变化时维持商店存活。
+- `heartbeat`：v2 使用带 `uuid`、canonical identity 和 `shop_status=opening` 的轻量 `shops[]` 对象，只更新商店/session 保活，不改变 listing 集合；v1 的 `shops_seen` 仅在兼容窗口内保留。
+- `shop_status=dismissed` 必须携带空 `items`，立即关闭当前 session、将 active/missing listings 标记为 `expired`，不产生售出事件。
 
-`shops_seen` 可包含 300 个短 ID，但不需要重复完整商店数据。完整快照分片时，只有所有 part 都成功接收后才执行对账。
+每个 shop 的 `uuid` 每次新 batch 随机生成，重试同一 batch 必须复用；服务端按规范化身份返回 `shop_id`。完整快照分片时，只有所有 part 都成功接收后才执行对账；未出现商店仍不能解释为 dismissed。
 
 ### 7.3 成功响应
 
@@ -345,11 +348,20 @@ API key 只用于映射 `source_id`；请求 JSON 中的 `source_id` 即使存�
   "processed_listings": 80,
   "changed_listings": 3,
   "sold_events": 1,
+  "shops": [
+    {
+      "uuid": "5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1",
+      "shop_id": "shop_v1_3c2d...",
+      "shop_status": "opening",
+      "resolution": "matched",
+      "applied": true
+    }
+  ],
   "next": null
 }
 ```
 
-重复 `Idempotency-Key` 必须返回原结果，不重复写入。part 之间使用 `snapshot_id + part_index` 作为唯一键；缺 part 的快照不能标记商店关闭。
+重复 `Idempotency-Key` 必须返回原结果，不重复写入，并保持原始 uuid 与 shop_id 映射。part 之间使用 `snapshot_id + part_index` 作为唯一键；缺 part 的快照不能标记商店关闭。每个响应 `shops[]` 按请求顺序返回，至少包含 `uuid`、最终 `shop_id`、`shop_status`、`resolution` 和 `applied`。
 
 ## 8. 去重、幂等与并发
 
@@ -401,15 +413,15 @@ D1 写入按小批次执行，使用 `D1Database.batch()` 保证一组相关 SQL
 | GET | `/api/v1/market/search` | 当前在售查询 |
 | GET | `/api/v1/market/listings/:id/history` | 单商品价格/数量历史 |
 | GET | `/api/v1/options` | 词条字典和可选值 |
+| GET | `/api/v1/items` | 静态商品名称/别名 autocomplete |
 
 ### 10.2 搜索参数
 
 ```text
-q                  商品名/商店名/摊主名，长度 <= 80
+q                  catalog 名称/别名/说明或当前商店标题/摊主名，长度 <= 80
 item_id            精确商品 ID
-option_type        词条类型
-option_value       词条值
-option_param       词条参数
+option             `<option_type>:<operator>:<value>[:<param>]`，最多 8 条
+option_mode        all/any，默认 all
 price_min/price_max
 map                地图
 shop_type          buy/sell
@@ -418,12 +430,13 @@ limit              默认 20，最大 50
 cursor             keyset 分页游标
 ```
 
-词条筛选使用 `EXISTS` 或预计算 join，必须让 `idx_options_type_value` 生效。默认返回当前 active listing；结果包含商品基础属性、词条数组、价格、数量、商店位置和 `observed_at`。不允许 offset 深分页，不允许用户提交排序字段原文；排序字段使用白名单（默认价格升序、更新时间降序）。
+服务器根据 `/api/v1/options` 的 option definition 验证比较符、值类型、缩放和 param policy，再用 raw tuple 的 `EXISTS` 查询。默认返回当前 active listing；结果通过 `item_catalog` JOIN 返回名称/说明 fallback、raw/定义化词条、价格、数量、`shop_id`、商店位置和 `observed_at`。q 的一/二字符使用 `search_short_tokens`，三字符以上使用 FTS5 trigram；所有匹配在 D1 内完成，不生成巨大 `IN` 列表。不允许 offset 深分页，不允许用户提交排序字段原文；排序字段使用白名单（默认价格升序、更新时间降序）。cursor 必须绑定规范化后的完整 q、option、catalog/option/index version 和分页边界。
 
 ### 10.3 缓存策略
 
 - `/api/v1/market/search`：`Cache-Control: public, max-age=30, s-maxage=30`，查询参数进入缓存键。
-- `/api/v1/options`：`max-age=86400`，字典版本变化时通过 ETag 失效。
+- `/api/v1/options`：`max-age=86400`，option definition 版本变化时通过 ETag 失效。
+- `/api/v1/items`：`max-age=86400`，catalog version 变化时通过 ETag 失效，单页最多 20 条。
 - 上传接口：禁止 CDN 缓存。
 - 不记录每次搜索到 D1；诊断使用 Workers Logs，必要时只做采样指标。
 
@@ -434,8 +447,8 @@ Vite 单页应用首屏直接提供查询工具，不保留 Flutter 运行时。
 首版页面：
 
 - 搜索框、商品 ID、价格范围、地图、商店类型；
-- 词条条件可添加多行，支持“匹配全部/匹配任一”；
-- 结果表格显示商品、词条、价格、数量、地图、摊主、更新时间；
+- 词条条件使用服务器提供的中文词条下拉框、比较符下拉框和值输入，支持“匹配全部/匹配任一”；
+- 结果表格显示 catalog 商品名称或 `未知物品 #<id>`、raw/定义化词条、价格、数量、地图、摊主、`shop_id`、更新时间；
 - 商品详情抽屉显示历史价格、数量变化和售出推断的置信原因；
 - 空结果、加载、网络错误、限流和过期数据均有明确状态。
 
@@ -486,10 +499,14 @@ Vite 单页应用首屏直接提供查询工具，不保留 Flutter 运行时。
 ### 15.1 单元测试
 
 - 字符串、数字、缺省值和词条排序的 canonical fingerprint。
+- fingerprint 不包含 item 中文名称、说明、别名、词条标签或客户端 display text。
 - 同一词条换顺序仍为同一 fingerprint；任一三元组变化则不同。
 - 首次 full 不产生 sold；数量下降只产生一次事件；重试不重复事件。
 - 缺失一次不售出，连续两次完整快照缺失才进入 missing 规则。
-- 不同 source 的同名商店不会互相关闭。
+- 不同 source 的同名商店不会互相关闭；客户端重启且缺少 shop_id 时不会创建重复商店。
+- uuid 到 shop_id 的 response 关联、dismissed 关店、迟到 opening 和重新 opening 的 session 规则正确。
+- 未知 item/option 可入库并使用 fallback/raw 展示；catalog 更新能改变已有 listing 的显示名称。
+- 一字符、两字符、三字符以上 q 分别走短 token、短 token、FTS 路径；option metadata 控制 operator 和 repeat policy。
 
 ### 15.2 集成测试
 
@@ -516,7 +533,7 @@ Vite 单页应用首屏直接提供查询工具，不保留 Flutter 运行时。
 
 ### 16.1 备份
 
-D1 每日导出 schema 和关键数据快照到 R2 或本地加密存储。部署脚本记录 migration 版本、Worker 版本和 option_dictionary 版本。恢复演练至少覆盖：误批次、错误词典导入和部分快照未完成。
+D1 每日导出 schema 和关键数据快照到 R2 或本地加密存储。部署脚本记录 migration 版本、Worker 版本、catalog version 和 option definition version。恢复演练至少覆盖：误批次、错误 catalog/词条导入、FTS/token 重建和部分快照未完成。
 
 ## 17. 平台备选
 
@@ -541,7 +558,7 @@ D1 每日导出 schema 和关键数据快照到 R2 或本地加密存储。部�
 
 - 旧 `/API_Kore/UploadMarket` 完整兼容适配器。
 - 连续缺失判定、数据源管理、管理员导出。
-- FTS/预计算搜索、R2 历史归档、监控告警。
+- catalog/option importer、FTS/token 重建、R2 历史归档、监控告警。
 
 ### 第三阶段
 
@@ -562,7 +579,7 @@ D1 每日导出 schema 和关键数据快照到 R2 或本地加密存储。部�
 | 词条排序是否误造商品 | 通过 | 三元组排序后生成 fingerprint，选项独立保存并按 type/value/param 索引 |
 | 首次全量是否生成虚假售出 | 通过 | `initial_sync_complete=0` 基线阶段禁止缺失/售出事件 |
 | 重试是否重复售出事件 | 通过 | upload batch 唯一、state_version 乐观并发、transition_key 唯一 |
-| 全量和增量的语义是否可区分 | 通过 | `snapshot_mode`、part 完整性和 `shops_seen` 明确规定 |
+| 全量和增量的语义是否可区分 | 通过 | `snapshot_mode`、part 完整性和 v2 shop objects 明确规定；`shops_seen` 只作为 v1 heartbeat 兼容字段 |
 | 历史数据是否可能耗尽 D1 | 通过 | 90 天默认保留、R2 归档路径和配额预算已写明 |
 | CPU/查询是否有失控路径 | 通过 | 分页上限、索引、JSON1、无 N+1、日志不写 D1 |
 
