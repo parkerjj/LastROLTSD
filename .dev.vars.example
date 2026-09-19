@@ -3,6 +3,7 @@ BUILD_VERSION=dev
 MAX_BODY_BYTES=524288
 # UPLOAD_API_KEY is only used by local fixtures; never commit real keys.
 UPLOAD_API_KEY=replace-with-local-key
+UPLOAD_API_KEY_SHA256=replace-with-local-key-sha256
 ADMIN_SECRET=replace-with-local-admin-secret
 # Cursor HMAC secret; set a random value in staging/production with wrangler secret put.
 CURSOR_SECRET=replace-with-local-cursor-secret

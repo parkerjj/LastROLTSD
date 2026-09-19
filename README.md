@@ -5,13 +5,21 @@ LastROWeb is a Cloudflare Worker + Hono service with a D1-backed market upload A
 ## Local development
 
 ```text
-pnpm install
+corepack enable
+corepack prepare pnpm@11.19.0 --activate
+pnpm install --frozen-lockfile
+pnpm secrets:generate
+pnpm wrangler d1 migrations apply lastroweb-local --local
 pnpm --filter web build
+pnpm lint
+pnpm typecheck
 pnpm test
+pnpm test:docs
 pnpm playwright test
+pnpm wrangler dev --local
 ```
 
-Run the Worker locally with `pnpm wrangler dev --local`; apply D1 migrations with `pnpm wrangler d1 migrations apply lastroweb-local --local`. No production database IDs, API keys, or player data belong in this repository.
+Use Node.js 22 and pnpm 11.19.0 for parity with CI. `pnpm dev` starts only the Vite UI; `pnpm wrangler dev --local` serves the Worker API and built Vite assets from one origin. Generated credentials are stored only in ignored local files. No production database IDs, API keys, or player data belong in this repository.
 
 ## Entrypoints
 

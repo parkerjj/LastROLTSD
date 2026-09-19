@@ -1,12 +1,21 @@
 # LastROWeb Agent Notes
 
-## Final review status (2026-09-18)
+## Final review status (2026-09-19)
 
 - Scope remains Cloudflare Worker/Hono, D1/SQLite, Vite web UI, protocol fixtures, and documentation. No OpenKore source was modified, copied, compiled, bundled, or added as a runtime dependency.
 - The implementation plan completion ledger marks Tasks 1-15 complete.
-- Fresh verification from the current worktree passed: pnpm lint; pnpm typecheck; pnpm test (24 files, 94 tests); pnpm test:docs (14 assertions); pnpm --filter web build; pnpm playwright test (2 browser tests); and git diff --check.
+- Fresh verification from the deployment worktree passed: pnpm lint; pnpm typecheck; pnpm test (25 files, 102 tests); pnpm test:docs (14 assertions); pnpm --filter web build; Windows pnpm playwright test (2 browser tests); Wrangler production deploy --dry-run; and git diff --check.
 - The fallback listing-option path is bounded: insertListingOptions sorts tuples, writes chunks of at most 12 rows, and counts six bound values per row. The 21-option regression test covers the former over-100-bound failure.
-- WSL is available, but its distribution does not expose Node, npm, or pnpm; final commands ran with the repository Windows Node toolchain.
+- WSL is Debian 2. Non-interactive login shells now expose Node v22.23.2, npm 10.9.8, and pnpm 11.19.0 through nvm. Commands can run with `wsl.exe -d Debian -- bash -lc '...'`.
+
+## Deployment automation handoff
+
+- Branch `codex/deployment-automation` adds generated local/deployment credentials, a safe D1 source seed, temporary Wrangler config rendering, and GitHub Actions production deployment from `main`.
+- `.dev.vars`, `.deployment-secrets.local`, `wrangler.*.local.toml`, and `source-seed.*.local.sql` are ignored. Never commit or print their contents.
+- Production GitHub environment secrets are `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_D1_DATABASE_ID`. Worker secrets `CURSOR_SECRET` and `ADMIN_SECRET` are configured once with Wrangler and persist across deployments.
+- GitHub Actions is the sole automatic deployment route. Do not also enable Cloudflare Git integration.
+- Windows-managed Codex linked worktrees contain a Windows absolute `.git` pointer; WSL Git cannot operate inside them. Run Node/pnpm commands through WSL and Git commands with Windows Git, or use the main `/mnt/d/Development/LastROWeb` checkout directly in WSL.
+- Playwright browser binaries are downloaded in WSL, but its system libraries still require the user to run `pnpm exec playwright install --with-deps chromium webkit` interactively with sudo. GitHub Actions installs both browser projects and their dependencies automatically.
 
 ## Known non-blocking limitations
 
