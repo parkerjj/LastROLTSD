@@ -5,6 +5,7 @@ import { createD1Repository } from './db/d1-repository';
 import { registerUploadRoute } from './routes/upload';
 import { registerSearchRoute } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
+import { registerItemsRoute } from './routes/items';
 import { registerHistoryRoute } from './routes/history';
 import { createListingStateService } from './services/state-transition';
 import { registerAdminRoutes } from './routes/admin';
@@ -35,6 +36,7 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
     const repository = createD1Repository(env.DB, env.CURSOR_SECRET);
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
+    registerItemsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
     registerUploadRoute(app, env, repository, createListingStateService(repository));
     registerAdminRoutes(app, env, repository);

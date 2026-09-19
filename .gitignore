@@ -10,6 +10,7 @@ source-seed*.local.sql
 playwright-report/
 test-results/
 coverage/
+.generated/
 .worktrees/
 worktrees/
 .superpowers/

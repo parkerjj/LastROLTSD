@@ -14,6 +14,7 @@
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings=0",
     "test:docs": "node scripts/check-docs.mjs",
+    "catalog:import": "node scripts/catalog-import.mjs",
     "secrets:generate": "node scripts/generate-secrets.mjs",
     "cf:config": "node scripts/render-wrangler-config.mjs",
     "cf:source-seed": "node scripts/render-source-seed.mjs"

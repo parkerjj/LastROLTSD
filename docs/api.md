@@ -52,6 +52,14 @@ Successful responses contain `accepted`, `batch_id`, `duplicate`, processed/chan
 
 `GET /api/v1/options` returns the versioned option dictionary with an ETag and 24-hour cache. `GET /api/v1/market/listings/:id/history` returns bounded price/quantity events, inferred-sale evidence, and a keyset cursor. When present, `inferredSales` contains `observedAt`, `soldQuantity`, `fromQuantity`, `toQuantity`, and a reason (`quantity_decrease`, `sold_out`, or low-confidence `missing_streak`); it is derived from immutable `sold_events` and is never inferred from an omitted delta item.
 
+## Item Catalog
+
+The server-owned item catalog is authoritative and keyed by `item_id`. Uploaded item names remain compatibility input only; they are not catalog, display, fingerprint, or search authority. Existing listings resolve names by `item_id` at read time, so a catalog rename changes the displayed name without another upload. Unknown IDs remain accepted and use the fallback `未知物品 #<item_id>`.
+
+`GET /api/v1/items?q=<text>&limit=<1..20>` searches catalog names and aliases only. It returns `{ version, items: [{ itemId, name, aliases }] }`, uses `Cache-Control: public, max-age=86400`, and sends an ETag derived from the versioned response. Empty `q` returns no item matches; the endpoint never searches live listings or uploaded names.
+
+The item catalog endpoint uses the same bounded D1 search structures: one- or two-code-point normalized Chinese queries use `search_short_tokens`, while queries of three or more code points use the indexed item FTS path. Matching stays inside D1 with `EXISTS` predicates; the Worker does not build an application-side item-ID `IN` list. The existing `GET /api/v1/market/search` text-search path is intentionally unchanged in this session; catalog-aware listing search is a later migration.
+
 ```json
 {
   "items": [{"id": 42, "listingId": 7, "observedAt": 1726660800000, "price": 100000, "quantity": 0, "eventType": "quantity_changed", "batchId": "redacted-snapshot/0"}],

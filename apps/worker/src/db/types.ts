@@ -18,3 +18,9 @@ export interface ListingOption {
   param: number;
   displayValue?: string;
 }
+
+export interface CatalogItemRow {
+  itemId: number;
+  name: string;
+  aliases: string[];
+}

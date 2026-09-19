@@ -2,7 +2,7 @@ import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types'
 import { assertBatchBounds } from './repository';
 import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext, DEFAULT_CURSOR_SECRET } from '../domain/search';
 import { makeTransitionKey } from '../domain/transitions';
-import type { BatchRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
+import type { BatchRow, CatalogItemRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 
 type Row = Record<string, unknown>;
@@ -429,6 +429,25 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const rows = await many<Row>(statement);
       return rows.map((row) => ({ version: String(row.version), optionType: Number(row.option_type), optionValue: Number(row.option_value), optionParam: Number(row.option_param), name: String(row.name), description: String(row.description), searchTokens: String(row.search_tokens) }));
     },
+    async getCatalogVersion() {
+      const row = await one<Row>(db.prepare('SELECT current_version FROM catalog_state WHERE id=1 LIMIT 1'));
+      return row?.current_version === undefined || row.current_version === null ? 'unpublished' : String(row.current_version);
+    },
+    async searchItems(query, limit) {
+      const normalized = normalizeCatalogQuery(query);
+      if (!normalized) return [];
+      const short = [...normalized].length <= 2;
+      const match = short ? normalized : '"' + normalized.replaceAll('"', '""') + '"';
+      const predicate = short
+        ? 'EXISTS (SELECT 1 FROM search_short_tokens st WHERE st.scope_type=\'item\' AND st.scope_id=c.item_id AND st.token=?1)'
+        : 'EXISTS (SELECT 1 FROM item_search_fts f WHERE f.item_id=CAST(c.item_id AS TEXT) AND f.text MATCH ?1)';
+      const sql = 'SELECT c.item_id,c.canonical_name_zh,' +
+        "COALESCE((SELECT json_group_array(alias) FROM (SELECT alias FROM item_aliases a WHERE a.item_id=c.item_id ORDER BY a.alias_normalized)), '[]') AS aliases_json " +
+        'FROM item_catalog c WHERE ' + predicate +
+        ' ORDER BY CASE WHEN c.name_normalized=?2 THEN 0 ELSE 1 END,c.item_id LIMIT ?3';
+      const rows = await many<Row>(db.prepare(sql).bind(match, normalized, Math.min(20, Math.max(1, limit))));
+      return rows.map((row): CatalogItemRow => ({ itemId: Number(row.item_id), name: String(row.canonical_name_zh), aliases: parseAliases(row.aliases_json) }));
+    },
     async deleteExpiredHistory(before, limit) { const result = await db.prepare('DELETE FROM listing_price_history WHERE id IN (SELECT id FROM listing_price_history WHERE observed_at < ?1 ORDER BY id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
     async deleteExpiredSoldEvents(before, limit) { const result = await db.prepare('DELETE FROM sold_events WHERE id IN (SELECT id FROM sold_events WHERE observed_at < ?1 ORDER BY id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
     async countExpiredHistory(before) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM listing_price_history WHERE observed_at < ?1').bind(before)); return Number(row?.count ?? 0); },
@@ -440,3 +459,17 @@ function batchFromRow(row: Row): BatchRow { return { id: Number(row.id), sourceI
 function sessionFromRow(row: Row) { return { id: Number(row.id), shopId: Number(row.shop_id), clientRunId: String(row.client_run_id), startedAt: Number(row.started_at), lastSeenAt: Number(row.last_seen_at), endedAt: row.ended_at === null ? null : Number(row.ended_at), initialSyncComplete: bool(row.initial_sync_complete), lastCompleteSnapshotId: row.last_complete_snapshot_id ? String(row.last_complete_snapshot_id) : null }; }
 function listingFromRow(row: Row): ListingRow { return { id: Number(row.id), shopSessionId: Number(row.shop_session_id), itemFingerprint: String(row.item_fingerprint), itemKey: row.item_key === null ? null : String(row.item_key), itemId: Number(row.item_id), itemName: String(row.item_name), itemNameNormalized: String(row.item_name_normalized), upgrade: Number(row.upgrade), slots: Number(row.slots), cards: cards(row), price: Number(row.price), quantity: Number(row.quantity), lastQuantity: Number(row.last_quantity), status: String(row.status), stateVersion: Number(row.state_version), missingStreak: Number(row.missing_streak), lastSeenAt: Number(row.last_seen_at) }; }
 function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
+
+function normalizeCatalogQuery(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
+}
+
+function parseAliases(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}

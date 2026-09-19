@@ -1,5 +1,5 @@
 import type { SearchFilters, UploadItem } from '@lastroweb/protocol';
-import type { BatchRow, HistoryRow, InferredSaleRow, ListingChange, ListingOption, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow, ShopInput } from './types';
+import type { BatchRow, CatalogItemRow, HistoryRow, InferredSaleRow, ListingChange, ListingOption, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow, ShopInput } from './types';
 
 export interface ListingTransitionChange {
   listingId: number;
@@ -86,6 +86,8 @@ export interface MarketRepository {
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
   getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; inferredSales?: InferredSaleRow[]; nextCursor: string | null } | null>;
   getOptionDictionary(version?: string): Promise<OptionDictionaryRow[]>;
+  getCatalogVersion(): Promise<string>;
+  searchItems(query: string, limit: number): Promise<CatalogItemRow[]>;
   deleteExpiredHistory?(before: number, limit: number): Promise<number>;
   deleteExpiredSoldEvents?(before: number, limit: number): Promise<number>;
   countExpiredHistory?(before: number): Promise<number>;
