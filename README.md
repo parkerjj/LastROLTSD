@@ -19,7 +19,7 @@ pnpm playwright test
 pnpm wrangler dev --local
 ```
 
-Use Node.js 22 and pnpm 11.19.0 for parity with CI. `pnpm dev` starts only the Vite UI; `pnpm wrangler dev --local` serves the Worker API and built Vite assets from one origin. Generated credentials are stored only in ignored local files. No production database IDs, API keys, or player data belong in this repository.
+Use the latest Node.js 24 release (`nvm install && nvm use`) and pnpm 11.19.0 for parity with CI. `pnpm dev` starts only the Vite UI; `pnpm wrangler dev --local` serves the Worker API and built Vite assets from one origin. Generated credentials are stored only in ignored local files. No production database IDs, API keys, or player data belong in this repository.
 
 ## Entrypoints
 

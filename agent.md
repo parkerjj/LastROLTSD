@@ -6,7 +6,8 @@
 - The implementation plan completion ledger marks Tasks 1-15 complete.
 - Fresh verification from the deployment worktree passed: pnpm lint; pnpm typecheck; pnpm test (25 files, 102 tests); pnpm test:docs (14 assertions); pnpm --filter web build; Windows pnpm playwright test (2 browser tests); Wrangler production deploy --dry-run; and git diff --check.
 - The fallback listing-option path is bounded: insertListingOptions sorts tuples, writes chunks of at most 12 rows, and counts six bound values per row. The 21-option regression test covers the former over-100-bound failure.
-- WSL is Debian 2. Non-interactive login shells now expose Node v22.23.2, npm 10.9.8, and pnpm 11.19.0 through nvm. Commands can run with `wsl.exe -d Debian -- bash -lc '...'`.
+- The project and CI require the latest Node 24 release, declared by `.nvmrc` and the root `engines` field, with pnpm 11.19.0 declared only by `packageManager`. GitHub Actions uses checkout/setup-node v7 and pnpm/action-setup v6 so the actions themselves no longer depend on the deprecated Node 20 runtime.
+- WSL is Debian 2. Use `nvm install 24 && nvm alias default 24 && nvm use 24`; then verify non-interactive login shells with `wsl.exe -d Debian -- bash -lc 'node -v; npm -v; pnpm -v'`.
 
 ## Deployment automation handoff
 

@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
@@ -19,7 +22,7 @@
     "@cloudflare/workers-types": "^4.20250918.0",
     "@playwright/test": "^1.55.0",
     "@types/jsdom": "21.1.7",
-    "@types/node": "^22.10.0",
+    "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",
     "eslint": "^9.17.0",

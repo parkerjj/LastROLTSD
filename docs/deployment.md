@@ -4,9 +4,11 @@ LastROWeb deploys as one Cloudflare Worker with static Vite assets and a D1 data
 
 ## Prerequisites and local verification
 
-Use Debian WSL2 with Node.js 22 and pnpm 11.19.0. From `/mnt/d/Development/LastROWeb`:
+Use Debian WSL2 with the latest Node.js 24 release and pnpm 11.19.0. From `/mnt/d/Development/LastROWeb`:
 
 ```bash
+nvm install
+nvm use
 corepack enable
 corepack prepare pnpm@11.19.0 --activate
 pnpm install --frozen-lockfile
