@@ -17,9 +17,9 @@ class FakeDb {
     const row = sql.includes('market_sources')
       ? { id: 's1', name: 'Source', api_key_hash: 'hash', status: 'active' }
       : sql.includes('SELECT listing_id,option_type')
-        ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0, display_value: 'Attack' }
+        ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0 }
       : sql.includes('FROM listings') && sql.includes('JOIN shop_sessions')
-        ? { id: 2, shop_session_id: 1, item_fingerprint: 'fp', item_key: null, item_id: 9, item_name: 'Sword', item_name_normalized: 'sword', upgrade: 0, slots: 0, card0: 0, card1: 0, card2: 0, card3: 0, price: 20, quantity: 1, last_quantity: 1, status: 'active', state_version: 1, missing_streak: 0, last_seen_at: 200, shop_key: 'shop', title: 'Shop', vendor_name: 'Vendor', map_name: 'map', shop_type: 'sell' }
+        ? { id: 2, shop_session_id: 1, item_fingerprint: 'fp', item_key: null, item_id: 9, upgrade: 0, slots: 0, card0: 0, card1: 0, card2: 0, card3: 0, price: 20, quantity: 1, last_quantity: 1, status: 'active', state_version: 1, missing_streak: 0, last_seen_at: 200, item_name_display: 'Sword', shop_key: 'shop', title: 'Shop', vendor_name: 'Vendor', map_name: 'map', shop_type: 'sell' }
       : sql.includes('ORDER BY CAST(input.key AS INTEGER)')
         ? { id: 3, shop_id: 1, client_run_id: 'run', started_at: 1, last_seen_at: 2, ended_at: null, initial_sync_complete: 0, last_complete_snapshot_id: null, input_source_id: 's1', input_shop_key: 'second' }
         : null;
@@ -56,7 +56,7 @@ describe('D1 repository', () => {
     expect(search?.sql).toContain('l.price = ?');
     expect(search?.bound).toContain(20);
     expect(search?.bound).toContain(7);
-    expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, displayValue: 'Attack' }]);
+    expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0 }]);
   });
 
   it('rejects a cursor created for a different sort', async () => {
@@ -70,7 +70,7 @@ describe('D1 repository', () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
     const result = await repo.searchListings({ limit: 10, option_type: 2 } as never);
-    expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, displayValue: 'Attack' }]);
+    expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0 }]);
     expect(db.statements.some((statement) => statement.sql.includes('listing_options'))).toBe(true);
   });
 
@@ -95,31 +95,47 @@ describe('D1 repository', () => {
     expect((batch as any).inserted).toBe(false);
   });
 
-  it('uses one JSON1 lookup result per distinct requested shop in request order', async () => {
+  it('joins catalog names at read time and never searches legacy item name columns', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    const inputs = [
-      { sourceId: 's1', shopKey: 'second', clientRunId: 'run', observedAt: 2, vendorKey: 'v', vendorName: 'V', title: 'Second', shopType: 'sell' as const, mapName: 'm', x: 1, y: 1 },
-      { sourceId: 's1', shopKey: 'second', clientRunId: 'run', observedAt: 2, vendorKey: 'v', vendorName: 'V', title: 'Second', shopType: 'sell' as const, mapName: 'm', x: 1, y: 1 },
-    ];
-    await repo.getOrCreateSessions!(inputs);
-    const lookup = [...db.statements].reverse().find((statement: Prepared) => statement.sql.includes('ORDER BY CAST(input.key AS INTEGER)'));
-    const sql = lookup?.sql ?? '';
-    expect(sql).toContain('ORDER BY CAST(input.key AS INTEGER)');
-    const payload = JSON.parse(String(lookup!.bound[0]));
-    expect(payload.map((input: { shopKey: string }) => input.shopKey)).toEqual(['second']);
+    const page = await repo.searchListings({ limit: 10, sort: 'price_asc' });
+    const search = db.statements.find((statement) => statement.sql.includes('FROM listings'))!;
+    expect(search.sql).toContain('LEFT JOIN item_catalog');
+    expect(search.sql).toContain('COALESCE(c.canonical_name_zh');
+    expect(search.sql).not.toContain('l.item_name_normalized');
+    expect(page.items[0]?.itemName).toBe('Sword');
   });
 
-  it('includes JS NFKC-normalized vendor and title fields in the bulk JSON payload', async () => {
+  it('reflects catalog renames and uses the unknown-item fallback without another upload', async () => {
+    let catalogName: string | null = 'Initial catalog name';
+    const db = {
+      prepare(sql: string) {
+        const row = sql.includes('FROM listings') && sql.includes('JOIN shop_sessions')
+          ? { id: 2, shop_session_id: 1, item_fingerprint: 'fp', item_key: null, item_id: 9876, upgrade: 0, slots: 0, card0: 0, card1: 0, card2: 0, card3: 0, price: 20, quantity: 1, last_quantity: 1, status: 'active', state_version: 1, missing_streak: 0, last_seen_at: 200, item_name_display: catalogName, shop_key: 'shop', title: 'Shop', vendor_name: 'Vendor', map_name: 'map', shop_type: 'sell' }
+          : sql.includes('SELECT listing_id,option_type') ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0 } : null;
+        return new Prepared(sql, row);
+      },
+      batch: async (statements: Prepared[]) => statements.map(() => ({ meta: { changes: 1 } })),
+    };
+    const repo = createD1Repository(db as never);
+    expect((await repo.searchListings({ limit: 10, sort: 'price_asc' })).items[0]?.itemName).toBe('Initial catalog name');
+    catalogName = 'Renamed catalog item';
+    expect((await repo.searchListings({ limit: 10, sort: 'price_asc' })).items[0]?.itemName).toBe('Renamed catalog item');
+    catalogName = null;
+    expect((await repo.searchListings({ limit: 10, sort: 'price_asc' })).items[0]?.itemName).toBe('未知物品 #9876');
+  });
+
+  it('does not persist client item names or option display text', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    await repo.getOrCreateSessions!([{ sourceId: 's1', shopKey: 'second', clientRunId: 'run', observedAt: 2, vendorKey: 'v', vendorName: '\uFF26endor', title: '\uFF33hop', shopType: 'sell', mapName: 'm', x: 1, y: 1 }]);
-    const vendorSql = db.statements.find((statement) => statement.sql.includes('INSERT INTO vendors'))!;
-    expect(vendorSql.sql).toContain("$.vendorNameNormalized");
-    expect(JSON.parse(String(vendorSql.bound[0]))[0].vendorNameNormalized).toBe('fendor');
-    const shopSql = db.statements.find((statement) => statement.sql.includes('INSERT INTO shops'))!;
-    expect(shopSql.sql).toContain("$.titleNormalized");
-    expect(JSON.parse(String(shopSql.bound[0]))[0].titleNormalized).toBe('shop');
+    const input = { sessionId: 1, fingerprint: 'fp', itemKey: 'slot-0', itemId: 1, name: 'Legacy client name', upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 1, batchId: 'b', options: [{ type: 2, value: 3, param: 0 }] } as any;
+    await repo.insertNewListingsBulk!([input]);
+    const writes = db.statements.filter((statement) => statement.sql.includes('INSERT OR IGNORE INTO listings'));
+    expect(writes[0]?.sql).not.toContain('item_name');
+    expect(writes[0]?.sql).not.toContain('display_value');
+    expect(JSON.parse(String(writes[0]?.bound[0]))[0]).not.toHaveProperty('itemName');
+    expect(JSON.parse(String(writes[0]?.bound[0]))[0]).not.toHaveProperty('name');
+    expect(JSON.parse(String(writes[0]?.bound[0]))[0].options[0]).toEqual({ type: 2, value: 3, param: 0 });
   });
 
   it('uses JSON1 arrays for reconciliation scope instead of one SQL bind per session', async () => {
@@ -190,7 +206,7 @@ describe('D1 repository', () => {
   it('provides JSON1 bulk listing operations with bounded batch statements', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    await repo.insertNewListingsBulk!([{ sessionId: 1, fingerprint: 'fp', itemId: 1, itemName: 'Item', itemNameNormalized: 'item', upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 1, batchId: 'b', options: [{ type: 2, value: 3, param: 0 }, { type: 1, value: 4, param: 0 }] }]);
+    await repo.insertNewListingsBulk!([{ sessionId: 1, fingerprint: 'fp', itemId: 1, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 1, batchId: 'b', options: [{ type: 2, value: 3, param: 0 }, { type: 1, value: 4, param: 0 }] }]);
     await repo.applyListingTransitionsBulk!([{ listingId: 1, shopSessionId: 1, expectedVersion: 0, price: 9, quantity: 0, status: 'sold_out', observedAt: 2, batchId: 'b2', history: { eventType: 'quantity_changed' }, soldEvent: { soldQuantity: 1, fromQuantity: 1, toQuantity: 0, reason: 'sold_out', transitionKey: 'k' } }]);
     await repo.markListingsObservedBulk!([{ sessionId: 1, fingerprint: 'fp' }], 'b2', 2);
     expect(db.statements.filter((statement) => statement.sql.includes('json_each')).length).toBeGreaterThanOrEqual(7);
@@ -246,7 +262,7 @@ describe('D1 repository', () => {
 
     const optionWrites = db.statements.filter((statement) => statement.sql.includes('INSERT OR REPLACE INTO listing_options'));
     expect(optionWrites).toHaveLength(21);
-    expect(optionWrites.slice(0, 12).reduce((sum, statement) => sum + statement.bound.length, 0)).toBe(72);
-    expect(optionWrites.slice(12).reduce((sum, statement) => sum + statement.bound.length, 0)).toBe(54);
+    expect(optionWrites.slice(0, 12).reduce((sum, statement) => sum + statement.bound.length, 0)).toBe(60);
+    expect(optionWrites.slice(12).reduce((sum, statement) => sum + statement.bound.length, 0)).toBe(45);
   });
 });

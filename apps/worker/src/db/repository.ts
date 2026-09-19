@@ -1,4 +1,4 @@
-import type { SearchFilters, UploadItem } from '@lastroweb/protocol';
+import type { SearchFilters, UploadItem, UploadShop } from '@lastroweb/protocol';
 import type { BatchRow, CatalogItemRow, HistoryRow, InferredSaleRow, ListingChange, ListingOption, ListingRow, ListingSearchRow, OptionDictionaryRow, SessionInput, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow, ShopInput } from './types';
 
 export interface ListingTransitionChange {
@@ -36,10 +36,13 @@ export interface SnapshotReconciliationInput {
 
 export interface ShopSessionContextInput {
   sourceId: string;
-  shopKey: string;
+  identityHash: string;
+  shopId: string;
+  shopStatus: UploadShop['shop_status'];
+  batchId: string;
+  vendorAccountId: string;
   clientRunId: string;
   observedAt: number;
-  vendorKey: string;
   vendorName: string;
   title: string;
   shopType: 'buy' | 'sell';
@@ -48,12 +51,23 @@ export interface ShopSessionContextInput {
   y: number;
 }
 
+export interface ShopResolution {
+  internalShopId: number;
+  shopId: string;
+  identityHash: string;
+  resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored';
+  status: 'opening' | 'dismissed';
+  applied: boolean;
+  session: ShopSessionRow | null;
+}
+
 export interface MarketRepository {
   findSourceByApiKeyHash(hash: string): Promise<SourceRow | null>;
   getOrCreateVendor(sourceId: string, input: VendorInput): Promise<VendorRow>;
   getOrCreateShop(sourceId: string, input: ShopInput): Promise<ShopRow>;
   getOrCreateSession(input: SessionInput): Promise<ShopSessionRow>;
   getOrCreateSessions?(inputs: ShopSessionContextInput[]): Promise<ShopSessionRow[]>;
+  resolveShopObservation?(input: ShopSessionContextInput): Promise<ShopResolution>;
   getBatch(sourceId: string, batchId: string): Promise<BatchRow | null>;
   getSnapshotParts(sourceId: string, snapshotId: string): Promise<BatchRow[]>;
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow & { inserted?: boolean }>;
@@ -66,10 +80,10 @@ export interface MarketRepository {
   applyListingTransitions?(changes: ListingTransitionChange[]): Promise<{ updated: number; conflicts: number; soldEvents: number; conflictIds?: number[] }>;
   insertListingOptions?(input: { listingId: number; options: ListingOption[] }): Promise<void>;
   markListingsObserved?(sessionId: number, fingerprints: string[], batchId: string, observedAt: number): Promise<number>;
-  createListing?(input: { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }): Promise<ListingRow>;
-  createListingsBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }>): Promise<ListingRow[]>;
-  createListingsBundleBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string; options: ListingOption[] }>): Promise<ListingRow[]>;
-  insertNewListingsBulk?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string; options: ListingOption[] }>): Promise<void>;
+  createListing?(input: { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }): Promise<ListingRow>;
+  createListingsBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string }>): Promise<ListingRow[]>;
+  createListingsBundleBatch?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string; options: ListingOption[] }>): Promise<ListingRow[]>;
+  insertNewListingsBulk?(inputs: Array<{ sessionId: number; fingerprint: string; itemKey?: string; itemId: number; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string; options: ListingOption[] }>): Promise<void>;
   insertHistory?(input: { listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }): Promise<void>;
   insertHistoriesBatch?(inputs: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }>): Promise<void>;
   insertListingOptionsBatch?(inputs: Array<{ listingId: number; options: ListingOption[] }>): Promise<void>;
@@ -77,8 +91,8 @@ export interface MarketRepository {
   applyListingChanges(changes: ListingChange[]): Promise<{ updated: number; conflicts: number }>;
   applyListingTransitionsBulk?(changes: ListingTransitionChange[]): Promise<{ updated: number; conflicts: number; soldEvents: number; conflictIds?: number[] }>;
   markListingsObservedBulk?(observations: Array<{ sessionId: number; fingerprint: string }>, batchId: string, observedAt: number): Promise<number>;
-  markShopHeartbeats(sourceId: string, shopKeys: string[], observedAt: number): Promise<number>;
-  getUninitializedShopKeys?(sourceId: string, shopKeys: string[]): Promise<string[]>;
+  markShopHeartbeats?(sourceId: string, identityHashes: string[], observedAt: number): Promise<number>;
+  getUninitializedShopKeys?(sourceId: string, identityHashes: string[]): Promise<string[]>;
   finalizeSnapshot(sourceId: string, snapshotId: string, observedAt: number): Promise<void>;
   recordSnapshotSessions?(sourceId: string, snapshotId: string, sessionIds: number[], observedAt: number): Promise<void>;
   getSnapshotSessionIds?(sourceId: string, snapshotId: string): Promise<number[]>;
@@ -94,7 +108,8 @@ export interface MarketRepository {
   countExpiredSoldEvents?(before: number): Promise<number>;
 }
 
-export interface UploadResultLike { accepted: boolean; batchId: string; duplicate: boolean; processedShops: number; processedListings: number; changedListings: number; soldEvents: number; next: string | null; }
+export interface UploadShopResult { uuid: string; shop_id: string; shop_status: 'opening' | 'dismissed'; applied: boolean; resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored'; }
+export interface UploadResultLike { accepted: boolean; batch_id: string; duplicate: boolean; processed_shops: number; processed_listings: number; changed_listings: number; sold_events: number; shops: UploadShopResult[]; next: string | null; }
 
 export function assertBatchBounds(statementCount: number, boundValues: number): void {
   if (statementCount > 45) throw new Error('D1 batch statement limit exceeded');

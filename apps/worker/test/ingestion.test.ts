@@ -3,80 +3,103 @@ import { ingestUpload } from '../src/services/ingestion';
 import type { MarketRepository } from '../src/db/repository';
 import type { AuthenticatedSource } from '../src/middleware/auth';
 
-const source: AuthenticatedSource = { id: 's1', name: 'Source', apiKeyHash: 'hash', status: 'active', tokenHash: 'hash' };
-const request = { protocol_version: 1, client_run_id: 'run', snapshot_id: 'snap', snapshot_mode: 'full' as const, part_index: 0, part_count: 1, observed_at: '2026-09-18T12:00:00Z', shops_seen: ['shop'], shops: [{ shop_key: 'shop', vendor_key: 'vendor', vendor_name: 'Vendor', title: 'Shop', shop_type: 'sell' as const, map_name: 'map', x: 1, y: 2, items: [{ item_id: 1, name: 'Item', upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] }] }] } as any;
+const source: AuthenticatedSource = { id: 's1', name: 'Synthetic source', apiKeyHash: 'hash', status: 'active', tokenHash: 'hash' };
+const baseSession = { id: 1, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: true, lastCompleteSnapshotId: 'baseline' };
+const shop = {
+  uuid: '5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1',
+  shop_status: 'opening' as const,
+  vendor_account_id: 'vendor-account',
+  vendor_name: 'Vendor',
+  title: 'Shop',
+  shop_type: 'sell' as const,
+  map_name: 'map',
+  x: 1,
+  y: 2,
+  items: [{ item_key: 'item-v1:slot-0', item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] }],
+};
+const request = {
+  protocol_version: 2 as const,
+  client_run_id: 'run',
+  snapshot_id: 'snap',
+  snapshot_mode: 'full' as const,
+  part_index: 0,
+  part_count: 1,
+  observed_at: '2026-09-19T12:00:00Z',
+  shops: [shop],
+};
 
-function fakeRepo(): MarketRepository {
+function fakeRepo(session = baseSession): MarketRepository {
   let batch: any = null;
-  return {
+  const repository: Partial<MarketRepository> = {
     findSourceByApiKeyHash: async () => source,
     getOrCreateVendor: async (_source, input) => ({ id: 1, sourceId: 's1', ...input }),
     getOrCreateShop: async (_source, input) => ({ id: 1, sourceId: 's1', ...input, status: 'active', closedAt: null }),
-    getOrCreateSession: async (input) => ({ id: 1, shopId: input.shopId, clientRunId: 'run', startedAt: input.observedAt, lastSeenAt: input.observedAt, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null }),
+    getOrCreateSession: async (input) => ({ ...session, shopId: input.shopId, clientRunId: input.clientRunId, startedAt: input.observedAt, lastSeenAt: input.observedAt }),
+    resolveShopObservation: async (input) => ({ internalShopId: session.shopId, shopId: 'shop_v1_synthetic', identityHash: 'identity-a', resolution: 'matched', status: input.shopStatus, applied: true, session: input.shopStatus === 'dismissed' ? null : session }),
     getBatch: async () => batch,
     getSnapshotParts: async () => [],
     insertBatch: async (input) => { batch = { id: 1, ...input, status: 'processing' }; return batch; },
     completeBatch: async (_source, _id, response) => { batch = { ...batch, status: 'accepted', responseJson: JSON.stringify(response) }; },
-    loadListingsByFingerprint: async () => [], applyListingChanges: async () => ({ updated: 0, conflicts: 0 }), markShopHeartbeats: async () => 1, finalizeSnapshot: async () => {}, searchListings: async () => ({ items: [], nextCursor: null }), getListingHistory: async () => ({ items: [], nextCursor: null }), getOptionDictionary: async () => [],
+    loadListingsByFingerprint: async () => [],
+    applyListingChanges: async () => ({ updated: 0, conflicts: 0 }),
+    markListingsObservedBulk: async () => 1,
+    recordSnapshotSessions: async () => {},
+    finalizeSnapshot: async () => {},
+    searchListings: async () => ({ items: [], nextCursor: null }),
+    getListingHistory: async () => ({ items: [], nextCursor: null }),
+    getOptionDictionary: async () => [],
+    getCatalogVersion: async () => 'test',
+    searchItems: async () => [],
   };
+  return repository as MarketRepository;
 }
 
 describe('upload ingestion', () => {
-  it('accepts a baseline and returns the same result for a duplicate batch', async () => {
-    const repo = fakeRepo(); const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: observations.length, soldEvents: 0 }) };
+  it('accepts a protocol 2 baseline without item names and replays it idempotently', async () => {
+    const repo = fakeRepo();
+    const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: observations.length, soldEvents: 0 }) };
     const first = await ingestUpload(source, request, 'snap/0', repo, state);
     const second = await ingestUpload(source, request, 'snap/0', repo, state);
-    expect(first.duplicate).toBe(false); expect(second.duplicate).toBe(true); expect(second.batchId).toBe(first.batchId); expect(second.processedListings).toBe(1);
+    expect(first).toMatchObject({ accepted: true, batch_id: 'snap/0', processed_listings: 1, duplicate: false });
+    expect(second).toEqual({ ...first, duplicate: true });
   });
-  it('rejects a duplicate batch with a changed payload', async () => {
-    const repo = fakeRepo(); const state = { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) };
+
+  it('rejects a duplicate batch with a changed structured payload', async () => {
+    const repo = fakeRepo();
+    const state = { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) };
     await ingestUpload(source, request, 'snap/0', repo, state);
-    await expect(ingestUpload(source, { ...request, shops_seen: ['other'] }, 'snap/0', repo, state)).rejects.toMatchObject({ status: 409 });
+    await expect(ingestUpload(source, { ...request, shops: [{ ...shop, title: 'Changed shop' }] }, 'snap/0', repo, state)).rejects.toMatchObject({ status: 409 });
   });
+
   it('rejects an idempotency key that does not match the canonical snapshot part', async () => {
     await expect(ingestUpload(source, request, 'other/0', fakeRepo(), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('treats equivalent option ordering as the same normalized payload', async () => {
+  it('treats equivalent raw option ordering as the same normalized payload', async () => {
     const repo = fakeRepo();
     const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: 0, soldEvents: 0 }) };
-    const firstRequest = {
-      ...request,
-      shops: [{ ...request.shops[0], items: [{ ...request.shops[0].items[0], options: [{ type: 2, value: 4, param: 1 }, { type: 1, value: 8, param: 0 }] }] }],
-    } as any;
-    const reorderedRequest = {
-      ...firstRequest,
-      shops: [{ ...firstRequest.shops[0], items: [{ ...firstRequest.shops[0].items[0], options: [{ type: 1, value: 8, param: 0 }, { type: 2, value: 4, param: 1 }] }] }],
-    } as any;
+    const firstRequest = { ...request, shops: [{ ...shop, items: [{ ...shop.items[0], options: [{ type: 2, value: 4, param: 1 }, { type: 1, value: 8, param: 0 }] }] }] };
+    const reorderedRequest = { ...firstRequest, shops: [{ ...shop, items: [{ ...shop.items[0], options: [{ type: 1, value: 8, param: 0 }, { type: 2, value: 4, param: 1 }] }] }] };
     await ingestUpload(source, firstRequest, 'snap/0', repo, state);
     const duplicate = await ingestUpload(source, reorderedRequest, 'snap/0', repo, state);
     expect(duplicate.duplicate).toBe(true);
   });
 
-  it('does not process a batch returned from a concurrent insert race', async () => {
+  it('returns the stored response from a concurrent insert race without processing the payload', async () => {
     const repo = fakeRepo();
-    let inserts = 0;
-    repo.getBatch = async () => null;
-    const originalInsert = repo.insertBatch;
-    repo.insertBatch = async (input: any) => {
-      inserts += 1;
-      if (inserts === 1) return originalInsert(input);
-      return { id: 1, ...input, status: 'accepted', responseJson: JSON.stringify({ accepted: true, batchId: 'snap/0', duplicate: false, processedShops: 1, processedListings: 1, changedListings: 0, soldEvents: 0, next: null }), inserted: false } as any;
-    };
     const state = { applyBatchObservations: async () => ({ processedListings: 99, changedListings: 99, soldEvents: 99 }) };
-    await ingestUpload(source, request, 'snap/0', repo, state);
+    repo.getBatch = async () => null;
+    repo.insertBatch = async (input: any) => ({ id: 1, ...input, status: 'accepted', responseJson: JSON.stringify({ accepted: true, batch_id: 'snap/0', duplicate: false, processed_shops: 1, processed_listings: 1, changed_listings: 0, sold_events: 0, shops: [], next: null }), inserted: false }) as any;
     const duplicate = await ingestUpload(source, request, 'snap/0', repo, state);
-    expect(duplicate.duplicate).toBe(true);
-    expect(duplicate.processedListings).toBe(1);
+    expect(duplicate).toEqual({ accepted: true, batch_id: 'snap/0', duplicate: true, processed_shops: 1, processed_listings: 1, changed_listings: 0, sold_events: 0, shops: [], next: null });
   });
 
-  it('chunks heartbeat shop updates into bounded calls', async () => {
+  it('uses shop objects for heartbeat and does not process listings', async () => {
     const repo = fakeRepo();
-    const heartbeatCalls: number[] = [];
-    repo.markShopHeartbeats = async (_source, shops) => { heartbeatCalls.push(shops.length); return shops.length; };
-    const heartbeatRequest = { ...request, snapshot_mode: 'heartbeat', shops_seen: Array.from({ length: 81 }, (_, index) => `shop-${index}`), shops: [] } as any;
-    await ingestUpload(source, heartbeatRequest, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
-    expect(heartbeatCalls).toEqual([40, 40, 1]);
+    const heartbeat = { ...request, snapshot_id: 'heartbeat', snapshot_mode: 'heartbeat' as const, shops: [{ ...shop, items: [] }] };
+    const state = { applyBatchObservations: async () => ({ processedListings: 99, changedListings: 99, soldEvents: 99 }) };
+    const result = await ingestUpload(source, heartbeat, 'heartbeat/0', repo, state);
+    expect(result).toMatchObject({ processed_shops: 1, processed_listings: 0, changed_listings: 0, sold_events: 0 });
   });
 
   it('marks a failed batch rejected so retries do not remain stuck processing', async () => {
@@ -86,62 +109,26 @@ describe('upload ingestion', () => {
     const state = { applyBatchObservations: async () => { throw new Error('temporary write failure'); } };
     await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toThrow('temporary write failure');
     expect(failed).toBe(true);
-    const failedBatch = await repo.getBatch('s1', 'snap/0');
-    repo.getBatch = async () => failedBatch ? { ...failedBatch, status: 'rejected' } : null;
-    let retried = false;
-    repo.retryBatch = async () => { retried = true; return true; };
-    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toThrow('temporary write failure');
-    expect(retried).toBe(true);
   });
 
   it('does not process a rejected batch when another retry wins the atomic claim', async () => {
     const repo = fakeRepo();
     repo.getBatch = async () => ({ id: 1, sourceId: 's1', batchId: 'snap/0', snapshotId: 'snap', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'unused', status: 'rejected', responseJson: null } as any);
-    repo.retryBatch = async () => false as any;
-    const state = { applyBatchObservations: async () => ({ processedListings: 1, changedListings: 1, soldEvents: 0 }) };
-    await expect(ingestUpload(source, request, 'snap/0', repo, state)).rejects.toMatchObject({ status: 409 });
+    repo.retryBatch = async () => false;
+    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 1, changedListings: 1, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
   });
 
   it('requires a full snapshot before accepting a delta for a new session', async () => {
-    const repo = fakeRepo();
+    const repo = fakeRepo({ ...baseSession, initialSyncComplete: false, lastCompleteSnapshotId: null });
     const delta = { ...request, snapshot_mode: 'delta' as const };
     await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
   });
 
-  it('maps repeated shop keys to the one deduplicated bulk session', async () => {
+  it('returns dismissed shops without processing or creating sold events', async () => {
     const repo = fakeRepo();
-    const session = { id: 9, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null };
-    repo.getOrCreateSessions = async () => [session];
-    const duplicateShops = { ...request, shops: [request.shops[0], { ...request.shops[0], items: [{ ...request.shops[0].items[0], item_id: 2 }] }] } as any;
-    const seen: number[] = [];
-    const state = { applyBatchObservations: async (_source: any, active: any, observations: any[]) => { seen.push(active.id); return { processedListings: observations.length, changedListings: 0, soldEvents: 0 }; } };
-    const result = await ingestUpload(source, duplicateShops, 'snap/0', repo, state);
-    expect(result.processedListings).toBe(2);
-    expect(seen).toEqual([9]);
-  });
-
-  it('uses one bulk state pass for observations from multiple shops', async () => {
-    const repo = fakeRepo();
-    const sessions = [
-      { id: 11, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null },
-      { id: 12, shopId: 2, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null },
-    ];
-    repo.getOrCreateSessions = async () => sessions;
-    const multiShop = { ...request, shops: [request.shops[0], { ...request.shops[0], shop_key: 'shop-2', vendor_key: 'vendor-2' }] } as any;
-    const bulkCalls: number[] = [];
-    const state = { applyBatchObservations: async () => { throw new Error('per-session state pass should not be used'); }, applyBatchObservationsBulk: async (_source: any, activeSessions: Map<number, any>, observations: any[]) => { bulkCalls.push(activeSessions.size); return { processedListings: observations.length, changedListings: 0, soldEvents: 0 }; } } as any;
-    const result = await ingestUpload(source, multiShop, 'snap/0', repo, state);
-    expect(result.processedListings).toBe(2);
-    expect(bulkCalls).toEqual([2]);
-  });
-
-  it('marks all observed listings with one bulk observation update', async () => {
-    const repo = fakeRepo();
-    const observed: unknown[] = [];
-    repo.markListingsObservedBulk = async (input: unknown[]) => { observed.push(input); return input.length; };
-    const state = { applyBatchObservationsBulk: async (_source: any, _sessions: any, observations: any[]) => ({ processedListings: observations.length, changedListings: 0, soldEvents: 0 }) } as any;
-    await ingestUpload(source, request, 'snap/0', repo, state);
-    expect(observed).toHaveLength(1);
-    expect((observed[0] as unknown[]).length).toBe(1);
+    const dismissed = { ...request, snapshot_id: 'dismissed', shops: [{ ...shop, shop_status: 'dismissed' as const, items: [] }] };
+    const result = await ingestUpload(source, dismissed, 'dismissed/0', repo, { applyBatchObservations: async () => ({ processedListings: 99, changedListings: 99, soldEvents: 99 }) });
+    expect(result).toMatchObject({ processed_listings: 0, sold_events: 0 });
+    expect(result.shops[0]).toMatchObject({ uuid: shop.uuid, shop_status: 'dismissed', resolution: 'matched' });
   });
 });

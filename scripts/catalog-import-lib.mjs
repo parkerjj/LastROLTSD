@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 
-export const IMPORTER_VERSION = '1.0.0';
+export const IMPORTER_VERSION = '1.1.1';
 export const MAX_SQL_STATEMENT_BYTES = 90 * 1024;
 export const MAX_SQL_STATEMENTS = 45;
+export const MAX_ITEMS_PER_TRANSACTION = 256;
 const MAX_TEXT_LENGTH = 10_000;
 
 export function sha256Hex(value) {
@@ -24,16 +25,80 @@ export function parseCatalogInput(buffer, metadata) {
   const text = decodeInput(buffer, metadata?.encoding ?? 'auto', filename);
   const records = parseRecords(text, filename);
   if (records.length === 0) throw validationError(filename, 1, 'record', 'input contains no records');
-  const items = records.map((record) => normalizeItemRecord(record.value, filename, record.line));
+  let skippedCount = 0;
+  const items = [];
+  for (const record of records) {
+    const item = normalizeItemRecord(record.value, filename, record.line, { allowEmptyName: metadata?.skipEmptyNames === true });
+    if (item === null) skippedCount += 1;
+    else items.push(item);
+  }
+  if (items.length === 0) throw validationError(filename, 1, 'record', 'input contains no named records');
   validateItemSet(items, filename);
-  return { kind: 'items', items };
+  return { kind: 'items', items, skippedCount };
+}
+
+export function parseDescriptionInput(buffer, metadata) {
+  const filename = String(metadata?.filename ?? 'descriptions');
+  const kind = metadata?.kind ?? 'item-descriptions';
+  if (kind !== 'item-descriptions') throw validationError(filename, 1, 'kind', 'expected item-descriptions input');
+  const text = decodeInput(buffer, metadata?.encoding ?? 'auto', filename);
+  const records = parseDescriptionRecords(text, filename);
+  if (records.length === 0) throw validationError(filename, 1, 'record', 'input contains no description records');
+
+  const descriptions = new Map();
+  let duplicateCount = 0;
+  for (const record of records) {
+    const itemId = parseItemId(record.id, filename, record.line);
+    const description = normalizeDescriptionText(record.body.join('\n'));
+    if (description.length > MAX_TEXT_LENGTH) throw validationError(filename, record.line, 'description', 'value is too long');
+    if (descriptions.has(itemId)) duplicateCount += 1;
+    const value = { itemId, description };
+    Object.defineProperties(value, {
+      sourceFilename: { value: filename, enumerable: false },
+      sourceLine: { value: record.line, enumerable: false },
+    });
+    descriptions.set(itemId, value);
+  }
+  return {
+    kind: 'item-descriptions',
+    descriptions: [...descriptions.values()].sort((left, right) => left.itemId - right.itemId),
+    recordCount: records.length,
+    duplicateCount,
+  };
 }
 
 export function mergeCatalogInputs(inputs) {
   const items = inputs.flatMap((input) => input.items);
   if (items.length === 0) throw validationError('catalog release', 1, 'record', 'input contains no records');
   validateItemSet(items, 'catalog release');
-  return { kind: 'items', items };
+  return { kind: 'items', items, skippedCount: inputs.reduce((total, input) => total + (input.skippedCount ?? 0), 0) };
+}
+
+export function mergeCatalogDescriptions(input, descriptionInput) {
+  if (!descriptionInput || descriptionInput.kind !== 'item-descriptions') throw new TypeError('expected parsed item descriptions');
+  const itemIds = new Set(input.items.map((item) => item.itemId));
+  for (const description of descriptionInput.descriptions) {
+    if (!itemIds.has(description.itemId)) {
+      throw validationError(description.sourceFilename ?? 'descriptions', description.sourceLine ?? 1, 'id', 'unknown item id');
+    }
+  }
+  const descriptions = new Map(descriptionInput.descriptions.map((description) => [description.itemId, description.description]));
+  const items = input.items.map((item) => {
+    const merged = { ...item, description: descriptions.has(item.itemId) ? descriptions.get(item.itemId) : item.description };
+    Object.defineProperties(merged, {
+      sourceFilename: { value: item.sourceFilename, enumerable: false },
+      sourceLine: { value: item.sourceLine, enumerable: false },
+    });
+    return merged;
+  });
+  return {
+    kind: 'items',
+    items,
+    skippedCount: input.skippedCount ?? 0,
+    descriptionCount: descriptionInput.descriptions.length,
+    descriptionRecordCount: descriptionInput.recordCount,
+    descriptionDuplicateCount: descriptionInput.duplicateCount,
+  };
 }
 
 export function catalogChecksum(input) {
@@ -53,35 +118,86 @@ export function buildCatalogManifest(input, options = {}) {
     outputChecksum: String(options.outputChecksum ?? ''),
     itemCount: input.items.length,
     aliasCount: input.items.reduce((total, item) => total + item.aliases.length, 0),
+    descriptionCount: Number(options.descriptionCount ?? input.descriptionCount ?? input.items.filter((item) => item.description).length),
+    descriptionRecordCount: Number(options.descriptionRecordCount ?? input.descriptionRecordCount ?? input.items.filter((item) => item.description).length),
+    descriptionDuplicateCount: Number(options.descriptionDuplicateCount ?? input.descriptionDuplicateCount ?? 0),
+    skippedCount: Number(options.skippedCount ?? input.skippedCount ?? 0),
     errorCount: 0,
   };
 }
 
 export function renderCatalogSql(input, options = {}) {
+  return renderCatalogSqlParts(input, options).join('');
+}
+
+export function renderCatalogSqlParts(input, options = {}) {
   const version = String(options.version ?? 'unversioned');
   const dataChecksum = String(options.checksum ?? catalogChecksum(input));
   const outputChecksum = String(options.outputChecksum ?? dataChecksum);
   const items = [...input.items].sort((left, right) => left.itemId - right.itemId);
-  const itemIds = items.map((item) => item.itemId);
-  const statements = [
-    'PRAGMA foreign_keys = ON',
-    'BEGIN TRANSACTION',
-  ];
-
-  if (itemIds.length > 0) {
-    statements.push(...chunkDeleteByIds('search_short_tokens', 'scope_id', itemIds, "scope_type='item'"));
-    statements.push(...chunkDeleteByIds('item_search_fts', 'item_id', itemIds));
-    statements.push(...chunkDeleteByIds('item_aliases', 'item_id', itemIds));
+  if (items.length === 0) throw new Error('catalog release contains no items');
+  const totals = {
+    itemCount: items.length,
+    aliasCount: items.reduce((total, item) => total + item.aliases.length, 0),
+  };
+  const parts = [];
+  const maxBodyStatements = MAX_SQL_STATEMENTS - 1 - 2;
+  let offset = 0;
+  while (offset < items.length) {
+    let size = Math.min(MAX_ITEMS_PER_TRANSACTION, items.length - offset);
+    let preparedBatch;
+    let body;
+    while (true) {
+      preparedBatch = items.slice(offset, offset + size).map((item) => prepareCatalogItem(item, version));
+      body = renderCatalogStatements(preparedBatch, { version, dataChecksum, outputChecksum, totals }, false);
+      if (body.length <= maxBodyStatements) break;
+      if (size === 1) throw new Error('one catalog item exceeds the statement budget');
+      size = Math.max(1, Math.floor(size / 2));
+    }
+    if (offset + size === items.length) {
+      body = renderCatalogStatements(preparedBatch, { version, dataChecksum, outputChecksum, totals }, true);
+    }
+    const statements = ['PRAGMA foreign_keys = ON', ...body];
+    if (statements.length > MAX_SQL_STATEMENTS) throw new Error('generated SQL exceeds the statement budget; split the catalog release');
+    parts.push(statements.map((statement) => statement + ';').join('\n') + '\n');
+    offset += size;
   }
+  return parts;
+}
 
+function prepareCatalogItem(item, version) {
+  const seen = new Set();
+  for (const text of [item.name, ...item.aliases, item.description]) {
+    const codePoints = [...normalizeCatalogText(text)];
+    for (let width = 1; width <= 2; width += 1) {
+      for (let index = 0; index + width <= codePoints.length; index += 1) {
+        seen.add(codePoints.slice(index, index + width).join(''));
+      }
+    }
+  }
+  return {
+    itemId: item.itemId,
+    catalogRow: [item.itemId, item.name, normalizeCatalogText(item.name), item.description, version, 0],
+    aliasRows: item.aliases.map((alias) => [item.itemId, alias, normalizeCatalogText(alias), 'approved', version, 0]),
+    ftsRow: [item.itemId, searchableText(item)],
+    tokenRows: [...seen].sort(compareCatalogText).map((token) => ['item', item.itemId, token]),
+  };
+}
+
+function renderCatalogStatements(batch, options, includeMetadata) {
+  const { version, dataChecksum, outputChecksum, totals } = options;
+  const itemIds = batch.map((entry) => entry.itemId);
+  const statements = [];
+  statements.push(...chunkDeleteByIds('search_short_tokens', 'scope_id', itemIds, "scope_type='item'"));
+  statements.push(...chunkDeleteByIds('item_search_fts', 'item_id', itemIds));
+  statements.push(...chunkDeleteByIds('item_aliases', 'item_id', itemIds));
   statements.push(...chunkInsert(
     'item_catalog',
     ['item_id', 'canonical_name_zh', 'name_normalized', 'description', 'data_version', 'updated_at'],
-    items.map((item) => [item.itemId, item.name, normalizeCatalogText(item.name), item.description, version, 0]),
+    batch.map((entry) => entry.catalogRow),
     { conflictClause: 'ON CONFLICT(item_id) DO UPDATE SET canonical_name_zh=excluded.canonical_name_zh,name_normalized=excluded.name_normalized,description=excluded.description,data_version=excluded.data_version,updated_at=excluded.updated_at' },
   ));
-
-  const aliases = items.flatMap((item) => item.aliases.map((alias) => [item.itemId, alias, normalizeCatalogText(alias), 'approved', version, 0]))
+  const aliases = batch.flatMap((entry) => entry.aliasRows)
     .sort((left, right) => Number(left[0]) - Number(right[0]) || compareCatalogText(String(left[2]), String(right[2])));
   statements.push(...chunkInsert(
     'item_aliases',
@@ -89,35 +205,18 @@ export function renderCatalogSql(input, options = {}) {
     aliases,
     { insertPrefix: 'INSERT' },
   ));
-
-  const ftsRows = items.map((item) => [item.itemId, searchableText(item)]);
-  statements.push(...chunkInsert('item_search_fts', ['item_id', 'text'], ftsRows));
-
-  const tokenRows = [];
-  for (const item of items) {
-    const seen = new Set();
-    for (const text of [item.name, ...item.aliases, item.description]) {
-      const codePoints = [...normalizeCatalogText(text)];
-      for (let width = 1; width <= 2; width += 1) {
-        for (let index = 0; index + width <= codePoints.length; index += 1) {
-          seen.add(codePoints.slice(index, index + width).join(''));
-        }
-      }
-    }
-    for (const token of [...seen].sort(compareCatalogText)) tokenRows.push(['item', item.itemId, token]);
+  statements.push(...chunkInsert('item_search_fts', ['item_id', 'text'], batch.map((entry) => entry.ftsRow)));
+  const tokenRows = batch.flatMap((entry) => entry.tokenRows);
+  statements.push(...chunkJsonInsertIgnore('search_short_tokens', ['scope_type', 'scope_id', 'token'], tokenRows));
+  if (includeMetadata) {
+    statements.push(
+      'INSERT INTO catalog_versions(version,checksum,imported_at,item_count,alias_count,option_count,importer_version,output_checksum) VALUES (' +
+        [version, dataChecksum, 0, totals.itemCount, totals.aliasCount, 0, IMPORTER_VERSION, outputChecksum].map(sqlLiteral).join(',') +
+        ') ON CONFLICT(version) DO UPDATE SET checksum=excluded.checksum, imported_at=excluded.imported_at, item_count=excluded.item_count, alias_count=excluded.alias_count, option_count=excluded.option_count, importer_version=excluded.importer_version, output_checksum=excluded.output_checksum',
+    );
+    statements.push('INSERT INTO catalog_state(id,current_version,updated_at) VALUES (1,' + sqlLiteral(version) + ',0) ON CONFLICT(id) DO UPDATE SET current_version=excluded.current_version,updated_at=excluded.updated_at');
   }
-  tokenRows.sort((left, right) => Number(left[1]) - Number(right[1]) || compareCatalogText(String(left[2]), String(right[2])));
-  statements.push(...chunkInsert('search_short_tokens', ['scope_type', 'scope_id', 'token'], tokenRows, { insertPrefix: 'INSERT OR IGNORE' }));
-
-  statements.push(
-    'INSERT INTO catalog_versions(version,checksum,imported_at,item_count,alias_count,option_count,importer_version,output_checksum) VALUES (' +
-      [version, dataChecksum, 0, items.length, aliases.length, 0, IMPORTER_VERSION, outputChecksum].map(sqlLiteral).join(',') +
-      ') ON CONFLICT(version) DO UPDATE SET checksum=excluded.checksum, imported_at=excluded.imported_at, item_count=excluded.item_count, alias_count=excluded.alias_count, option_count=excluded.option_count, importer_version=excluded.importer_version, output_checksum=excluded.output_checksum',
-  );
-  statements.push('INSERT INTO catalog_state(id,current_version,updated_at) VALUES (1,' + sqlLiteral(version) + ',0) ON CONFLICT(id) DO UPDATE SET current_version=excluded.current_version,updated_at=excluded.updated_at');
-  statements.push('COMMIT');
-  if (statements.length > MAX_SQL_STATEMENTS) throw new Error('generated SQL exceeds the statement budget; split the catalog release');
-  return statements.map((statement) => statement + ';').join('\n') + '\n';
+  return statements;
 }
 
 function decodeInput(buffer, encoding, filename) {
@@ -153,6 +252,30 @@ function decodeInput(buffer, encoding, filename) {
     throw validationError(filename, 1, 'encoding', 'input is not valid or has uncertain ' + selected);
   }
   throw validationError(filename, 1, 'encoding', 'unsupported encoding');
+}
+
+function parseDescriptionRecords(text, filename) {
+  const records = [];
+  let current = null;
+  const lines = text.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const lineNumber = index + 1;
+    const line = lines[index];
+    if (current === null) {
+      if (!line || line.startsWith('//')) continue;
+      const header = /^([0-9]+)#(.*)$/u.exec(line);
+      if (!header) throw validationError(filename, lineNumber, 'separator', 'expected item description header id#');
+      if (header[2].includes('#')) throw validationError(filename, lineNumber, 'separator', 'expected item description header id# or id#text');
+      current = { id: header[1], line: lineNumber, body: header[2] ? [header[2]] : [] };
+    } else if (line === '#') {
+      records.push(current);
+      current = null;
+    } else {
+      current.body.push(line);
+    }
+  }
+  if (current !== null) throw validationError(filename, current.line, 'separator', 'unterminated item description block');
+  return records;
 }
 
 function parseRecords(text, filename) {
@@ -210,19 +333,19 @@ function splitDelimitedLine(line, delimiter, filename, lineNumber) {
   return values;
 }
 
-function normalizeItemRecord(record, filename, line) {
+function normalizeItemRecord(record, filename, line, options = {}) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) throw validationError(filename, line, 'record', 'expected an object');
   const allowed = new Set(['id', 'item_id', 'itemId', 'name', 'canonical_name_zh', 'canonicalNameZh', 'description', 'aliases', 'alias']);
   for (const key of Object.keys(record)) if (!allowed.has(key)) throw validationError(filename, line, key, 'unknown field');
 
   const idValue = record.id ?? record.item_id ?? record.itemId;
-  if (typeof idValue !== 'number' && typeof idValue !== 'string') throw validationError(filename, line, 'id', 'invalid item id');
-  if (!/^[0-9]+$/u.test(String(idValue).trim())) throw validationError(filename, line, 'id', 'invalid item id');
-  const itemId = Number(String(idValue).trim());
-  if (!Number.isSafeInteger(itemId) || itemId < 0) throw validationError(filename, line, 'id', 'invalid item id');
+  const itemId = parseItemId(idValue, filename, line);
 
   const name = normalizeDisplayText(record.name ?? record.canonical_name_zh ?? record.canonicalNameZh ?? '');
-  if (!name) throw validationError(filename, line, 'name', 'empty canonical name');
+  if (!name) {
+    if (options.allowEmptyName === true) return null;
+    throw validationError(filename, line, 'name', 'empty canonical name');
+  }
   if (name.length > MAX_TEXT_LENGTH) throw validationError(filename, line, 'name', 'value is too long');
   const description = normalizeDisplayText(record.description ?? '');
   if (description.length > MAX_TEXT_LENGTH) throw validationError(filename, line, 'description', 'value is too long');
@@ -242,6 +365,18 @@ function normalizeItemRecord(record, filename, line) {
   return item;
 }
 
+function parseItemId(value, filename, line) {
+  if (typeof value !== 'number' && typeof value !== 'string') throw validationError(filename, line, 'id', 'invalid item id');
+  if (!/^[0-9]+$/u.test(String(value).trim())) throw validationError(filename, line, 'id', 'invalid item id');
+  const itemId = Number(String(value).trim());
+  if (!Number.isSafeInteger(itemId) || itemId < 0) throw validationError(filename, line, 'id', 'invalid item id');
+  return itemId;
+}
+
+function normalizeDescriptionText(value) {
+  return String(value ?? '').normalize('NFKC').replace(/\r\n?/gu, '\n').replace(/^(?:[ \t]*\n)+/u, '').replace(/(?:\n[ \t]*)+$/u, '');
+}
+
 
 function validateItemSet(items, filename) {
   const ids = new Set();
@@ -252,8 +387,9 @@ function validateItemSet(items, filename) {
     if (ids.has(item.itemId)) throw validationError(itemFilename, itemLine, 'id', 'duplicate item id');
     ids.add(item.itemId);
     const normalizedName = normalizeCatalogText(item.name);
-    if (canonicalNames.has(normalizedName)) throw validationError(itemFilename, itemLine, 'name', 'duplicate canonical name');
-    canonicalNames.set(normalizedName, item.itemId);
+    const owners = canonicalNames.get(normalizedName) ?? new Set();
+    owners.add(item.itemId);
+    canonicalNames.set(normalizedName, owners);
   }
 
   const aliases = new Map();
@@ -266,9 +402,9 @@ function validateItemSet(items, filename) {
       if (!normalized) throw validationError(itemFilename, itemLine, 'alias', 'empty alias');
       if (seen.has(normalized)) throw validationError(itemFilename, itemLine, 'alias', 'duplicate alias');
       seen.add(normalized);
-      const canonicalOwner = canonicalNames.get(normalized);
-      if (canonicalOwner !== undefined) {
-        throw validationError(itemFilename, itemLine, 'alias', canonicalOwner === item.itemId ? 'duplicate alias' : 'alias collision');
+      const canonicalOwners = canonicalNames.get(normalized);
+      if (canonicalOwners !== undefined) {
+        throw validationError(itemFilename, itemLine, 'alias', canonicalOwners.has(item.itemId) ? 'duplicate alias' : 'alias collision');
       }
       const existing = aliases.get(normalized);
       if (existing !== undefined && existing !== item.itemId) throw validationError(itemFilename, itemLine, 'alias', 'alias collision');
@@ -313,6 +449,41 @@ function chunkInsert(table, columns, rows, options = {}) {
       flush();
     }
     chunk.push(rowSql);
+  }
+  flush();
+  return statements;
+}
+
+function chunkJsonInsertIgnore(table, columns, rows) {
+  const prefix = 'INSERT OR IGNORE INTO ' + sqlIdentifier(table) + '(' + columns.map(sqlIdentifier).join(',') + ') SELECT ' + columns.map((_, index) => "json_extract(value, '$[" + index + "]')").join(',') + ' FROM json_each(';
+  const prefixBytes = Buffer.byteLength(prefix, 'utf8');
+  const statements = [];
+  let chunkRows = [];
+  let chunkBytes = 1;
+  let chunkQuoteCount = 0;
+
+  const flush = () => {
+    if (chunkRows.length === 0) return;
+    const statement = prefix + sqlLiteral('[' + chunkRows.join(',') + ']') + ')';
+    assertStatementSize(statement);
+    statements.push(statement);
+    chunkRows = [];
+    chunkBytes = 1;
+    chunkQuoteCount = 0;
+  };
+
+  for (const row of rows) {
+    const rowJson = JSON.stringify(row);
+    const rowBytes = Buffer.byteLength(rowJson, 'utf8');
+    const rowQuoteCount = [...rowJson].reduce((count, character) => count + (character === "'" ? 1 : 0), 0);
+    const commaBytes = chunkRows.length === 0 ? 0 : 1;
+    const candidateBytes = prefixBytes + chunkBytes + commaBytes + rowBytes + 1 + chunkQuoteCount + rowQuoteCount + 3;
+    if (chunkRows.length > 0 && candidateBytes > MAX_SQL_STATEMENT_BYTES) flush();
+    const singleBytes = prefixBytes + rowBytes + rowQuoteCount + 5;
+    if (singleBytes > MAX_SQL_STATEMENT_BYTES) throw new Error('generated JSON row exceeds the statement-size budget');
+    chunkRows.push(rowJson);
+    chunkBytes += commaBytes + rowBytes;
+    chunkQuoteCount += rowQuoteCount;
   }
   flush();
   return statements;

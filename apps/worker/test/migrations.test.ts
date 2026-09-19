@@ -48,7 +48,17 @@ describe('D1 migrations', () => {
       .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
       .map((name) => name.slice(0, 4))
       .sort();
-    expect(migrations).toEqual(['0001', '0002', '0003', '0004', '0005', '0006']);
+    expect(migrations).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007']);
+  });
+
+  it('declares source-scoped canonical shop identity and nullable legacy metadata', () => {
+    const lifecycle = readFileSync(resolve(process.cwd(), 'migrations/0007_shop_identity_lifecycle.sql'), 'utf8');
+    expect(lifecycle).toContain('identity_hash');
+    expect(lifecycle).toContain('vendor_account_id');
+    expect(lifecycle).toContain('last_status_observed_at');
+    expect(lifecycle).toContain('close_reason');
+    expect(lifecycle).toContain('item_name_legacy');
+    expect(lifecycle).toContain('display_value_legacy');
   });
 
   it('applies every migration to an empty SQLite database and enforces catalog constraints', () => {
@@ -80,7 +90,7 @@ describe('D1 migrations', () => {
       expect(() => db.exec("INSERT INTO catalog_versions(version,checksum,imported_at,item_count,alias_count,option_count,importer_version,output_checksum) VALUES ('v1','other',0,1,1,0,'test','other')"))
         .toThrow(/unique/i);
 
-      db.exec("INSERT INTO market_sources(id,name,api_key_hash,created_at) VALUES ('source','Synthetic','hash',0); INSERT INTO vendors(source_id,vendor_key,name,updated_at) VALUES ('source','vendor','Synthetic vendor',0); INSERT INTO shops(source_id,vendor_id,shop_key,shop_type,last_seen_at,updated_at) VALUES ('source',1,'shop','sell',0,0); INSERT INTO shop_sessions(shop_id,client_run_id,started_at,last_seen_at) VALUES (1,'run',0,0); INSERT INTO listings(shop_session_id,item_fingerprint,item_id,item_name,item_name_normalized,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (1,'unknown-fingerprint',987654,'legacy','legacy',1,1,1,0,0,0);");
+      db.exec("INSERT INTO market_sources(id,name,api_key_hash,created_at) VALUES ('source','Synthetic','hash',0); INSERT INTO vendors(source_id,vendor_key,name,updated_at) VALUES ('source','vendor','Synthetic vendor',0); INSERT INTO shops(source_id,vendor_id,shop_key,shop_type,last_seen_at,updated_at) VALUES ('source',1,'shop','sell',0,0); INSERT INTO shop_sessions(shop_id,client_run_id,started_at,last_seen_at) VALUES (1,'run',0,0); INSERT INTO listings(shop_session_id,item_fingerprint,item_id,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (1,'unknown-fingerprint',987654,1,1,1,0,0,0);");
       expect(db.prepare("SELECT item_id FROM listings WHERE item_fingerprint='unknown-fingerprint'").get()).toEqual({ item_id: 987654 });
     } finally {
       db.close();

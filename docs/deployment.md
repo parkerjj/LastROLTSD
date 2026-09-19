@@ -115,38 +115,46 @@ Perform a redacted smoke upload using the documented fixture and the production 
 
 ## Catalog Release
 
-Catalog data is generated offline from an explicitly supplied file or directory. The importer does not access the network, does not modify source files, writes production SQL only below the Git-ignored `.generated\` directory, and never deletes or rewrites listings.
+Catalog data is generated offline from the operator-supplied OpenKore `items.txt` and `itemsdescriptions.txt` files. The importer does not access the network, does not modify source files, writes production SQL only below the Git-ignored `.generated\` directory, and never deletes or rewrites listings.
 
 Validate first, then generate the reviewed release:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$inputFile = 'C:\path\to\catalog-items.txt'
+$openKoreTables = 'C:\path\to\openkore\tables\Lastro-zh_CN'
+$inputFile = Join-Path $openKoreTables 'items.txt'
+$descriptionFile = Join-Path $openKoreTables 'itemsdescriptions.txt'
 $version = 'catalog-2026-09-19'
 $outputDir = Join-Path '.generated' ('catalog\' + $version)
-pnpm catalog:import -- --input-file $inputFile --kind items --version $version --encoding auto --output-dir $outputDir --dry-run
-pnpm catalog:import -- --input-file $inputFile --kind items --version $version --encoding auto --output-dir $outputDir
+pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version $version --encoding auto --description-encoding auto --skip-empty-names --output-dir $outputDir --dry-run
+pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version $version --encoding auto --description-encoding auto --skip-empty-names --output-dir $outputDir
 $manifest = Get-Content (Join-Path $outputDir ('catalog-items-' + $version + '.manifest.json')) -Raw | ConvertFrom-Json
-$manifest | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,aliasCount,errorCount
+$manifest | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,descriptionCount,descriptionRecordCount,descriptionDuplicateCount,aliasCount,errorCount,batchCount,statementCount,sqlBytes
 Get-FileHash (Join-Path $outputDir ('catalog-items-' + $version + '.sql')) -Algorithm SHA256
 ```
 
-Review the manifest and SQL before applying them. The output is stable by item ID and normalized alias. The SQL uses bounded statements, updates only submitted item IDs and derived rows, and can be applied repeatedly without clearing existing listings.
+Review the manifest and all listed SQL parts before applying them. The output is stable by item ID and normalized alias. The SQL uses bounded statements, updates only submitted item IDs and derived rows, and can be applied repeatedly without clearing existing listings. Apply `batchFiles` in manifest order so each Wrangler invocation stays within the bounded batch budget.
 
 Apply a reviewed release locally or remotely only after the catalog migrations are present:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$sqlFile = '.generated\catalog\catalog-2026-09-19\catalog-items-catalog-2026-09-19.sql'
-pnpm exec wrangler d1 execute lastroweb-local --local --file $sqlFile
+$releaseDir = '.generated\catalog\catalog-2026-09-19'
+$manifest = Get-Content (Join-Path $releaseDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json
+foreach ($batchFile in $manifest.batchFiles) {
+  pnpm exec wrangler d1 execute lastroweb-local --local --file (Join-Path $releaseDir $batchFile)
+}
 ```
 
 For production, use the reviewed production config and an explicit maintenance approval:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$sqlFile = '.generated\catalog\catalog-2026-09-19\catalog-items-catalog-2026-09-19.sql'
-pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file $sqlFile
+$releaseDir = '.generated\catalog\catalog-2026-09-19'
+$manifest = Get-Content (Join-Path $releaseDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json
+foreach ($batchFile in $manifest.batchFiles) {
+  pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file (Join-Path $releaseDir $batchFile)
+}
 ```
 
 Verify the active version and a sample of names after the apply:
@@ -182,8 +190,11 @@ To roll back catalog data, stop new catalog imports, select the previously revie
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$knownGoodSql = 'C:\secure\catalog-releases\catalog-items-catalog-2026-09-18.sql'
-pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file $knownGoodSql
+$knownGoodDir = 'C:\secure\catalog-releases\catalog-2026-09-18'
+$knownGoodManifest = Get-Content (Join-Path $knownGoodDir 'catalog-items-catalog-2026-09-18.manifest.json') -Raw | ConvertFrom-Json
+foreach ($batchFile in $knownGoodManifest.batchFiles) {
+  pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file (Join-Path $knownGoodDir $batchFile)
+}
 pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --command "SELECT current_version FROM catalog_state WHERE id = 1; SELECT COUNT(*) AS listings FROM listings;"
 ```
 

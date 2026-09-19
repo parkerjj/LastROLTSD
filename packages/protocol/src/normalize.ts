@@ -7,21 +7,15 @@ const toInt = (value: unknown): number => {
 };
 const clean = (value: unknown): string => String(value ?? '').normalize('NFKC').replace(/\s+/gu, ' ').trim();
 export function normalizeOption(input: Record<string, unknown>): ItemOption {
-  return { type: toInt(input.type), value: toInt(input.value), param: toInt(input.param), ...(input.display_value === undefined ? {} : { display_value: clean(input.display_value) }) };
+  return { type: toInt(input.type), value: toInt(input.value), param: toInt(input.param) };
 }
 export function normalizeItem(input: Record<string, unknown>): UploadItem {
   const rawCards = Array.isArray(input.cards) ? input.cards : [];
   const cards = [0, 0, 0, 0].map((_, index) => rawCards[index] === undefined ? 0 : toInt(rawCards[index])).slice(0, 4);
   const rawOptions = Array.isArray(input.options) ? input.options : [];
-  const sortedOptions = rawOptions.map((entry) => normalizeOption(entry as Record<string, unknown>)).sort((a, b) => a.type - b.type || a.value - b.value || a.param - b.param || (a.display_value ?? '').localeCompare(b.display_value ?? ''));
-  const options: ItemOption[] = [];
-  for (const option of sortedOptions) {
-    const previous = options.at(-1);
-    if (previous && previous.type === option.type && previous.value === option.value && previous.param === option.param) continue;
-    options.push(option);
-  }
+  const options = rawOptions.map((entry) => normalizeOption(entry as Record<string, unknown>)).sort((a, b) => a.type - b.type || a.value - b.value || a.param - b.param);
   return {
-    ...(input.item_key === undefined ? {} : { item_key: clean(input.item_key) }), item_id: toInt(input.item_id), name: clean(input.name),
+    ...(input.item_key === undefined ? {} : { item_key: clean(input.item_key) }), item_id: toInt(input.item_id),
     upgrade: input.upgrade === undefined ? 0 : toInt(input.upgrade), slots: input.slots === undefined ? 0 : toInt(input.slots), cards,
     price: toInt(input.price), quantity: toInt(input.quantity), options,
   };

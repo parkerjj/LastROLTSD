@@ -49,49 +49,44 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (!row) throw new Error('session insert returned no row');
       return { id: Number(row.id), shopId: Number(row.shop_id), clientRunId: String(row.client_run_id), startedAt: Number(row.started_at), lastSeenAt: Number(row.last_seen_at), endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null };
     },
-    async getOrCreateSessions(inputs: ShopSessionContextInput[]) {
-      if (inputs.length === 0) return [];
-      const uniqueInputs = [...new Map(inputs.map((input) => [`${input.sourceId}\u0000${input.shopKey}`, { ...input, vendorNameNormalized: input.vendorName.normalize('NFKC').toLowerCase(), titleNormalized: input.title.normalize('NFKC').toLowerCase() }])).values()];
-      const payload = JSON.stringify(uniqueInputs);
-      const writes = [
-        db.prepare(`INSERT INTO vendors(source_id,vendor_key,name,name_normalized,map_name,x,y,updated_at)
-          SELECT json_extract(value,'$.sourceId'),json_extract(value,'$.vendorKey'),json_extract(value,'$.vendorName'),json_extract(value,'$.vendorNameNormalized'),json_extract(value,'$.mapName'),json_extract(value,'$.x'),json_extract(value,'$.y'),json_extract(value,'$.observedAt') FROM json_each(?1) WHERE 1
-          ON CONFLICT(source_id,vendor_key) DO UPDATE SET name=excluded.name,map_name=excluded.map_name,x=excluded.x,y=excluded.y,updated_at=excluded.updated_at`),
-        db.prepare(`INSERT INTO shops(source_id,vendor_id,shop_key,title,title_normalized,shop_type,map_name,x,y,last_seen_at,updated_at)
-          SELECT json_extract(value,'$.sourceId'),v.id,json_extract(value,'$.shopKey'),json_extract(value,'$.title'),json_extract(value,'$.titleNormalized'),json_extract(value,'$.shopType'),json_extract(value,'$.mapName'),json_extract(value,'$.x'),json_extract(value,'$.y'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt') FROM json_each(?1) input JOIN vendors v ON v.source_id=json_extract(input.value,'$.sourceId') AND v.vendor_key=json_extract(input.value,'$.vendorKey') WHERE 1
-          ON CONFLICT(source_id,shop_key) DO UPDATE SET vendor_id=excluded.vendor_id,title=excluded.title,title_normalized=excluded.title_normalized,shop_type=excluded.shop_type,map_name=excluded.map_name,x=excluded.x,y=excluded.y,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at,status='active',closed_at=NULL`),
-        db.prepare(`UPDATE shop_sessions
-          SET ended_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) input JOIN shops s ON s.id=shop_sessions.shop_id
-            WHERE s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey') LIMIT 1)
-          WHERE shop_sessions.ended_at IS NULL AND EXISTS (SELECT 1 FROM json_each(?1) input JOIN shops s ON s.id=shop_sessions.shop_id
-            WHERE s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey')
-            AND NOT (shop_sessions.client_run_id=json_extract(input.value,'$.clientRunId') AND json_extract(input.value,'$.observedAt')-shop_sessions.last_seen_at<=1800000))`),
-        db.prepare(`UPDATE listings SET status='expired',last_changed_at=(SELECT ss.ended_at FROM shop_sessions ss WHERE ss.id=listings.shop_session_id)
-          WHERE listings.status IN ('active','missing') AND EXISTS (SELECT 1 FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id JOIN json_each(?1) input
-            WHERE listings.shop_session_id=ss.id AND ss.ended_at=json_extract(input.value,'$.observedAt') AND s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey'))`),
-        db.prepare(`UPDATE shop_sessions
-          SET last_seen_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) input JOIN shops s ON s.id=shop_sessions.shop_id
-            WHERE s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey')
-              AND shop_sessions.client_run_id=json_extract(input.value,'$.clientRunId') AND json_extract(input.value,'$.observedAt')-shop_sessions.last_seen_at<=1800000 LIMIT 1)
-          WHERE shop_sessions.ended_at IS NULL AND EXISTS (SELECT 1 FROM json_each(?1) input JOIN shops s ON s.id=shop_sessions.shop_id
-            WHERE s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey')
-              AND shop_sessions.client_run_id=json_extract(input.value,'$.clientRunId') AND json_extract(input.value,'$.observedAt')-shop_sessions.last_seen_at<=1800000)`),
-        db.prepare(`INSERT INTO shop_sessions(shop_id,client_run_id,started_at,last_seen_at)
-          SELECT s.id,json_extract(input.value,'$.clientRunId'),json_extract(input.value,'$.observedAt'),json_extract(input.value,'$.observedAt') FROM json_each(?1) input JOIN shops s ON s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey')
-          WHERE NOT EXISTS (SELECT 1 FROM shop_sessions ss WHERE ss.shop_id=s.id AND ss.ended_at IS NULL AND ss.client_run_id=json_extract(input.value,'$.clientRunId') AND json_extract(input.value,'$.observedAt')-ss.last_seen_at<=1800000)`),
-      ].map((statement) => statement.bind(payload));
-      await db.batch(writes);
-      const rows = await many<Row>(db.prepare(`SELECT ss.*,s.source_id AS input_source_id,s.shop_key AS input_shop_key FROM shop_sessions ss JOIN shops s ON s.id=ss.shop_id JOIN json_each(?1) input ON s.source_id=json_extract(input.value,'$.sourceId') AND s.shop_key=json_extract(input.value,'$.shopKey') WHERE ss.ended_at IS NULL ORDER BY CAST(input.key AS INTEGER),ss.id DESC`).bind(payload));
-      const byShop = new Map<string, Row>();
-      for (const row of rows) {
-        const key = `${String(row.input_source_id)}\u0000${String(row.input_shop_key)}`;
-        if (!byShop.has(key)) byShop.set(key, row);
+    async resolveShopObservation(input) {
+      const existing = await one<Row>(db.prepare('SELECT * FROM shops WHERE source_id=?1 AND identity_hash=?2 LIMIT 1').bind(input.sourceId, input.identityHash));
+      const status = input.shopStatus === 'dismissed' ? 'closed' : 'active';
+      if (existing) {
+        const previousObservedAt = existing.last_status_observed_at === null || existing.last_status_observed_at === undefined ? null : Number(existing.last_status_observed_at);
+        const stale = previousObservedAt !== null && (input.observedAt < previousObservedAt || (input.observedAt === previousObservedAt && input.shopStatus === 'opening' && String(existing.status) === 'closed'));
+        const currentShopId = existing.shop_id ? String(existing.shop_id) : input.shopId;
+        if (stale) return { internalShopId: Number(existing.id), shopId: currentShopId, identityHash: input.identityHash, resolution: 'stale_event_ignored' as const, status: String(existing.status) === 'closed' ? 'dismissed' as const : 'opening' as const, applied: false, session: null };
+        const currentSession = input.shopStatus === 'dismissed'
+          ? await one<Row>(db.prepare('SELECT id FROM shop_sessions WHERE shop_id=?1 AND ended_at IS NULL ORDER BY id DESC LIMIT 1').bind(existing.id))
+          : null;
+        const update = db.prepare(`UPDATE shops SET vendor_id=(SELECT id FROM vendors WHERE source_id=?1 AND vendor_key=?2),vendor_account_id=?2,title=?3,title_normalized=?4,shop_type=?5,map_name=?6,x=?7,y=?8,last_seen_at=?9,updated_at=?9,status=?10,closed_at=CASE WHEN ?10='active' THEN NULL ELSE ?9 END,close_reason=CASE WHEN ?10='active' THEN NULL ELSE 'explicit_dismissed' END,identity_version=1,identity_hash=?11,shop_id=?12,last_status_observed_at=?9,last_status_batch_id=?13 WHERE id=?14`);
+        const vendor = db.prepare(`INSERT INTO vendors(source_id,vendor_key,name,name_normalized,map_name,x,y,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(source_id,vendor_key) DO UPDATE SET name=excluded.name,name_normalized=excluded.name_normalized,map_name=excluded.map_name,x=excluded.x,y=excluded.y,updated_at=excluded.updated_at`);
+        const writes = [
+          vendor.bind(input.sourceId, input.vendorAccountId, input.vendorName, input.vendorName.normalize('NFKC').toLowerCase(), input.mapName, input.x, input.y, input.observedAt),
+          update.bind(input.sourceId, input.vendorAccountId, input.title, input.title.normalize('NFKC').toLowerCase(), input.shopType, input.mapName, input.x, input.y, input.observedAt, status, input.identityHash, currentShopId, input.batchId, existing.id),
+        ];
+        if (input.shopStatus === 'dismissed') {
+          if (currentSession) {
+            writes.push(
+              db.prepare('UPDATE shop_sessions SET ended_at=?1 WHERE id=?2 AND ended_at IS NULL').bind(input.observedAt, currentSession.id),
+              db.prepare("UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id=?2 AND status IN ('active','missing')").bind(input.observedAt, currentSession.id),
+            );
+          }
+          await db.batch(writes);
+          return { internalShopId: Number(existing.id), shopId: currentShopId, identityHash: input.identityHash, resolution: 'dismissed' as const, status: 'dismissed' as const, applied: true, session: null };
+        }
+        await db.batch(writes);
+        const session = await getOrCreateD1Session(db, { shopId: Number(existing.id), clientRunId: input.clientRunId, observedAt: input.observedAt });
+        return { internalShopId: Number(existing.id), shopId: currentShopId, identityHash: input.identityHash, resolution: String(existing.status) === 'closed' ? 'created' as const : 'matched' as const, status: 'opening' as const, applied: true, session };
       }
-      return uniqueInputs.map((input) => {
-        const row = byShop.get(`${input.sourceId}\u0000${input.shopKey}`);
-        if (row) return sessionFromRow(row);
-        throw new Error('session lookup returned no row');
-      });
+      const vendor = await one<Row>(db.prepare(`INSERT INTO vendors(source_id,vendor_key,name,name_normalized,map_name,x,y,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(source_id,vendor_key) DO UPDATE SET name=excluded.name,name_normalized=excluded.name_normalized,map_name=excluded.map_name,x=excluded.x,y=excluded.y,updated_at=excluded.updated_at RETURNING id`).bind(input.sourceId, input.vendorAccountId, input.vendorName, input.vendorName.normalize('NFKC').toLowerCase(), input.mapName, input.x, input.y, input.observedAt));
+      if (!vendor) throw new Error('vendor upsert returned no row');
+      const created = await one<Row>(db.prepare(`INSERT INTO shops(source_id,vendor_id,shop_key,title,title_normalized,shop_type,map_name,x,y,status,last_seen_at,closed_at,updated_at,identity_version,identity_hash,shop_id,vendor_account_id,last_status_observed_at,last_status_batch_id,close_reason) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?11,1,?13,?14,?15,?11,?16,?17) RETURNING id,shop_id,status`).bind(input.sourceId, vendor.id, input.identityHash, input.title, input.title.normalize('NFKC').toLowerCase(), input.shopType, input.mapName, input.x, input.y, status, input.observedAt, input.shopStatus === 'dismissed' ? input.observedAt : null, input.identityHash, input.shopId, input.vendorAccountId, input.batchId, input.shopStatus === 'dismissed' ? 'explicit_dismissed' : null));
+      if (!created) throw new Error('shop insert returned no row');
+      if (input.shopStatus === 'dismissed') return { internalShopId: Number(created.id), shopId: String(created.shop_id), identityHash: input.identityHash, resolution: 'dismissed' as const, status: 'dismissed' as const, applied: true, session: null };
+      const session = await getOrCreateD1Session(db, { shopId: Number(created.id), clientRunId: input.clientRunId, observedAt: input.observedAt });
+      return { internalShopId: Number(created.id), shopId: String(created.shop_id), identityHash: input.identityHash, resolution: 'created' as const, status: 'opening' as const, applied: true, session };
     },
     async getBatch(sourceId, batchId) {
       const row = await one<Row>(db.prepare('SELECT * FROM upload_batches WHERE source_id=?1 AND batch_id=?2 LIMIT 1').bind(sourceId, batchId));
@@ -114,7 +109,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       }
     },
     async completeBatch(sourceId, batchId, response: UploadResultLike) {
-      await db.prepare('UPDATE upload_batches SET status=\'accepted\',processed_shops=?1,processed_listings=?2,changed_listings=?3,sold_events=?4,response_json=?5 WHERE source_id=?6 AND batch_id=?7').bind(response.processedShops, response.processedListings, response.changedListings, response.soldEvents, JSON.stringify(response), sourceId, batchId).run();
+      await db.prepare('UPDATE upload_batches SET status=\'accepted\',processed_shops=?1,processed_listings=?2,changed_listings=?3,sold_events=?4,response_json=?5 WHERE source_id=?6 AND batch_id=?7').bind(response.processed_shops, response.processed_listings, response.changed_listings, response.sold_events, JSON.stringify(response), sourceId, batchId).run();
     },
     async retryBatch(sourceId, batchId) {
       const result = await db.prepare("UPDATE upload_batches SET status='processing',response_json=NULL WHERE source_id=?1 AND batch_id=?2 AND status='rejected'").bind(sourceId, batchId).run();
@@ -158,28 +153,28 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       return Number(result.meta?.changes ?? 0);
     },
     async createListing(input) {
-      const row = await one<Row>(db.prepare(`INSERT INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?14,'active',?15,?15,?15,?16) RETURNING *`).bind(input.sessionId, input.fingerprint, input.itemKey ?? null, input.itemId, input.itemName, input.itemNameNormalized, input.upgrade, input.slots, input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0, input.price, input.quantity, input.observedAt, input.batchId));
+      const row = await one<Row>(db.prepare(`INSERT INTO listings(shop_session_id,item_fingerprint,item_key,item_id,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12,'active',?13,?13,?13,?14) RETURNING *`).bind(input.sessionId, input.fingerprint, input.itemKey ?? null, input.itemId, input.upgrade, input.slots, input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0, input.price, input.quantity, input.observedAt, input.batchId));
       if (!row) throw new Error('listing insert returned no row');
       return listingFromRow(row);
     },
     async createListingsBatch(inputs) {
       if (inputs.length === 0) return [];
       assertBatchBounds(1, 1);
-      const payload = JSON.stringify(inputs.map((input) => ({ ...input, itemKey: input.itemKey ?? null, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0] })));
-      const rows = await many<Row>(db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
-        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1) RETURNING *`).bind(payload));
+      const payload = JSON.stringify(inputs.map((input) => ({ sessionId: input.sessionId, fingerprint: input.fingerprint, itemKey: input.itemKey ?? null, itemId: input.itemId, upgrade: input.upgrade, slots: input.slots, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], price: input.price, quantity: input.quantity, observedAt: input.observedAt, batchId: input.batchId })));
+      const rows = await many<Row>(db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
+        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1) RETURNING *`).bind(payload));
       return rows.map(listingFromRow);
     },
     async createListingsBundleBatch(inputs) {
       if (inputs.length === 0) return [];
-      const payload = JSON.stringify(inputs.map((input) => ({ ...input, itemKey: input.itemKey ?? null, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], options: input.options.map((option) => ({ type: option.type, value: option.value, param: option.param, displayValue: option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null })) })));
-      const insert = db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
-        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1)`);
+      const payload = JSON.stringify(inputs.map((input) => ({ sessionId: input.sessionId, fingerprint: input.fingerprint, itemKey: input.itemKey ?? null, itemId: input.itemId, upgrade: input.upgrade, slots: input.slots, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], price: input.price, quantity: input.quantity, observedAt: input.observedAt, batchId: input.batchId, options: input.options.map((option) => ({ type: option.type, value: option.value, param: option.param })) })));
+      const insert = db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
+        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1)`);
       const history = db.prepare(`INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
         SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),'first_seen',json_extract(item.value,'$.batchId')
         FROM json_each(?1) item JOIN listings l ON l.shop_session_id=json_extract(item.value,'$.sessionId') AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId')`);
-      const options = db.prepare(`INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value)
-        SELECT l.id,CAST(option.key AS INTEGER),json_extract(option.value,'$.type'),json_extract(option.value,'$.value'),json_extract(option.value,'$.param'),json_extract(option.value,'$.displayValue')
+      const options = db.prepare(`INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param)
+        SELECT l.id,CAST(option.key AS INTEGER),json_extract(option.value,'$.type'),json_extract(option.value,'$.value'),json_extract(option.value,'$.param')
         FROM json_each(?1) item JOIN listings l ON l.shop_session_id=json_extract(item.value,'$.sessionId') AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId')
         JOIN json_each(json_extract(item.value,'$.options')) option`);
       await db.batch([insert.bind(payload), history.bind(payload), options.bind(payload)]);
@@ -188,13 +183,13 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
     },
     async insertNewListingsBulk(inputs) {
       if (inputs.length === 0) return;
-      const payload = JSON.stringify(inputs.map((input) => ({ ...input, itemKey: input.itemKey ?? null, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], options: [...input.options].sort((a, b) => a.type - b.type || a.value - b.value || a.param - b.param).map((option) => ({ type: option.type, value: option.value, param: option.param, displayValue: option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null })) })));
-      const insert = db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,item_name,item_name_normalized,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
-        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.itemName'),json_extract(value,'$.itemNameNormalized'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1)`);
+      const payload = JSON.stringify(inputs.map((input) => ({ sessionId: input.sessionId, fingerprint: input.fingerprint, itemKey: input.itemKey ?? null, itemId: input.itemId, upgrade: input.upgrade, slots: input.slots, cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0], price: input.price, quantity: input.quantity, observedAt: input.observedAt, batchId: input.batchId, options: [...input.options].sort((a, b) => a.type - b.type || a.value - b.value || a.param - b.param).map((option) => ({ type: option.type, value: option.value, param: option.param })) })));
+      const insert = db.prepare(`INSERT OR IGNORE INTO listings(shop_session_id,item_fingerprint,item_key,item_id,upgrade,slots,card0,card1,card2,card3,price,quantity,last_quantity,status,first_seen_at,last_seen_at,last_changed_at,last_batch_id)
+        SELECT json_extract(value,'$.sessionId'),json_extract(value,'$.fingerprint'),json_extract(value,'$.itemKey'),json_extract(value,'$.itemId'),json_extract(value,'$.upgrade'),json_extract(value,'$.slots'),json_extract(value,'$.cards[0]'),json_extract(value,'$.cards[1]'),json_extract(value,'$.cards[2]'),json_extract(value,'$.cards[3]'),json_extract(value,'$.price'),json_extract(value,'$.quantity'),json_extract(value,'$.quantity'),'active',json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.batchId') FROM json_each(?1)`);
       const history = db.prepare(`INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
         SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),'first_seen',json_extract(item.value,'$.batchId') FROM json_each(?1) item JOIN listings l ON l.shop_session_id=CAST(json_extract(item.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId')`);
-      const options = db.prepare(`INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value)
-        SELECT l.id,CAST(option.key AS INTEGER),json_extract(option.value,'$.type'),json_extract(option.value,'$.value'),json_extract(option.value,'$.param'),json_extract(option.value,'$.displayValue') FROM json_each(?1) item JOIN listings l ON l.shop_session_id=CAST(json_extract(item.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId') JOIN json_each(json_extract(item.value,'$.options')) option`);
+      const options = db.prepare(`INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param)
+        SELECT l.id,CAST(option.key AS INTEGER),json_extract(option.value,'$.type'),json_extract(option.value,'$.value'),json_extract(option.value,'$.param') FROM json_each(?1) item JOIN listings l ON l.shop_session_id=CAST(json_extract(item.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(item.value,'$.fingerprint') AND l.last_batch_id=json_extract(item.value,'$.batchId') JOIN json_each(json_extract(item.value,'$.options')) option`);
       assertBatchBounds(3, 3);
       await db.batch([insert.bind(payload), history.bind(payload), options.bind(payload)]);
     },
@@ -203,8 +198,8 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const options = [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param);
       for (let offset = 0; offset < options.length; offset += BULK_BATCH_SIZE) {
         const chunk = options.slice(offset, offset + BULK_BATCH_SIZE);
-        assertBatchBounds(chunk.length, chunk.length * 6);
-        await db.batch(chunk.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, offset + index, option.type, option.value, option.param, option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null)));
+        assertBatchBounds(chunk.length, chunk.length * 5);
+        await db.batch(chunk.map((option, index) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param) VALUES(?1,?2,?3,?4,?5)').bind(input.listingId, offset + index, option.type, option.value, option.param)));
       }
     },
     async insertHistory(input) { await db.prepare('INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId).run(); },
@@ -212,17 +207,17 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (inputs.length === 0) return;
       for (let offset = 0; offset < inputs.length; offset += BULK_BATCH_SIZE) {
         const chunk = inputs.slice(offset, offset + BULK_BATCH_SIZE);
-        assertBatchBounds(chunk.length, chunk.length * 6);
+        assertBatchBounds(chunk.length, chunk.length * 5);
         await db.batch(chunk.map((input) => db.prepare('INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id) VALUES(?1,?2,?3,?4,?5,?6)').bind(input.listingId, input.observedAt, input.price, input.quantity, input.eventType, input.batchId)));
       }
     },
     async insertListingOptionsBatch(inputs) {
-      const rows = inputs.flatMap((input) => [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param).map((option, index) => ({ listingId: input.listingId, optionIndex: index, type: option.type, value: option.value, param: option.param, displayValue: option.displayValue ?? (option as unknown as { display_value?: string }).display_value ?? null })));
+      const rows = inputs.flatMap((input) => [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param).map((option, index) => ({ listingId: input.listingId, optionIndex: index, type: option.type, value: option.value, param: option.param })));
       if (rows.length === 0) return;
       for (let offset = 0; offset < rows.length; offset += BULK_BATCH_SIZE) {
         const chunk = rows.slice(offset, offset + BULK_BATCH_SIZE);
-        assertBatchBounds(chunk.length, chunk.length * 6);
-        await db.batch(chunk.map((row) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param,display_value) VALUES(?1,?2,?3,?4,?5,?6)').bind(row.listingId, row.optionIndex, row.type, row.value, row.param, row.displayValue)));
+        assertBatchBounds(chunk.length, chunk.length * 5);
+        await db.batch(chunk.map((row) => db.prepare('INSERT OR REPLACE INTO listing_options(listing_id,option_index,option_type,option_value,option_param) VALUES(?1,?2,?3,?4,?5)').bind(row.listingId, row.optionIndex, row.type, row.value, row.param)));
       }
     },
     async insertSoldEvent(input) { const result = await db.prepare('INSERT OR IGNORE INTO sold_events(listing_id,sold_quantity,from_quantity,to_quantity,reason,observed_at,transition_key) VALUES(?1,?2,?3,?4,?5,?6,?7)').bind(input.listingId, input.soldQuantity, input.fromQuantity, input.toQuantity, input.reason, input.observedAt, input.transitionKey).run(); return Number(result.meta?.changes ?? 0) > 0; },
@@ -373,7 +368,11 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const params: unknown[] = [];
       const where = [filters.include_stale ? "l.status IN ('active','missing')" : "l.status='active'"];
       const add = (value: unknown) => { params.push(value); return `?${params.length}`; };
-      if (filters.q) { const q = `%${filters.q.normalize('NFKC').trim().toLowerCase()}%`; const p = add(q); where.push(`(l.item_name_normalized LIKE ${p} OR s.title_normalized LIKE ${p} OR v.name_normalized LIKE ${p})`); }
+      if (filters.q) {
+        const q = `%${filters.q.normalize('NFKC').trim().toLowerCase()}%`;
+        const p = add(q);
+        where.push(`(EXISTS (SELECT 1 FROM item_catalog c_q WHERE c_q.item_id=l.item_id AND (c_q.name_normalized LIKE ${p} OR EXISTS (SELECT 1 FROM item_aliases a_q WHERE a_q.item_id=c_q.item_id AND a_q.alias_normalized LIKE ${p}))) OR s.title_normalized LIKE ${p} OR v.name_normalized LIKE ${p})`);
+      }
       if (filters.item_id !== undefined) where.push(`l.item_id=${add(filters.item_id)}`);
       if (filters.price_min !== undefined) where.push(`l.price>=${add(filters.price_min)}`);
       if (filters.price_max !== undefined) where.push(`l.price<=${add(filters.price_max)}`);
@@ -394,16 +393,16 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       }
       const limit = Math.min(50, Math.max(1, filters.limit)); params.push(limit + 1);
       const order = filters.sort === 'price_desc' ? 'l.price DESC,l.id DESC' : filters.sort === 'updated_desc' ? 'l.last_seen_at DESC,l.id DESC' : 'l.price ASC,l.id ASC';
-      const rows = await many<Row>(db.prepare(`SELECT l.*,s.shop_key,s.title,v.name AS vendor_name,s.map_name,s.shop_type FROM listings l JOIN shop_sessions ss ON ss.id=l.shop_session_id JOIN shops s ON s.id=ss.shop_id JOIN vendors v ON v.id=s.vendor_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`).bind(...params));
+      const rows = await many<Row>(db.prepare(`SELECT l.*,COALESCE(c.canonical_name_zh,'未知物品 #' || l.item_id) AS item_name_display,s.shop_key,s.title,v.name AS vendor_name,s.map_name,s.shop_type FROM listings l JOIN shop_sessions ss ON ss.id=l.shop_session_id JOIN shops s ON s.id=ss.shop_id JOIN vendors v ON v.id=s.vendor_id LEFT JOIN item_catalog c ON c.item_id=l.item_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`).bind(...params));
       const items = rows.slice(0, limit).map(listingFromSearchRow);
       if (items.length > 0) {
         const ids = items.map((item) => item.id);
         const optionPlaceholders = ids.map((_, index) => `?${index + 1}`).join(',');
-        const optionRows = await many<Row>(db.prepare(`SELECT listing_id,option_type,option_value,option_param,display_value FROM listing_options WHERE listing_id IN (${optionPlaceholders}) ORDER BY listing_id,option_index`).bind(...ids));
+        const optionRows = await many<Row>(db.prepare(`SELECT listing_id,option_type,option_value,option_param FROM listing_options WHERE listing_id IN (${optionPlaceholders}) ORDER BY listing_id,option_index`).bind(...ids));
         const optionsByListing = new Map<number, ListingOption[]>();
         for (const row of optionRows) {
           const listingId = Number(row.listing_id);
-          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param), ...(row.display_value === null || row.display_value === undefined ? {} : { displayValue: String(row.display_value) }) }]);
+          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param) }]);
         }
         for (const item of items) item.options = optionsByListing.get(item.id) ?? [];
       }
@@ -457,8 +456,30 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
 
 function batchFromRow(row: Row): BatchRow { return { id: Number(row.id), sourceId: String(row.source_id), batchId: String(row.batch_id), snapshotId: String(row.snapshot_id), partIndex: Number(row.part_index), partCount: Number(row.part_count), snapshotMode: String(row.snapshot_mode) as BatchRow['snapshotMode'], payloadHash: String(row.payload_hash), status: String(row.status), responseJson: row.response_json === null ? null : String(row.response_json) }; }
 function sessionFromRow(row: Row) { return { id: Number(row.id), shopId: Number(row.shop_id), clientRunId: String(row.client_run_id), startedAt: Number(row.started_at), lastSeenAt: Number(row.last_seen_at), endedAt: row.ended_at === null ? null : Number(row.ended_at), initialSyncComplete: bool(row.initial_sync_complete), lastCompleteSnapshotId: row.last_complete_snapshot_id ? String(row.last_complete_snapshot_id) : null }; }
-function listingFromRow(row: Row): ListingRow { return { id: Number(row.id), shopSessionId: Number(row.shop_session_id), itemFingerprint: String(row.item_fingerprint), itemKey: row.item_key === null ? null : String(row.item_key), itemId: Number(row.item_id), itemName: String(row.item_name), itemNameNormalized: String(row.item_name_normalized), upgrade: Number(row.upgrade), slots: Number(row.slots), cards: cards(row), price: Number(row.price), quantity: Number(row.quantity), lastQuantity: Number(row.last_quantity), status: String(row.status), stateVersion: Number(row.state_version), missingStreak: Number(row.missing_streak), lastSeenAt: Number(row.last_seen_at) }; }
-function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
+function listingFromRow(row: Row): ListingRow { return { id: Number(row.id), shopSessionId: Number(row.shop_session_id), itemFingerprint: String(row.item_fingerprint), itemKey: row.item_key === null ? null : String(row.item_key), itemId: Number(row.item_id), upgrade: Number(row.upgrade), slots: Number(row.slots), cards: cards(row), price: Number(row.price), quantity: Number(row.quantity), lastQuantity: Number(row.last_quantity), status: String(row.status), stateVersion: Number(row.state_version), missingStreak: Number(row.missing_streak), lastSeenAt: Number(row.last_seen_at) }; }
+function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), itemName: String(row.item_name_display ?? `未知物品 #${Number(row.item_id)}`), shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
+
+async function closeShopSession(db: D1Database, shopId: number, observedAt: number): Promise<void> {
+  const current = await one<Row>(db.prepare('SELECT id FROM shop_sessions WHERE shop_id=?1 AND ended_at IS NULL ORDER BY id DESC LIMIT 1').bind(shopId));
+  if (!current) return;
+  await db.batch([
+    db.prepare('UPDATE shop_sessions SET ended_at=?1 WHERE id=?2 AND ended_at IS NULL').bind(observedAt, current.id),
+    db.prepare("UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id=?2 AND status IN ('active','missing')").bind(observedAt, current.id),
+  ]);
+}
+
+async function getOrCreateD1Session(db: D1Database, input: SessionInput): Promise<ReturnType<typeof sessionFromRow>> {
+  const current = await one<Row>(db.prepare('SELECT * FROM shop_sessions WHERE shop_id=?1 AND ended_at IS NULL ORDER BY id DESC LIMIT 1').bind(input.shopId));
+  const ttl = 30 * 60 * 1000;
+  if (current && String(current.client_run_id) === input.clientRunId && input.observedAt - Number(current.last_seen_at) <= ttl) {
+    await db.prepare('UPDATE shop_sessions SET last_seen_at=?1 WHERE id=?2').bind(input.observedAt, current.id).run();
+    return sessionFromRow({ ...current, last_seen_at: input.observedAt });
+  }
+  if (current) await closeShopSession(db, input.shopId, input.observedAt);
+  const row = await one<Row>(db.prepare('INSERT INTO shop_sessions(shop_id,client_run_id,started_at,last_seen_at) VALUES(?1,?2,?3,?3) RETURNING *').bind(input.shopId, input.clientRunId, input.observedAt));
+  if (!row) throw new Error('session insert returned no row');
+  return sessionFromRow(row);
+}
 
 function normalizeCatalogQuery(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();

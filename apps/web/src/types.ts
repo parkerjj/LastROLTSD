@@ -1,5 +1,5 @@
 export interface SearchOptionFilter { type: number; value: number; param: number; }
 export interface SearchFilters { q?: string; item_id?: number; option_type?: number; option_value?: number; option_param?: number; options?: SearchOptionFilter[]; option_mode?: 'all' | 'any'; price_min?: number; price_max?: number; map?: string; shop_type?: 'buy' | 'sell'; limit?: number; cursor?: string; sort?: string; }
-export interface ListingSearchResult { id: number; itemId: number; itemName: string; price: number; quantity: number; mapName: string; vendorName: string; title: string; options: Array<{ type: number; value: number; param: number; displayValue?: string }>; lastSeenAt: number; }
+export interface ListingSearchResult { id: number; itemId: number; itemName: string; price: number; quantity: number; mapName: string; vendorName: string; title: string; options: Array<{ type: number; value: number; param: number }>; lastSeenAt: number; }
 export interface SearchPage<T> { items: T[]; nextCursor: string | null; }
 export interface HistoryPage { items: Array<{ id: number; observedAt: number; price: number; quantity: number; eventType: string }>; inferredSales?: Array<{ observedAt: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string }>; nextCursor: string | null; }

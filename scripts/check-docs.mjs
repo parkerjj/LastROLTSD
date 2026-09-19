@@ -7,9 +7,10 @@ const deployment = await readFile(new URL('../docs/deployment.md', import.meta.u
 const required = [
   '/api/v1/market/upload', '/api/v1/market/search', '/api/v1/options',
   'Authorization: Bearer', 'Idempotency-Key', '512 KiB', '16 parts',
-  'snapshot_mode', 'options', 'type', 'value', 'param',
+  'protocol_version": 2', 'snapshot_mode', 'shop_status', 'vendor_account_id', 'uuid', 'options', 'type', 'value', 'param',
   'first complete full snapshot establishes a baseline', 'duplicate: true',
   'GET /api/v1/items', 'item_id', '未知物品 #<item_id>', 'search_short_tokens', 'item-ID `IN` list',
+  'dismissed', 'items: []', 'raw option tuples',
 ];
 const missing = required.filter((value) => !document.includes(value));
 const catalogRequired = [
@@ -32,4 +33,5 @@ if (missing.length || missingCatalog.length || missingOperational.length || miss
 }
 if (nonPowerShellCommands.length) { console.error('Documentation command blocks must use PowerShell'); process.exit(1); }
 if (/D:\\openkore|api[_-]?key\s*[:=]\s*['"][^<]/iu.test(documents.join('\n'))) { console.error('Documentation contains a forbidden OpenKore path or credential-like value'); process.exit(1); }
+if (document.includes('protocol_version": 1') || document.includes('shops_seen') || document.includes('"name": "Example Sword"')) { console.error('API documentation contains the retired upload protocol'); process.exit(1); }
 console.log(`Documentation check passed (${required.length + catalogRequired.length + operationalRequired.length + deploymentRequired.length} assertions)`);

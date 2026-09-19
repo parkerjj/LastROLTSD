@@ -4,7 +4,7 @@
 
 - Scope remains Cloudflare Worker/Hono, D1/SQLite, Vite web UI, protocol fixtures, and documentation. No OpenKore source was modified, copied, compiled, bundled, or added as a runtime dependency.
 - The implementation plan completion ledger marks Tasks 1-15 complete.
-- Fresh verification from the deployment worktree passed: pnpm lint; pnpm typecheck; pnpm test (25 files, 102 tests); pnpm test:docs (14 assertions); pnpm --filter web build; Windows pnpm playwright test (2 browser tests); Wrangler production deploy --dry-run; and git diff --check.
+- Fresh verification from this workspace passed: pnpm lint; pnpm typecheck; pnpm test (30 files, 124 tests); pnpm test:docs (44 assertions); pnpm --filter web build; Windows pnpm playwright test (2 browser tests); and git diff --check.
 - The fallback listing-option path is bounded: insertListingOptions sorts tuples, writes chunks of at most 12 rows, and counts six bound values per row. The 21-option regression test covers the former over-100-bound failure.
 - The project and CI require the latest Node 24 release, declared by `.nvmrc` and the root `engines` field, with the repository's current pnpm version declared by `packageManager`. GitHub Actions uses checkout/setup-node v7 and pnpm/action-setup v6 so the actions themselves no longer depend on the deprecated Node 20 runtime.
 - WSL is Debian 2. Use `nvm install 24 && nvm alias default 24 && nvm use 24`; then verify non-interactive login shells with `wsl.exe -d Debian -- bash -lc 'node -v; npm -v; pnpm -v'`.
@@ -47,7 +47,7 @@
 - `option_definitions` is keyed by `option_type`, with label/template, value type, unit, scale, allowed operators, param policy, and repeat policy. Raw option tuples remain authoritative listing data; unknown option types remain visible as raw tuples.
 - Chinese q search uses D1 FTS5 trigram for queries of three or more Unicode code points and `search_short_tokens` for one/two code points. Search uses indexed JOIN/EXISTS inside SQLite and never builds an application-side item-ID `IN` list.
 - Search cursors bind normalized q mode, catalog/option/index versions, all filters, option semantics, sort, and keyset boundary. Catalog or option version changes invalidate old cursors.
-- v1 compatibility is temporary through 2026-10-31. v1 `items[].name`, `shop_key`, and client option display text are never identity, fingerprint, display, search, or catalog authority. From 2026-11-01 the old upload/exact-option contract is rejected, subject to the migration plan's backup and deployment gate.
+- OpenKore agents must upload `protocol_version: 2`. There is no production v1 compatibility window: the earlier design was never deployed. v2 items omit client names and option display text; the server uses only item IDs, structured numeric fields, and raw option tuples for ingestion and identity.
 - The importer accepts only explicit external input files/directories, supports dry-run and deterministic checksums, reports encoding/duplicate/invalid-row errors, and writes generated production SQL/JSON only under ignored paths. It must not hard-code or write `D:\openkore`.
 
 ## Strict execution order for catalog/search work
@@ -63,7 +63,7 @@
 9. Catalog/alias/shop-text search and versioned cursors.
 10. Item autocomplete and cache contract.
 11. Vite query UI with server-defined option controls.
-12. API documentation, v1 deprecation guard, and post-window legacy-column migration.
+12. API documentation, protocol-v2 contract, and legacy audit-column policy.
 13. Full-flow, D1-budget, browser, CI, and final verification.
 
-Do not skip ahead while an earlier task's focused tests or migration assertions fail. Do not run the legacy-column removal migration before 2026-11-01, a verified production backup, and an approved maintenance window. Work directly on `main`; do not create or retain another branch, worktree, or OpenKore dependency.
+Do not skip ahead while an earlier task focused test or migration assertion fails. Legacy item/display columns may remain for audit, but runtime writes and reads must use catalog item IDs and raw option tuples. Work directly on `main`; do not create or retain another branch, worktree, or OpenKore dependency.

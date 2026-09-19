@@ -15,4 +15,9 @@ describe('canonical item fingerprints', () => {
     expect(await computeItemFingerprint({ ...base, upgrade: 6 })).not.toBe(first);
     expect(await computeItemFingerprint({ ...base, itemKey: 'other' })).not.toBe(first);
   });
+  it('ignores legacy client names completely', async () => {
+    const first = await computeItemFingerprint({ ...base, name: '客户端名称 A' } as typeof base & { name: string });
+    const second = await computeItemFingerprint({ ...base, name: '客户端名称 B' } as typeof base & { name: string });
+    expect(first).toBe(second);
+  });
 });

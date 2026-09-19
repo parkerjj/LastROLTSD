@@ -1,14 +1,14 @@
 {
   "protocol_version": 2,
   "client_run_id": "redacted-run",
-  "snapshot_id": "redacted-delta",
+  "snapshot_id": "redacted-dismissed",
   "snapshot_mode": "delta",
   "part_index": 0,
   "part_count": 1,
-  "observed_at": "2026-09-19T12:10:00Z",
+  "observed_at": "2026-09-19T12:30:00Z",
   "shops": [{
     "uuid": "5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1",
-    "shop_status": "opening",
+    "shop_status": "dismissed",
     "vendor_account_id": "redacted-vendor-account",
     "vendor_name": "Synthetic Vendor",
     "title": "Synthetic Shop",
@@ -16,15 +16,6 @@
     "map_name": "prontera",
     "x": 100,
     "y": 120,
-    "items": [{
-      "item_key": "item-v1:redacted-slot-0",
-      "item_id": 1234,
-      "upgrade": 7,
-      "slots": 2,
-      "cards": [0, 0, 0, 0],
-      "price": 100000,
-      "quantity": 1,
-      "options": [{"type": 1, "value": 5, "param": 0}, {"type": 2, "value": 3, "param": 1}]
-    }]
+    "items": []
   }]
 }

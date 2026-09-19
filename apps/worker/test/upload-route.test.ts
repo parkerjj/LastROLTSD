@@ -4,11 +4,34 @@ import { registerUploadRoute } from '../src/routes/upload';
 import { hashApiKey } from '../src/middleware/auth';
 import type { MarketRepository } from '../src/db/repository';
 
+const heartbeatPayload = {
+  protocol_version: 2,
+  client_run_id: 'run',
+  snapshot_id: 'snap',
+  snapshot_mode: 'heartbeat',
+  part_index: 0,
+  part_count: 1,
+  observed_at: '2026-09-18T12:00:00Z',
+  shops: [{
+    uuid: '5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1',
+    shop_status: 'opening',
+    vendor_account_id: 'vendor-account',
+    vendor_name: 'Vendor',
+    title: 'Shop',
+    shop_type: 'sell',
+    map_name: 'map',
+    x: 1,
+    y: 2,
+    items: [],
+  }],
+};
+
 function repo(hash: string, status: 'active' | 'disabled' = 'active'): MarketRepository {
   let batch: any = null;
   return {
     findSourceByApiKeyHash: async (value) => value === hash ? { id: 's1', name: 'S', apiKeyHash: hash, status } : null,
     getOrCreateVendor: async (_s, input) => ({ id: 1, sourceId: 's1', ...input }), getOrCreateShop: async (_s, input) => ({ id: 1, sourceId: 's1', ...input, status: 'active', closedAt: null }), getOrCreateSession: async (input) => ({ id: 1, shopId: input.shopId, clientRunId: 'run', startedAt: input.observedAt, lastSeenAt: input.observedAt, endedAt: null, initialSyncComplete: false, lastCompleteSnapshotId: null }), getBatch: async () => batch, getSnapshotParts: async () => [], insertBatch: async (input) => { batch = { id: 1, ...input, status: 'processing' }; return batch; }, completeBatch: async (_s, _b, result) => { batch.responseJson = JSON.stringify(result); }, loadListingsByFingerprint: async () => [], applyListingChanges: async () => ({ updated: 0, conflicts: 0 }), markShopHeartbeats: async () => 1, finalizeSnapshot: async () => {}, searchListings: async () => ({ items: [], nextCursor: null }), getListingHistory: async () => ({ items: [], nextCursor: null }), getOptionDictionary: async () => [],
+    resolveShopObservation: async (input) => ({ internalShopId: 1, shopId: 'shop_v1_synthetic', identityHash: 'identity-a', resolution: 'matched', status: input.shopStatus, applied: true, session: input.shopStatus === 'dismissed' ? null : { id: 1, shopId: 1, clientRunId: input.clientRunId, startedAt: input.observedAt, lastSeenAt: input.observedAt, endedAt: null, initialSyncComplete: true, lastCompleteSnapshotId: 'baseline' } }),
   };
 }
 
@@ -16,7 +39,7 @@ describe('upload route', () => {
   it('authenticates before accepting a valid upload', async () => {
     const key = 'route-secret'; const app = new Hono(); const repository = repo(await hashApiKey(key));
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async (_source, _session, observations) => ({ processedListings: observations.length, changedListings: observations.length, soldEvents: 0 }) });
-    const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify({ protocol_version: 1, client_run_id: 'run', snapshot_id: 'snap', snapshot_mode: 'heartbeat', part_index: 0, part_count: 1, observed_at: '2026-09-18T12:00:00Z', shops_seen: ['shop'], shops: [] }) });
+    const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
     expect(response.status).toBe(202); expect((await response.json() as { accepted: boolean }).accepted).toBe(true);
   });
   it('returns a request id for malformed JSON', async () => {
@@ -32,7 +55,7 @@ describe('upload route', () => {
       registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
       const headers = new Headers({ authorization: `Bearer ${key}`, 'content-type': 'application/json' });
       if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
-      const response = await app.request('/api/v1/market/upload', { method: 'POST', headers, body: JSON.stringify({ protocol_version: 1, client_run_id: 'run', snapshot_id: 'snap', snapshot_mode: 'heartbeat', part_index: 0, part_count: 1, observed_at: '2026-09-18T12:00:00Z', shops_seen: ['shop'], shops: [] }) });
+      const response = await app.request('/api/v1/market/upload', { method: 'POST', headers, body: JSON.stringify(heartbeatPayload) });
       expect(response.status).toBe(400);
       expect((await response.json() as { error: { code: string } }).error.code).toBe('bad_request');
     }
@@ -53,7 +76,7 @@ describe('upload route', () => {
 
     const limitedApp = new Hono();
     registerUploadRoute(limitedApp, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 16 }, repo(hash), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
-    const limited = await limitedApp.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify({ protocol_version: 1, client_run_id: 'run', snapshot_id: 'snap', snapshot_mode: 'heartbeat', part_index: 0, part_count: 1, observed_at: '2026-09-18T12:00:00Z', shops_seen: [], shops: [] }) });
+    const limited = await limitedApp.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
     expect(limited.status).toBe(413);
     expect((await limited.json() as { error: { code: string } }).error.code).toBe('payload_too_large');
   });
@@ -64,7 +87,7 @@ describe('upload route', () => {
     const repository = repo(await hashApiKey(key));
     repository.getBatch = async () => { throw new Error('SQLITE_CONSTRAINT_PRIVATE_DETAIL'); };
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
-    const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify({ protocol_version: 1, client_run_id: 'run', snapshot_id: 'snap', snapshot_mode: 'heartbeat', part_index: 0, part_count: 1, observed_at: '2026-09-18T12:00:00Z', shops_seen: [], shops: [] }) });
+    const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
     expect(response.status).toBe(500);
     const body = await response.json() as { error: { message: string } };
     expect(body.error.message).toBe('Unexpected internal error');

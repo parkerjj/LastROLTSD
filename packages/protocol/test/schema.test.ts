@@ -2,18 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { parseUploadRequest, UploadValidationError } from '../src/index';
 
 const valid = {
-  protocol_version: 1,
+  protocol_version: 2,
   client_run_id: 'run-1',
   snapshot_id: 'snapshot-1',
   snapshot_mode: 'full',
   part_index: 0,
   part_count: 1,
   observed_at: '2026-09-18T12:00:00.000Z',
-  shops_seen: ['shop-1'],
   shops: [{
-    shop_key: 'shop-1', vendor_key: 'vendor-1', vendor_name: 'Vendor', title: 'Shop',
+    uuid: '5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1', shop_status: 'opening', vendor_account_id: 'account-1', vendor_name: 'Vendor', title: 'Shop',
     shop_type: 'sell', map_name: 'prontera', x: 100, y: 120,
-    items: [{ item_key: 'slot-0', item_id: 123, name: 'Sword', upgrade: 7, slots: 2,
+    items: [{ item_key: 'slot-0', item_id: 123, upgrade: 7, slots: 2,
       cards: [0], price: 100, quantity: 1, options: [{ type: 1, value: 5, param: 0 }] }],
   }],
 };
@@ -30,5 +29,21 @@ describe('upload schema', () => {
     expect(() => parseUploadRequest({ ...valid, part_index: 2 })).toThrow(UploadValidationError);
     expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0]!, items: [{ ...valid.shops[0]!.items[0]!, price: -1 }] }] })).toThrow(UploadValidationError);
     expect(() => parseUploadRequest({ ...valid, snapshot_mode: 'unknown' })).toThrow(UploadValidationError);
+  });
+
+  it('accepts observation-only v2 items and shop resolution fields', () => {
+    const parsed = parseUploadRequest(valid);
+    expect(parsed.protocol_version).toBe(2);
+    expect(parsed.shops[0]?.uuid).toBe(valid.shops[0].uuid);
+    expect(parsed.shops[0]?.items[0]).not.toHaveProperty('name');
+  });
+
+  it('rejects invalid lifecycle payloads, client item metadata, and the old draft protocol', () => {
+    expect(() => parseUploadRequest({ ...valid, protocol_version: 1 })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], uuid: undefined }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], shop_status: 'closed' }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], shop_status: 'dismissed', items: [valid.shops[0].items[0]] }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], vendor_account_id: '' }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], items: [{ ...valid.shops[0].items[0], name: 'client text' }] }] })).toThrow(UploadValidationError);
   });
 });

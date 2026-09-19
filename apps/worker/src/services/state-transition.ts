@@ -11,10 +11,10 @@ import { IngestionError } from './ingestion';
 const LOOKUP_CHUNK_SIZE = 40;
 const CREATE_CHUNK_SIZE = 20;
 
-type NewListingInput = { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; itemName: string; itemNameNormalized: string; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string };
+type NewListingInput = { sessionId: number; fingerprint: string; itemKey?: string; itemId: number; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string };
 
 function newListingInput(observation: NormalizedObservation, observedAt: number, batchId: string): NewListingInput {
-  return { sessionId: observation.sessionId, fingerprint: observation.fingerprint, ...(observation.item.item_key === undefined ? {} : { itemKey: observation.item.item_key }), itemId: observation.item.item_id, itemName: observation.item.name, itemNameNormalized: observation.item.name.normalize('NFKC').toLowerCase(), upgrade: observation.item.upgrade, slots: observation.item.slots, cards: observation.item.cards, price: observation.item.price, quantity: observation.item.quantity, observedAt, batchId };
+  return { sessionId: observation.sessionId, fingerprint: observation.fingerprint, ...(observation.item.item_key === undefined ? {} : { itemKey: observation.item.item_key }), itemId: observation.item.item_id, upgrade: observation.item.upgrade, slots: observation.item.slots, cards: observation.item.cards, price: observation.item.price, quantity: observation.item.quantity, observedAt, batchId };
 }
 
 export interface ListingObservation { listing: ListingRow; item: UploadItem; observedAt: number; batchId: string; baselineComplete: boolean; }

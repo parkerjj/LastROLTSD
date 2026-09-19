@@ -8,23 +8,28 @@ A source can be disabled independently. All shop, session, listing, and reconcil
 
 ## Catalog Operations
 
-Generate and inspect a release from an explicitly supplied file or directory. The importer never accesses the network, never writes its input, and writes production SQL only below the Git-ignored `.generated\` directory. All command examples in this runbook use PowerShell.
+Generate and inspect a release from the OpenKore `items.txt` and `itemsdescriptions.txt` files supplied by the operator. The importer never accesses the network, never writes its input, and writes production SQL only below the Git-ignored `.generated\` directory. All command examples in this runbook use PowerShell.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$inputFile = 'C:\path\to\catalog-items.json'
+$openKoreTables = 'C:\path\to\openkore\tables\Lastro-zh_CN'
+$inputFile = Join-Path $openKoreTables 'items.txt'
+$descriptionFile = Join-Path $openKoreTables 'itemsdescriptions.txt'
 $outputDir = '.generated\catalog\catalog-2026-09-19'
-pnpm catalog:import -- --input-file $inputFile --kind items --version catalog-2026-09-19 --encoding utf8 --output-dir $outputDir --dry-run
-pnpm catalog:import -- --input-file $inputFile --kind items --version catalog-2026-09-19 --encoding utf8 --output-dir $outputDir
-Get-Content (Join-Path $outputDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,aliasCount,errorCount
+pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version catalog-2026-09-19 --encoding utf8 --description-encoding utf8 --skip-empty-names --output-dir $outputDir --dry-run
+pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version catalog-2026-09-19 --encoding utf8 --description-encoding utf8 --skip-empty-names --output-dir $outputDir
+Get-Content (Join-Path $outputDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,descriptionCount,descriptionRecordCount,descriptionDuplicateCount,aliasCount,errorCount,batchCount,statementCount,sqlBytes
 ```
 
 Apply only the reviewed SQL file after the migration smoke check. Reapplying a version is idempotent and does not delete or rewrite listings.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$sqlFile = '.generated\catalog\catalog-2026-09-19\catalog-items-catalog-2026-09-19.sql'
-pnpm exec wrangler d1 execute lastroweb-local --local --file $sqlFile
+$releaseDir = '.generated\catalog\catalog-2026-09-19'
+$manifest = Get-Content (Join-Path $releaseDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json
+foreach ($batchFile in $manifest.batchFiles) {
+  pnpm exec wrangler d1 execute lastroweb-local --local --file (Join-Path $releaseDir $batchFile)
+}
 ```
 
 For rollback, retain each reviewed SQL/manifest pair outside Git, pause new imports, apply the last known-good catalog release in a maintenance window, and verify `catalog_state`, catalog row counts, alias rows, and listing counts. Never rewrite an applied migration or use a database reset as a catalog rollback.
