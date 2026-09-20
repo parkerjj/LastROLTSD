@@ -104,8 +104,8 @@ export interface MarketRepository {
   searchItems(query: string, limit: number): Promise<CatalogItemRow[]>;
   deleteExpiredHistory?(before: number, limit: number): Promise<number>;
   deleteExpiredSoldEvents?(before: number, limit: number): Promise<number>;
-  countExpiredHistory?(before: number): Promise<number>;
-  countExpiredSoldEvents?(before: number): Promise<number>;
+  countExpiredHistory?(before: number, limit: number): Promise<number>;
+  countExpiredSoldEvents?(before: number, limit: number): Promise<number>;
 }
 
 export interface UploadShopResult { uuid: string; shop_id: string; shop_status: 'opening' | 'dismissed'; applied: boolean; resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored'; }

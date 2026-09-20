@@ -107,7 +107,7 @@ test('renders stable SQL and manifest checksums independent of input order', () 
   const manifest = buildCatalogManifest(one, { version: 'catalog-test', outputChecksum: sha256Hex(sqlOne) });
   assert.equal(manifest.itemCount, 2);
   assert.equal(manifest.outputChecksum, sha256Hex(sqlTwo));
-  assert.equal(manifest.importerVersion, '1.1.1');
+  assert.equal(manifest.importerVersion, '1.1.2');
 });
 
 test('renders D1 file-import SQL without explicit transaction wrappers', () => {
@@ -132,6 +132,14 @@ test('indexes canonical names, aliases, and descriptions in SQLite search struct
   } finally {
     db.close();
   }
+});
+
+test('keys item FTS rows by item ID so refreshes avoid item_id scans', () => {
+  const input = parseCatalogInput(Buffer.from('1234#测试剑#试剑#稀有说明文本\n'), metadata('items.txt', 'utf8'));
+  const sql = renderCatalogSql(input, { version: 'catalog-fts-rowid' });
+  assert.match(sql, /DELETE FROM item_search_fts WHERE rowid IN/iu);
+  assert.match(sql, /INSERT INTO item_search_fts\(rowid,item_id,text\)/iu);
+  assert.doesNotMatch(sql, /DELETE FROM item_search_fts WHERE item_id IN/iu);
 });
 
 test('uses JSON1 for derived token bulk inserts within the statement budget', () => {

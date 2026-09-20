@@ -135,7 +135,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (observations.length === 0) return 0;
       const payload = JSON.stringify(observations);
       assertBatchBounds(1, 3);
-      const result = await db.prepare(`UPDATE listings SET last_seen_at=?3,last_batch_id=?2,missing_streak=0,status=CASE WHEN quantity=0 THEN 'sold_out' ELSE 'active' END WHERE EXISTS (SELECT 1 FROM json_each(?1) input WHERE listings.shop_session_id=CAST(json_extract(input.value,'$.sessionId') AS INTEGER) AND listings.item_fingerprint=json_extract(input.value,'$.fingerprint'))`).bind(payload, batchId, observedAt).run();
+      const result = await db.prepare(`UPDATE listings SET last_seen_at=?3,last_batch_id=?2,missing_streak=0,status=CASE WHEN quantity=0 THEN 'sold_out' ELSE 'active' END WHERE id IN (SELECT l.id FROM json_each(?1) input JOIN listings l ON l.shop_session_id=CAST(json_extract(input.value,'$.sessionId') AS INTEGER) AND l.item_fingerprint=json_extract(input.value,'$.fingerprint'))`).bind(payload, batchId, observedAt).run();
       return Number(result.meta?.changes ?? 0);
     },
     async loadListingById(listingId, sessionId) {
@@ -267,7 +267,8 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
         state_version=state_version+1,
         last_batch_id=(SELECT json_extract(input.value,'$.batchId') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
         missing_streak=0
-      WHERE EXISTS (SELECT 1 FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id AND listings.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER) AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER))
+      WHERE id IN (SELECT CAST(json_extract(input.value,'$.listingId') AS INTEGER) FROM json_each(?1) input)
+        AND EXISTS (SELECT 1 FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id AND listings.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER) AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER))
       RETURNING id`);
       const history = db.prepare(`INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
         SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),json_extract(item.value,'$.history.eventType'),json_extract(item.value,'$.batchId')
@@ -289,7 +290,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       for (let offset = 0; offset < shopKeys.length; offset += 40) {
         const chunk = shopKeys.slice(offset, offset + 40);
         assertBatchBounds(1, 3);
-        const result = await db.prepare('UPDATE shops SET last_seen_at=?3,updated_at=?3,status=CASE WHEN status=\'closed\' THEN status ELSE \'active\' END WHERE source_id=?2 AND EXISTS (SELECT 1 FROM json_each(?1) input WHERE shops.shop_key=input.value)').bind(JSON.stringify(chunk), sourceId, observedAt).run();
+        const result = await db.prepare('UPDATE shops SET last_seen_at=?3,updated_at=?3,status=CASE WHEN status=\'closed\' THEN status ELSE \'active\' END WHERE id IN (SELECT s.id FROM json_each(?1) input CROSS JOIN shops s ON s.source_id=?2 AND s.shop_key=input.value)').bind(JSON.stringify(chunk), sourceId, observedAt).run();
         updated += Number(result.meta?.changes ?? 0);
       }
       return updated;
@@ -333,8 +334,8 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (baseline) {
         return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: true, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
       }
-      const scopedSessions = `(SELECT id FROM shop_sessions WHERE id IN (${scopeSql}) AND started_at <= ?1 AND last_seen_at=?1)`;
-      const stalePredicate = `shop_session_id IN ${scopedSessions} AND shop_session_id IN (SELECT id FROM shop_sessions WHERE initial_sync_complete=1) AND status IN ('active','missing') AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`;
+      const scopedSessions = `(SELECT id FROM shop_sessions WHERE id IN (${scopeSql}) AND started_at <= ?1 AND last_seen_at=?1 AND initial_sync_complete=1)`;
+      const stalePredicate = `shop_session_id IN ${scopedSessions} AND status IN ('active','missing') AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`;
       const candidateRows = await many<Row>(db.prepare(`SELECT id,quantity,state_version FROM listings WHERE ${stalePredicate} AND missing_streak=1 AND quantity>0`).bind(input.observedAt, scopePayload, batchPayload));
       const inferredCandidates = await Promise.all(candidateRows.map(async (row) => ({
         listingId: Number(row.id),
@@ -357,7 +358,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       assertBatchBounds(writes.length, 3 + (inferredCandidates.length > 0 ? 1 : 0));
       const writeResults = await db.batch(writes);
       const staleResult = writeResults[0] ?? { meta: { changes: 0 } };
-      const markedRow = await one<Row>(db.prepare(`SELECT COUNT(*) AS count FROM listings WHERE shop_session_id IN ${scopedSessions} AND shop_session_id IN (SELECT id FROM shop_sessions WHERE initial_sync_complete=1) AND status IN ('active','missing') AND missing_streak=1 AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`).bind(input.observedAt, scopePayload, batchPayload));
+      const markedRow = await one<Row>(db.prepare(`SELECT COUNT(*) AS count FROM listings WHERE shop_session_id IN ${scopedSessions} AND status IN ('active','missing') AND missing_streak=1 AND (last_batch_id IS NULL OR last_batch_id NOT IN (SELECT value FROM json_each(?3)))`).bind(input.observedAt, scopePayload, batchPayload));
       const expiredResult = await db.prepare(`UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id IN ${scopedSessions} AND status IN ('active','missing') AND EXISTS (SELECT 1 FROM shop_sessions ss WHERE ss.id=listings.shop_session_id AND ss.ended_at IS NOT NULL AND ss.ended_at <= ?1)`).bind(input.observedAt, scopePayload).run();
       const shopsRow = await one<Row>(db.prepare(`SELECT COUNT(DISTINCT s.id) AS count FROM shops s JOIN shop_sessions ss ON ss.shop_id=s.id WHERE ss.id IN ${scopedSessions} AND ss.ended_at IS NULL`).bind(input.observedAt, scopePayload));
       const candidates = Number(staleResult.meta?.changes ?? 0);
@@ -437,20 +438,20 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (!normalized) return [];
       const short = [...normalized].length <= 2;
       const match = short ? normalized : '"' + normalized.replaceAll('"', '""') + '"';
-      const predicate = short
-        ? 'EXISTS (SELECT 1 FROM search_short_tokens st WHERE st.scope_type=\'item\' AND st.scope_id=c.item_id AND st.token=?1)'
-        : 'EXISTS (SELECT 1 FROM item_search_fts f WHERE f.item_id=CAST(c.item_id AS TEXT) AND f.text MATCH ?1)';
+      const source = short
+        ? "FROM search_short_tokens st JOIN item_catalog c ON c.item_id=st.scope_id WHERE st.scope_type='item' AND st.token=?1"
+        : 'FROM item_search_fts f JOIN item_catalog c ON c.item_id=f.rowid WHERE f.text MATCH ?1';
       const sql = 'SELECT c.item_id,c.canonical_name_zh,' +
         "COALESCE((SELECT json_group_array(alias) FROM (SELECT alias FROM item_aliases a WHERE a.item_id=c.item_id ORDER BY a.alias_normalized)), '[]') AS aliases_json " +
-        'FROM item_catalog c WHERE ' + predicate +
+        source +
         ' ORDER BY CASE WHEN c.name_normalized=?2 THEN 0 ELSE 1 END,c.item_id LIMIT ?3';
       const rows = await many<Row>(db.prepare(sql).bind(match, normalized, Math.min(20, Math.max(1, limit))));
       return rows.map((row): CatalogItemRow => ({ itemId: Number(row.item_id), name: String(row.canonical_name_zh), aliases: parseAliases(row.aliases_json) }));
     },
-    async deleteExpiredHistory(before, limit) { const result = await db.prepare('DELETE FROM listing_price_history WHERE id IN (SELECT id FROM listing_price_history WHERE observed_at < ?1 ORDER BY id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
-    async deleteExpiredSoldEvents(before, limit) { const result = await db.prepare('DELETE FROM sold_events WHERE id IN (SELECT id FROM sold_events WHERE observed_at < ?1 ORDER BY id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
-    async countExpiredHistory(before) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM listing_price_history WHERE observed_at < ?1').bind(before)); return Number(row?.count ?? 0); },
-    async countExpiredSoldEvents(before) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM sold_events WHERE observed_at < ?1').bind(before)); return Number(row?.count ?? 0); },
+    async deleteExpiredHistory(before, limit) { const result = await db.prepare('DELETE FROM listing_price_history WHERE id IN (SELECT id FROM listing_price_history WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
+    async deleteExpiredSoldEvents(before, limit) { const result = await db.prepare('DELETE FROM sold_events WHERE id IN (SELECT id FROM sold_events WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2)').bind(before, limit).run(); return Number(result.meta?.changes ?? 0); },
+    async countExpiredHistory(before, limit) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM (SELECT id FROM listing_price_history WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2)').bind(before, limit)); return Number(row?.count ?? 0); },
+    async countExpiredSoldEvents(before, limit) { const row = await one<Row>(db.prepare('SELECT COUNT(*) AS count FROM (SELECT id FROM sold_events WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2)').bind(before, limit)); return Number(row?.count ?? 0); },
   };
 }
 

@@ -106,6 +106,44 @@ describe('D1 repository', () => {
     expect(page.items[0]?.itemName).toBe('Sword');
   });
 
+  it('drives catalog autocomplete from the token or FTS index before joining item_catalog', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+
+    await repo.searchItems('红', 20);
+    await repo.searchItems('红色药', 20);
+
+    const catalogQueries = db.statements.filter((statement) => statement.sql.includes('canonical_name_zh'));
+    expect(catalogQueries[0]?.sql).toContain('FROM search_short_tokens st JOIN item_catalog c ON c.item_id=st.scope_id');
+    expect(catalogQueries[0]?.sql).toContain("st.scope_type='item' AND st.token=?1");
+    expect(catalogQueries[0]?.sql).not.toContain('FROM item_catalog c WHERE EXISTS');
+    expect(catalogQueries[1]?.sql).toContain('FROM item_search_fts f JOIN item_catalog c ON c.item_id=f.rowid');
+    expect(catalogQueries[1]?.sql).toContain('f.text MATCH ?1');
+    expect(catalogQueries[1]?.sql).not.toContain('FROM item_catalog c WHERE EXISTS');
+  });
+
+  it('bounds retention preview counts instead of scanning all expired rows', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+
+    await repo.countExpiredHistory!(123, 1001);
+    await repo.countExpiredSoldEvents!(123, 1001);
+
+    const previews = db.statements.filter((statement) => statement.sql.includes('SELECT COUNT(*) AS count FROM (SELECT id FROM'));
+    expect(previews).toHaveLength(2);
+    expect(previews[0]?.sql).toContain('WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2');
+    expect(previews[0]?.bound).toEqual([123, 1001]);
+    expect(previews[1]?.sql).toContain('WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2');
+    expect(previews[1]?.bound).toEqual([123, 1001]);
+
+    await repo.deleteExpiredHistory!(123, 500);
+    await repo.deleteExpiredSoldEvents!(123, 500);
+    const deletes = db.statements.filter((statement) => statement.sql.startsWith('DELETE FROM'));
+    expect(deletes).toHaveLength(2);
+    expect(deletes[0]?.sql).toContain('WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2');
+    expect(deletes[1]?.sql).toContain('WHERE observed_at < ?1 ORDER BY observed_at,id LIMIT ?2');
+  });
+
   it('reflects catalog renames and uses the unknown-item fallback without another upload', async () => {
     let catalogName: string | null = 'Initial catalog name';
     const db = {
@@ -213,6 +251,22 @@ describe('D1 repository', () => {
     expect(db.statements.some((statement) => statement.sql.includes('listing_options'))).toBe(true);
   });
 
+  it('drives JSON1 bulk updates from bounded input IDs instead of scanning business tables', async () => {
+    const db = new FakeDb();
+    const repo = createD1Repository(db as never);
+
+    await repo.markListingsObservedBulk!([{ sessionId: 1, fingerprint: 'fp' }], 'b2', 2);
+    await repo.applyListingTransitionsBulk!([{ listingId: 1, shopSessionId: 1, expectedVersion: 0, price: 9, quantity: 0, status: 'sold_out', observedAt: 2, batchId: 'b2' }]);
+    await repo.markShopHeartbeats!('s1', ['shop-1'], 2);
+
+    const observed = db.statements.find((statement) => statement.sql.startsWith('UPDATE listings SET last_seen_at'))!;
+    expect(observed.sql).toContain('WHERE id IN (SELECT l.id FROM json_each(?1) input JOIN listings l');
+    const transition = db.statements.find((statement) => statement.sql.startsWith('UPDATE listings SET\n        price='))!;
+    expect(transition.sql).toContain("WHERE id IN (SELECT CAST(json_extract(input.value,'$.listingId') AS INTEGER) FROM json_each(?1) input)");
+    const heartbeat = db.statements.find((statement) => statement.sql.startsWith('UPDATE shops SET last_seen_at'))!;
+    expect(heartbeat.sql).toContain('WHERE id IN (SELECT s.id FROM json_each(?1) input CROSS JOIN shops s');
+  });
+
   it('returns bounded inferred sale details from the history repository', async () => {
     const statements: string[] = [];
     const db = {
@@ -236,7 +290,7 @@ describe('D1 repository', () => {
   it('uses one JSON1 heartbeat statement per bounded chunk', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    await repo.markShopHeartbeats('s1', Array.from({ length: 40 }, (_, index) => 'shop-' + index), 10);
+    await repo.markShopHeartbeats!('s1', Array.from({ length: 40 }, (_, index) => 'shop-' + index), 10);
     const heartbeat = db.statements.find((statement) => statement.sql.includes('UPDATE shops'))!;
     expect(heartbeat.sql).toContain('json_each');
     expect(heartbeat.bound).toHaveLength(3);

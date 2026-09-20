@@ -195,7 +195,7 @@ $knownGoodManifest = Get-Content (Join-Path $knownGoodDir 'catalog-items-catalog
 foreach ($batchFile in $knownGoodManifest.batchFiles) {
   pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file (Join-Path $knownGoodDir $batchFile)
 }
-pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --command "SELECT current_version FROM catalog_state WHERE id = 1; SELECT COUNT(*) AS listings FROM listings;"
+pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --command "SELECT current_version FROM catalog_state WHERE id = 1; SELECT version,item_count,alias_count,checksum,output_checksum FROM catalog_versions WHERE version=(SELECT current_version FROM catalog_state WHERE id=1); SELECT id,item_id,status FROM listings ORDER BY id DESC LIMIT 5;"
 ```
 
 Do not delete or rewrite a production migration, reset the database, or roll back catalog rows by deleting listings. Before schema changes or retention-policy changes, create and verify a D1 export. Retention defaults to 90 days for history and sold events and never deletes current listings. Longer retention or substantially higher upload volume requires a D1 quota and cost review.

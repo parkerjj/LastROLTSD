@@ -32,4 +32,4 @@ foreach ($batchFile in $manifest.batchFiles) {
 }
 ```
 
-For rollback, retain each reviewed SQL/manifest pair outside Git, pause new imports, apply the last known-good catalog release in a maintenance window, and verify `catalog_state`, catalog row counts, alias rows, and listing counts. Never rewrite an applied migration or use a database reset as a catalog rollback.
+For rollback, retain each reviewed SQL/manifest pair outside Git, pause new imports, and apply the last known-good catalog release in a maintenance window. Verify the remote release through `catalog_state`, the matching `catalog_versions` counts and checksums, plus a small primary-key or indexed sample. Do not recount catalog, alias, search-token, or listing tables remotely. Never rewrite an applied migration or use a database reset as a catalog rollback.

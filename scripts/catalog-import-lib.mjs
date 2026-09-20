@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const IMPORTER_VERSION = '1.1.1';
+export const IMPORTER_VERSION = '1.1.2';
 export const MAX_SQL_STATEMENT_BYTES = 90 * 1024;
 export const MAX_SQL_STATEMENTS = 45;
 export const MAX_ITEMS_PER_TRANSACTION = 256;
@@ -189,7 +189,7 @@ function renderCatalogStatements(batch, options, includeMetadata) {
   const itemIds = batch.map((entry) => entry.itemId);
   const statements = [];
   statements.push(...chunkDeleteByIds('search_short_tokens', 'scope_id', itemIds, "scope_type='item'"));
-  statements.push(...chunkDeleteByIds('item_search_fts', 'item_id', itemIds));
+  statements.push(...chunkDeleteByIds('item_search_fts', 'rowid', itemIds));
   statements.push(...chunkDeleteByIds('item_aliases', 'item_id', itemIds));
   statements.push(...chunkInsert(
     'item_catalog',
@@ -205,7 +205,7 @@ function renderCatalogStatements(batch, options, includeMetadata) {
     aliases,
     { insertPrefix: 'INSERT' },
   ));
-  statements.push(...chunkInsert('item_search_fts', ['item_id', 'text'], batch.map((entry) => entry.ftsRow)));
+  statements.push(...chunkInsert('item_search_fts', ['rowid', 'item_id', 'text'], batch.map((entry) => [entry.itemId, ...entry.ftsRow])));
   const tokenRows = batch.flatMap((entry) => entry.tokenRows);
   statements.push(...chunkJsonInsertIgnore('search_short_tokens', ['scope_type', 'scope_id', 'token'], tokenRows));
   if (includeMetadata) {

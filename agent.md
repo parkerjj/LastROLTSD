@@ -35,6 +35,15 @@
 - Maintain full/delta/heartbeat semantics, first-full baseline behavior, signed keyset cursors, transition-key idempotency, 512 KiB body / 16-part / 50-result limits, and chunked D1 writes.
 - Use apply_patch for edits and write a failing test before production changes.
 
+## Remote D1 quota safety
+
+- Never run an unbounded `COUNT(*)`, aggregate, table scan, index scan, or bulk diagnostic query against remote D1 merely to verify row totals. Full integrity and cardinality checks belong on local D1 or a disposable staging database.
+- Before adding or manually running a remote `SELECT`, `UPDATE`, `DELETE`, or import, inspect its predicates and indexes locally with `EXPLAIN QUERY PLAN`. Production point checks must use a primary key, a selective indexed predicate, or a strict `LIMIT` whose plan is bounded.
+- If a remote operation could read or write more than 100,000 rows, estimate the row cost first and obtain the user's explicit approval. This includes index rebuilds, catalog imports, migrations, maintenance, and verification queries.
+- Verify catalog releases remotely through `catalog_state`, the recorded `catalog_versions.item_count` and checksums, plus a small primary-key or indexed sample. Do not recount `item_catalog`, `item_search_fts`, `search_short_tokens`, listings, history, or sold-event tables in production.
+- Never rerun a production import only to verify it. Import once after review, then use bounded metadata and sample queries. A retry is allowed only to recover a known interrupted or failed idempotent apply.
+- Keep remote writes chunked and bounded by the repository's existing statement, parameter, and invocation budgets. Do not use production as a load-test target.
+
 ## Catalog/search architecture decisions (2026-09-19)
 
 - The approved design is `docs/superpowers/specs/2026-09-19-lastroweb-catalog-search-design.md`; its implementation plan is `docs/superpowers/plans/2026-09-19-lastroweb-catalog-search-plan.md`.
