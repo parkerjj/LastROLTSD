@@ -47,7 +47,7 @@ describe('listing state transition', () => {
       insertListingOptions: async (input: unknown) => { optionCalls.push(input); },
     } as any;
     const service = createListingStateService(repository);
-    await service.applyBatchObservations({ id: 's1' } as any, { id: 1, initialSyncComplete: false } as any, [{ fingerprint: 'fp', sessionId: 1, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [{ type: 2, value: 4, param: 1 }] } }], 'b', 2);
+    await service.applyBatchObservations({ id: 's1' } as any, { id: 1, initialSyncComplete: false } as any, [{ fingerprint: 'fp', sessionId: 1, shopId: 'shop', item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [{ type: 2, value: 4, param: 1 }] } }], 'b', 2);
     expect(optionCalls).toHaveLength(1);
     expect(optionCalls[0]).toMatchObject({ listingId: 7, options: [{ type: 2, value: 4, param: 1 }] });
   });
@@ -56,7 +56,7 @@ describe('listing state transition', () => {
     const lookupSizes: number[] = [];
     const bulkCalls: unknown[] = [];
     const observations = Array.from({ length: 41 }, (_, index) => ({
-      fingerprint: `fp-${index}`, sessionId: 1,
+      fingerprint: `fp-${index}`, sessionId: 1, shopId: 'shop',
       item: { item_id: index + 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] },
     }));
     const repository = {
@@ -79,7 +79,7 @@ describe('listing state transition', () => {
     await expect(createListingStateService(repository).applyBatchObservations(
       { id: 's1' } as any,
       { id: 1, initialSyncComplete: true } as any,
-      [{ fingerprint: 'fp', sessionId: 1, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] } }],
+      [{ fingerprint: 'fp', sessionId: 1, shopId: 'shop', item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] } }],
       'b', 2,
     )).rejects.toMatchObject({ status: 409 });
   });

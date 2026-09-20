@@ -6,7 +6,7 @@ const page = (id: number): SearchPage<ListingSearchResult> => ({ items: [{ id, i
 
 describe('search controller', () => {
   it('aborts a stale request and keeps the newer result', async () => {
-    const deferred: Array<{ resolve: (value: SearchPage<ListingSearchResult>) => void; signal?: AbortSignal }> = [];
+    const deferred: Array<{ resolve: (value: SearchPage<ListingSearchResult>) => void; signal: AbortSignal | undefined }> = [];
     const api = { search: vi.fn((_: SearchFilters, signal?: AbortSignal) => new Promise<SearchPage<ListingSearchResult>>((resolve) => { deferred.push({ resolve, signal }); })) };
     const controller = new SearchController(api);
     const first = controller.search({ q: '旧', limit: 20, sort: 'price_asc' });

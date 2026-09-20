@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -6,9 +6,9 @@ import { createD1Repository } from '../src/db/d1-repository';
 import { parseSearchParams } from '../src/domain/search';
 
 class LocalStatement {
-  values: unknown[] = [];
+  values: SQLInputValue[] = [];
   constructor(private readonly database: DatabaseSync, readonly sql: string) {}
-  bind(...values: unknown[]) { this.values = values; return this; }
+  bind(...values: SQLInputValue[]) { this.values = values; return this; }
   async first<T>() { return (this.database.prepare(this.sql).get(...this.values) as T | undefined) ?? null; }
   async all<T>() { return { results: this.database.prepare(this.sql).all(...this.values) as T[] }; }
   async run() { const result = this.database.prepare(this.sql).run(...this.values); return { meta: { changes: Number(result.changes) } }; }

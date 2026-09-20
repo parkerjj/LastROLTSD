@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import { Hono } from 'hono';
 import { decodeCursor, encodeCursor, parseSearchParams, SearchValidationError, searchCursorContext } from '../src/domain/search';
 import { registerSearchRoute } from '../src/routes/search';
+import type { SearchFilters } from '@lastroweb/protocol';
 
 describe('search filters', () => {
   it('parses bounded filters and a stable cursor', () => { const filters = parseSearchParams(new URL('https://x.test/api?q=sword&limit=99&price_min=10&price_max=20&sort=price_desc')); expect(filters.limit).toBe(50); expect(filters.q).toBe('sword'); const cursor = encodeCursor({ sort: 'price_desc', sortValue: 20, id: 4 }); expect(decodeCursor(cursor)).toEqual({ sort: 'price_desc', sortValue: 20, id: 4 }); });
@@ -70,7 +71,7 @@ describe('search filters', () => {
     registerSearchRoute(app, {
       getCatalogVersion: async () => 'catalog-v1',
       getOptionDefinitions: async () => ({ version: 'options-v1', items: [] }),
-      searchListings: async (filters) => {
+      searchListings: async (filters: SearchFilters) => {
         if (filters.options?.[0]?.type === 999) throw new SearchValidationError('Unknown option type: 999');
         return { items: [], nextCursor: encodeCursor({ sort: filters.sort, sortValue: 10, id: 1, context: searchCursorContext(filters) }) };
       },

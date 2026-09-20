@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ingestUpload } from '../src/services/ingestion';
 import type { MarketRepository } from '../src/db/repository';
+import type { ShopSessionRow } from '../src/db/types';
 import type { AuthenticatedSource } from '../src/middleware/auth';
 
 const source: AuthenticatedSource = { id: 's1', name: 'Synthetic source', apiKeyHash: 'hash', status: 'active', tokenHash: 'hash' };
-const baseSession = { id: 1, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: true, lastCompleteSnapshotId: 'baseline' };
+const baseSession: ShopSessionRow = { id: 1, shopId: 1, clientRunId: 'run', startedAt: 1, lastSeenAt: 1, endedAt: null, initialSyncComplete: true, lastCompleteSnapshotId: 'baseline' };
 const shop = {
   uuid: '5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1',
   shop_status: 'opening' as const,
@@ -78,8 +79,9 @@ describe('upload ingestion', () => {
   it('treats equivalent raw option ordering as the same normalized payload', async () => {
     const repo = fakeRepo();
     const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: 0, soldEvents: 0 }) };
-    const firstRequest = { ...request, shops: [{ ...shop, items: [{ ...shop.items[0], options: [{ type: 2, value: 4, param: 1 }, { type: 1, value: 8, param: 0 }] }] }] };
-    const reorderedRequest = { ...firstRequest, shops: [{ ...shop, items: [{ ...shop.items[0], options: [{ type: 1, value: 8, param: 0 }, { type: 2, value: 4, param: 1 }] }] }] };
+    const firstItem = shop.items[0]!;
+    const firstRequest = { ...request, shops: [{ ...shop, items: [{ ...firstItem, options: [{ type: 2, value: 4, param: 1 }, { type: 1, value: 8, param: 0 }] }] }] };
+    const reorderedRequest = { ...firstRequest, shops: [{ ...shop, items: [{ ...firstItem, options: [{ type: 1, value: 8, param: 0 }, { type: 2, value: 4, param: 1 }] }] }] };
     await ingestUpload(source, firstRequest, 'snap/0', repo, state);
     const duplicate = await ingestUpload(source, reorderedRequest, 'snap/0', repo, state);
     expect(duplicate.duplicate).toBe(true);

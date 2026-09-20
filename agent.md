@@ -35,6 +35,27 @@
 - Maintain full/delta/heartbeat semantics, first-full baseline behavior, signed keyset cursors, transition-key idempotency, 512 KiB body / 16-part / 50-result limits, and chunked D1 writes.
 - Use apply_patch for edits and write a failing test before production changes.
 
+## Final integration and release review (2026-09-20)
+
+- Final architecture is a single Hono Worker serving the Vite static UI and `/api/*`, with D1 migrations 0001-0009 applied in order. Protocol v2 carries only numeric item identity/observation fields and raw option tuples; catalog names, aliases, descriptions, and option display metadata are server-owned. Shop identity is source-scoped and session-scoped, and explicit dismissal closes only the authenticated source's shop/session.
+- The deterministic importer entry point is `pnpm catalog:import -- --input-file <items-file> --description-file <descriptions-file> --kind items --version <release> --encoding auto --description-encoding auto --skip-empty-names --output-dir .generated\catalog\<release>`. Run `--dry-run` first, review the manifest and every `batchFiles` part, then apply the parts in manifest order with Wrangler. Reapplying the same release is idempotent and never rewrites listings.
+- OpenKore agents must send `protocol_version: 2` to `POST /api/v1/market/upload`, use `Idempotency-Key: <snapshot_id>/<part_index>`, include a UUID and `shop_status` for every shop, and omit item names, aliases, descriptions, option labels, and display text. Items contain `item_id`, optional `item_key`, upgrade/slot/card IDs, price/quantity, and raw `(type,value,param)` options only. Full, delta, heartbeat, and dismissed semantics are defined authoritatively in `docs/api.md`.
+- The release review includes a real local-D1 integration path in `tests/integration/catalog-upload-search-flow.test.ts`: it executes all migrations, invokes the importer on redacted fixtures, uploads a name-free baseline, searches `波利`, applies `ATK >= 50`, paginates, reads history, replays a delta without another sold event, and applies a catalog rename without re-uploading the listing.
+
+### Known low-severity issues
+
+1. A concurrent first insert of the same `(session, fingerprint)` can be won by another request after the initial lookup; the loser relies on idempotent `INSERT OR IGNORE` and does not reload/transition in that same request. Add a race-focused integration test before scaling concurrency.
+2. History cursors are signed and listing queries are bounded, but the history cursor payload does not encode the listing ID. A valid cursor can therefore be reused across listing IDs and skip older rows; bind history cursors to the listing ID if strict cross-listing cursor isolation is required.
+3. JSON1 bulk writes intentionally use one bounded JSON payload parameter. Reassess payload and SQL-size telemetry if the configured upload limits change.
+
+### Deployment preflight
+
+- Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:docs`, `pnpm --filter web build`, `pnpm playwright test`, `pnpm exec wrangler deploy --dry-run`, `git diff --check`, and `git status --short` from Node 24.x/pnpm 12.4.2.
+- Apply migrations to a disposable/local D1 first, run `PRAGMA foreign_key_check`, and inspect bounded `EXPLAIN QUERY PLAN` output before any remote verification. Do not run production catalog imports twice merely to verify them.
+- Configure production `CURSOR_SECRET` and `ADMIN_SECRET` with Wrangler. GitHub Actions additionally requires `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_D1_DATABASE_ID`; source upload keys are seeded as hashes and are never committed.
+- D1 Free capacity is a planning constraint: retain history and sold events for 90 days by default, never delete current listings, and obtain an explicit quota review before increasing upload volume, catalog size, or retention.
+- This managed review host reported pnpm 11.19.0 even though the repository requires pnpm 12.4.2; its `pnpm exec` wrapper could not resolve the installed Playwright/Wrangler bins. The direct local Playwright and Wrangler entry points passed, so repeat the documented matrix with pnpm 12.4.2 before release.
+
 ## Remote D1 quota safety
 
 - Never run an unbounded `COUNT(*)`, aggregate, table scan, index scan, or bulk diagnostic query against remote D1 merely to verify row totals. Full integrity and cardinality checks belong on local D1 or a disposable staging database.

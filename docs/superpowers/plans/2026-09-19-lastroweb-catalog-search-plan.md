@@ -401,3 +401,10 @@ Do not start a later task while an earlier task's focused tests or migration ass
 - Search cursors bind normalized filters and catalog/option/index versions; changed context rejects the cursor.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:docs`, `pnpm --filter web build`, `pnpm playwright test`, and `git diff --check` pass.
 - No OpenKore file, source tree, generated real data, secret, or `D:\openkore` runtime dependency enters the repository.
+
+## Completion Ledger (Final Integration Review)
+
+- [x] Tasks 1-13: protocol v2, migrations, source-scoped shop lifecycle, importer, catalog/option search, metadata-driven UI, documentation, and CI verification completed on `main`.
+- [x] Real local-D1 end-to-end path added: migration from empty SQLite, catalog import, name-free full upload, Chinese catalog search, option filter, keyset pagination, history, idempotent replay, heartbeat, and catalog rename without re-upload.
+- [x] Final review fixed D1 bulk transition confirmation so successful updates are not reported as state conflicts when batch `run()` omits `RETURNING` rows.
+- [x] Final release command matrix and deployment safety review recorded in `agent.md`; no production upload, push, or deployment performed.

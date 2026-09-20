@@ -7,7 +7,7 @@ export function registerSearchRoute(app: Hono<any>, repo: MarketRepository, curs
   app.get('/api/v1/market/search', async (c) => {
     try {
       const [catalogVersion, definitions] = await Promise.all([repo.getCatalogVersion(), repo.getOptionDefinitions()]);
-      const filters = parseSearchParams(new URL(c.req.url), { cursorSecret, catalogVersion, optionVersion: definitions.version, searchIndexVersion: SEARCH_INDEX_VERSION });
+      const filters = parseSearchParams(new URL(c.req.url), { ...(cursorSecret === undefined ? {} : { cursorSecret }), catalogVersion, optionVersion: definitions.version, searchIndexVersion: SEARCH_INDEX_VERSION });
       const page = await repo.searchListings(filters);
       return withQueryCacheHeaders(c.json(page), 'search');
     }

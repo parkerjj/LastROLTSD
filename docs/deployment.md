@@ -4,6 +4,8 @@ LastROWeb deploys as one Cloudflare Worker with static Vite assets and a D1 data
 
 All command examples in this runbook use PowerShell. Run them from the repository root with Node.js 24.x and pnpm 12.4.2 available on `PATH`.
 
+For capacity planning, this review uses Cloudflare's documented D1 Free allowance of 5 million rows read per day, 100,000 rows written per day, and 5 GB of storage. Cloudflare may change plan limits; verify the current pricing page and account quota immediately before production deployment. The application's default retention is 90 days for price history and sold events, while current listings are never deleted by retention cleanup. A higher upload rate, larger catalog, or longer retention requires an explicit quota/cost review.
+
 ## Prerequisites and local verification
 
 ```powershell
@@ -130,10 +132,12 @@ pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFi
 pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version $version --encoding auto --description-encoding auto --skip-empty-names --output-dir $outputDir
 $manifest = Get-Content (Join-Path $outputDir ('catalog-items-' + $version + '.manifest.json')) -Raw | ConvertFrom-Json
 $manifest | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,descriptionCount,descriptionRecordCount,descriptionDuplicateCount,aliasCount,errorCount,batchCount,statementCount,sqlBytes
-Get-FileHash (Join-Path $outputDir ('catalog-items-' + $version + '.sql')) -Algorithm SHA256
+foreach ($batchFile in $manifest.batchFiles) {
+  Get-FileHash (Join-Path $outputDir $batchFile) -Algorithm SHA256
+}
 ```
 
-Review the manifest and all listed SQL parts before applying them. The output is stable by item ID and normalized alias. The SQL uses bounded statements, updates only submitted item IDs and derived rows, and can be applied repeatedly without clearing existing listings. Apply `batchFiles` in manifest order so each Wrangler invocation stays within the bounded batch budget.
+Review the manifest and all listed SQL parts before applying them. The output is stable by item ID and normalized alias. The manifest lists bounded `.part-####.sql` files, updates only submitted item IDs and derived rows, and can be applied repeatedly without clearing existing listings. Apply `batchFiles` in manifest order so each Wrangler invocation stays within the bounded batch budget.
 
 Apply a reviewed release locally or remotely only after the catalog migrations are present:
 

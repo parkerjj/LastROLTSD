@@ -62,14 +62,14 @@ export class MarketApi implements MarketApiClient {
     const response = await fetch(path, signal ? { signal, headers } : { headers });
     if (response.status === 304) {
       const cached = this.cached.get(path);
-      if (cached !== undefined) return { body: cached as T, etag };
+      if (cached !== undefined) return { body: cached as T, ...(etag ? { etag } : {}) };
       throw new ApiError(304, '缓存内容不可用，请重试');
     }
     const body = await this.readResponse<T>(response);
     const nextEtag = response.headers.get('etag');
     if (nextEtag) this.etags.set(path, nextEtag);
     this.cached.set(path, body);
-    return { body, etag: nextEtag ?? undefined };
+    return { body, ...(nextEtag ? { etag: nextEtag } : {}) };
   }
 
   private async readResponse<T>(response: Response): Promise<T> {

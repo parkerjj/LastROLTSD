@@ -13,5 +13,5 @@ export function getOrStartShopSession(sourceId: string, shopKey: string, clientR
 export function getOrStartShopSessions(inputs: ShopSessionContextInput[], repo: MarketRepository): Promise<ShopSessionRow[]> {
   if (inputs.length === 0) return Promise.resolve([]);
   if (repo.getOrCreateSessions) return repo.getOrCreateSessions(inputs);
-  return Promise.all(inputs.map((input) => getOrStartShopSession(input.sourceId, input.shopKey, input.clientRunId, input.observedAt, repo, { vendorKey: input.vendorKey, vendorName: input.vendorName, title: input.title, shopType: input.shopType, mapName: input.mapName, x: input.x, y: input.y })));
+  return Promise.all(inputs.map((input) => getOrStartShopSession(input.sourceId, input.shopId, input.clientRunId, input.observedAt, repo, { vendorKey: input.vendorAccountId, vendorName: input.vendorName, title: input.title, shopType: input.shopType, mapName: input.mapName, x: input.x, y: input.y })));
 }

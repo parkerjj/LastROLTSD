@@ -7,7 +7,7 @@ describe('item catalog endpoint', () => {
     const app = new Hono();
     registerItemsRoute(app, {
       getCatalogVersion: async () => 'catalog-2026-09-19',
-      searchItems: async (query, limit) => {
+      searchItems: async (query: string, limit: number) => {
         expect(query).toBe('测试剑');
         expect(limit).toBe(20);
         return [{ itemId: 1234, name: '测试剑', aliases: ['试剑'] }];

@@ -49,6 +49,7 @@ function fakeRepo(): MarketRepository {
     getListingHistory: async () => ({ items: [], nextCursor: null }),
     getOptionDefinitions: async () => ({ version: 'unpublished', items: [] }),
     getCatalogVersion: async () => 'unpublished',
+    searchItems: async () => [],
   };
   return repository as MarketRepository;
 }

@@ -11,5 +11,5 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['iPhone 13'] } },
   ],
-  webServer: { command: 'pnpm --filter web dev --host 127.0.0.1', url: 'http://127.0.0.1:5173', reuseExistingServer: true },
+  webServer: { command: 'node ../../node_modules/vite/bin/vite.js --host 127.0.0.1', cwd: 'apps/web', url: 'http://127.0.0.1:5173', reuseExistingServer: process.env.PW_REUSE_EXISTING_SERVER === 'true' },
 });

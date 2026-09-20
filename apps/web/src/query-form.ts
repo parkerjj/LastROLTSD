@@ -58,7 +58,8 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
     if (!isValidOptionValue(value, definition)) throw new Error('词条数值格式无效');
     if (definition.paramPolicy.mode === 'required_exact' && !paramInput?.value.trim()) return null;
     const param = paramInput?.value.trim();
-    if (param && (!/^-?\d+$/u.test(param) || !Number.isSafeInteger(Number(param)) || (definition.paramPolicy.value !== undefined && Number(param) !== definition.paramPolicy.value))) {
+    const expectedParam = definition.paramPolicy.mode === 'ignored' ? undefined : definition.paramPolicy.value;
+    if (param && (!/^-?\d+$/u.test(param) || !Number.isSafeInteger(Number(param)) || (expectedParam !== undefined && Number(param) !== expectedParam))) {
       throw new Error('词条参数格式无效');
     }
     return {

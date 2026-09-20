@@ -50,7 +50,9 @@ $outputDir = '.generated\catalog\catalog-2026-09-19'
 pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version catalog-2026-09-19 --encoding utf8 --description-encoding utf8 --skip-empty-names --output-dir $outputDir
 $manifest = Get-Content (Join-Path $outputDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json
 $manifest | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,descriptionCount,descriptionRecordCount,descriptionDuplicateCount,aliasCount,errorCount,batchCount,statementCount,sqlBytes
-Get-FileHash (Join-Path $outputDir 'catalog-items-catalog-2026-09-19.sql') -Algorithm SHA256
+foreach ($batchFile in $manifest.batchFiles) {
+  Get-FileHash (Join-Path $outputDir $batchFile) -Algorithm SHA256
+}
 ```
 
 The output is stably sorted by item ID and normalized alias. Re-running the same version and input produces byte-identical SQL part files and manifest. The SQL uses bounded statements below 90 KiB, JSON1 for bulk token rows, and at most 256 catalog items per generated batch. A large release is a directory of bounded `.part-####.sql` files, not one INSERT per item and not one giant D1 invocation. The manifest `batchFiles` list is the only apply order. The SQL updates only submitted item IDs, their descriptions, aliases, and derived item search rows. It does not delete or rewrite listings.
@@ -79,7 +81,7 @@ foreach ($batchFile in $manifest.batchFiles) {
 }
 ```
 
-The transaction updates `catalog_versions` and `catalog_state` only after the catalog rows and derived indexes are written. Reapplying the same version is idempotent. A later version can rename an existing item without another market upload.
+The final batch updates `catalog_versions` and `catalog_state` after its catalog rows and derived indexes are written. If an apply is interrupted, rerun the complete `batchFiles` list from the beginning; every part is idempotent and the active version is only advanced by the final part. A later version can rename an existing item without another market upload.
 
 ## Inspect And Roll Back
 

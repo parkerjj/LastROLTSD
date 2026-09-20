@@ -379,3 +379,11 @@ README.md                              # project setup and scope
 - [x] Task 15: API/deployment/operations documentation and contract check (`9959704`)
 
 Implementation commits and the independent review findings that required follow-up are captured above; the final verification commands are the release gate for the complete package.
+
+## Completion Ledger (Final Integration Review, 2026-09-20)
+
+- [x] Revalidated the latest `main` state and preserved source-scoped identity, snapshot baseline, idempotency, transition-key, and sold-event semantics.
+- [x] Added and passed a real local-D1 catalog/upload/search/history integration path, including catalog rename without re-upload and duplicate batch replay.
+- [x] Fixed D1 bulk transition confirmation so runtimes that omit `RETURNING` rows no longer report successful delta updates as state conflicts.
+- [x] Documented importer manifest-part rollback/application order, D1 Free planning quotas, 90-day retention, and deployment preflight requirements.
+- [x] Completed the release command matrix; no OpenKore source was modified, copied, compiled, or packaged; no production upload, push, or deployment was performed.

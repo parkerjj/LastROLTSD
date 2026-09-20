@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,11 +7,11 @@ import { computeShopIdentity } from '../src/domain/shop-identity';
 import { parseSearchParams } from '../src/domain/search';
 
 class SqlitePrepared {
-  public values: unknown[] = [];
+  public values: SQLInputValue[] = [];
 
   constructor(private readonly database: DatabaseSync, public readonly sql: string) {}
 
-  bind(...values: unknown[]): this {
+  bind(...values: SQLInputValue[]): this {
     this.values = values;
     return this;
   }

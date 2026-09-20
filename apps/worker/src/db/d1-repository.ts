@@ -274,9 +274,8 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
         state_version=state_version+1,
         last_batch_id=(SELECT json_extract(input.value,'$.batchId') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id),
         missing_streak=0
-      WHERE id IN (SELECT CAST(json_extract(input.value,'$.listingId') AS INTEGER) FROM json_each(?1) input)
-        AND EXISTS (SELECT 1 FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id AND listings.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER) AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER))
-      RETURNING id`);
+        WHERE id IN (SELECT CAST(json_extract(input.value,'$.listingId') AS INTEGER) FROM json_each(?1) input)
+        AND EXISTS (SELECT 1 FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.listingId') AS INTEGER)=listings.id AND listings.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER) AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER))`);
       const history = db.prepare(`INSERT OR IGNORE INTO listing_price_history(listing_id,observed_at,price,quantity,event_type,batch_id)
         SELECT l.id,json_extract(item.value,'$.observedAt'),json_extract(item.value,'$.price'),json_extract(item.value,'$.quantity'),json_extract(item.value,'$.history.eventType'),json_extract(item.value,'$.batchId')
         FROM json_each(?1) item JOIN listings l ON l.id=CAST(json_extract(item.value,'$.listingId') AS INTEGER) AND l.shop_session_id=CAST(json_extract(item.value,'$.shopSessionId') AS INTEGER) AND l.state_version=CAST(json_extract(item.value,'$.expectedVersion') AS INTEGER)+1 AND l.last_batch_id=json_extract(item.value,'$.batchId')
@@ -286,10 +285,28 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
         FROM json_each(?1) item JOIN listings l ON l.id=CAST(json_extract(item.value,'$.listingId') AS INTEGER) AND l.shop_session_id=CAST(json_extract(item.value,'$.shopSessionId') AS INTEGER) AND l.state_version=CAST(json_extract(item.value,'$.expectedVersion') AS INTEGER)+1 AND l.last_batch_id=json_extract(item.value,'$.batchId')
         WHERE json_type(item.value,'$.soldEvent')='object'`);
       assertBatchBounds(3, 3);
-      const results = await db.batch([update.bind(payload), history.bind(payload), sold.bind(payload)]);
-      const returned = new Set<number>(((results[0] as unknown as { results?: Row[] })?.results ?? []).map((row) => Number(row.id)));
+      await db.batch([update.bind(payload), history.bind(payload), sold.bind(payload)]);
+      // D1 batch run results expose mutation metadata, but do not require RETURNING rows.
+      // Confirm the bounded state transition explicitly so a successful update is not
+      // misclassified as a conflict on runtimes that omit result rows.
+      assertBatchBounds(1, 1);
+      const updatedRows = await many<Row>(db.prepare(`SELECT l.id
+        FROM json_each(?1) input
+        JOIN listings l ON l.id=CAST(json_extract(input.value,'$.listingId') AS INTEGER)
+          AND l.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER)
+          AND l.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER)+1
+          AND l.last_batch_id=json_extract(input.value,'$.batchId')`).bind(payload));
+      const returned = new Set<number>(updatedRows.map((row) => Number(row.id)));
       const conflictIds = changes.filter((change) => !returned.has(change.listingId)).map((change) => change.listingId);
-      return { updated: returned.size, conflicts: conflictIds.length, soldEvents: Number(results[2]?.meta?.changes ?? 0), conflictIds };
+      const soldRows = await many<Row>(db.prepare(`SELECT l.id
+        FROM json_each(?1) input
+        JOIN listings l ON l.id=CAST(json_extract(input.value,'$.listingId') AS INTEGER)
+          AND l.shop_session_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER)
+          AND l.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER)+1
+          AND l.last_batch_id=json_extract(input.value,'$.batchId')
+        WHERE json_type(input.value,'$.soldEvent')='object'
+          AND EXISTS (SELECT 1 FROM sold_events se WHERE se.listing_id=l.id AND se.transition_key=json_extract(input.value,'$.soldEvent.transitionKey'))`).bind(payload));
+      return { updated: returned.size, conflicts: conflictIds.length, soldEvents: soldRows.length, conflictIds };
     },
     async markShopHeartbeats(sourceId, shopKeys, observedAt) {
       if (shopKeys.length === 0) return 0;

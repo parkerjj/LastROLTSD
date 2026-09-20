@@ -33,6 +33,7 @@ function repo(parts: ReturnType<typeof batch>[]): MarketRepository {
     getListingHistory: async () => ({ items: [], nextCursor: null }),
     getOptionDefinitions: async () => ({ version: 'unpublished', items: [] }),
     getCatalogVersion: async () => 'unpublished',
+    searchItems: async () => [],
   };
 }
 

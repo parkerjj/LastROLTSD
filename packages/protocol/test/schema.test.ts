@@ -34,16 +34,18 @@ describe('upload schema', () => {
   it('accepts observation-only v2 items and shop resolution fields', () => {
     const parsed = parseUploadRequest(valid);
     expect(parsed.protocol_version).toBe(2);
-    expect(parsed.shops[0]?.uuid).toBe(valid.shops[0].uuid);
+    expect(parsed.shops[0]?.uuid).toBe(valid.shops[0]!.uuid);
     expect(parsed.shops[0]?.items[0]).not.toHaveProperty('name');
   });
 
   it('rejects invalid lifecycle payloads, client item metadata, and the old draft protocol', () => {
     expect(() => parseUploadRequest({ ...valid, protocol_version: 1 })).toThrow(UploadValidationError);
-    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], uuid: undefined }] })).toThrow(UploadValidationError);
-    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], shop_status: 'closed' }] })).toThrow(UploadValidationError);
-    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], shop_status: 'dismissed', items: [valid.shops[0].items[0]] }] })).toThrow(UploadValidationError);
-    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], vendor_account_id: '' }] })).toThrow(UploadValidationError);
-    expect(() => parseUploadRequest({ ...valid, shops: [{ ...valid.shops[0], items: [{ ...valid.shops[0].items[0], name: 'client text' }] }] })).toThrow(UploadValidationError);
+    const validShop = valid.shops[0]!;
+    const validItem = validShop.items[0]!;
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...validShop, uuid: undefined }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...validShop, shop_status: 'closed' }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...validShop, shop_status: 'dismissed', items: [validItem] }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...validShop, vendor_account_id: '' }] })).toThrow(UploadValidationError);
+    expect(() => parseUploadRequest({ ...valid, shops: [{ ...validShop, items: [{ ...validItem, name: 'client text' }] }] })).toThrow(UploadValidationError);
   });
 });
