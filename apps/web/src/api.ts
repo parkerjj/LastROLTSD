@@ -1,15 +1,107 @@
-import type { HistoryPage, ListingSearchResult, SearchFilters, SearchPage } from './types';
+import type { HistoryPage, ItemAutocompletePage, ListingSearchResult, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
 
-export class ApiError extends Error { constructor(public readonly status: number, message: string) { super(message); } }
-export class MarketApi {
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+interface ApiResponse<T> {
+  body: T;
+  etag?: string;
+}
+
+export interface MarketApiClient {
+  search(filters: SearchFilters, signal?: AbortSignal): Promise<SearchPage<ListingSearchResult>>;
+  getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage>;
+  getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse>;
+  getItems(query: string, signal?: AbortSignal): Promise<ItemAutocompletePage>;
+}
+
+export class MarketApi implements MarketApiClient {
+  private readonly etags = new Map<string, string>();
+  private readonly cached = new Map<string, unknown>();
+
   async search(filters: SearchFilters, signal?: AbortSignal): Promise<SearchPage<ListingSearchResult>> {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) {
-      if (key === 'options' && Array.isArray(value)) { for (const option of value) params.append('option', `${option.type}:${option.value}:${option.param}`); continue; }
+      if (key === 'options' && Array.isArray(value)) {
+        for (const option of value) params.append('option', `${option.type}:${option.operator}:${option.value}${option.param === undefined ? '' : `:${option.param}`}`);
+        continue;
+      }
       if (value !== undefined && value !== '') params.set(key, String(value));
     }
     return this.request(`/api/v1/market/search?${params.toString()}`, signal);
   }
-  async getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage> { const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''; return this.request(`/api/v1/market/listings/${listingId}/history${params}`, signal); }
-  private async request<T>(path: string, signal?: AbortSignal): Promise<T> { const response = await fetch(path, signal ? { signal } : {}); const body = await response.json().catch(() => null); if (!response.ok) throw new ApiError(response.status, body?.error?.message ?? 'Request failed'); return body as T; }
+
+  async getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage> {
+    const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return this.request(`/api/v1/market/listings/${listingId}/history${params}`, signal);
+  }
+
+  async getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse> {
+    const response = await this.requestCached<OptionDefinitionsResponse>('/api/v1/options', signal);
+    return mapOptionDefinitions(response.body);
+  }
+
+  async getItems(query: string, signal?: AbortSignal): Promise<ItemAutocompletePage> {
+    const path = `/api/v1/items?q=${encodeURIComponent(query)}&limit=20`;
+    return (await this.requestCached<ItemAutocompletePage>(path, signal)).body;
+  }
+
+  private async request<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const response = await fetch(path, signal ? { signal } : {});
+    return this.readResponse(response);
+  }
+
+  private async requestCached<T>(path: string, signal?: AbortSignal): Promise<ApiResponse<T>> {
+    const headers = new Headers();
+    const etag = this.etags.get(path);
+    if (etag) headers.set('if-none-match', etag);
+    const response = await fetch(path, signal ? { signal, headers } : { headers });
+    if (response.status === 304) {
+      const cached = this.cached.get(path);
+      if (cached !== undefined) return { body: cached as T, etag };
+      throw new ApiError(304, '缓存内容不可用，请重试');
+    }
+    const body = await this.readResponse<T>(response);
+    const nextEtag = response.headers.get('etag');
+    if (nextEtag) this.etags.set(path, nextEtag);
+    this.cached.set(path, body);
+    return { body, etag: nextEtag ?? undefined };
+  }
+
+  private async readResponse<T>(response: Response): Promise<T> {
+    const body = await response.json().catch(() => null) as { error?: { message?: string } } | T | null;
+    if (!response.ok) {
+      const message = body && typeof body === 'object' && 'error' in body && body.error?.message ? body.error.message : '请求失败';
+      throw new ApiError(response.status, message);
+    }
+    return body as T;
+  }
+}
+
+function mapOptionDefinitions(payload: OptionDefinitionsResponse & { options: Array<OptionDefinition | Record<string, unknown>> }): OptionDefinitionsResponse {
+  return {
+    version: payload.version,
+    options: payload.options.map((raw) => {
+      if ('labelZh' in raw) return raw as OptionDefinition;
+      const data = raw as Record<string, unknown>;
+      return {
+        type: Number(data.type),
+        handle: String(data.handle ?? ''),
+        labelZh: String(data.label_zh ?? ''),
+        descriptionTemplate: String(data.description_template ?? ''),
+        valueKind: data.value_kind === 'scaled_integer' ? 'scaled_integer' : 'integer',
+        unit: String(data.unit ?? ''),
+        scale: Number(data.scale ?? 1),
+        allowedOperators: Array.isArray(data.allowed_operators) ? data.allowed_operators.map(String) as OptionDefinition['allowedOperators'] : [],
+        paramPolicy: data.param_policy as OptionDefinition['paramPolicy'],
+        repeatPolicy: data.repeat_policy === 'distinct' ? 'distinct' : 'same',
+        displayTemplate: String(data.display_template ?? ''),
+        searchTokens: Array.isArray(data.search_tokens) ? data.search_tokens.map(String) : [],
+      };
+    }),
+  };
 }
