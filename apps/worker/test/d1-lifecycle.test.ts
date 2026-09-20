@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createD1Repository } from '../src/db/d1-repository';
 import { computeShopIdentity } from '../src/domain/shop-identity';
+import { parseSearchParams } from '../src/domain/search';
 
 class SqlitePrepared {
   public values: unknown[] = [];
@@ -143,6 +144,28 @@ describe('D1 shop lifecycle', () => {
       expect(otherSource.resolution).toBe('created');
       expect(otherSource.internalShopId).not.toBe(reopened.internalShopId);
       expect(otherSource.shopId).not.toBe(reopened.shopId);
+    } finally {
+      d1.database.close();
+    }
+  });
+
+  it('rebuilds shop title and vendor indexes when observations create or update a shop', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const openingInput = await input('source-a', 'open-1', 100);
+      const opening = await repository.resolveShopObservation!(openingInput);
+      d1.database.prepare("INSERT INTO listings(shop_session_id,item_fingerprint,item_id,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (?, 'fp', 1234, 100, 2, 2, 100, 100, 100)").run(opening.session!.id);
+      const search = (q: string) => repository.searchListings(parseSearchParams(new URL(`https://x.test?q=${encodeURIComponent(q)}`), { verifyCursor: false }));
+
+      expect((await search('Synthetic shop')).items.map((item) => item.id)).toEqual([1]);
+      expect((await search('Synthetic vendor')).items.map((item) => item.id)).toEqual([1]);
+      expect((await search('Sy')).items.map((item) => item.id)).toEqual([1]);
+
+      await repository.resolveShopObservation!({ ...openingInput, batchId: 'open-2', observedAt: 200, vendorName: 'Renamed vendor' });
+      expect((await search('Synthetic vendor')).items).toEqual([]);
+      expect((await search('Renamed vendor')).items.map((item) => item.id)).toEqual([1]);
+      expect(Number((d1.database.prepare("SELECT COUNT(*) AS count FROM search_short_tokens WHERE scope_type='shop' AND scope_id=?").get(opening.internalShopId) as { count: number }).count)).toBeGreaterThan(0);
     } finally {
       d1.database.close();
     }

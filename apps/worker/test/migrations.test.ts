@@ -48,7 +48,17 @@ describe('D1 migrations', () => {
       .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
       .map((name) => name.slice(0, 4))
       .sort();
-    expect(migrations).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008']);
+    expect(migrations).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009']);
+  });
+
+  it('declares versioned type-level option definitions', () => {
+    const definitions = readFileSync(resolve(process.cwd(), 'migrations/0009_option_definitions.sql'), 'utf8');
+    expect(definitions).toContain('CREATE TABLE IF NOT EXISTS option_definitions');
+    expect(definitions).toContain('PRIMARY KEY(data_version, option_type)');
+    expect(definitions).toContain('allowed_operators_json');
+    expect(definitions).toContain('param_policy_json');
+    expect(definitions).toContain('search_tokens_json');
+    expect(definitions).toContain('CREATE TABLE IF NOT EXISTS option_state');
   });
 
   it('declares source-scoped canonical shop identity and nullable legacy metadata', () => {
@@ -66,18 +76,36 @@ describe('D1 migrations', () => {
     try {
       applyMigrations(db);
 
-      const objects = db.prepare("SELECT name,type FROM sqlite_master WHERE name IN ('item_catalog','item_aliases','catalog_versions','catalog_state','item_search_fts','search_short_tokens') ORDER BY name").all() as Array<{ name: string; type: string }>;
+      const objects = db.prepare("SELECT name,type FROM sqlite_master WHERE name IN ('item_catalog','item_aliases','catalog_versions','catalog_state','item_search_fts','search_short_tokens','option_definitions','option_state') ORDER BY name").all() as Array<{ name: string; type: string }>;
       expect(objects).toEqual([
         { name: 'catalog_state', type: 'table' },
         { name: 'catalog_versions', type: 'table' },
         { name: 'item_aliases', type: 'table' },
         { name: 'item_catalog', type: 'table' },
         { name: 'item_search_fts', type: 'table' },
+        { name: 'option_definitions', type: 'table' },
+        { name: 'option_state', type: 'table' },
         { name: 'search_short_tokens', type: 'table' },
       ]);
 
       const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_item_catalog_name_normalized','idx_item_aliases_normalized','idx_search_short_tokens_lookup') ORDER BY name").all() as Array<{ name: string }>;
       expect(indexes.map((row) => row.name)).toEqual(['idx_item_aliases_normalized', 'idx_item_catalog_name_normalized', 'idx_search_short_tokens_lookup']);
+
+      const runtimeIndexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_listings_search_item','idx_listings_session_status','idx_listings_status_price_id','idx_listings_status_seen_id','idx_sessions_open_shop','idx_history_listing_id','idx_history_observed_id','idx_sold_listing_id','idx_sold_observed_id') ORDER BY name").all() as Array<{ name: string }>;
+      expect(runtimeIndexes.map((row) => row.name)).toEqual([
+        'idx_history_listing_id',
+        'idx_history_observed_id',
+        'idx_listings_search_item',
+        'idx_listings_session_status',
+        'idx_listings_status_price_id',
+        'idx_listings_status_seen_id',
+        'idx_sessions_open_shop',
+        'idx_sold_listing_id',
+        'idx_sold_observed_id',
+      ]);
+
+      const itemSearchPlan = db.prepare("EXPLAIN QUERY PLAN SELECT id FROM listings WHERE status='active' AND item_id=?1 ORDER BY price,id LIMIT ?2").all(1234, 51) as Array<{ detail: string }>;
+      expect(itemSearchPlan.map((row) => row.detail).join('\n')).toContain('idx_listings_search_item');
 
       expect(() => db.exec("INSERT INTO item_aliases(item_id,alias,alias_normalized,alias_kind,data_version,updated_at) VALUES (999,'孤立','孤立','approved','v1',0)"))
         .toThrow(/foreign key/i);
@@ -96,11 +124,26 @@ describe('D1 migrations', () => {
       db.close();
     }
   });
+
+  it('rekeys existing item FTS rows by item ID during the query-index migration', () => {
+    const db = new DatabaseSync(':memory:');
+    try {
+      applyMigrations(db, '0007');
+      db.exec("INSERT INTO item_search_fts(item_id,text) VALUES ('1234','测试剑')");
+      db.exec(readFileSync(resolve(process.cwd(), 'migrations/0008_query_indexes.sql'), 'utf8'));
+      expect(db.prepare('SELECT rowid,item_id FROM item_search_fts').all()).toEqual([{ rowid: 1234, item_id: '1234' }]);
+    } finally {
+      db.close();
+    }
+  });
 });
 
-function applyMigrations(db: DatabaseSync): void {
+function applyMigrations(db: DatabaseSync, through?: string): void {
   const names = readdirSync(resolve(process.cwd(), 'migrations'))
     .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
     .sort();
-  for (const name of names) db.exec(readFileSync(resolve(process.cwd(), 'migrations', name), 'utf8'));
+  for (const name of names) {
+    if (through && name.slice(0, 4) > through) break;
+    db.exec(readFileSync(resolve(process.cwd(), 'migrations', name), 'utf8'));
+  }
 }

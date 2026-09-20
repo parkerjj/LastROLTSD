@@ -16,7 +16,7 @@ class FakeDb {
   prepare(sql: string) {
     const row = sql.includes('market_sources')
       ? { id: 's1', name: 'Source', api_key_hash: 'hash', status: 'active' }
-      : sql.includes('SELECT listing_id,option_type')
+      : sql.includes('SELECT lo.listing_id,lo.option_type')
         ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0 }
       : sql.includes('FROM listings') && sql.includes('JOIN shop_sessions')
         ? { id: 2, shop_session_id: 1, item_fingerprint: 'fp', item_key: null, item_id: 9, upgrade: 0, slots: 0, card0: 0, card1: 0, card2: 0, card3: 0, price: 20, quantity: 1, last_quantity: 1, status: 'active', state_version: 1, missing_streak: 0, last_seen_at: 200, item_name_display: 'Sword', shop_key: 'shop', title: 'Shop', vendor_name: 'Vendor', map_name: 'map', shop_type: 'sell' }
@@ -48,7 +48,7 @@ describe('D1 repository', () => {
   it('applies a decoded keyset cursor to SQL and returns structured options', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    const filters = { limit: 1, sort: 'price_asc' as const, option_type: 1 };
+    const filters = { limit: 1, sort: 'price_asc' as const, option_type: 1, option_value: 2, option_param: 0 };
     const cursor = encodeCursor({ sort: filters.sort, sortValue: 20, id: 7, context: searchCursorContext(filters) });
     const page = await repo.searchListings({ ...filters, cursor });
     const search = db.statements.find((statement) => statement.sql.includes('FROM listings'));
@@ -56,7 +56,9 @@ describe('D1 repository', () => {
     expect(search?.sql).toContain('l.price = ?');
     expect(search?.bound).toContain(20);
     expect(search?.bound).toContain(7);
-    expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0 }]);
+    expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, display: '未知词条 type=1 value=2 param=0' }]);
+    const hydration = db.statements.find((statement) => statement.sql.includes('JOIN json_each(?1) input'))!;
+    expect(hydration.bound).toEqual(['[2]']);
   });
 
   it('rejects a cursor created for a different sort', async () => {
@@ -69,8 +71,8 @@ describe('D1 repository', () => {
   it('maps structured option tuples in search rows', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
-    const result = await repo.searchListings({ limit: 10, option_type: 2 } as never);
-    expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0 }]);
+    const result = await repo.searchListings({ limit: 10, option_type: 2, option_value: 3, option_param: 0 } as never);
+    expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, display: '未知词条 type=1 value=2 param=0' }]);
     expect(db.statements.some((statement) => statement.sql.includes('listing_options'))).toBe(true);
   });
 
@@ -150,7 +152,7 @@ describe('D1 repository', () => {
       prepare(sql: string) {
         const row = sql.includes('FROM listings') && sql.includes('JOIN shop_sessions')
           ? { id: 2, shop_session_id: 1, item_fingerprint: 'fp', item_key: null, item_id: 9876, upgrade: 0, slots: 0, card0: 0, card1: 0, card2: 0, card3: 0, price: 20, quantity: 1, last_quantity: 1, status: 'active', state_version: 1, missing_streak: 0, last_seen_at: 200, item_name_display: catalogName, shop_key: 'shop', title: 'Shop', vendor_name: 'Vendor', map_name: 'map', shop_type: 'sell' }
-          : sql.includes('SELECT listing_id,option_type') ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0 } : null;
+          : sql.includes('SELECT lo.listing_id,lo.option_type') ? { listing_id: 2, option_index: 0, option_type: 1, option_value: 2, option_param: 0 } : null;
         return new Prepared(sql, row);
       },
       batch: async (statements: Prepared[]) => statements.map(() => ({ meta: { changes: 1 } })),

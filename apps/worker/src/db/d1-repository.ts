@@ -1,8 +1,9 @@
 import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { assertBatchBounds } from './repository';
-import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext, DEFAULT_CURSOR_SECRET } from '../domain/search';
+import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext, DEFAULT_CURSOR_SECRET, SearchValidationError } from '../domain/search';
+import { compileOptionPredicates, formatOptionDisplay, OPTION_OPERATORS, OptionConditionValidationError, parseStructuredOptionCondition, type OptionDefinition, type OptionOperator, type OptionParamPolicy } from '../domain/option-conditions';
 import { makeTransitionKey } from '../domain/transitions';
-import type { BatchRow, CatalogItemRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
+import type { BatchRow, CatalogItemRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 
 type Row = Record<string, unknown>;
@@ -32,6 +33,8 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
         RETURNING id,source_id,vendor_id,shop_key,title,shop_type,map_name,x,y,status,last_seen_at,closed_at,updated_at`;
       const row = await one<Row>(db.prepare(sql).bind(sourceId, input.vendorId, input.shopKey, input.title, input.title.normalize('NFKC').toLowerCase(), input.shopType, input.mapName, input.x, input.y, input.lastSeenAt, input.updatedAt));
       if (!row) throw new Error('shop upsert returned no row');
+      const vendor = await one<Row>(db.prepare('SELECT name FROM vendors WHERE id=?1 LIMIT 1').bind(input.vendorId));
+      await rebuildShopSearchIndex(db, Number(row.id), input.title, String(vendor?.name ?? ''));
       return { id: Number(row.id), sourceId: String(row.source_id), vendorId: Number(row.vendor_id), shopKey: String(row.shop_key), title: String(row.title), shopType: String(row.shop_type) as ShopRow['shopType'], mapName: String(row.map_name), x: Number(row.x), y: Number(row.y), status: String(row.status) as ShopRow['status'], lastSeenAt: Number(row.last_seen_at), closedAt: row.closed_at === null ? null : Number(row.closed_at), updatedAt: Number(row.updated_at) };
     },
     async getOrCreateSession(input: SessionInput) {
@@ -65,6 +68,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
         const writes = [
           vendor.bind(input.sourceId, input.vendorAccountId, input.vendorName, input.vendorName.normalize('NFKC').toLowerCase(), input.mapName, input.x, input.y, input.observedAt),
           update.bind(input.sourceId, input.vendorAccountId, input.title, input.title.normalize('NFKC').toLowerCase(), input.shopType, input.mapName, input.x, input.y, input.observedAt, status, input.identityHash, currentShopId, input.batchId, existing.id),
+          ...shopSearchIndexStatements(db, Number(existing.id), input.title, input.vendorName),
         ];
         if (input.shopStatus === 'dismissed') {
           if (currentSession) {
@@ -73,9 +77,11 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
               db.prepare("UPDATE listings SET status='expired',last_changed_at=?1 WHERE shop_session_id=?2 AND status IN ('active','missing')").bind(input.observedAt, currentSession.id),
             );
           }
+          assertBatchBounds(writes.length, currentSession ? 32 : 28);
           await db.batch(writes);
           return { internalShopId: Number(existing.id), shopId: currentShopId, identityHash: input.identityHash, resolution: 'dismissed' as const, status: 'dismissed' as const, applied: true, session: null };
         }
+        assertBatchBounds(writes.length, 28);
         await db.batch(writes);
         const session = await getOrCreateD1Session(db, { shopId: Number(existing.id), clientRunId: input.clientRunId, observedAt: input.observedAt });
         return { internalShopId: Number(existing.id), shopId: currentShopId, identityHash: input.identityHash, resolution: String(existing.status) === 'closed' ? 'created' as const : 'matched' as const, status: 'opening' as const, applied: true, session };
@@ -84,6 +90,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (!vendor) throw new Error('vendor upsert returned no row');
       const created = await one<Row>(db.prepare(`INSERT INTO shops(source_id,vendor_id,shop_key,title,title_normalized,shop_type,map_name,x,y,status,last_seen_at,closed_at,updated_at,identity_version,identity_hash,shop_id,vendor_account_id,last_status_observed_at,last_status_batch_id,close_reason) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?11,1,?13,?14,?15,?11,?16,?17) RETURNING id,shop_id,status`).bind(input.sourceId, vendor.id, input.identityHash, input.title, input.title.normalize('NFKC').toLowerCase(), input.shopType, input.mapName, input.x, input.y, status, input.observedAt, input.shopStatus === 'dismissed' ? input.observedAt : null, input.identityHash, input.shopId, input.vendorAccountId, input.batchId, input.shopStatus === 'dismissed' ? 'explicit_dismissed' : null));
       if (!created) throw new Error('shop insert returned no row');
+      await rebuildShopSearchIndex(db, Number(created.id), input.title, input.vendorName);
       if (input.shopStatus === 'dismissed') return { internalShopId: Number(created.id), shopId: String(created.shop_id), identityHash: input.identityHash, resolution: 'dismissed' as const, status: 'dismissed' as const, applied: true, session: null };
       const session = await getOrCreateD1Session(db, { shopId: Number(created.id), clientRunId: input.clientRunId, observedAt: input.observedAt });
       return { internalShopId: Number(created.id), shopId: String(created.shop_id), identityHash: input.identityHash, resolution: 'created' as const, status: 'opening' as const, applied: true, session };
@@ -367,22 +374,43 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
     },
     async searchListings(filters) {
       const params: unknown[] = [];
-      const where = [filters.include_stale ? "l.status IN ('active','missing')" : "l.status='active'"];
+      const where = [
+        filters.include_stale ? "l.status IN ('active','missing')" : "l.status='active'",
+        filters.include_stale ? "s.status IN ('active','stale')" : "s.status='active'",
+        'ss.ended_at IS NULL',
+      ];
       const add = (value: unknown) => { params.push(value); return `?${params.length}`; };
       if (filters.q) {
-        const q = `%${filters.q.normalize('NFKC').trim().toLowerCase()}%`;
-        const p = add(q);
-        where.push(`(EXISTS (SELECT 1 FROM item_catalog c_q WHERE c_q.item_id=l.item_id AND (c_q.name_normalized LIKE ${p} OR EXISTS (SELECT 1 FROM item_aliases a_q WHERE a_q.item_id=c_q.item_id AND a_q.alias_normalized LIKE ${p}))) OR s.title_normalized LIKE ${p} OR v.name_normalized LIKE ${p})`);
+        const q = normalizeCatalogQuery(filters.q);
+        const qMode = filters.qMode ?? ([...q].length <= 2 ? 'short_token' : 'fts');
+        const match = qMode === 'short_token' ? q : `"${q.replaceAll('"', '""')}"`;
+        const p = add(match);
+        where.push(qMode === 'short_token'
+          ? `(EXISTS (SELECT 1 FROM search_short_tokens st WHERE st.scope_type='item' AND st.scope_id=l.item_id AND st.token=${p}) OR EXISTS (SELECT 1 FROM search_short_tokens st WHERE st.scope_type='shop' AND st.scope_id=s.id AND st.token=${p}))`
+          : `(EXISTS (SELECT 1 FROM item_search_fts f WHERE CAST(f.item_id AS INTEGER)=l.item_id AND f.text MATCH ${p}) OR EXISTS (SELECT 1 FROM shop_search_fts sf WHERE sf.rowid=s.id AND sf.text MATCH ${p}))`);
       }
       if (filters.item_id !== undefined) where.push(`l.item_id=${add(filters.item_id)}`);
       if (filters.price_min !== undefined) where.push(`l.price>=${add(filters.price_min)}`);
       if (filters.price_max !== undefined) where.push(`l.price<=${add(filters.price_max)}`);
-      if (filters.map) where.push(`s.map_name=${add(filters.map.normalize('NFKC').trim())}`);
+      if (filters.map) where.push(`s.map_name=${add(normalizeCatalogQuery(filters.map))}`);
       if (filters.shop_type) where.push(`s.shop_type=${add(filters.shop_type)}`);
+      const definitionSet = await loadOptionDefinitions(db, filters.optionVersion);
+      const definitionMap = new Map(definitionSet.items.map((definition) => [definition.type, definition]));
       if (filters.options && filters.options.length > 0) {
-        const clauses = filters.options.map((option) => `EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(option.type)} AND lo.option_value=${add(option.value)} AND lo.option_param=${add(option.param)})`);
-        where.push(filters.option_mode === 'any' ? `(${clauses.join(' OR ')})` : clauses.join(' AND '));
-      } else if (filters.option_type !== undefined) { where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(filters.option_type)}${filters.option_value === undefined ? '' : ` AND lo.option_value=${add(filters.option_value)}`}${filters.option_param === undefined ? '' : ` AND lo.option_param=${add(filters.option_param)}`})`); }
+        try {
+          const conditions = filters.options.map((option) => parseStructuredOptionCondition(option, definitionMap));
+          const compiled = compileOptionPredicates(conditions, filters.option_mode ?? 'all', definitionMap, params.length + 1);
+          where.push(compiled.sql);
+          params.push(...compiled.values);
+        } catch (error) {
+          if (error instanceof OptionConditionValidationError) throw new SearchValidationError(error.message);
+          throw error;
+        }
+      } else if (filters.option_type !== undefined && filters.option_value !== undefined && filters.option_param !== undefined) {
+        where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id=l.id AND lo.option_type=${add(filters.option_type)} AND lo.option_value=${add(filters.option_value)} AND lo.option_param=${add(filters.option_param)})`);
+      } else if (filters.option_type !== undefined || filters.option_value !== undefined || filters.option_param !== undefined) {
+        throw new SearchValidationError('Incomplete legacy option filter');
+      }
       const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: searchCursorContext(filters) }, cursorSecret) : null;
       const sortColumn = filters.sort === 'updated_desc' ? 'l.last_seen_at' : 'l.price';
       if (cursor) {
@@ -394,16 +422,20 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       }
       const limit = Math.min(50, Math.max(1, filters.limit)); params.push(limit + 1);
       const order = filters.sort === 'price_desc' ? 'l.price DESC,l.id DESC' : filters.sort === 'updated_desc' ? 'l.last_seen_at DESC,l.id DESC' : 'l.price ASC,l.id ASC';
-      const rows = await many<Row>(db.prepare(`SELECT l.*,COALESCE(c.canonical_name_zh,'未知物品 #' || l.item_id) AS item_name_display,s.shop_key,s.title,v.name AS vendor_name,s.map_name,s.shop_type FROM listings l JOIN shop_sessions ss ON ss.id=l.shop_session_id JOIN shops s ON s.id=ss.shop_id JOIN vendors v ON v.id=s.vendor_id LEFT JOIN item_catalog c ON c.item_id=l.item_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`).bind(...params));
+      const searchSql = `SELECT l.*,COALESCE(c.canonical_name_zh,'未知物品 #' || l.item_id) AS item_name_display,COALESCE(s.shop_id,s.shop_key) AS shop_id_display,s.status AS shop_status,s.shop_key,s.title,v.name AS vendor_name,s.map_name,s.shop_type FROM listings l JOIN shop_sessions ss ON ss.id=l.shop_session_id JOIN shops s ON s.id=ss.shop_id JOIN vendors v ON v.id=s.vendor_id LEFT JOIN item_catalog c ON c.item_id=l.item_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`;
+      assertQueryBounds(searchSql, params.length);
+      const rows = await many<Row>(db.prepare(searchSql).bind(...params));
       const items = rows.slice(0, limit).map(listingFromSearchRow);
       if (items.length > 0) {
         const ids = items.map((item) => item.id);
-        const optionPlaceholders = ids.map((_, index) => `?${index + 1}`).join(',');
-        const optionRows = await many<Row>(db.prepare(`SELECT listing_id,option_type,option_value,option_param FROM listing_options WHERE listing_id IN (${optionPlaceholders}) ORDER BY listing_id,option_index`).bind(...ids));
-        const optionsByListing = new Map<number, ListingOption[]>();
+        const optionSql = `SELECT lo.listing_id,lo.option_type,lo.option_value,lo.option_param FROM listing_options lo JOIN json_each(?1) input ON lo.listing_id=CAST(input.value AS INTEGER) ORDER BY lo.listing_id,lo.option_index`;
+        assertQueryBounds(optionSql, 1);
+        const optionRows = await many<Row>(db.prepare(optionSql).bind(JSON.stringify(ids)));
+        const optionsByListing = new Map<number, ListingSearchOption[]>();
         for (const row of optionRows) {
           const listingId = Number(row.listing_id);
-          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param) }]);
+          const option = { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param) };
+          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { ...option, display: formatOptionDisplay(option, definitionMap.get(option.type)) }]);
         }
         for (const item of items) item.options = optionsByListing.get(item.id) ?? [];
       }
@@ -424,10 +456,8 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       const inferredSales: InferredSaleRow[] = saleRows.map((row) => ({ observedAt: Number(row.observed_at), soldQuantity: Number(row.sold_quantity), fromQuantity: Number(row.from_quantity), toQuantity: Number(row.to_quantity), reason: String(row.reason) }));
       return { items, inferredSales, nextCursor: rows.length > items.length && items.at(-1) ? encodeHistoryCursor(items.at(-1)!.id, cursorSecret) : null };
     },
-    async getOptionDictionary(version) {
-      const statement = version ? db.prepare('SELECT * FROM option_dictionary WHERE version=?1 ORDER BY option_type,option_value,option_param').bind(version) : db.prepare('SELECT * FROM option_dictionary WHERE version=(SELECT MAX(version) FROM option_dictionary) ORDER BY option_type,option_value,option_param');
-      const rows = await many<Row>(statement);
-      return rows.map((row) => ({ version: String(row.version), optionType: Number(row.option_type), optionValue: Number(row.option_value), optionParam: Number(row.option_param), name: String(row.name), description: String(row.description), searchTokens: String(row.search_tokens) }));
+    async getOptionDefinitions(version) {
+      return loadOptionDefinitions(db, version);
     },
     async getCatalogVersion() {
       const row = await one<Row>(db.prepare('SELECT current_version FROM catalog_state WHERE id=1 LIMIT 1'));
@@ -458,7 +488,7 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
 function batchFromRow(row: Row): BatchRow { return { id: Number(row.id), sourceId: String(row.source_id), batchId: String(row.batch_id), snapshotId: String(row.snapshot_id), partIndex: Number(row.part_index), partCount: Number(row.part_count), snapshotMode: String(row.snapshot_mode) as BatchRow['snapshotMode'], payloadHash: String(row.payload_hash), status: String(row.status), responseJson: row.response_json === null ? null : String(row.response_json) }; }
 function sessionFromRow(row: Row) { return { id: Number(row.id), shopId: Number(row.shop_id), clientRunId: String(row.client_run_id), startedAt: Number(row.started_at), lastSeenAt: Number(row.last_seen_at), endedAt: row.ended_at === null ? null : Number(row.ended_at), initialSyncComplete: bool(row.initial_sync_complete), lastCompleteSnapshotId: row.last_complete_snapshot_id ? String(row.last_complete_snapshot_id) : null }; }
 function listingFromRow(row: Row): ListingRow { return { id: Number(row.id), shopSessionId: Number(row.shop_session_id), itemFingerprint: String(row.item_fingerprint), itemKey: row.item_key === null ? null : String(row.item_key), itemId: Number(row.item_id), upgrade: Number(row.upgrade), slots: Number(row.slots), cards: cards(row), price: Number(row.price), quantity: Number(row.quantity), lastQuantity: Number(row.last_quantity), status: String(row.status), stateVersion: Number(row.state_version), missingStreak: Number(row.missing_streak), lastSeenAt: Number(row.last_seen_at) }; }
-function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), itemName: String(row.item_name_display ?? `未知物品 #${Number(row.item_id)}`), shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
+function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), itemName: String(row.item_name_display ?? `未知物品 #${Number(row.item_id)}`), shopId: String(row.shop_id_display ?? row.shop_key), shopStatus: String(row.shop_status) as ListingSearchRow['shopStatus'], shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
 
 async function closeShopSession(db: D1Database, shopId: number, observedAt: number): Promise<void> {
   const current = await one<Row>(db.prepare('SELECT id FROM shop_sessions WHERE shop_id=?1 AND ended_at IS NULL ORDER BY id DESC LIMIT 1').bind(shopId));
@@ -486,6 +516,36 @@ function normalizeCatalogQuery(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
 }
 
+function shopSearchIndexStatements(db: D1Database, shopId: number, title: string, vendorName: string): D1PreparedStatement[] {
+  const normalizedTitle = normalizeCatalogQuery(title);
+  const normalizedVendor = normalizeCatalogQuery(vendorName);
+  const text = [normalizedTitle, normalizedVendor].filter(Boolean).join(' ');
+  const tokens = shortSearchTokens([normalizedTitle, normalizedVendor]);
+  return [
+    db.prepare('DELETE FROM shop_search_fts WHERE rowid=?1').bind(shopId),
+    db.prepare('INSERT INTO shop_search_fts(rowid,shop_id,text) VALUES(?1,?1,?2)').bind(shopId, text),
+    db.prepare("DELETE FROM search_short_tokens WHERE scope_type='shop' AND scope_id=?1").bind(shopId),
+    db.prepare("INSERT OR IGNORE INTO search_short_tokens(scope_type,scope_id,token) SELECT 'shop',?1,value FROM json_each(?2)").bind(shopId, JSON.stringify(tokens)),
+  ];
+}
+
+async function rebuildShopSearchIndex(db: D1Database, shopId: number, title: string, vendorName: string): Promise<void> {
+  const statements = shopSearchIndexStatements(db, shopId, title, vendorName);
+  assertBatchBounds(statements.length, 6);
+  await db.batch(statements);
+}
+
+function shortSearchTokens(values: readonly string[]): string[] {
+  const tokens = new Set<string>();
+  for (const value of values) {
+    const codePoints = [...value];
+    for (let width = 1; width <= 2; width += 1) {
+      for (let index = 0; index + width <= codePoints.length; index += 1) tokens.add(codePoints.slice(index, index + width).join(''));
+    }
+  }
+  return [...tokens].sort();
+}
+
 function parseAliases(value: unknown): string[] {
   if (typeof value !== 'string') return [];
   try {
@@ -493,5 +553,62 @@ function parseAliases(value: unknown): string[] {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
   } catch {
     return [];
+  }
+}
+
+async function currentOptionVersion(db: D1Database): Promise<string> {
+  const row = await one<Row>(db.prepare('SELECT current_version FROM option_state WHERE id=1 LIMIT 1'));
+  return row?.current_version === undefined || row.current_version === null ? 'unpublished' : String(row.current_version);
+}
+
+async function loadOptionDefinitions(db: D1Database, version?: string): Promise<{ version: string; items: OptionDefinition[] }> {
+  const requestedVersion = version ?? await currentOptionVersion(db);
+  if (requestedVersion === 'unpublished') return { version: requestedVersion, items: [] };
+  const rows = await many<Row>(db.prepare('SELECT * FROM option_definitions WHERE data_version=?1 ORDER BY option_type,handle').bind(requestedVersion));
+  if (version !== undefined && rows.length === 0) throw Object.assign(new Error('Unknown option version'), { status: 400 });
+  return { version: requestedVersion, items: rows.map(optionDefinitionFromRow) };
+}
+
+function assertQueryBounds(sql: string, boundValues: number): void {
+  assertBatchBounds(1, boundValues);
+  if (new TextEncoder().encode(sql).length > 100 * 1024) throw new Error('D1 SQL size limit exceeded');
+}
+
+function optionDefinitionFromRow(row: Row): OptionDefinition {
+  const allowedOperators = parseJsonArray(row.allowed_operators_json).filter((operator): operator is OptionOperator => OPTION_OPERATORS.includes(operator as OptionOperator));
+  const paramPolicy = parseJsonObject(row.param_policy_json) as OptionParamPolicy;
+  return {
+    type: Number(row.option_type),
+    handle: String(row.handle),
+    labelZh: String(row.label_zh),
+    descriptionTemplate: String(row.description_template ?? ''),
+    valueType: String(row.value_type) as OptionDefinition['valueType'],
+    unit: String(row.unit ?? ''),
+    scale: Number(row.scale),
+    allowedOperators,
+    paramPolicy,
+    repeatPolicy: String(row.repeat_policy) as OptionDefinition['repeatPolicy'],
+    displayTemplate: String(row.display_template),
+    searchTokens: parseJsonArray(row.search_tokens_json),
+  };
+}
+
+function parseJsonArray(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
   }
 }

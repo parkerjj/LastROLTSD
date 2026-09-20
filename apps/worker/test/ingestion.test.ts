@@ -47,7 +47,7 @@ function fakeRepo(session = baseSession): MarketRepository {
     finalizeSnapshot: async () => {},
     searchListings: async () => ({ items: [], nextCursor: null }),
     getListingHistory: async () => ({ items: [], nextCursor: null }),
-    getOptionDictionary: async () => [],
+    getOptionDefinitions: async () => ({ version: 'unpublished', items: [] }),
     getCatalogVersion: async () => 'test',
     searchItems: async () => [],
   };

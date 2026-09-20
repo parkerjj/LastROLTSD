@@ -76,9 +76,54 @@ Successful responses use snake_case and contain `accepted`, `batch_id`, `duplica
 
 `GET /api/v1/market/search` accepts bounded text, exact item ID, map, shop type, price range, structured raw option filters, `limit` (maximum 50), allowlisted sort values, and an opaque keyset `cursor`. Query values are bound parameters; offset pagination and arbitrary SQL sort fields are not accepted. Search responses use `Cache-Control: public, max-age=30, s-maxage=30` and return `nextCursor` for the next keyset page.
 
-Listing text search uses the server catalog for item names and aliases plus observed shop/vendor text. It never reads uploaded item names. The current session/listing state determines whether a listing is returned by default.
+Text is normalized with Unicode NFKC, leading/trailing whitespace removal, internal whitespace folding, and lowercase conversion. Empty normalized text disables the text filter. `q` is limited to 80 Unicode code points. One- and two-code-point queries use exact derived `search_short_tokens`; queries of three or more code points use FTS5 trigram indexes. The item index contains server catalog names, approved aliases, and searchable descriptions; the shop index contains the current shop title and vendor name. Search never reads uploaded listing names and does not materialize matching item IDs in TypeScript. The current listing, open session, and non-closed shop state determine whether a listing is returned; `include_stale=true` still excludes closed shops and ended sessions.
 
-`GET /api/v1/options` returns the versioned server option dictionary with an ETag and 24-hour cache. Listing responses preserve raw option tuples; unknown options are rendered as `type:value:param` until a server definition is available.
+Example catalog/alias/shop search:
+
+```http
+GET /api/v1/market/search?q=%E6%B3%A2%E5%88%A9&sort=price_asc&limit=20
+```
+
+The repeated structured option syntax is:
+
+```text
+option=<option_type>:<operator>:<decimal_value>[:<param>]
+option_mode=all|any
+```
+
+For example, `GET /api/v1/market/search?option=12:gte:50` finds listings whose definition-controlled `ATK +` raw option is at least 50. Operator names are `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`; the equivalent symbols `=`, `!=`, `>`, `>=`, `<`, and `<=` are also accepted. Every requested operator must be present in that option definition's `allowed_operators`. Operators are mapped through a server allowlist and are never inserted from the request into SQL.
+
+`option_mode=all` requires all conditions and `option_mode=any` requires at least one. Repeated conditions for one type follow its server `repeat_policy`: `same` requires one option occurrence to satisfy all same-type conditions, while `distinct` requires different occurrences. Decimal values for `scaled_integer` definitions are converted exactly using the definition scale; exponent notation and excess precision are rejected. A param is accepted only when the definition's `param_policy` permits it, and `required_exact` requires it.
+
+The legacy exact raw tuple query remains available through 2026-10-31 only when all three parameters are supplied together: `option_type=12&option_value=50&option_param=0`. It has exact equality semantics. Mixing legacy parameters with `option=` returns `400`; incomplete legacy tuples return `400`. New integrations must use structured `option=`. Unknown option types remain stored and displayed, but structured queries for an unknown type return the standard `bad_request` error envelope.
+
+Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/option/search-index versions, every scalar filter, normalized option conditions and mode, sort, last sort value, and last listing ID. Reusing a cursor with a different q, option condition, definition/catalog version, or sort returns `400`.
+
+`GET /api/v1/options` returns stable type-level metadata, an ETag, and `Cache-Control: public, max-age=86400`. It does not enumerate every exact value/param tuple:
+
+```json
+{
+  "version": "options-2026-09-20",
+  "options": [{
+    "type": 12,
+    "handle": "atk_plus",
+    "label_zh": "ATK +",
+    "description_template": "攻击力增加 {value}",
+    "value_kind": "integer",
+    "unit": "points",
+    "scale": 1,
+    "allowed_operators": ["eq", "neq", "gt", "gte", "lt", "lte"],
+    "param_policy": {"mode": "ignored", "filterable": false},
+    "repeat_policy": "same",
+    "display_template": "ATK + {value}",
+    "search_tokens": ["ATK", "攻击力"]
+  }]
+}
+```
+
+Listing responses preserve `type`, `value`, and `param` and add server-generated `display`. Known displays come from the current definition template and raw tuple. Unknown options use `未知词条 type=<type> value=<value> param=<param>`; client-supplied display text is never trusted.
+
+The search implementation performs one versioned definition lookup, one bounded listing query, and at most one JSON1 option-hydration query. A request has at most eight structured option conditions and 50 results; generated SQL is checked against 100 KiB and bound values against 100. Index generation deduplicates one/two-code-point tokens, uses bounded catalog batches/JSON1 writes, and rejects any single catalog item that exceeds the configured statement budget.
 
 `GET /api/v1/market/listings/:id/history` returns bounded price/quantity events, inferred-sale evidence, and a keyset cursor. `inferredSales` contains `observedAt`, `soldQuantity`, `fromQuantity`, `toQuantity`, and a reason (`quantity_decrease`, `sold_out`, or low-confidence `missing_streak`). It is derived from immutable `sold_events` and is never inferred from an omitted delta item.
 
