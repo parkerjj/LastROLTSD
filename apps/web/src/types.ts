@@ -48,6 +48,7 @@ export interface SearchOptionFilter {
 export interface SearchFilters {
   q?: string;
   item_id?: number;
+  item_ids?: number[];
   price_min?: number;
   price_max?: number;
   map?: string;
@@ -77,6 +78,10 @@ export interface ListingSearchResult {
   title: string;
   options: ListingSearchOption[];
   lastSeenAt: number;
+  description?: string;
+  x?: number;
+  y?: number;
+  itemIcon?: string;
 }
 
 export interface SearchPage<T> {
