@@ -1,19 +1,19 @@
 import { test, expect } from '@playwright/test';
 
 const optionsPayload = {
-  version: 'options-v1',
+  version: 'options-lastro-70.83',
   options: [{
     type: 12,
-    handle: 'atk_plus',
-    label_zh: 'ATK +',
-    description_template: '攻击力增加 {value}',
+    handle: 'VAR_SPACCELERATION',
+    label_zh: 'SP恢复速度增加数值%',
+    description_template: 'SP恢复速度增加{value}%',
     value_kind: 'integer',
-    unit: '点',
+    unit: '',
     scale: 1,
     allowed_operators: ['eq', 'gte', 'lte'],
     param_policy: { mode: 'ignored', filterable: false },
     repeat_policy: 'same',
-    display_template: 'ATK + {value}',
+    display_template: 'SP恢复速度增加{value}%',
     search_tokens: [],
   }],
 };
@@ -28,7 +28,7 @@ const firstResults = {
     mapName: '普隆德拉',
     vendorName: '玩家甲',
     title: '波利商店',
-    options: [{ type: 12, value: 50, param: 0, display: 'ATK + 50' }],
+    options: [{ type: 12, value: 50, param: 0, display: 'SP恢复速度增加50%' }],
     lastSeenAt: 1,
   }],
   nextCursor: 'page-2',

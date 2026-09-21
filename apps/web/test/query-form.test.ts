@@ -3,23 +3,23 @@ import { JSDOM } from 'jsdom';
 import { appendOptionRow, serializeSearchForm } from '../src/query-form';
 import type { OptionDefinition } from '../src/types';
 
-const atk: OptionDefinition = {
+const spRecovery: OptionDefinition = {
   type: 12,
-  handle: 'atk_plus',
-  labelZh: 'ATK +',
-  descriptionTemplate: '攻击力增加 {value}',
+  handle: 'VAR_SPACCELERATION',
+  labelZh: 'SP恢复速度增加数值%',
+  descriptionTemplate: 'SP恢复速度增加{value}%',
   valueKind: 'integer',
-  unit: '点',
+  unit: '',
   scale: 1,
   allowedOperators: ['eq', 'gte', 'lte'],
   paramPolicy: { mode: 'ignored', filterable: false },
   repeatPolicy: 'same',
-  displayTemplate: 'ATK + {value}',
+  displayTemplate: 'SP恢复速度增加{value}%',
   searchTokens: [],
 };
 
 const rate: OptionDefinition = {
-  type: 20,
+  type: 198,
   handle: 'rate',
   labelZh: '倍率',
   descriptionTemplate: '倍率 {value}',
@@ -42,35 +42,35 @@ function createForm(): { dom: JSDOM; form: HTMLFormElement; rows: HTMLElement } 
 describe('metadata-driven option controls', () => {
   it('renders Chinese option labels and only the operators allowed by the definition', () => {
     const { rows } = createForm();
-    const row = appendOptionRow(rows, [atk, rate]);
+    const row = appendOptionRow(rows, [spRecovery, rate]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
 
-    expect(type.textContent).toContain('ATK +');
+    expect(type.textContent).toContain('SP恢复速度增加数值%');
     type.value = '12';
     type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
 
     const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
     expect(Array.from(operator.options).map((option) => option.value)).toEqual(['eq', 'gte', 'lte']);
     expect(row.querySelector<HTMLInputElement>('[data-option-param]')).toBeNull();
-    expect(row.querySelector('[data-option-unit]')?.textContent).toContain('点');
+    expect(row.querySelector('[data-option-unit]')?.textContent).not.toContain('点');
   });
 
   it('shows a parameter control only when server metadata requires it', () => {
     const { rows } = createForm();
-    const row = appendOptionRow(rows, [atk, rate]);
+    const row = appendOptionRow(rows, [spRecovery, rate]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
 
-    type.value = '20';
+    type.value = '198';
     type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
 
     expect(row.querySelector<HTMLInputElement>('[data-option-param]')).not.toBeNull();
     expect(row.querySelector('[data-option-param]')?.getAttribute('aria-label')).toBe('词条参数');
   });
 
-  it('serializes ATK + >= 50, any mode, and multiple rows', () => {
+  it('serializes SP recovery >= 50, any mode, and multiple rows', () => {
     const { form, rows } = createForm();
-    const first = appendOptionRow(rows, [atk, rate]);
-    const second = appendOptionRow(rows, [atk, rate]);
+    const first = appendOptionRow(rows, [spRecovery, rate]);
+    const second = appendOptionRow(rows, [spRecovery, rate]);
     const firstType = first.querySelector<HTMLSelectElement>('[data-option-type]')!;
     const firstOperator = first.querySelector<HTMLSelectElement>('[data-option-operator]')!;
     const secondType = second.querySelector<HTMLSelectElement>('[data-option-type]')!;
@@ -79,19 +79,19 @@ describe('metadata-driven option controls', () => {
     firstType.dispatchEvent(new first.ownerDocument.defaultView!.Event('change', { bubbles: true }));
     firstOperator.value = 'gte';
     first.querySelector<HTMLInputElement>('[data-option-value]')!.value = '50';
-    secondType.value = '20';
+    secondType.value = '198';
     secondType.dispatchEvent(new second.ownerDocument.defaultView!.Event('change', { bubbles: true }));
     secondOperator.value = 'lt';
     second.querySelector<HTMLInputElement>('[data-option-value]')!.value = '1.50';
     second.querySelector<HTMLInputElement>('[data-option-param]')!.value = '7';
 
-    expect(serializeSearchForm(form, [atk, rate])).toEqual({
+    expect(serializeSearchForm(form, [spRecovery, rate])).toEqual({
       q: '波利',
       limit: 20,
       sort: 'price_asc',
       options: [
         { type: 12, operator: 'gte', value: '50' },
-        { type: 20, operator: 'lt', value: '1.50', param: 7 },
+        { type: 198, operator: 'lt', value: '1.50', param: 7 },
       ],
       option_mode: 'any',
     });
@@ -99,8 +99,8 @@ describe('metadata-driven option controls', () => {
 
   it('adds and removes multiple rows', () => {
     const { rows } = createForm();
-    appendOptionRow(rows, [atk]);
-    appendOptionRow(rows, [atk]);
+    appendOptionRow(rows, [spRecovery]);
+    appendOptionRow(rows, [spRecovery]);
     expect(rows.querySelectorAll('[data-option-row]')).toHaveLength(2);
     rows.querySelector<HTMLButtonElement>('[data-remove-option]')!.click();
     expect(rows.querySelectorAll('[data-option-row]')).toHaveLength(1);
@@ -108,17 +108,17 @@ describe('metadata-driven option controls', () => {
 
   it('rejects an incomplete row instead of sending a partial option filter', () => {
     const { form, rows } = createForm();
-    const row = appendOptionRow(rows, [atk]);
+    const row = appendOptionRow(rows, [spRecovery]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
     type.value = '12';
     type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
 
-    expect(() => serializeSearchForm(form, [atk])).toThrow('请完整填写词条条件');
+    expect(() => serializeSearchForm(form, [spRecovery])).toThrow('请完整填写词条条件');
   });
 
   it('does not expose unknown operators from malformed metadata', () => {
     const { rows } = createForm();
-    const definition = { ...atk, allowedOperators: ['gte', 'raw_sql'] as OptionDefinition['allowedOperators'] };
+    const definition = { ...spRecovery, allowedOperators: ['gte', 'raw_sql'] as OptionDefinition['allowedOperators'] };
     const row = appendOptionRow(rows, [definition]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
     type.value = '12';
@@ -129,20 +129,20 @@ describe('metadata-driven option controls', () => {
 
   it('rejects a decimal value for an integer definition', () => {
     const { form, rows } = createForm();
-    const row = appendOptionRow(rows, [atk]);
+    const row = appendOptionRow(rows, [spRecovery]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
     type.value = '12';
     type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
     row.querySelector<HTMLInputElement>('[data-option-value]')!.value = '1.5';
 
-    expect(() => serializeSearchForm(form, [atk])).toThrow('词条数值格式无效');
+    expect(() => serializeSearchForm(form, [spRecovery])).toThrow('词条数值格式无效');
   });
 
   it('rejects scaled values that exceed the server precision', () => {
     const { form, rows } = createForm();
     const row = appendOptionRow(rows, [rate]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
-    type.value = '20';
+    type.value = '198';
     type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
     row.querySelector<HTMLInputElement>('[data-option-value]')!.value = '1.234';
     row.querySelector<HTMLInputElement>('[data-option-param]')!.value = '7';

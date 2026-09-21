@@ -60,9 +60,9 @@ function fixture() {
       (5,3,'e',999,'伪造名字','伪造名字',50,1,1,0,0,0),
       (6,4,'f',100,'伪造名字','伪造名字',60,1,1,0,0,0);
     INSERT INTO listing_options(listing_id,option_index,option_type,option_value,option_param) VALUES
-      (1,0,12,49,0),(2,0,12,50,0),(3,0,12,51,0),(3,1,12,80,0),(3,2,20,150,7),(4,0,999,7,3);
+      (1,0,12,49,0),(2,0,12,50,0),(3,0,12,51,0),(3,1,12,80,0),(3,2,198,150,7),(4,0,999,7,3);
     INSERT INTO option_definitions(data_version,option_type,handle,label_zh,description_template,value_type,unit,scale,allowed_operators_json,param_policy_json,repeat_policy,display_template,search_tokens_json,updated_at)
-      VALUES ('options-2026-09-20',20,'rate','倍率','倍率 {value}','scaled_integer','%',100,'["eq","gte"]','{"mode":"required_exact","filterable":true,"value":7}','same','倍率 {value}','[]',0);
+      VALUES ('options-lastro-70.83',198,'test_rate','倍率','倍率 {value}','scaled_integer','%',100,'["eq","gte"]','{"mode":"required_exact","filterable":true,"value":7}','same','倍率 {value}','[]',0);
     INSERT INTO item_search_fts(rowid,item_id,text) VALUES
       (100,100,'波利卡片'),(101,101,'波利帽'),(102,102,'普通卡片 波利纪念品');
     INSERT INTO shop_search_fts(rowid,shop_id,text) VALUES
@@ -94,7 +94,7 @@ describe('local D1 catalog and option search', () => {
       expect(statement.sql).not.toContain('l.item_name');
       expect(statement.sql).not.toContain('item_id IN (');
       expect(statement.values).toContain('波利');
-      expect(page.items.find((item) => item.id === 2)?.options[0]?.display).toBe('ATK + 50');
+      expect(page.items.find((item) => item.id === 2)?.options[0]?.display).toBe('SP恢复速度增加50%');
       expect(page.items.find((item) => item.id === 4)?.options[0]?.display).toBe('未知词条 type=999 value=7 param=3');
       expect(page.items.find((item) => item.id === 4)).toMatchObject({ itemName: '未知物品 #999', shopId: 'shop-v1-b', shopStatus: 'active' });
     } finally { database.close(); }
@@ -149,10 +149,10 @@ describe('local D1 catalog and option search', () => {
   it('applies definition scale, allowed operators, and required param policy', async () => {
     const { database, repo } = fixture();
     try {
-      expect((await search(repo, 'option=20:gte:1.50:7')).items.map((item) => item.id)).toEqual([3]);
-      await expect(search(repo, 'option=20:gte:1.50')).rejects.toThrow('param is required');
-      await expect(search(repo, 'option=20:neq:1.50:7')).rejects.toThrow('operator is not allowed');
-      await expect(search(repo, 'option=20:eq:1.50:8')).rejects.toThrow('Invalid option param');
+      expect((await search(repo, 'option=198:gte:1.50:7')).items.map((item) => item.id)).toEqual([3]);
+      await expect(search(repo, 'option=198:gte:1.50')).rejects.toThrow('param is required');
+      await expect(search(repo, 'option=198:neq:1.50:7')).rejects.toThrow('operator is not allowed');
+      await expect(search(repo, 'option=198:eq:1.50:8')).rejects.toThrow('Invalid option param');
     } finally { database.close(); }
   });
 

@@ -48,7 +48,7 @@ describe('D1 migrations', () => {
       .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
       .map((name) => name.slice(0, 4))
       .sort();
-    expect(migrations).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009']);
+    expect(migrations).toEqual(['0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010']);
   });
 
   it('declares versioned type-level option definitions', () => {
@@ -87,6 +87,12 @@ describe('D1 migrations', () => {
         { name: 'option_state', type: 'table' },
         { name: 'search_short_tokens', type: 'table' },
       ]);
+
+      const optionState = db.prepare('SELECT current_version FROM option_state WHERE id=1').get() as { current_version: string };
+      expect(optionState.current_version).toBe('options-lastro-70.83');
+      expect(db.prepare("SELECT COUNT(*) AS count FROM option_definitions WHERE data_version='options-lastro-70.83'").get()).toEqual({ count: 193 });
+      expect(db.prepare("SELECT handle,label_zh,display_template FROM option_definitions WHERE data_version='options-lastro-70.83' AND option_type=12").get()).toEqual({ handle: 'VAR_SPACCELERATION', label_zh: 'SP恢复速度增加数值%', display_template: 'SP恢复速度增加{value}%' });
+      expect(db.prepare("SELECT handle,label_zh,display_template FROM option_definitions WHERE data_version='options-lastro-70.83' AND option_type=20").get()).toEqual({ handle: 'VAR_ITEMDEFPOWER', label_zh: 'DEF+数值', display_template: 'DEF+{value}' });
 
       const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_item_catalog_name_normalized','idx_item_aliases_normalized','idx_search_short_tokens_lookup') ORDER BY name").all() as Array<{ name: string }>;
       expect(indexes.map((row) => row.name)).toEqual(['idx_item_aliases_normalized', 'idx_item_catalog_name_normalized', 'idx_search_short_tokens_lookup']);

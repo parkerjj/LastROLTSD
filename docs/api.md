@@ -91,7 +91,7 @@ option=<option_type>:<operator>:<decimal_value>[:<param>]
 option_mode=all|any
 ```
 
-For example, `GET /api/v1/market/search?option=12:gte:50` finds listings whose definition-controlled `ATK +` raw option is at least 50. Operator names are `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`; the equivalent symbols `=`, `!=`, `>`, `>=`, `<`, and `<=` are also accepted. Every requested operator must be present in that option definition's `allowed_operators`. Operators are mapped through a server allowlist and are never inserted from the request into SQL.
+For example, `GET /api/v1/market/search?option=12:gte:50` finds listings whose definition-controlled `SP恢复速度增加` raw option is at least 50%. Operator names are `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`; the equivalent symbols `=`, `!=`, `>`, `>=`, `<`, and `<=` are also accepted. Every requested operator must be present in that option definition's `allowed_operators`. Operators are mapped through a server allowlist and are never inserted from the request into SQL.
 
 `option_mode=all` requires all conditions and `option_mode=any` requires at least one. Repeated conditions for one type follow its server `repeat_policy`: `same` requires one option occurrence to satisfy all same-type conditions, while `distinct` requires different occurrences. Decimal values for `scaled_integer` definitions are converted exactly using the definition scale; exponent notation and excess precision are rejected. A param is accepted only when the definition's `param_policy` permits it, and `required_exact` requires it.
 
@@ -103,20 +103,20 @@ Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/opt
 
 ```json
 {
-  "version": "options-2026-09-20",
+  "version": "options-lastro-70.83",
   "options": [{
     "type": 12,
-    "handle": "atk_plus",
-    "label_zh": "ATK +",
-    "description_template": "攻击力增加 {value}",
+    "handle": "VAR_SPACCELERATION",
+    "label_zh": "SP恢复速度增加数值%",
+    "description_template": "SP恢复速度增加{value}%",
     "value_kind": "integer",
-    "unit": "points",
+    "unit": "",
     "scale": 1,
     "allowed_operators": ["eq", "neq", "gt", "gte", "lt", "lte"],
     "param_policy": {"mode": "ignored", "filterable": false},
     "repeat_policy": "same",
-    "display_template": "ATK + {value}",
-    "search_tokens": ["ATK", "攻击力"]
+    "display_template": "SP恢复速度增加{value}%",
+    "search_tokens": ["VAR_SPACCELERATION", "SP恢复速度增加数值%"]
   }]
 }
 ```

@@ -3,28 +3,28 @@ import { Hono } from 'hono';
 import { registerOptionsRoute } from '../src/routes/options';
 import type { OptionDefinition } from '../src/domain/option-conditions';
 
-const definition: OptionDefinition = { type: 12, handle: 'atk_plus', labelZh: 'ATK +', descriptionTemplate: '攻击力增加 {value}', valueType: 'integer', unit: 'points', scale: 1, allowedOperators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: 'ATK + {value}' };
+const definition: OptionDefinition = { type: 12, handle: 'VAR_SPACCELERATION', labelZh: 'SP恢复速度增加数值%', descriptionTemplate: 'SP恢复速度增加{value}%', valueType: 'integer', unit: '', scale: 1, allowedOperators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: 'SP恢复速度增加{value}%' };
 
 describe('options route', () => {
   it('returns stable type-level option definitions with version and cache metadata', async () => {
     const app = new Hono();
-    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version: 'options-2026-09-19', items: [definition] }) } as never);
+    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version: 'options-lastro-70.83', items: [definition] }) } as never);
     const response = await app.request('/api/v1/options');
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      version: 'options-2026-09-19',
+      version: 'options-lastro-70.83',
       options: [{
         type: 12,
-        handle: 'atk_plus',
-        label_zh: 'ATK +',
-        description_template: '攻击力增加 {value}',
+        handle: 'VAR_SPACCELERATION',
+        label_zh: 'SP恢复速度增加数值%',
+        description_template: 'SP恢复速度增加{value}%',
         value_kind: 'integer',
-        unit: 'points',
+        unit: '',
         scale: 1,
         allowed_operators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'],
         param_policy: { mode: 'ignored', filterable: false },
         repeat_policy: 'same',
-        display_template: 'ATK + {value}',
+        display_template: 'SP恢复速度增加{value}%',
         search_tokens: [],
       }],
     });

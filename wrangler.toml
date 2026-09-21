@@ -39,3 +39,8 @@ binding = "DB"
 database_name = "lastroweb-production"
 database_id = "replace-at-deploy"
 migrations_dir = "migrations"
+
+
+[observability.logs]
+enabled = true
+invocation_logs = true

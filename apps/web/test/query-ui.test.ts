@@ -12,7 +12,7 @@ const listing = (overrides: Partial<ListingSearchResult> = {}): ListingSearchRes
   mapName: '普隆德拉',
   vendorName: '玩家甲',
   title: '收购店',
-  options: [{ type: 12, value: 50, param: 0, display: 'ATK + 50' }],
+  options: [{ type: 12, value: 50, param: 0, display: 'SP恢复速度增加50%' }],
   lastSeenAt: 1,
   ...overrides,
 });
@@ -37,7 +37,7 @@ describe('query UI rendering', () => {
     expect(element.textContent).toContain('波利卡片');
     expect(element.textContent).toContain('物品 ID');
     expect(element.textContent).toContain('1234');
-    expect(element.textContent).toContain('ATK + 50');
+    expect(element.textContent).toContain('SP恢复速度增加50%');
     expect(element.querySelector('.history-button')).not.toBeNull();
     expect(element.querySelector('#next-page')).not.toBeNull();
   });
