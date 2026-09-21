@@ -110,6 +110,18 @@ describe('D1 clean-break lifecycle', () => {
     } finally { d1.database.close(); }
   });
 
+  it('records a dismissed shop that has no prior opening observation', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const dismissedInput = await observation('source-a', 100, 'dismissed', 'account-new');
+      const dismissed = await repository.resolveShopObservation!(dismissedInput);
+      expect(dismissed).toMatchObject({ resolution: 'dismissed', status: 'dismissed', applied: true, session: null });
+      expect(d1.database.prepare('SELECT status,closed_at,close_reason FROM shops WHERE id=?').get(dismissed.internalShopId)).toEqual({ status: 'closed', closed_at: 100, close_reason: 'explicit_dismissed' });
+      expect(d1.database.prepare('SELECT COUNT(*) AS count FROM listings WHERE shop_id=?').get(dismissed.internalShopId)).toEqual({ count: 0 });
+    } finally { d1.database.close(); }
+  });
+
   it('marks missing full-snapshot listings and writes inferred sold events without legacy tables', async () => {
     const d1 = createDatabase();
     try {

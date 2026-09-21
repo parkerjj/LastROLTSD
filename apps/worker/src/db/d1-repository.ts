@@ -40,6 +40,13 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
         return { internalShopId: Number(existing.id), shopId: String(existing.public_shop_id), identityHash: input.identityHash, resolution: 'stale_event_ignored', status: String(existing.status) === 'closed' ? 'dismissed' : 'opening', applied: false, session: null };
       }
       if (input.shopStatus === 'dismissed') {
+        // A full/delta payload may first mention a shop after it has already
+        // closed. Keep that observation as a closed shop so the upload remains
+        // idempotent and the response can still expose its stable shop id.
+        if (!existing) {
+          await db.prepare(`INSERT OR IGNORE INTO shops(source_id,identity_hash,public_shop_id,vendor_account_id,vendor_name,vendor_name_normalized,title,title_normalized,shop_type,map_name,x,y,status,profile_hash,full_state_hash,last_status_observed_at,last_changed_at,closed_at,close_reason)
+            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'closed',?13,NULL,?14,?14,?14,'explicit_dismissed')`).bind(input.sourceId,input.identityHash,input.shopId,input.vendorAccountId,input.vendorName,normalizeCatalogQuery(input.vendorName),input.title,normalizeCatalogQuery(input.title),input.shopType,input.mapName,input.x,input.y,input.profileHash ?? input.identityHash,input.observedAt).run();
+        }
         const close = db.prepare("UPDATE shops SET status='closed',last_status_observed_at=?3,last_changed_at=?3,closed_at=?3,close_reason='explicit_dismissed' WHERE source_id=?1 AND identity_hash=?2 AND last_status_observed_at<=?3").bind(input.sourceId, input.identityHash, input.observedAt);
         const expire = db.prepare("UPDATE listings SET status='expired',last_changed_at=?2,state_version=state_version+1,missing_full_count=0 WHERE shop_id=(SELECT id FROM shops WHERE source_id=?1 AND identity_hash=?3) AND status IN ('active','missing')").bind(input.sourceId, input.observedAt, input.identityHash);
         await db.batch([close, expire]);
