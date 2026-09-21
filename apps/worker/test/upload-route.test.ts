@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { registerUploadRoute } from '../src/routes/upload';
 import { hashApiKey } from '../src/middleware/auth';
@@ -80,6 +80,28 @@ describe('upload route', () => {
     const limited = await limitedApp.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
     expect(limited.status).toBe(413);
     expect((await limited.json() as { error: { code: string } }).error.code).toBe('payload_too_large');
+  });
+
+  it('logs the received payload and the expected source state for a 403', async () => {
+    const key = 'route-secret';
+    const app = new Hono();
+    const repository = repo(await hashApiKey(key), 'disabled');
+    registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
+      expect(response.status).toBe(403);
+      const received = JSON.parse(String(output.mock.calls[0]?.[0])) as { metric: string; payload: typeof heartbeatPayload };
+      const failure = JSON.parse(String(errors.mock.calls[0]?.[0])) as { metric: string; status: number; details: { expected: string; actual: string; tokenHashPrefix: string; storedHashPrefix: string } };
+      expect(received.metric).toBe('lastroweb.upload_received');
+      expect(received.payload.snapshot_id).toBe('snap');
+      expect(failure).toMatchObject({ metric: 'lastroweb.upload_error', status: 403, details: { expected: 'active', actual: 'disabled' } });
+      expect(failure.details.tokenHashPrefix).toBe(failure.details.storedHashPrefix);
+    } finally {
+      output.mockRestore();
+      errors.mockRestore();
+    }
   });
 
   it('does not expose unexpected internal error messages', async () => {
