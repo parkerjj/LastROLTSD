@@ -48,7 +48,47 @@ Each shop has a required per-transfer `uuid`, `shop_status` (`opening` or `dismi
 
 `full` contains the complete visible state for the shops included in the snapshot and reconciles missing listings only after every part is accepted. The first complete full snapshot establishes a baseline and creates no sold events. After two consecutive complete full snapshots omit an initialized listing, it becomes `missing` and may produce a low-confidence `missing_streak` event. `delta` updates only the supplied shops/items; an omitted delta item is not sold. `heartbeat` uses lightweight opening shop objects and updates liveness without changing the listing collection.
 
-The canonical idempotency key is `snapshot_id/part_index`. A repeated batch with the same normalized v2 payload returns the stored response with `duplicate: true`; reusing the key with a different payload returns `409`. Retry uses the same payload bytes, UUIDs, observed time, and idempotency key. Errors use `{ "error": { "code", "message", "request_id" } }` and never echo bearer tokens or complete payloads.
+The canonical idempotency key is `snapshot_id/part_index`. A repeated batch with the same normalized v2 payload returns the stored response with `duplicate: true`. Retry uses the same payload bytes, UUIDs, observed time, and idempotency key unless the error action explicitly requires a new snapshot. Reusing a key with a different normalized payload returns `422 idempotency_key_reused` and requires a new snapshot ID and key.
+
+Upload errors use this envelope and never echo bearer tokens or complete payloads:
+
+```json
+{
+  "error": {
+    "code": "full_snapshot_required",
+    "message": "The first upload for a shop session must be a full snapshot",
+    "request_id": "request-id",
+    "retryable": false,
+    "action": "send_full_snapshot"
+  }
+}
+```
+
+`retryable` is always present on Worker-generated upload errors. `action` is present only when the client must change its workflow. `batch_in_progress`, `listing_state_conflict`, and `rate_limited` responses include `Retry-After` when the server has a delay to communicate.
+
+| HTTP | `error.code` | Meaning | OpenKore action |
+| ---: | --- | --- | --- |
+| 400 | `malformed_json` | The request body is not valid JSON. | Fix serialization; do not retry unchanged. |
+| 400 | `invalid_idempotency_key` | The key is missing, non-printable, or longer than 256 bytes. | Fix the header; do not retry unchanged. |
+| 400 | `idempotency_key_mismatch` | The key is not the canonical `snapshot_id/part_index`. | Use the canonical key; do not retry unchanged. |
+| 401 | `unauthorized` | The bearer credential is missing or invalid. | Correct credentials; do not automatically retry. |
+| 403 | `source_disabled` | The authenticated source is disabled. | Stop uploads until the source is enabled. |
+| 404 | `not_found` | The requested API resource is not available. | Do not retry unchanged. |
+| 409 | `listing_state_conflict` | A concurrent listing transition won after one server-side retry. | Retry the identical request with the same key after `Retry-After`. |
+| 413 | `payload_too_large` | The encoded request body exceeds the configured byte limit. | Create a new snapshot and split it into smaller parts (`action: reshard_upload`). |
+| 413 | `upload_limit_exceeded` | A part exceeds the configured part, shop, item, or option limits. | Create a new snapshot and split it into smaller parts (`action: reshard_upload`). |
+| 422 | `invalid_upload` | JSON is valid but does not satisfy protocol v2. | Fix the payload; do not retry unchanged. |
+| 422 | `duplicate_shop_identity` | Two shops in one part resolve to the same canonical identity. | Fix or merge the duplicate shop observations. |
+| 422 | `idempotency_key_reused` | A completed, processing, or rejected key has a different payload hash. | Create a new snapshot and key (`action: new_snapshot`). |
+| 423 | `batch_in_progress` | Another request owns the same batch claim. | Retry the identical request with the same key after `Retry-After`. |
+| 428 | `full_snapshot_required` | The shop session has no completed full baseline. | Send a new full snapshot (`action: send_full_snapshot`). |
+| 429 | `rate_limited` | The source upload rate limit was reached. | Retry the identical request with the same key after `Retry-After`. |
+| 500 | `internal_error` | An unexpected server failure occurred. | Retry with bounded exponential backoff using the same key; alert after the retry budget is exhausted. |
+| 500 | `ingestion_invariant_failed` | An internal ingestion capability or state invariant failed. | Retry with bounded exponential backoff using the same key and alert operators. |
+| 503 | `storage_unavailable` | The upload batch could not be claimed in storage. | Retry with bounded exponential backoff using the same key. |
+| 503 | `limiter_unavailable` | The source limiter failed or returned a non-success response. | Retry with bounded exponential backoff using the same key. |
+
+Cloudflare may reject or terminate a request before the Worker can create this JSON envelope. OpenKore must therefore also handle non-JSON responses and no-response/network timeouts. Treat HTTP `500`, `502`, `503`, `504`, `520` through `526`, and `530` without a recognized JSON `error.code` as retryable infrastructure failures. Use bounded exponential backoff and the same payload and idempotency key. A later `423 batch_in_progress` means the interrupted invocation may still own the claim; continue honoring `Retry-After` rather than creating another key.
 
 Successful responses use snake_case and contain `accepted`, `batch_id`, `duplicate`, `processed_shops`, `processed_listings`, `changed_listings`, `sold_events`, ordered `shops` results, and `next`:
 

@@ -11,7 +11,35 @@ export interface NormalizedObservation { fingerprint: string; item: UploadItem; 
 export interface StateBatchResult { processedListings: number; changedListings: number; soldEvents: number; }
 export interface ListingStateService { applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; applyBatchObservationsBulk?(source: AuthenticatedSource, sessions: Map<number, ShopSessionRow>, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; }
 export interface UploadResult extends UploadResultLike {}
-export class IngestionError extends Error { constructor(public readonly status: 400 | 409 | 503, message: string) { super(message); this.name = 'IngestionError'; } }
+export type IngestionErrorCode =
+  | 'idempotency_key_mismatch'
+  | 'idempotency_key_reused'
+  | 'batch_in_progress'
+  | 'duplicate_shop_identity'
+  | 'full_snapshot_required'
+  | 'listing_state_conflict'
+  | 'ingestion_invariant_failed'
+  | 'storage_unavailable';
+export type IngestionErrorAction = 'send_full_snapshot' | 'new_snapshot';
+export interface IngestionErrorMetadata { retryable?: boolean; action?: IngestionErrorAction; retryAfterSeconds?: number; }
+export class IngestionError extends Error {
+  public readonly retryable: boolean;
+  public readonly action: IngestionErrorAction | undefined;
+  public readonly retryAfterSeconds: number | undefined;
+
+  constructor(
+    public readonly status: 400 | 409 | 422 | 423 | 428 | 500 | 503,
+    public readonly code: IngestionErrorCode,
+    message: string,
+    metadata: IngestionErrorMetadata = {},
+  ) {
+    super(message);
+    this.name = 'IngestionError';
+    this.retryable = metadata.retryable ?? false;
+    this.action = metadata.action;
+    this.retryAfterSeconds = metadata.retryAfterSeconds;
+  }
+}
 
 export const MAX_IDEMPOTENCY_KEY_LENGTH = 256;
 const SHOP_RESOLUTION_CONCURRENCY = 16;
@@ -52,40 +80,42 @@ async function payloadHash(request: UploadRequest): Promise<string> {
 }
 
 async function resolveShop(sourceId: string, clientRunId: string, batchId: string, observedAt: number, shop: UploadShop, repo: MarketRepository, resolvedIdentity?: { identityHash: string; shopId: string }): Promise<ShopResolution> {
-  if (!repo.resolveShopObservation) throw new IngestionError(503, 'Repository cannot resolve protocol 2 shop identity');
+  if (!repo.resolveShopObservation) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository cannot resolve protocol 2 shop identity', { retryable: true });
   const identity = resolvedIdentity ?? await computeShopIdentity({ sourceId, vendorAccountId: shop.vendor_account_id, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y, title: shop.title });
   return repo.resolveShopObservation({ sourceId, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: shop.shop_status, batchId, vendorAccountId: shop.vendor_account_id, clientRunId, observedAt, vendorName: shop.vendor_name, title: shop.title, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y });
 }
 
 export async function ingestUpload(source: AuthenticatedSource, request: UploadRequest, idempotencyKey: string, repo: MarketRepository, state: ListingStateService): Promise<UploadResult> {
   const batchId = canonicalBatchId(request);
-  if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'Idempotency-Key must match the canonical snapshot part');
+  if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'idempotency_key_mismatch', 'Idempotency-Key must match the canonical snapshot part');
   const hash = await payloadHash(request);
   const duplicate = await repo.getBatch(source.id, batchId);
   let batch: Awaited<ReturnType<MarketRepository['insertBatch']>> | undefined;
   let retryingRejected = false;
   if (duplicate) {
-    if (duplicate.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
+    if (duplicate.payloadHash !== hash) throw new IngestionError(422, 'idempotency_key_reused', 'Idempotency key was reused with a different payload', { action: 'new_snapshot' });
     if (duplicate.responseJson) return { ...(JSON.parse(duplicate.responseJson) as UploadResult), duplicate: true };
-    if (duplicate.status === 'rejected' && repo.retryBatch) {
-      if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(409, 'Batch retry was claimed by another request');
+    if (duplicate.status === 'rejected') {
+      if (!repo.retryBatch) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository cannot retry a rejected upload batch', { retryable: true });
+      if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(423, 'batch_in_progress', 'Batch retry was claimed by another request', { retryable: true, retryAfterSeconds: 5 });
       batch = { ...duplicate, status: 'processing' };
       retryingRejected = true;
-    } else throw new IngestionError(409, 'Batch is already processing');
+    } else throw new IngestionError(423, 'batch_in_progress', 'Batch is already processing', { retryable: true, retryAfterSeconds: 5 });
   }
   if (!retryingRejected) {
     batch = await repo.insertBatch({ sourceId: source.id, batchId, snapshotId: request.snapshot_id, partIndex: request.part_index, partCount: request.part_count, snapshotMode: request.snapshot_mode, payloadHash: hash, responseJson: null, receivedAt: Date.parse(request.observed_at) });
-    if (!batch) throw new IngestionError(503, 'Batch claim failed');
+    if (!batch) throw new IngestionError(503, 'storage_unavailable', 'Batch claim failed', { retryable: true });
     if (batch.inserted === false) {
-      if (batch.payloadHash !== hash) throw new IngestionError(409, 'Idempotency key was reused with a different payload');
+      if (batch.payloadHash !== hash) throw new IngestionError(422, 'idempotency_key_reused', 'Idempotency key was reused with a different payload', { action: 'new_snapshot' });
       if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
-      if (batch.status === 'rejected' && repo.retryBatch) {
-        if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(409, 'Batch retry was claimed by another request');
+      if (batch.status === 'rejected') {
+        if (!repo.retryBatch) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository cannot retry a rejected upload batch', { retryable: true });
+        if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(423, 'batch_in_progress', 'Batch retry was claimed by another request', { retryable: true, retryAfterSeconds: 5 });
         batch = { ...batch, status: 'processing' };
-      } else throw new IngestionError(409, 'Batch is already processing');
+      } else throw new IngestionError(423, 'batch_in_progress', 'Batch is already processing', { retryable: true, retryAfterSeconds: 5 });
     }
   }
-  if (!batch) throw new IngestionError(503, 'Batch claim failed');
+  if (!batch) throw new IngestionError(503, 'storage_unavailable', 'Batch claim failed', { retryable: true });
 
   try {
     const observedAt = Date.parse(request.observed_at);
@@ -95,21 +125,21 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       return { input, identity };
     });
     const contexts = identified.map(({ input, identity }) => {
-      if (identityHashes.has(identity.identityHash)) throw new IngestionError(400, 'Shop canonical identity must be unique within a batch');
+      if (identityHashes.has(identity.identityHash)) throw new IngestionError(422, 'duplicate_shop_identity', 'Shop canonical identity must be unique within a batch');
       identityHashes.add(identity.identityHash);
       return { sourceId: source.id, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: input.shop_status, batchId, vendorAccountId: input.vendor_account_id, clientRunId: request.client_run_id, observedAt, vendorName: input.vendor_name, title: input.title, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y } satisfies ShopSessionContextInput;
     });
-    if (request.snapshot_mode !== 'full' && repo.requiresFullSnapshot && await repo.requiresFullSnapshot(contexts)) throw new IngestionError(409, 'The first upload for a shop session must be a full snapshot');
+    if (request.snapshot_mode !== 'full' && repo.requiresFullSnapshot && await repo.requiresFullSnapshot(contexts)) throw new IngestionError(428, 'full_snapshot_required', 'The first upload for a shop session must be a full snapshot', { action: 'send_full_snapshot' });
 
     const resolutions = repo.resolveShopObservations
       ? await repo.resolveShopObservations(contexts)
       : await mapConcurrent(identified, SHOP_RESOLUTION_CONCURRENCY, ({ input, identity }) => resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity));
-    if (resolutions.length !== request.shops.length) throw new IngestionError(503, 'Repository returned an incomplete shop resolution');
+    if (resolutions.length !== request.shops.length) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository returned an incomplete shop resolution', { retryable: true });
     const resolved = request.shops.map((input, index) => ({ input, resolution: resolutions[index]! }));
 
     const opening = resolved.filter((entry) => entry.input.shop_status === 'opening' && entry.resolution.applied && entry.resolution.session);
     const sessions = opening.map((entry) => entry.resolution.session!);
-    if (request.snapshot_mode !== 'full' && sessions.some((session) => !session.initialSyncComplete)) throw new IngestionError(409, 'The first upload for a shop session must be a full snapshot');
+    if (request.snapshot_mode !== 'full' && sessions.some((session) => !session.initialSyncComplete)) throw new IngestionError(428, 'full_snapshot_required', 'The first upload for a shop session must be a full snapshot', { action: 'send_full_snapshot' });
 
     const observationGroups = await mapConcurrent(opening, SHOP_RESOLUTION_CONCURRENCY, async ({ input, resolution }) => {
       const session = resolution.session!;
@@ -158,7 +188,7 @@ async function applyBySession(source: AuthenticatedSource, state: ListingStateSe
   let result: StateBatchResult = { processedListings: 0, changedListings: 0, soldEvents: 0 };
   for (const [sessionId, group] of groups) {
     const session = sessions.get(sessionId);
-    if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+    if (!session) throw new IngestionError(500, 'ingestion_invariant_failed', 'Session disappeared during upload', { retryable: true });
     const next = await state.applyBatchObservations(source, session, group, batchId, observedAt);
     result = { processedListings: result.processedListings + next.processedListings, changedListings: result.changedListings + next.changedListings, soldEvents: result.soldEvents + next.soldEvents };
   }

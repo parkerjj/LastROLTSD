@@ -47,18 +47,18 @@ describe('upload route', () => {
     const key = 'route-secret'; const app = new Hono(); const repository = repo(await hashApiKey(key));
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
     const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'idempotency-key': 'snap/0' }, body: '{' });
-    expect(response.status).toBe(400); expect((await response.json() as { error: { request_id: string } }).error.request_id).toBeTruthy();
+    expect(response.status).toBe(400); expect((await response.json() as { error: { code: string; request_id: string; retryable: boolean } }).error).toMatchObject({ code: 'malformed_json', retryable: false });
   });
   it('requires an idempotency key and rejects a non-canonical key', async () => {
     const key = 'route-secret'; const repository = repo(await hashApiKey(key));
-    for (const idempotencyKey of [undefined, 'other/0', 'x'.repeat(257)]) {
+    for (const [idempotencyKey, code] of [[undefined, 'invalid_idempotency_key'], ['other/0', 'idempotency_key_mismatch'], ['x'.repeat(257), 'invalid_idempotency_key']] as const) {
       const app = new Hono();
       registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
       const headers = new Headers({ authorization: `Bearer ${key}`, 'content-type': 'application/json' });
       if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
       const response = await app.request('/api/v1/market/upload', { method: 'POST', headers, body: JSON.stringify(heartbeatPayload) });
       expect(response.status).toBe(400);
-      expect((await response.json() as { error: { code: string } }).error.code).toBe('bad_request');
+      expect((await response.json() as { error: { code: string } }).error.code).toBe(code);
     }
   });
   it('maps authentication and upload-limit failures to standard error codes', async () => {
@@ -73,7 +73,7 @@ describe('upload route', () => {
     registerUploadRoute(forbiddenApp, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repo(hash, 'disabled'), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
     const forbidden = await forbiddenApp.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'idempotency-key': 'snap/0' }, body: '{}' });
     expect(forbidden.status).toBe(403);
-    expect((await forbidden.json() as { error: { code: string } }).error.code).toBe('forbidden');
+    expect((await forbidden.json() as { error: { code: string } }).error.code).toBe('source_disabled');
 
     const limitedApp = new Hono();
     registerUploadRoute(limitedApp, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 16 }, repo(hash), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
@@ -112,9 +112,10 @@ describe('upload route', () => {
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
     const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
     expect(response.status).toBe(500);
-    const body = await response.json() as { error: { message: string } };
+    const body = await response.json() as { error: { message: string; retryable: boolean } };
     expect(body.error.message).toBe('Unexpected internal error');
     expect(body.error.message).not.toContain('SQLITE');
+    expect(body.error.retryable).toBe(true);
   });
 
   it('maps an optional source limiter rejection to 429', async () => {
@@ -126,5 +127,38 @@ describe('upload route', () => {
     const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: '{}' });
     expect(response.status).toBe(429);
     expect(response.headers.get('retry-after')).toBe('17');
+    expect((await response.json() as { error: { code: string; retryable: boolean } }).error).toMatchObject({ code: 'rate_limited', retryable: true });
+  });
+
+  it('distinguishes schema, upload-limit, baseline, and batch-state failures', async () => {
+    const key = 'route-secret'; const hash = await hashApiKey(key);
+    const request = async (repository: MarketRepository, payload: unknown, idempotencyKey = 'snap/0') => {
+      const app = new Hono();
+      registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+      return app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': idempotencyKey }, body: JSON.stringify(payload) });
+    };
+
+    const invalid = await request(repo(hash), { ...heartbeatPayload, protocol_version: 1 });
+    expect(invalid.status).toBe(422);
+    expect((await invalid.json() as { error: { code: string } }).error.code).toBe('invalid_upload');
+
+    const tooManyParts = await request(repo(hash), { ...heartbeatPayload, part_count: 17 });
+    expect(tooManyParts.status).toBe(413);
+    expect((await tooManyParts.json() as { error: { code: string; action: string } }).error).toMatchObject({ code: 'upload_limit_exceeded', action: 'reshard_upload' });
+
+    const baselineRepo = repo(hash);
+    baselineRepo.requiresFullSnapshot = async () => true;
+    const baseline = await request(baselineRepo, heartbeatPayload);
+    expect(baseline.status).toBe(428);
+    expect((await baseline.json() as { error: { code: string; action: string; retryable: boolean } }).error).toMatchObject({ code: 'full_snapshot_required', action: 'send_full_snapshot', retryable: false });
+
+    const processingRepo = repo(hash);
+    processingRepo.completeBatch = async () => { throw new Error('synthetic interruption'); };
+    expect((await request(processingRepo, heartbeatPayload)).status).toBe(500);
+    processingRepo.completeBatch = async () => {};
+    const processing = await request(processingRepo, heartbeatPayload);
+    expect(processing.status).toBe(423);
+    expect(processing.headers.get('retry-after')).toBe('5');
+    expect((await processing.json() as { error: { code: string; retryable: boolean } }).error).toMatchObject({ code: 'batch_in_progress', retryable: true });
   });
 });

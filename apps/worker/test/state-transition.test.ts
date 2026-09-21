@@ -128,4 +128,21 @@ describe('listing state transition', () => {
     expect(result.changedListings).toBe(1);
     expect(transitions).toHaveLength(1);
   });
+
+  it('surfaces a fallback bulk conflict after the optimistic retry is exhausted', async () => {
+    const existing = { ...listing, shopSessionId: 1, itemFingerprint: 'a', quantity: 5, stateVersion: 2 };
+    const repository = {
+      loadListingsByObservations: async () => [existing],
+      insertNewListingsBulk: async () => {},
+      applyListingTransitions: async () => ({ updated: 0, conflicts: 1, soldEvents: 0, conflictIds: [1] }),
+      loadListingById: async () => ({ ...existing, quantity: 4, stateVersion: 3 }),
+    } as any;
+    const sessions = new Map([[1, { id: 1, initialSyncComplete: true }]]);
+    await expect(createListingStateService(repository).applyBatchObservationsBulk!(
+      { id: 's1' } as any,
+      sessions as any,
+      [{ fingerprint: 'a', sessionId: 1, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 11, quantity: 2, options: [] } }] as any,
+      'b', 2,
+    )).rejects.toMatchObject({ status: 409, code: 'listing_state_conflict', retryable: true });
+  });
 });

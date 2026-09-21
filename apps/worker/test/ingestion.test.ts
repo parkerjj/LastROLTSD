@@ -69,11 +69,11 @@ describe('upload ingestion', () => {
     const repo = fakeRepo();
     const state = { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) };
     await ingestUpload(source, request, 'snap/0', repo, state);
-    await expect(ingestUpload(source, { ...request, shops: [{ ...shop, title: 'Changed shop' }] }, 'snap/0', repo, state)).rejects.toMatchObject({ status: 409 });
+    await expect(ingestUpload(source, { ...request, shops: [{ ...shop, title: 'Changed shop' }] }, 'snap/0', repo, state)).rejects.toMatchObject({ status: 422, code: 'idempotency_key_reused' });
   });
 
   it('rejects an idempotency key that does not match the canonical snapshot part', async () => {
-    await expect(ingestUpload(source, request, 'other/0', fakeRepo(), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 400 });
+    await expect(ingestUpload(source, request, 'other/0', fakeRepo(), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 400, code: 'idempotency_key_mismatch' });
   });
 
   it('treats equivalent raw option ordering as the same normalized payload', async () => {
@@ -113,17 +113,33 @@ describe('upload ingestion', () => {
     expect(failed).toBe(true);
   });
 
-  it('does not process a rejected batch when another retry wins the atomic claim', async () => {
+  it('reports a reused key when a rejected batch has a different payload hash', async () => {
     const repo = fakeRepo();
     repo.getBatch = async () => ({ id: 1, sourceId: 's1', batchId: 'snap/0', snapshotId: 'snap', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'unused', status: 'rejected', responseJson: null } as any);
     repo.retryBatch = async () => false;
-    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 1, changedListings: 1, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
+    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 1, changedListings: 1, soldEvents: 0 }) })).rejects.toMatchObject({ status: 422, code: 'idempotency_key_reused' });
+  });
+
+  it('reports an in-progress batch separately from other conflicts', async () => {
+    const repo = fakeRepo();
+    const error = new Error('synthetic interruption');
+    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => { throw error; } })).rejects.toBe(error);
+    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 423, code: 'batch_in_progress', retryable: true });
+  });
+
+  it('reports a missing rejected-batch retry capability as an ingestion invariant', async () => {
+    const repo = fakeRepo();
+    let payloadHash = '';
+    repo.insertBatch = async (input) => { payloadHash = input.payloadHash; return { id: 1, ...input, status: 'processing' } as any; };
+    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => { throw new Error('synthetic failure'); } })).rejects.toThrow('synthetic failure');
+    repo.getBatch = async () => ({ id: 1, sourceId: 's1', batchId: 'snap/0', snapshotId: 'snap', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash, status: 'rejected', responseJson: null } as any);
+    await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 500, code: 'ingestion_invariant_failed', retryable: true });
   });
 
   it('requires a full snapshot before accepting a delta for a new session', async () => {
     const repo = fakeRepo({ ...baseSession, initialSyncComplete: false, lastCompleteSnapshotId: null });
     const delta = { ...request, snapshot_mode: 'delta' as const };
-    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
+    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 428, code: 'full_snapshot_required', action: 'send_full_snapshot' });
   });
 
   it('rejects a non-full upload before mutating shops when bulk preflight requires a baseline', async () => {
@@ -133,7 +149,7 @@ describe('upload ingestion', () => {
     repo.resolveShopObservations = async () => { resolved = true; return []; };
     const delta = { ...request, snapshot_mode: 'delta' as const };
 
-    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
+    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 428, code: 'full_snapshot_required', action: 'send_full_snapshot' });
     expect(resolved).toBe(false);
   });
 

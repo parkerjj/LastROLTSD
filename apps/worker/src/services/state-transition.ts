@@ -22,6 +22,14 @@ export interface ObservationResult { updated: boolean; conflict: boolean; histor
 
 interface TransitionPlan { listing: ListingRow; item: UploadItem; transition: ReturnType<typeof calculateQuantityTransition>; soldEvent: Awaited<ReturnType<typeof buildSoldEvent>>; change: ListingTransitionChange; }
 
+function listingStateConflict(): IngestionError {
+  return new IngestionError(409, 'listing_state_conflict', 'Listing state changed during upload', { retryable: true, retryAfterSeconds: 1 });
+}
+
+function ingestionInvariantFailed(message: string): IngestionError {
+  return new IngestionError(500, 'ingestion_invariant_failed', message, { retryable: true });
+}
+
 async function makePlan(listing: ListingRow, item: UploadItem, observedAt: number, batchId: string, baselineComplete: boolean): Promise<TransitionPlan> {
   const transition = calculateQuantityTransition(listing.quantity, item.quantity);
   const changed = transition.kind !== 'unchanged' || listing.price !== item.price;
@@ -66,7 +74,7 @@ export async function applyListingObservation(input: ListingObservation, repo: M
     if (result.conflicts) return { updated: false, conflict: true, historyWritten: false, soldEvent: null, listing: current.listing };
     return { updated: true, conflict: false, historyWritten: true, soldEvent: current.soldEvent, listing: updatedListing(current) };
   }
-  if (!repo.applyListingChanges) throw new Error('repository cannot apply listing changes');
+  if (!repo.applyListingChanges) throw ingestionInvariantFailed('Repository cannot apply listing changes');
   const result = await repo.applyListingChanges([{ listingId: plan.listing.id, expectedVersion: plan.listing.stateVersion, price: input.item.price, quantity: input.item.quantity, status: plan.change.status, observedAt: input.observedAt, batchId: input.batchId }]);
   if (result.conflicts) return { updated: false, conflict: true, historyWritten: false, soldEvent: null, listing: input.listing };
   const listing = updatedListing(plan);
@@ -109,7 +117,7 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
           await repo.insertListingOptionsBatch(created.map((listing) => ({ listingId: listing.id, options: observationsByFingerprint.get(listing.itemFingerprint)?.item.options ?? [] })));
         }
       } else {
-        if (!repo.createListing) throw new Error('repository cannot create listings');
+        if (!repo.createListing) throw ingestionInvariantFailed('Repository cannot create listings');
         for (const observation of newObservations) {
           const created = await repo.createListing(newListingInput(observation, observedAt, batchId));
           if (repo.insertHistory) await repo.insertHistory({ listingId: created.id, observedAt, price: created.price, quantity: created.quantity, eventType: 'first_seen', batchId });
@@ -124,16 +132,17 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
       const conflictIds = new Set(result.conflictIds ?? plans.slice(0, result.conflicts).map((plan) => plan.listing.id));
       for (const plan of plans.filter((candidate) => conflictIds.has(candidate.listing.id))) {
         const refreshed = repo.loadListingById ? await repo.loadListingById(plan.listing.id, plan.listing.shopSessionId) : null;
-        if (!refreshed) throw new IngestionError(409, 'Listing state changed during upload');
+        if (!refreshed) throw listingStateConflict();
         const retry = await makePlan(refreshed, plan.item, observedAt, batchId, session.initialSyncComplete);
         const retryResult = await repo.applyListingTransitions([retry.change]);
-        if (retryResult.conflicts) throw new IngestionError(409, 'Listing state changed during upload');
+        if (retryResult.conflicts) throw listingStateConflict();
         changedListings += retryResult.updated;
         soldEvents += retryResult.soldEvents;
       }
     } else {
       for (const plan of plans) {
         const result = await applyListingObservation({ listing: plan.listing, item: plan.item, observedAt, batchId, baselineComplete: session.initialSyncComplete }, repo);
+        if (result.conflict) throw listingStateConflict();
         if (result.updated) changedListings += 1;
         if (result.soldEvent) soldEvents += 1;
       }
@@ -153,7 +162,7 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
         const listing = byKey.get(observation.sessionId + ':' + observation.fingerprint);
         if (!listing) continue;
         const session = sessions.get(observation.sessionId);
-        if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+        if (!session) throw ingestionInvariantFailed('Session disappeared during upload');
         const plan = await makePlan(listing, observation.item, observedAt, batchId, session.initialSyncComplete);
         if (plan.change.history) plans.push(plan);
       }
@@ -162,16 +171,16 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
         let changedListings = result.updated;
         let soldEvents = result.soldEvents;
         if (result.conflicts > 0) {
-          if (!result.conflictIds) throw new IngestionError(409, 'Listing state changed during upload');
+          if (!result.conflictIds) throw listingStateConflict();
           const conflictIds = new Set(result.conflictIds ?? []);
           for (const plan of plans.filter((candidate) => conflictIds.has(candidate.listing.id))) {
             const refreshed = repo.loadListingById ? await repo.loadListingById(plan.listing.id, plan.listing.shopSessionId) : null;
-            if (!refreshed) throw new IngestionError(409, 'Listing state changed during upload');
+            if (!refreshed) throw listingStateConflict();
             const session = sessions.get(plan.listing.shopSessionId);
-            if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+            if (!session) throw ingestionInvariantFailed('Session disappeared during upload');
             const retry = await makePlan(refreshed, plan.item, observedAt, batchId, session.initialSyncComplete);
             const retryResult = await repo.applyListingTransitionsBulk([retry.change]);
-            if (retryResult.conflicts > 0) throw new IngestionError(409, 'Listing state changed during upload');
+            if (retryResult.conflicts > 0) throw listingStateConflict();
             changedListings += retryResult.updated;
             soldEvents += retryResult.soldEvents;
           }
@@ -183,11 +192,13 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
         let soldEvents = 0;
         for (const plan of plans) {
           const result = await applyListingObservation({ listing: plan.listing, item: plan.item, observedAt, batchId, baselineComplete: sessions.get(plan.listing.shopSessionId)?.initialSyncComplete ?? false }, repo);
+          if (result.conflict) throw listingStateConflict();
           if (result.updated) changedListings += 1;
           if (result.soldEvent) soldEvents += 1;
         }
         return { processedListings: observations.length, changedListings, soldEvents };
       }
+      if (plans.length > 0) throw ingestionInvariantFailed('Repository cannot apply listing transitions');
       return { processedListings: observations.length, changedListings: 0, soldEvents: 0 };
     }
     const groups = new Map<number, NormalizedObservation[]>();
@@ -195,7 +206,7 @@ export function createListingStateService(repo: MarketRepository): ListingStateS
     let total: StateBatchResult = { processedListings: 0, changedListings: 0, soldEvents: 0 };
     for (const [sessionId, group] of groups) {
       const session = sessions.get(sessionId);
-      if (!session) throw new IngestionError(503, 'Session disappeared during upload');
+      if (!session) throw ingestionInvariantFailed('Session disappeared during upload');
       const next = await applyBatchObservations(source, session, group, batchId, observedAt);
       total = { processedListings: total.processedListings + next.processedListings, changedListings: total.changedListings + next.changedListings, soldEvents: total.soldEvents + next.soldEvents };
     }
