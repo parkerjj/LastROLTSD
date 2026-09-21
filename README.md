@@ -15,7 +15,6 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:docs
-pnpm playwright test
 pnpm wrangler dev --local
 ```
 

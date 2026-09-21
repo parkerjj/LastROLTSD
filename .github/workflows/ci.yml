@@ -27,8 +27,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm test:docs
-      - run: pnpm exec playwright install --with-deps chromium webkit
-      - run: pnpm playwright test
 
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

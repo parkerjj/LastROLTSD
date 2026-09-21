@@ -7,7 +7,6 @@ dist/
 .deployment-secrets.local
 wrangler.*.local.toml
 source-seed*.local.sql
-playwright-report/
 test-results/
 coverage/
 .generated/

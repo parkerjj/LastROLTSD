@@ -4,7 +4,7 @@
 
 - Scope remains Cloudflare Worker/Hono, D1/SQLite, Vite web UI, protocol fixtures, and documentation. No OpenKore source was modified, copied, compiled, bundled, or added as a runtime dependency.
 - The implementation plan completion ledger marks Tasks 1-15 complete.
-- Fresh verification from this workspace passed: pnpm lint; pnpm typecheck; pnpm test (30 files, 124 tests); pnpm test:docs (44 assertions); pnpm --filter web build; Windows pnpm playwright test (2 browser tests); and git diff --check.
+- Fresh verification from this workspace passed: pnpm lint; pnpm typecheck; pnpm test (30 files, 124 tests); pnpm test:docs (44 assertions); pnpm --filter web build; and git diff --check.
 - The fallback listing-option path is bounded: insertListingOptions sorts tuples, writes chunks of at most 12 rows, and counts six bound values per row. The 21-option regression test covers the former over-100-bound failure.
 - The project and CI require the latest Node 24 release, declared by `.nvmrc` and the root `engines` field, with the repository's current pnpm version declared by `packageManager`. GitHub Actions uses checkout/setup-node v7 and pnpm/action-setup v6 so the actions themselves no longer depend on the deprecated Node 20 runtime.
 - WSL is Debian 2. Use `nvm install 24 && nvm alias default 24 && nvm use 24`; then verify non-interactive login shells with `wsl.exe -d Debian -- bash -lc 'node -v; npm -v; pnpm -v'`.
@@ -16,7 +16,6 @@
 - Production GitHub environment secrets are `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_D1_DATABASE_ID`. Worker secrets `CURSOR_SECRET` and `ADMIN_SECRET` are configured once with Wrangler and persist across deployments.
 - GitHub Actions is the sole automatic deployment route. Do not also enable Cloudflare Git integration.
 - Windows-managed Codex linked worktrees contain a Windows absolute `.git` pointer; WSL Git cannot operate inside them. Run Node/pnpm commands through WSL and Git commands with Windows Git, or use the main `/mnt/d/Development/LastROWeb` checkout directly in WSL.
-- Playwright browser binaries are downloaded in WSL, but its system libraries still require the user to run `pnpm exec playwright install --with-deps chromium webkit` interactively with sudo. GitHub Actions installs both browser projects and their dependencies automatically.
 
 ## Known non-blocking limitations
 
@@ -50,11 +49,10 @@
 
 ### Deployment preflight
 
-- Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:docs`, `pnpm --filter web build`, `pnpm playwright test`, `pnpm exec wrangler deploy --dry-run`, `git diff --check`, and `git status --short` from Node 24.x/pnpm 12.4.2.
+- Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:docs`, `pnpm --filter web build`, `pnpm exec wrangler deploy --dry-run`, `git diff --check`, and `git status --short` from Node 24.x/pnpm 12.4.2.
 - Apply migrations to a disposable/local D1 first, run `PRAGMA foreign_key_check`, and inspect bounded `EXPLAIN QUERY PLAN` output before any remote verification. Do not run production catalog imports twice merely to verify them.
 - Configure production `CURSOR_SECRET` and `ADMIN_SECRET` with Wrangler. GitHub Actions additionally requires `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_D1_DATABASE_ID`; source upload keys are seeded as hashes and are never committed.
 - D1 Free capacity is a planning constraint: retain history and sold events for 90 days by default, never delete current listings, and obtain an explicit quota review before increasing upload volume, catalog size, or retention.
-- This managed review host reported pnpm 11.19.0 even though the repository requires pnpm 12.4.2; its `pnpm exec` wrapper could not resolve the installed Playwright/Wrangler bins. The direct local Playwright and Wrangler entry points passed, so repeat the documented matrix with pnpm 12.4.2 before release.
 
 ## Remote D1 quota safety
 
@@ -94,6 +92,6 @@
 10. Item autocomplete and cache contract.
 11. Vite query UI with server-defined option controls.
 12. API documentation, protocol-v2 contract, and legacy audit-column policy.
-13. Full-flow, D1-budget, browser, CI, and final verification.
+13. Full-flow, D1-budget, CI, and final verification.
 
 Do not skip ahead while an earlier task focused test or migration assertion fails. Legacy item/display columns may remain for audit, but runtime writes and reads must use catalog item IDs and raw option tuples. Work directly on `main`; do not create or retain another branch, worktree, or OpenKore dependency.

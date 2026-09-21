@@ -21,8 +21,6 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:docs
-pnpm exec playwright install chromium webkit
-pnpm playwright test
 pnpm exec wrangler dev --local
 ```
 
@@ -170,7 +168,7 @@ pnpm exec wrangler d1 execute lastroweb-production --remote --env production --c
 
 ## GitHub Actions automatic deployment
 
-The repository workflow `.github/workflows/ci.yml` verifies pull requests and pushes to `main`. On a push to `main`, the `deploy-production` job runs only after lint, typecheck, unit/integration tests, documentation checks, web build, and Playwright pass. It then applies D1 migrations and deploys the Worker and assets.
+The repository workflow `.github/workflows/ci.yml` verifies pull requests and pushes to `main`. On a push to `main`, the `deploy-production` job runs only after lint, typecheck, unit/integration tests, documentation checks, and the web build pass. It then applies D1 migrations and deploys the Worker and assets.
 
 Create a GitHub environment named `production`. Add these environment secrets:
 

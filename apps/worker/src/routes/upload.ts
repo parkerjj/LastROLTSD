@@ -46,14 +46,13 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
       recordUploadReceived({ requestId: id, method: c.req.raw.method, path: new URL(c.req.raw.url).pathname, bodyBytes, ...(Number.isFinite(declaredBodyBytes) && declaredBodyBytes > 0 ? { declaredBodyBytes } : {}), ...(c.req.header('content-type') ? { contentType: c.req.header('content-type')! } : {}), ...(c.req.header('idempotency-key') ? { idempotencyKey: c.req.header('idempotency-key')! } : {}), ...receivedBodyLog(raw) });
       source = await requireSource(c.req.raw, repo);
       if (env.UPLOAD_LIMITER) {
-        let limiterResponse: Response;
         try {
-          limiterResponse = await env.UPLOAD_LIMITER.fetch('https://lastroweb.invalid/upload-limit', { method: 'POST', headers: { 'x-source-id': source.id } });
+          const limiterResponse = await env.UPLOAD_LIMITER.fetch('https://lastroweb.invalid/upload-limit', { method: 'POST', headers: { 'x-source-id': source.id } });
+          if (limiterResponse.status === 429) return logError('rate_limited', 'Upload rate limit exceeded', 429, 'LimitError', { retryable: true, retryAfter: limiterResponse.headers.get('retry-after') ?? '60' }, { expected: 'upload limiter allows request', actual: 429 });
+          if (!limiterResponse.ok) return logError('limiter_unavailable', 'Upload limiter unavailable', 503, 'LimiterError', { retryable: true }, { expected: 'upload limiter 2xx response', actual: limiterResponse.status });
         } catch (error) {
           return logError('limiter_unavailable', 'Upload limiter unavailable', 503, 'LimiterError', { retryable: true }, { errorMessage: error instanceof Error ? error.message : String(error) });
         }
-        if (limiterResponse.status === 429) return logError('rate_limited', 'Upload rate limit exceeded', 429, 'LimitError', { retryable: true, retryAfter: limiterResponse.headers.get('retry-after') ?? '60' }, { expected: 'upload limiter allows request', actual: 429 });
-        if (!limiterResponse.ok) return logError('limiter_unavailable', 'Upload limiter unavailable', 503, 'LimiterError', { retryable: true }, { expected: 'upload limiter 2xx response', actual: limiterResponse.status });
       }
       const idempotencyKey = c.req.header('idempotency-key');
       if (!isValidIdempotencyKey(idempotencyKey)) return logError('invalid_idempotency_key', 'Idempotency-Key header is required and must be printable ASCII', 400, 'UploadRequestError', { retryable: false }, { expected: 'a printable Idempotency-Key header', actual: idempotencyKey === undefined ? 'missing' : idempotencyKey });
