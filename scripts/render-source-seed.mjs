@@ -21,12 +21,13 @@ try {
   if (!/^[0-9a-f]{64}$/u.test(apiKeyHash)) throw new Error('MARKET_SOURCE_API_KEY_SHA256 must be 64 lowercase hex characters');
   const now = Date.now();
   const sql = [
-    'INSERT INTO market_sources (id, name, api_key_hash, status, created_at)',
-    `VALUES ('${escapeSql(sourceId)}', '${escapeSql(sourceName)}', '${apiKeyHash}', 'active', ${now})`,
+    'INSERT INTO market_sources (id, name, api_key_hash, status, created_at, updated_at)',
+    `VALUES ('${escapeSql(sourceId)}', '${escapeSql(sourceName)}', '${apiKeyHash}', 'active', ${now}, ${now})`,
     'ON CONFLICT(id) DO UPDATE SET',
     '  name = excluded.name,',
     '  api_key_hash = excluded.api_key_hash,',
-    "  status = 'active';",
+    "  status = 'active',",
+    '  updated_at = excluded.updated_at;',
     '',
   ].join('\n');
   const output = resolve(requiredOption('--output'));

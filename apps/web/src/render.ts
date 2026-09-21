@@ -145,7 +145,7 @@ function renderListing(item: ListingSearchResult): string {
     <div class="item-price"><span>价格</span><strong>${item.price.toLocaleString('zh-CN')} <small>z</small></strong><em>${item.quantity} 件</em></div>
     <div class="item-location"><span>地图</span><strong>${escape(item.mapName || '未知地图')}</strong><small>${coordinates.x}，${coordinates.y}</small><button type="button" class="map-button" data-map-name="${escape(item.mapName)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" aria-label="查看${escape(item.mapName)}地图">地图定位</button></div>
     <div class="item-shop"><span>商店 / 玩家</span><strong>${escape(item.title || '未命名商店')}</strong><small>${escape(item.vendorName || '未知玩家')}</small></div>
-    <div class="item-updated"><span>最近上架</span><time>${new Date(item.lastSeenAt).toLocaleString('zh-CN')}</time></div>
+    <div class="item-updated"><span>最近变动</span><time>${new Date(item.lastChangedAt).toLocaleString('zh-CN')}</time></div>
     <div class="item-actions"><button class="history-button" data-listing-id="${escape(item.id)}" type="button" aria-label="查看${escape(itemName)}价格历史">价格历史</button></div>
   </article>`;
 }

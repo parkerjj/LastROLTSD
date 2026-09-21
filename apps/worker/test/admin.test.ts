@@ -25,7 +25,7 @@ describe('admin retention preview', () => {
       historyTruncated: true,
       soldEvents: 7,
       soldEventsTruncated: false,
-      retentionDays: 90,
+      retentionDays: 180,
     });
   });
 });

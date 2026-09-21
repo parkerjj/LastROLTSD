@@ -13,11 +13,11 @@ export interface UploadRequest {
   part_index: number; part_count: number; observed_at: string; shops: UploadShop[];
 }
 export interface SearchFilters {
-  q?: string; item_id?: number; option_type?: number; option_value?: number; option_param?: number;
-  qMode?: 'short_token' | 'fts'; catalogVersion?: string; optionVersion?: string; searchIndexVersion?: string;
+  q?: string; item_id?: number; item_ids?: number[]; option_type?: number; option_value?: number; option_param?: number;
+  catalogVersion?: string; optionVersion?: string; searchIndexVersion?: string;
   options?: Array<{ type: number; operator: string; value: string; param?: number }>;
   option_mode?: 'all' | 'any';
   price_min?: number; price_max?: number; map?: string; shop_type?: 'buy' | 'sell';
-  include_stale?: boolean; limit: number; cursor?: string; sort: 'price_asc' | 'price_desc' | 'updated_desc';
+  include_stale?: boolean; limit: number; cursor?: string; sort: 'price_asc' | 'price_desc' | 'changed_desc';
 }
 export interface SearchPage<T> { items: T[]; nextCursor: string | null }

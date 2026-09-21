@@ -33,7 +33,14 @@ function ingestionInvariantFailed(message: string): IngestionError {
 async function makePlan(listing: ListingRow, item: UploadItem, observedAt: number, batchId: string, baselineComplete: boolean): Promise<TransitionPlan> {
   const transition = calculateQuantityTransition(listing.quantity, item.quantity);
   const changed = transition.kind !== 'unchanged' || listing.price !== item.price;
-  const soldEvent = await buildSoldEvent(listing, transition, transition.kind === 'sold_out' ? 'sold_out' : 'quantity_decrease', observedAt, baselineComplete);
+  const soldReason = transition.kind === 'sold_out'
+    ? 'sold_out'
+    : transition.kind === 'decreased'
+      ? 'quantity_decrease'
+      : null;
+  const soldEvent = soldReason === null
+    ? null
+    : await buildSoldEvent(listing, transition, soldReason, observedAt, baselineComplete);
   return {
     listing,
     item,
@@ -55,7 +62,7 @@ async function makePlan(listing: ListingRow, item: UploadItem, observedAt: numbe
 }
 
 function updatedListing(plan: TransitionPlan): ListingRow {
-  return { ...plan.listing, price: plan.item.price, lastQuantity: plan.listing.quantity, quantity: plan.item.quantity, stateVersion: plan.listing.stateVersion + 1, status: plan.item.quantity === 0 ? 'sold_out' : 'active', lastSeenAt: plan.change.observedAt, missingStreak: 0 };
+  return { ...plan.listing, price: plan.item.price, lastQuantity: plan.listing.quantity, quantity: plan.item.quantity, stateVersion: plan.listing.stateVersion + 1, status: plan.item.quantity === 0 ? 'sold_out' : 'active', lastChangedAt: plan.change.observedAt, missingStreak: 0 };
 }
 
 export async function applyListingObservation(input: ListingObservation, repo: MarketRepository): Promise<ObservationResult> {
@@ -79,7 +86,7 @@ export async function applyListingObservation(input: ListingObservation, repo: M
   if (result.conflicts) return { updated: false, conflict: true, historyWritten: false, soldEvent: null, listing: input.listing };
   const listing = updatedListing(plan);
   if (repo.insertHistory) await repo.insertHistory({ listingId: listing.id, observedAt: input.observedAt, price: input.item.price, quantity: input.item.quantity, eventType: plan.change.history!.eventType, batchId: input.batchId });
-  if (plan.soldEvent && repo.insertSoldEvent) await repo.insertSoldEvent(plan.soldEvent);
+  if (plan.soldEvent && repo.insertSoldEvent) await repo.insertSoldEvent({ ...plan.soldEvent, snapshotId: input.batchId, price: input.item.price });
   return { updated: true, conflict: false, historyWritten: true, soldEvent: plan.soldEvent, listing };
 }
 

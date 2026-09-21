@@ -1,57 +1,26 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createD1Repository } from '../src/db/d1-repository';
 import { computeShopIdentity } from '../src/domain/shop-identity';
-import { parseSearchParams } from '../src/domain/search';
 
 class SqlitePrepared {
-  public values: SQLInputValue[] = [];
-
-  constructor(private readonly database: DatabaseSync, public readonly sql: string, private readonly onExecute: () => void) {}
-
-  bind(...values: SQLInputValue[]): this {
-    this.values = values;
-    return this;
-  }
-
-  async first<T>(): Promise<T | null> {
-    this.onExecute();
-    return (this.database.prepare(this.sql).get(...this.values) as T | undefined) ?? null;
-  }
-
-  async all<T>(): Promise<{ results: T[] }> {
-    this.onExecute();
-    return { results: this.database.prepare(this.sql).all(...this.values) as T[] };
-  }
-
-  async run(): Promise<{ meta: { changes: number } }> {
-    this.onExecute();
-    const result = this.database.prepare(this.sql).run(...this.values);
-    return { meta: { changes: Number(result.changes ?? 0) } };
-  }
+  private values: SQLInputValue[] = [];
+  constructor(private readonly database: DatabaseSync, public readonly sql: string) {}
+  bind(...values: SQLInputValue[]): this { this.values = values; return this; }
+  async all<T>(): Promise<{ results: T[] }> { return { results: this.database.prepare(this.sql).all(...this.values) as T[] }; }
+  async run(): Promise<{ meta: { changes: number } }> { const result = this.database.prepare(this.sql).run(...this.values); return { meta: { changes: Number(result.changes ?? 0) } }; }
 }
 
 class SqliteD1 {
-  public apiCalls = 0;
-
-  constructor(public readonly database: DatabaseSync, private readonly failOnSql?: RegExp) {}
-
-  prepare(sql: string): SqlitePrepared {
-    return new SqlitePrepared(this.database, sql, () => { this.apiCalls += 1; });
-  }
-
+  constructor(public readonly database: DatabaseSync) {}
+  prepare(sql: string): SqlitePrepared { return new SqlitePrepared(this.database, sql); }
   async batch(statements: SqlitePrepared[]): Promise<Array<{ meta: { changes: number } }>> {
-    this.apiCalls += 1;
     this.database.exec('BEGIN');
     try {
       const results: Array<{ meta: { changes: number } }> = [];
-      for (const statement of statements) {
-        if (this.failOnSql?.test(statement.sql)) throw new Error('synthetic D1 batch failure');
-        const result = this.database.prepare(statement.sql).run(...statement.values);
-        results.push({ meta: { changes: Number(result.changes ?? 0) } });
-      }
+      for (const statement of statements) results.push(await statement.run());
       this.database.exec('COMMIT');
       return results;
     } catch (error) {
@@ -61,171 +30,99 @@ class SqliteD1 {
   }
 }
 
-function applyMigrations(database: DatabaseSync): void {
-  for (const name of readdirSync(resolve(process.cwd(), 'migrations')).filter((value) => /^\d{4}_.+\.sql$/u.test(value)).sort()) {
-    database.exec(readFileSync(resolve(process.cwd(), 'migrations', name), 'utf8'));
-  }
-}
-
-function createDatabase(failOnSql?: RegExp): SqliteD1 {
+function createDatabase(): SqliteD1 {
   const database = new DatabaseSync(':memory:');
-  applyMigrations(database);
-  database.exec("INSERT INTO market_sources(id,name,api_key_hash,created_at) VALUES ('source-a','A','hash-a',0),('source-b','B','hash-b',0)");
-  return new SqliteD1(database, failOnSql);
+  database.exec(readFileSync(resolve(process.cwd(), 'migrations/0001_initial.sql'), 'utf8'));
+  database.exec("INSERT INTO market_sources(id,name,api_key_hash,created_at,updated_at) VALUES ('source-a','A','hash-a',0,0),('source-b','B','hash-b',0,0)");
+  return new SqliteD1(database);
 }
 
-async function input(sourceId: string, batchId: string, observedAt: number, shopStatus: 'opening' | 'dismissed' = 'opening') {
-  const identity = await computeShopIdentity({ sourceId, vendorAccountId: 'account-1', shopType: 'sell', mapName: 'prontera', x: 100, y: 120, title: 'Synthetic shop' });
+async function observation(sourceId: string, observedAt: number, status: 'opening' | 'dismissed' = 'opening', account = 'account-1') {
+  const identity = await computeShopIdentity({ sourceId, vendorAccountId: account, shopType: 'sell', mapName: 'prontera', x: 100, y: 120, title: 'Synthetic shop' });
   return {
-    sourceId,
-    identityHash: identity.identityHash,
-    shopId: identity.shopId,
-    shopStatus,
-    batchId,
-    vendorAccountId: 'account-1',
-    clientRunId: 'run-1',
-    observedAt,
-    vendorName: 'Synthetic vendor',
-    title: 'Synthetic shop',
-    shopType: 'sell' as const,
-    mapName: 'prontera',
-    x: 100,
-    y: 120,
+    sourceId, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: status,
+    batchId: `batch-${observedAt}`, vendorAccountId: account, clientRunId: 'run-1', observedAt,
+    vendorName: 'Synthetic vendor', title: 'Synthetic shop', shopType: 'sell' as const,
+    mapName: 'prontera', x: 100, y: 120,
   };
 }
 
-describe('D1 shop lifecycle', () => {
-  it('records the upload batch, closes session/listings atomically, and writes no sold event', async () => {
+async function addBatch(repository: ReturnType<typeof createD1Repository>, sourceId: string, batchId: string, snapshotId: string, observedAt: number) {
+  return repository.insertBatch({ sourceId, batchId, snapshotId, partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: `${batchId}-hash`, responseJson: null, receivedAt: observedAt });
+}
+
+describe('D1 clean-break lifecycle', () => {
+  it('upserts sources/shops, inserts listings and records listing transitions in final tables', async () => {
     const d1 = createDatabase();
     try {
       const repository = createD1Repository(d1 as never);
-      const opening = await repository.resolveShopObservation!(await input('source-a', 'open-1', 100));
-      d1.database.prepare("INSERT INTO listings(shop_session_id,item_fingerprint,item_id,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (?, 'fp', 1234, 100, 2, 2, 100, 100, 100)").run(opening.session!.id);
-
-      const dismissed = await repository.resolveShopObservation!(await input('source-a', 'dismiss-1', 200, 'dismissed'));
-
-      expect(dismissed.resolution).toBe('dismissed');
-      expect(d1.database.prepare('SELECT status,last_status_batch_id FROM shops WHERE id=?').get(opening.internalShopId)).toEqual({ status: 'closed', last_status_batch_id: 'dismiss-1' });
-      expect(d1.database.prepare('SELECT ended_at FROM shop_sessions WHERE id=?').get(opening.session!.id)).toEqual({ ended_at: 200 });
-      expect(d1.database.prepare('SELECT status FROM listings WHERE shop_session_id=?').get(opening.session!.id)).toEqual({ status: 'expired' });
-      expect(d1.database.prepare('SELECT COUNT(*) AS count FROM sold_events').get()).toEqual({ count: 0 });
-    } finally {
-      d1.database.close();
-    }
+      expect(await repository.findSourceByApiKeyHash('hash-a')).toMatchObject({ id: 'source-a' });
+      const resolved = await repository.resolveShopObservation!(await observation('source-a', 100));
+      expect(resolved).toMatchObject({ resolution: 'created', status: 'opening', applied: true });
+      const session = resolved.session!;
+      const listing = await repository.createListing!({ sessionId: session.id, fingerprint: 'fp-1', itemKey: 'slot-1', itemId: 4001, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 100, quantity: 3, observedAt: 100, batchId: 'batch-100' });
+      await repository.insertListingOptions!({ listingId: listing.id, options: [{ type: 12, value: 60, param: 0 }] });
+      const transition = await repository.applyListingTransitions!([{ listingId: listing.id, shopSessionId: session.id, expectedVersion: listing.stateVersion, price: 90, quantity: 1, status: 'active', observedAt: 110, batchId: 'batch-110', history: { eventType: 'quantity_changed' }, soldEvent: { soldQuantity: 2, fromQuantity: 3, toQuantity: 1, reason: 'quantity_decrease', transitionKey: 'transition-1' } }]);
+      expect(transition).toMatchObject({ updated: 1, conflicts: 0, soldEvents: 1 });
+      const history = await repository.getListingHistory(listing.id, 50);
+      expect(history?.items[0]).toMatchObject({ price: 90, quantity: 1, batchId: 'batch-110' });
+      expect(history?.inferredSales?.[0]).toMatchObject({ soldQuantity: 2, fromQuantity: 3, toQuantity: 1 });
+      expect(d1.database.prepare("SELECT COUNT(*) AS count FROM listing_events WHERE listing_id=?").get(listing.id)).toEqual({ count: 2 });
+      expect(d1.database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('vendors','shop_sessions','sold_events','item_catalog','search_short_tokens')").get()).toEqual({ count: 0 });
+    } finally { d1.database.close(); }
   });
 
-  it('rolls back the shop close when session/listing expiry fails in the same batch', async () => {
-    const d1 = createDatabase(/UPDATE listings SET status='expired'/u);
-    try {
-      const repository = createD1Repository(d1 as never);
-      const opening = await repository.resolveShopObservation!(await input('source-a', 'open-1', 100));
-      d1.database.prepare("INSERT INTO listings(shop_session_id,item_fingerprint,item_id,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (?, 'fp', 1234, 100, 2, 2, 100, 100, 100)").run(opening.session!.id);
-
-      await expect(repository.resolveShopObservation!(await input('source-a', 'dismiss-1', 200, 'dismissed'))).rejects.toThrow('synthetic D1 batch failure');
-      expect(d1.database.prepare('SELECT status,last_status_batch_id FROM shops WHERE id=?').get(opening.internalShopId)).toEqual({ status: 'active', last_status_batch_id: 'open-1' });
-      expect(d1.database.prepare('SELECT ended_at FROM shop_sessions WHERE id=?').get(opening.session!.id)).toEqual({ ended_at: null });
-      expect(d1.database.prepare('SELECT status FROM listings WHERE shop_session_id=?').get(opening.session!.id)).toEqual({ status: 'active' });
-    } finally {
-      d1.database.close();
-    }
-  });
-
-  it('ignores stale openings, creates a new session for newer openings, and isolates sources', async () => {
+  it('requires a full snapshot until finalized and preserves source-scoped shop state', async () => {
     const d1 = createDatabase();
     try {
       const repository = createD1Repository(d1 as never);
-      const first = await repository.resolveShopObservation!(await input('source-a', 'open-1', 100));
-      await repository.resolveShopObservation!(await input('source-a', 'dismiss-1', 200, 'dismissed'));
-
-      const stale = await repository.resolveShopObservation!(await input('source-a', 'open-old', 150));
-      expect(stale.resolution).toBe('stale_event_ignored');
-      expect(stale.session).toBeNull();
-
-      const reopened = await repository.resolveShopObservation!(await input('source-a', 'open-2', 300));
-      expect(reopened.resolution).toBe('created');
-      expect(reopened.session?.id).not.toBe(first.session?.id);
-      expect(d1.database.prepare('SELECT COUNT(*) AS count FROM shop_sessions').get()).toEqual({ count: 2 });
-
-      const otherSource = await repository.resolveShopObservation!(await input('source-b', 'open-b', 300));
-      expect(otherSource.resolution).toBe('created');
-      expect(otherSource.internalShopId).not.toBe(reopened.internalShopId);
-      expect(otherSource.shopId).not.toBe(reopened.shopId);
-    } finally {
-      d1.database.close();
-    }
+      const first = await observation('source-a', 100);
+      expect(await repository.requiresFullSnapshot!([first])).toBe(true);
+      const resolved = await repository.resolveShopObservation!(first);
+      await addBatch(repository, 'source-a', 'full-1/0', 'full-1', 100);
+      await repository.recordSnapshotSessions!('source-a', 'full-1', [resolved.internalShopId], 100);
+      await repository.finalizeSnapshot('source-a', 'full-1', 100);
+      expect(await repository.requiresFullSnapshot!([{ ...first, observedAt: 200, batchId: 'full-2/0' }])).toBe(false);
+      const matched = await repository.resolveShopObservation!({ ...first, observedAt: 200, batchId: 'full-2/0' });
+      expect(matched).toMatchObject({ resolution: 'matched', session: { initialSyncComplete: true, lastCompleteSnapshotId: 'full-1' } });
+      const other = await repository.resolveShopObservation!(await observation('source-b', 200, 'opening', 'account-b'));
+      expect(other.internalShopId).not.toBe(matched.internalShopId);
+      expect(d1.database.prepare('SELECT full_state_hash FROM shops WHERE id=?').get(matched.internalShopId)).toEqual({ full_state_hash: 'full-1' });
+    } finally { d1.database.close(); }
   });
 
-  it('rebuilds shop title and vendor indexes when observations create or update a shop', async () => {
+  it('dismisses atomically, expires active listings, ignores stale events, and resets baseline on reopen', async () => {
     const d1 = createDatabase();
     try {
       const repository = createD1Repository(d1 as never);
-      const openingInput = await input('source-a', 'open-1', 100);
+      const openingInput = await observation('source-a', 100);
       const opening = await repository.resolveShopObservation!(openingInput);
-      d1.database.prepare("INSERT INTO listings(shop_session_id,item_fingerprint,item_id,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (?, 'fp', 1234, 100, 2, 2, 100, 100, 100)").run(opening.session!.id);
-      const search = (q: string) => repository.searchListings(parseSearchParams(new URL(`https://x.test?q=${encodeURIComponent(q)}`), { verifyCursor: false }));
-
-      expect((await search('Synthetic shop')).items.map((item) => item.id)).toEqual([1]);
-      expect((await search('Synthetic vendor')).items.map((item) => item.id)).toEqual([1]);
-      expect((await search('Sy')).items.map((item) => item.id)).toEqual([1]);
-
-      await repository.resolveShopObservation!({ ...openingInput, batchId: 'open-2', observedAt: 200, vendorName: 'Renamed vendor' });
-      expect((await search('Synthetic vendor')).items).toEqual([]);
-      expect((await search('Renamed vendor')).items.map((item) => item.id)).toEqual([1]);
-      expect(Number((d1.database.prepare("SELECT COUNT(*) AS count FROM search_short_tokens WHERE scope_type='shop' AND scope_id=?").get(opening.internalShopId) as { count: number }).count)).toBeGreaterThan(0);
-    } finally {
-      d1.database.close();
-    }
-  });
-
-  it('resolves a large shop set with bounded D1 API calls and preflights new sessions', async () => {
-    const d1 = createDatabase();
-    try {
-      const repository = createD1Repository(d1 as never);
-      const inputs = await Promise.all(Array.from({ length: 100 }, async (_, index) => {
-        const current = await input('source-a', 'bulk-1', 100);
-        const vendorAccountId = `account-${index}`;
-        const identity = await computeShopIdentity({ sourceId: current.sourceId, vendorAccountId, shopType: current.shopType, mapName: current.mapName, x: index, y: current.y, title: `Shop ${index}` });
-        return { ...current, identityHash: identity.identityHash, shopId: identity.shopId, vendorAccountId, title: `Shop ${index}`, x: index };
-      }));
-
-      expect(await repository.requiresFullSnapshot!(inputs)).toBe(true);
-      const before = d1.apiCalls;
-      const resolved = await repository.resolveShopObservations!(inputs);
-
-      expect(resolved).toHaveLength(100);
-      expect(resolved.every((result) => result.applied && result.session !== null)).toBe(true);
-      expect(d1.apiCalls - before).toBeLessThanOrEqual(3);
-
-      d1.database.prepare('UPDATE shop_sessions SET initial_sync_complete=1').run();
-      expect(await repository.requiresFullSnapshot!(inputs.map((current) => ({ ...current, observedAt: 200 })))).toBe(false);
-      expect(await repository.requiresFullSnapshot!(inputs.map((current) => ({ ...current, clientRunId: 'run-2', observedAt: 200 })))).toBe(true);
-    } finally {
-      d1.database.close();
-    }
-  });
-
-  it('preserves dismissal, stale-event, and session rollover semantics in the bulk path', async () => {
-    const d1 = createDatabase();
-    try {
-      const repository = createD1Repository(d1 as never);
-      const openingInput = await input('source-a', 'bulk-open-1', 100);
-      const [opening] = await repository.resolveShopObservations!([openingInput]);
-      d1.database.prepare("INSERT INTO listings(shop_session_id,item_fingerprint,item_id,price,quantity,last_quantity,first_seen_at,last_seen_at,last_changed_at) VALUES (?, 'fp', 1234, 100, 2, 2, 100, 100, 100)").run(opening!.session!.id);
-
-      const [dismissed] = await repository.resolveShopObservations!([{ ...openingInput, batchId: 'bulk-dismiss-1', shopStatus: 'dismissed', observedAt: 200 }]);
+      const listing = await repository.createListing!({ sessionId: opening.internalShopId, fingerprint: 'fp-dismiss', itemId: 4001, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 100, batchId: 'open-1' });
+      const dismissed = await repository.resolveShopObservation!({ ...openingInput, observedAt: 200, batchId: 'dismiss-1', shopStatus: 'dismissed' });
       expect(dismissed).toMatchObject({ resolution: 'dismissed', status: 'dismissed', applied: true, session: null });
-      expect(d1.database.prepare('SELECT ended_at FROM shop_sessions WHERE id=?').get(opening!.session!.id)).toEqual({ ended_at: 200 });
-      expect(d1.database.prepare('SELECT status FROM listings WHERE shop_session_id=?').get(opening!.session!.id)).toEqual({ status: 'expired' });
+      expect(d1.database.prepare('SELECT status,closed_at FROM shops WHERE id=?').get(opening.internalShopId)).toEqual({ status: 'closed', closed_at: 200 });
+      expect(d1.database.prepare('SELECT status FROM listings WHERE id=?').get(listing.id)).toEqual({ status: 'expired' });
+      const stale = await repository.resolveShopObservation!({ ...openingInput, observedAt: 150, batchId: 'open-old' });
+      expect(stale).toMatchObject({ resolution: 'stale_event_ignored', applied: false, session: null });
+      const reopened = await repository.resolveShopObservation!({ ...openingInput, observedAt: 300, batchId: 'open-2' });
+      expect(reopened).toMatchObject({ resolution: 'created', status: 'opening', applied: true, session: { initialSyncComplete: false } });
+      expect(d1.database.prepare('SELECT status,full_state_hash FROM shops WHERE id=?').get(opening.internalShopId)).toEqual({ status: 'active', full_state_hash: null });
+    } finally { d1.database.close(); }
+  });
 
-      const [stale] = await repository.resolveShopObservations!([{ ...openingInput, batchId: 'bulk-open-old', observedAt: 150 }]);
-      expect(stale).toMatchObject({ resolution: 'stale_event_ignored', status: 'dismissed', applied: false, session: null });
-
-      const [reopened] = await repository.resolveShopObservations!([{ ...openingInput, batchId: 'bulk-open-2', observedAt: 300 }]);
-      expect(reopened).toMatchObject({ resolution: 'created', status: 'opening', applied: true });
-      expect(reopened!.session!.id).not.toBe(opening!.session!.id);
-      expect(d1.database.prepare('SELECT COUNT(*) AS count FROM shop_sessions').get()).toEqual({ count: 2 });
-    } finally {
-      d1.database.close();
-    }
+  it('marks missing full-snapshot listings and writes inferred sold events without legacy tables', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const resolved = await repository.resolveShopObservation!(await observation('source-a', 100));
+      const listing = await repository.createListing!({ sessionId: resolved.internalShopId, fingerprint: 'fp-stale', itemId: 4001, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 2, observedAt: 100, batchId: 'old-full' });
+      d1.database.prepare('UPDATE shops SET full_state_hash=?,last_changed_at=? WHERE id=?').run('old-full', 100, resolved.internalShopId);
+      const first = await repository.reconcileSnapshot!({ sourceId: 'source-a', snapshotId: 'new-full', observedAt: 200, batchIds: ['new-full/0'], sessionIds: [resolved.internalShopId] });
+      expect(first.markedMissing).toBe(1);
+      const second = await repository.reconcileSnapshot!({ sourceId: 'source-a', snapshotId: 'newer-full', observedAt: 300, batchIds: ['newer-full/0'], sessionIds: [resolved.internalShopId] });
+      expect(second.inferredSold).toBe(1);
+      expect(d1.database.prepare('SELECT status,missing_full_count FROM listings WHERE id=?').get(listing.id)).toEqual({ status: 'missing', missing_full_count: 2 });
+      expect(d1.database.prepare("SELECT event_type,sold_quantity,reason FROM listing_events WHERE listing_id=?").get(listing.id)).toEqual({ event_type: 'missing', sold_quantity: 2, reason: 'missing_full' });
+    } finally { d1.database.close(); }
   });
 });

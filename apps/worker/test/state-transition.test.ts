@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyListingObservation, createListingStateService } from '../src/services/state-transition';
 import type { ListingRow } from '../src/db/types';
 
-const listing: ListingRow = { id: 1, shopSessionId: 1, itemFingerprint: 'fp', itemKey: null, itemId: 1, upgrade: 0, slots: 0, cards: [0,0,0,0], price: 10, quantity: 5, lastQuantity: 5, status: 'active', stateVersion: 2, missingStreak: 0, lastSeenAt: 1 };
+const listing: ListingRow = { id: 1, shopSessionId: 1, itemFingerprint: 'fp', itemKey: null, itemId: 1, upgrade: 0, slots: 0, cards: [0,0,0,0], price: 10, quantity: 5, lastQuantity: 5, status: 'active', stateVersion: 2, missingStreak: 0, lastChangedAt: 1 };
 const repo = () => ({ applyListingChanges: async () => ({ updated: 1, conflicts: 0 }), insertHistory: async () => {}, insertSoldEvent: async () => true }) as any;
 
 describe('listing state transition', () => {
@@ -15,6 +15,31 @@ describe('listing state transition', () => {
     expect(result.soldEvent?.soldQuantity).toBe(3);
     const baseline = await applyListingObservation({ listing, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 2, options: [] }, observedAt: 2, batchId: 'b', baselineComplete: false }, repo());
     expect(baseline.soldEvent).toBeNull();
+  });
+
+  it('does not write a quantity_decrease event when quantity increases', async () => {
+    const soldEvents: unknown[] = [];
+    const transitions: Array<{ soldEvent?: unknown }> = [];
+    const repository = {
+      applyListingTransitions: async (changes: Array<{ soldEvent?: unknown }>) => {
+        transitions.push(...changes);
+        return { updated: 1, conflicts: 0, soldEvents: 0 };
+      },
+      insertSoldEvent: async (event: unknown) => { soldEvents.push(event); return true; },
+    } as any;
+
+    const result = await applyListingObservation({
+      listing,
+      item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 8, options: [] },
+      observedAt: 2,
+      batchId: 'b',
+      baselineComplete: true,
+    }, repository);
+
+    expect(result.updated).toBe(true);
+    expect(result.soldEvent).toBeNull();
+    expect(transitions[0]?.soldEvent).toBeUndefined();
+    expect(soldEvents).toHaveLength(0);
   });
 
   it('uses one bounded transition operation for update, history, and sold event', async () => {

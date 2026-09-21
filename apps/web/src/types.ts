@@ -57,7 +57,7 @@ export interface SearchFilters {
   option_mode?: 'all' | 'any';
   limit: number;
   cursor?: string;
-  sort: 'price_asc' | 'price_desc' | 'updated_desc';
+  sort: 'price_asc' | 'price_desc' | 'changed_desc';
 }
 
 export interface ListingSearchOption {
@@ -77,7 +77,7 @@ export interface ListingSearchResult {
   vendorName: string;
   title: string;
   options: ListingSearchOption[];
-  lastSeenAt: number;
+  lastChangedAt: number;
   description?: string;
   x?: number;
   y?: number;

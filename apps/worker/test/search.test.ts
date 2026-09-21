@@ -45,11 +45,11 @@ describe('search filters', () => {
     expect(parseSearchParams(new URL('https://x.test?option_type=12&option_value=50&option_param=0'))).toMatchObject({ option_type: 12, option_value: 50, option_param: 0 });
   });
 
-  it('normalizes NFKC whitespace and chooses Unicode code-point index modes', () => {
+  it('normalizes NFKC whitespace and applies the minimum shop/vendor query length', () => {
     const one = parseSearchParams(new URL('https://x.test?q=%E3%80%80%EF%BC%A1%E3%80%80'));
-    expect(one).toMatchObject({ q: 'a', qMode: 'short_token' });
-    expect(parseSearchParams(new URL('https://x.test?q=%E6%B3%A2%E5%88%A9'))).toMatchObject({ q: '波利', qMode: 'short_token' });
-    expect(parseSearchParams(new URL('https://x.test?q=%E6%B3%A2%E5%88%A9%E5%8D%A1'))).toMatchObject({ q: '波利卡', qMode: 'fts' });
+    expect(one).toMatchObject({ q: 'a' });
+    expect(parseSearchParams(new URL('https://x.test?q=%E6%B3%A2%E5%88%A9'))).toMatchObject({ q: '波利' });
+    expect(parseSearchParams(new URL('https://x.test?q=%E6%B3%A2%E5%88%A9%E5%8D%A1'))).toMatchObject({ q: '波利卡' });
     expect(parseSearchParams(new URL('https://x.test?q=%E3%80%80%20'))).not.toHaveProperty('q');
     expect(() => parseSearchParams(new URL('https://x.test?q=' + encodeURIComponent('波'.repeat(81))))).toThrow('q is too long');
   });

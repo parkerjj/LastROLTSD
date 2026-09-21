@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SearchController } from '../src/search-controller';
 import type { ListingSearchResult, SearchFilters, SearchPage } from '../src/types';
 
-const page = (id: number): SearchPage<ListingSearchResult> => ({ items: [{ id, itemId: id, itemName: `物品${id}`, price: id, quantity: 1, mapName: '地图', vendorName: '玩家', title: '商店', options: [], lastSeenAt: id }], nextCursor: id === 1 ? 'next' : null });
+const page = (id: number): SearchPage<ListingSearchResult> => ({ items: [{ id, itemId: id, itemName: `物品${id}`, price: id, quantity: 1, mapName: '地图', vendorName: '玩家', title: '商店', options: [], lastChangedAt: id }], nextCursor: id === 1 ? 'next' : null });
 
 describe('search controller', () => {
   it('aborts a stale request and keeps the newer result', async () => {

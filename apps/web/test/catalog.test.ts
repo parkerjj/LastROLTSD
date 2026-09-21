@@ -28,7 +28,7 @@ describe('static browser catalog', () => {
     const [first, second] = await Promise.all([load(), load()]);
     expect(first).toEqual(second);
     expect(fetcher).toHaveBeenCalledTimes(1);
-    const row = { id: 1, itemId: 4001, price: 10, quantity: 1, mapName: 'prontera', vendorName: '杰利卡', title: '利卡特价', options: [], lastSeenAt: 0 } as ListingSearchResult;
+    const row = { id: 1, itemId: 4001, price: 10, quantity: 1, mapName: 'prontera', vendorName: '杰利卡', title: '利卡特价', options: [], lastChangedAt: 0 } as ListingSearchResult;
     expect(hydrateSearchPage({ items: [row], nextCursor: null }, catalog).items[0]?.itemName).toBe('波利卡片');
   });
 });

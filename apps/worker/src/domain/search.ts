@@ -1,10 +1,10 @@
 import type { SearchFilters } from '@lastroweb/protocol';
 
 export class SearchValidationError extends Error { constructor(message: string) { super(message); this.name = 'SearchValidationError'; } }
-const SORTS = new Set<SearchFilters['sort']>(['price_asc', 'price_desc', 'updated_desc']);
+const SORTS = new Set<SearchFilters['sort']>(['price_asc', 'price_desc', 'changed_desc']);
 export const DEFAULT_CURSOR_SECRET = 'lastroweb-local-cursor-secret-v1';
 const MAX_CURSOR_LENGTH = 512;
-export const SEARCH_INDEX_VERSION = 'trigram-short-v1';
+export const SEARCH_INDEX_VERSION = 'active-shop-bounded-v1';
 type SearchSort = SearchFilters['sort'];
 export interface CursorExpectation { sort?: SearchSort; context?: string }
 
@@ -105,9 +105,11 @@ export function parseSearchParams(url: URL, options: { cursorSecret?: string; ve
   const sort = (url.searchParams.get('sort') ?? 'price_asc') as SearchFilters['sort']; if (!SORTS.has(sort)) throw new SearchValidationError('Invalid sort');
   const q = url.searchParams.get('q')?.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase() || undefined;
   if (q && [...q].length > 80) throw new SearchValidationError('q is too long');
-  const filters: SearchFilters = { limit, sort, ...(q ? { q, qMode: [...q].length <= 2 ? 'short_token' : 'fts' as const } : {}), ...(options.catalogVersion ? { catalogVersion: options.catalogVersion } : {}), ...(options.optionVersion ? { optionVersion: options.optionVersion } : {}), ...(options.searchIndexVersion ? { searchIndexVersion: options.searchIndexVersion } : {}) };
+  const filters: SearchFilters = { limit, sort, ...(q ? { q } : {}), ...(options.catalogVersion ? { catalogVersion: options.catalogVersion } : {}), ...(options.optionVersion ? { optionVersion: options.optionVersion } : {}), ...(options.searchIndexVersion ? { searchIndexVersion: options.searchIndexVersion } : {}) };
   const values: Array<[keyof SearchFilters, string]> = [['item_id','item_id'],['option_type','option_type'],['option_value','option_value'],['option_param','option_param'],['price_min','price_min'],['price_max','price_max']];
   for (const [field, query] of values) { const value = number(query); if (value !== undefined) (filters as unknown as Record<string, unknown>)[field] = value; }
+  const rawItemIds = url.searchParams.get('item_ids');
+  if (rawItemIds) { const ids = rawItemIds.split(',').map((value) => Number(value)); if (ids.length > 50 || ids.some((value) => !Number.isSafeInteger(value) || value < 0)) throw new SearchValidationError('Invalid item_ids'); (filters as any).item_ids = [...new Set(ids)]; }
   const map = url.searchParams.get('map')?.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase(); if (map) filters.map = [...map].slice(0, 80).join('');
   const shopType = url.searchParams.get('shop_type'); if (shopType && shopType !== 'buy' && shopType !== 'sell') throw new SearchValidationError('Invalid shop_type'); if (shopType === 'buy' || shopType === 'sell') filters.shop_type = shopType;
   const includeStale = url.searchParams.get('include_stale'); if (includeStale !== null) { if (includeStale !== 'true' && includeStale !== 'false') throw new SearchValidationError('Invalid include_stale'); filters.include_stale = includeStale === 'true'; }
@@ -148,7 +150,8 @@ export function decodeCursor(value: string, expected?: CursorExpectation, secret
 
 export function searchCursorContext(filters: SearchFilters): string {
   const options = [...(filters.options ?? [])].sort((left, right) => left.type - right.type || left.operator.localeCompare(right.operator) || left.value.localeCompare(right.value) || (left.param ?? Number.MIN_SAFE_INTEGER) - (right.param ?? Number.MIN_SAFE_INTEGER));
-  const canonical = JSON.stringify({ q: filters.q ?? null, qMode: filters.qMode ?? null, catalogVersion: filters.catalogVersion ?? null, optionVersion: filters.optionVersion ?? null, searchIndexVersion: filters.searchIndexVersion ?? null, item_id: filters.item_id ?? null, option_type: filters.option_type ?? null, option_value: filters.option_value ?? null, option_param: filters.option_param ?? null, options: options.length > 0 ? options : null, option_mode: filters.option_mode ?? 'all', price_min: filters.price_min ?? null, price_max: filters.price_max ?? null, map: filters.map ?? null, shop_type: filters.shop_type ?? null, include_stale: filters.include_stale ?? false, sort: filters.sort });
+  const itemIds = [...new Set([...(filters.item_ids ?? [])].filter((id) => Number.isSafeInteger(id)))].sort((left, right) => left - right);
+  const canonical = JSON.stringify({ q: filters.q ?? null, catalogVersion: filters.catalogVersion ?? null, optionVersion: filters.optionVersion ?? null, searchIndexVersion: filters.searchIndexVersion ?? null, item_id: filters.item_id ?? null, item_ids: itemIds.length > 0 ? itemIds : null, option_type: filters.option_type ?? null, option_value: filters.option_value ?? null, option_param: filters.option_param ?? null, options: options.length > 0 ? options : null, option_mode: filters.option_mode ?? 'all', price_min: filters.price_min ?? null, price_max: filters.price_max ?? null, map: filters.map ?? null, shop_type: filters.shop_type ?? null, include_stale: filters.include_stale ?? false, sort: filters.sort });
   return base64urlBytes(sha256(new TextEncoder().encode(canonical)));
 }
 export function encodeHistoryCursor(id: number, secret = DEFAULT_CURSOR_SECRET): string {

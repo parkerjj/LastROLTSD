@@ -6,9 +6,10 @@ import type { MarketRepository, ShopResolution, ShopSessionContextInput, UploadR
 import type { ShopSessionRow } from '../db/types';
 import type { AuthenticatedSource } from '../middleware/auth';
 import { createSnapshotReconciler } from './snapshot-reconciler';
+import { computeFullShopStateHash, computeShopProfileHash } from '../domain/shop-state';
 
 export interface NormalizedObservation { fingerprint: string; item: UploadItem; sessionId: number; shopId: string; }
-export interface StateBatchResult { processedListings: number; changedListings: number; soldEvents: number; }
+export interface StateBatchResult { processedListings: number; changedListings: number; soldEvents: number; observed?: Array<{ sessionId: number; fingerprint: string }>; }
 export interface ListingStateService { applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; applyBatchObservationsBulk?(source: AuthenticatedSource, sessions: Map<number, ShopSessionRow>, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; }
 export interface UploadResult extends UploadResultLike {}
 export type IngestionErrorCode =
@@ -124,24 +125,27 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       const identity = await computeShopIdentity({ sourceId: source.id, vendorAccountId: input.vendor_account_id, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y, title: input.title });
       return { input, identity };
     });
-    const contexts = identified.map(({ input, identity }) => {
+    const contexts = await Promise.all(identified.map(async ({ input, identity }) => {
       if (identityHashes.has(identity.identityHash)) throw new IngestionError(422, 'duplicate_shop_identity', 'Shop canonical identity must be unique within a batch');
       identityHashes.add(identity.identityHash);
-      return { sourceId: source.id, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: input.shop_status, batchId, vendorAccountId: input.vendor_account_id, clientRunId: request.client_run_id, observedAt, vendorName: input.vendor_name, title: input.title, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y } satisfies ShopSessionContextInput;
-    });
+      const profileHash = await computeShopProfileHash(input);
+      const fullStateHash = request.snapshot_mode === 'full' ? await computeFullShopStateHash(source.id, identity.identityHash, input.items.map((item) => normalizeItem(item as unknown as Record<string, unknown>))) : undefined;
+      return { sourceId: source.id, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: input.shop_status, batchId, clientRunId: request.client_run_id, observedAt, vendorAccountId: input.vendor_account_id, vendorName: input.vendor_name, title: input.title, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y, profileHash, ...(fullStateHash === undefined ? {} : { fullStateHash }) } satisfies ShopSessionContextInput;
+    }));
     if (request.snapshot_mode !== 'full' && repo.requiresFullSnapshot && await repo.requiresFullSnapshot(contexts)) throw new IngestionError(428, 'full_snapshot_required', 'The first upload for a shop session must be a full snapshot', { action: 'send_full_snapshot' });
 
     const resolutions = repo.resolveShopObservations
       ? await repo.resolveShopObservations(contexts)
       : await mapConcurrent(identified, SHOP_RESOLUTION_CONCURRENCY, ({ input, identity }) => resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity));
     if (resolutions.length !== request.shops.length) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository returned an incomplete shop resolution', { retryable: true });
-    const resolved = request.shops.map((input, index) => ({ input, resolution: resolutions[index]! }));
+    const resolved = request.shops.map((input, index) => ({ input, resolution: resolutions[index]!, context: contexts[index]! }));
 
     const opening = resolved.filter((entry) => entry.input.shop_status === 'opening' && entry.resolution.applied && entry.resolution.session);
+    const listingEntries = opening.filter((entry) => request.snapshot_mode !== 'full' || entry.resolution.readListings !== false);
     const sessions = opening.map((entry) => entry.resolution.session!);
     if (request.snapshot_mode !== 'full' && sessions.some((session) => !session.initialSyncComplete)) throw new IngestionError(428, 'full_snapshot_required', 'The first upload for a shop session must be a full snapshot', { action: 'send_full_snapshot' });
 
-    const observationGroups = await mapConcurrent(opening, SHOP_RESOLUTION_CONCURRENCY, async ({ input, resolution }) => {
+    const observationGroups = await mapConcurrent(listingEntries, SHOP_RESOLUTION_CONCURRENCY, async ({ input, resolution }) => {
       const session = resolution.session!;
       if (request.snapshot_mode === 'heartbeat') return [];
       return mapConcurrent(input.items, ITEM_FINGERPRINT_CONCURRENCY, async (rawItem) => {
@@ -152,15 +156,20 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     const observations = observationGroups.flat();
 
     if (request.snapshot_mode === 'full' && repo.recordSnapshotSessions) await repo.recordSnapshotSessions(source.id, request.snapshot_id, [...new Set(sessions.map((session) => session.id))], observedAt);
-    const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+    const sessionsById = new Map(listingEntries.map((entry) => entry.resolution.session!).map((session) => [session.id, session]));
     const stateResult = request.snapshot_mode === 'heartbeat'
       ? { processedListings: 0, changedListings: 0, soldEvents: 0 }
       : state.applyBatchObservationsBulk
         ? await state.applyBatchObservationsBulk(source, sessionsById, observations, batch.batchId, observedAt)
         : await applyBySession(source, state, observations, sessionsById, batch.batchId, observedAt);
 
-    if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObservedBulk) await repo.markListingsObservedBulk(observations.map((observation) => ({ sessionId: observation.sessionId, fingerprint: observation.fingerprint })), batch.batchId, observedAt);
-    else if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
+    // Listing state transitions already update last_changed_snapshot_id. Observed
+    // marking is only needed for listings that were unchanged by the transition
+    // service, and must not be performed for unchanged full shops.
+    if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObservedBulk) {
+      const observed = stateResult.observed ?? observations.map((observation) => ({ sessionId: observation.sessionId, fingerprint: observation.fingerprint }));
+      if (observed.length > 0) await repo.markListingsObservedBulk(observed, batch.batchId, observedAt);
+    } else if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObserved) {
       const bySession = new Map<number, string[]>();
       for (const observation of observations) bySession.set(observation.sessionId, [...(bySession.get(observation.sessionId) ?? []), observation.fingerprint]);
       for (const [sessionId, fingerprints] of bySession) for (let index = 0; index < fingerprints.length; index += 40) await repo.markListingsObserved(sessionId, fingerprints.slice(index, index + 40), batch.batchId, observedAt);
@@ -168,6 +177,9 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
 
     const response: UploadResult = { accepted: true, batch_id: batchId, duplicate: false, processed_shops: request.shops.length, processed_listings: stateResult.processedListings, changed_listings: stateResult.changedListings, sold_events: stateResult.soldEvents, shops: resolved.map(({ input, resolution }) => ({ uuid: input.uuid, shop_id: resolution.shopId, shop_status: input.shop_status, applied: resolution.applied, resolution: resolution.resolution })), next: null };
     await repo.completeBatch(source.id, batch.batchId, response);
+    if (request.snapshot_mode === 'full' && repo.updateShopFullStateHashes) {
+      await repo.updateShopFullStateHashes(opening.flatMap((entry) => entry.context.fullStateHash === undefined ? [] : [{ shopId: entry.resolution.internalShopId, fullStateHash: entry.context.fullStateHash }]), observedAt);
+    }
     if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, observedAt);
     return response;
   } catch (error) {
@@ -190,7 +202,7 @@ async function applyBySession(source: AuthenticatedSource, state: ListingStateSe
     const session = sessions.get(sessionId);
     if (!session) throw new IngestionError(500, 'ingestion_invariant_failed', 'Session disappeared during upload', { retryable: true });
     const next = await state.applyBatchObservations(source, session, group, batchId, observedAt);
-    result = { processedListings: result.processedListings + next.processedListings, changedListings: result.changedListings + next.changedListings, soldEvents: result.soldEvents + next.soldEvents };
+    result = { processedListings: result.processedListings + next.processedListings, changedListings: result.changedListings + next.changedListings, soldEvents: result.soldEvents + next.soldEvents, observed: [...(result.observed ?? []), ...(next.observed ?? group.map((observation) => ({ sessionId: observation.sessionId, fingerprint: observation.fingerprint })))] };
   }
   return result;
 }

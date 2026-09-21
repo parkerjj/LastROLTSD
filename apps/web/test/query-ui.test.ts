@@ -13,7 +13,7 @@ const listing = (overrides: Partial<ListingSearchResult> = {}): ListingSearchRes
   vendorName: '玩家甲',
   title: '收购店',
   options: [{ type: 12, value: 50, param: 0, display: 'SP恢复速度增加50%' }],
-  lastSeenAt: 1,
+  lastChangedAt: 1,
   ...overrides,
 });
 

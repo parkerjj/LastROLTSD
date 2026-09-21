@@ -50,6 +50,8 @@ export interface ShopSessionContextInput {
   mapName: string;
   x: number;
   y: number;
+  profileHash?: string;
+  fullStateHash?: string;
 }
 
 export interface ShopResolution {
@@ -60,6 +62,7 @@ export interface ShopResolution {
   status: 'opening' | 'dismissed';
   applied: boolean;
   session: ShopSessionRow | null;
+  readListings?: boolean;
 }
 
 export interface MarketRepository {
@@ -90,7 +93,7 @@ export interface MarketRepository {
   insertHistory?(input: { listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }): Promise<void>;
   insertHistoriesBatch?(inputs: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }>): Promise<void>;
   insertListingOptionsBatch?(inputs: Array<{ listingId: number; options: ListingOption[] }>): Promise<void>;
-  insertSoldEvent?(input: { listingId: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; observedAt: number; transitionKey: string }): Promise<boolean>;
+  insertSoldEvent?(input: { listingId: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string; observedAt: number; transitionKey: string; snapshotId?: string; price?: number }): Promise<boolean>;
   applyListingChanges(changes: ListingChange[]): Promise<{ updated: number; conflicts: number }>;
   applyListingTransitionsBulk?(changes: ListingTransitionChange[]): Promise<{ updated: number; conflicts: number; soldEvents: number; conflictIds?: number[] }>;
   markListingsObservedBulk?(observations: Array<{ sessionId: number; fingerprint: string }>, batchId: string, observedAt: number): Promise<number>;
@@ -99,6 +102,7 @@ export interface MarketRepository {
   finalizeSnapshot(sourceId: string, snapshotId: string, observedAt: number): Promise<void>;
   recordSnapshotSessions?(sourceId: string, snapshotId: string, sessionIds: number[], observedAt: number): Promise<void>;
   getSnapshotSessionIds?(sourceId: string, snapshotId: string): Promise<number[]>;
+  updateShopFullStateHashes?(updates: Array<{ shopId: number; fullStateHash: string }>, observedAt: number): Promise<void>;
   reconcileSnapshot?(input: SnapshotReconciliationInput): Promise<ReconciliationResult>;
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
   getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; inferredSales?: InferredSaleRow[]; nextCursor: string | null } | null>;

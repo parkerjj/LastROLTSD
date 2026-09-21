@@ -7,6 +7,9 @@ dist/
 .deployment-secrets.local
 wrangler.*.local.toml
 source-seed*.local.sql
+.chrome-ui-check/
+.chrome-formal-profile/
+%SystemDrive%/
 test-results/
 coverage/
 .generated/
@@ -15,4 +18,10 @@ worktrees/
 .superpowers/
 *.local
 *.log
+*.err
+*.bak
 *.tsbuildinfo
+# UI 检查/原型产物
+formal-ui-*.png
+lastro-ui-*.png
+lastro-ui-prototype.html
