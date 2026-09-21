@@ -44,3 +44,10 @@ migrations_dir = "migrations"
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
+persist = true
+
