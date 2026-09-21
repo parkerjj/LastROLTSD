@@ -70,7 +70,7 @@ export interface ListingSearchOption {
 export interface ListingSearchResult {
   id: number;
   itemId: number;
-  itemName: string;
+  itemName?: string;
   price: number;
   quantity: number;
   mapName: string;

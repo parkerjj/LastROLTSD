@@ -1,4 +1,4 @@
-import type { HistoryPage, ItemAutocompletePage, ListingSearchResult, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
+import type { HistoryPage, ListingSearchResult, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -16,7 +16,6 @@ export interface MarketApiClient {
   search(filters: SearchFilters, signal?: AbortSignal): Promise<SearchPage<ListingSearchResult>>;
   getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage>;
   getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse>;
-  getItems(query: string, signal?: AbortSignal): Promise<ItemAutocompletePage>;
 }
 
 export class MarketApi implements MarketApiClient {
@@ -43,11 +42,6 @@ export class MarketApi implements MarketApiClient {
   async getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse> {
     const response = await this.requestCached<OptionDefinitionsResponse>('/api/v1/options', signal);
     return mapOptionDefinitions(response.body);
-  }
-
-  async getItems(query: string, signal?: AbortSignal): Promise<ItemAutocompletePage> {
-    const path = `/api/v1/items?q=${encodeURIComponent(query)}&limit=20`;
-    return (await this.requestCached<ItemAutocompletePage>(path, signal)).body;
   }
 
   private async request<T>(path: string, signal?: AbortSignal): Promise<T> {

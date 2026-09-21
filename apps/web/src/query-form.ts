@@ -1,4 +1,5 @@
 import type { OptionDefinition, OptionOperator, SearchFilters, SearchOptionFilter } from './types';
+import { catalogItemIds } from './catalog';
 
 const OPERATOR_LABELS: Record<OptionOperator, string> = {
   eq: '=',
@@ -72,8 +73,7 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
   });
   if (options.some((option) => option === null)) throw new Error('请完整填写词条条件');
   if (filters.q && catalog.length > 0) {
-    const normalized = filters.q.normalize('NFKC').toLocaleLowerCase();
-    const itemIds = catalog.filter((item) => [item.name, ...item.aliases, String(item.itemId)].some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(normalized))).slice(0, 50).map((item) => item.itemId);
+    const itemIds = catalogItemIds(catalog, filters.q);
     if (itemIds.length > 0) filters.item_ids = itemIds;
   }
   if (options.length > 0) {

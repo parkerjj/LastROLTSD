@@ -2,10 +2,11 @@ import './styles.css';
 import { MarketApi } from './api';
 import { OptionDictionaryStore } from './option-state';
 import { appendOptionRow, serializeSearchForm } from './query-form';
-import { friendlyError, renderHistory, renderHistoryError, renderSearchResults } from './render';
+import { friendlyError, renderHistory, renderHistoryError, renderSearchResultsWithCatalog } from './render';
 import { SearchController } from './search-controller';
 import { initialState } from './state';
-import type { ItemAutocomplete, ItemAutocompletePage, SearchFilters } from './types';
+import type { ItemAutocomplete, SearchFilters } from './types';
+import { createCatalogLoader, findCatalogMatches } from './catalog';
 import { mountReleasePage } from './release-page';
 
 const root = document.querySelector<HTMLElement>('#app')!;
@@ -109,12 +110,13 @@ copyQqGroupButton.addEventListener('click', async () => {
 
 let autocompleteRequestId = 0;
 let autocompleteItems: ItemAutocomplete[] = [];
-let catalogPromise: Promise<ItemAutocompletePage> | undefined;
+let catalogItems: ItemAutocomplete[] = [];
+const loadCatalog = createCatalogLoader();
 let activeSuggestion = -1;
 
 function renderSearchState(): void {
   const current = searchController.getState();
-  renderSearchResults(results, current.page ?? { items: [], nextCursor: null }, current);
+  renderSearchResultsWithCatalog(results, current.page ?? { items: [], nextCursor: null }, current, catalogItems);
 }
 
 async function performSearch(filters: SearchFilters): Promise<void> {
@@ -174,20 +176,15 @@ function renderSuggestions(items: ItemAutocomplete[]): void {
   suggestions.hidden = items.length === 0; queryInput.setAttribute('aria-expanded', String(items.length > 0));
 }
 
-async function loadCatalog(): Promise<ItemAutocompletePage> {
-  catalogPromise ??= fetch('/catalog/items.json').then(async (response) => { if (!response.ok) throw new Error('catalog unavailable'); return response.json() as Promise<ItemAutocompletePage>; });
-  return catalogPromise;
-}
-
 async function loadSuggestions(query: string): Promise<void> {
   const requestId = ++autocompleteRequestId;
   const normalized = query.normalize('NFKC').trim().toLocaleLowerCase();
   if (!normalized) { hideSuggestions(); return; }
   try {
     const page = await loadCatalog();
+    catalogItems = page.items;
     if (requestId !== autocompleteRequestId) return;
-    const items = page.items.filter((item) => [item.name, ...item.aliases, String(item.itemId)].some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(normalized))).slice(0, 20);
-    renderSuggestions(items);
+    renderSuggestions(findCatalogMatches(page.items, normalized));
   } catch { if (requestId === autocompleteRequestId) renderSuggestions([]); }
 }
 
@@ -232,7 +229,7 @@ searchToggles.forEach((toggle) => {
 queryInput.addEventListener('input', () => { void loadSuggestions(queryInput.value); });
 queryInput.addEventListener('keydown', (event) => { if (event.key === 'ArrowDown' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion + 1) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'ArrowUp' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion - 1 + autocompleteItems.length) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'Enter' && activeSuggestion >= 0) { event.preventDefault(); chooseSuggestion(activeSuggestion); } else if (event.key === 'Escape') hideSuggestions(); });
 addOptionButton.addEventListener('click', () => { const state = dictionary.getState(); if (state.status === 'ready') appendOptionRow(optionRows, state.definitions); });
-form.addEventListener('submit', (event) => { event.preventDefault(); void (async () => { try { const catalog = await loadCatalog(); const filters = serializeSearchForm(form, dictionary.getState().definitions, catalog.items); setFormError(null); hideSuggestions(); void performSearch(filters); } catch (error) { setFormError(error instanceof Error ? error.message : '请检查搜索条件'); } })(); });
+form.addEventListener('submit', (event) => { event.preventDefault(); void (async () => { try { const catalog = await loadCatalog(); catalogItems = catalog.items; const filters = serializeSearchForm(form, dictionary.getState().definitions, catalog.items); setFormError(null); hideSuggestions(); void performSearch(filters); } catch (error) { setFormError(error instanceof Error ? error.message : '请检查搜索条件'); } })(); });
 
 results.addEventListener('click', (event) => {
   const target = event.target as Element;
@@ -252,7 +249,7 @@ document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') re
 renderOptionDictionary();
 renderSearchState();
 void loadOptionDictionary();
-void loadCatalog().catch(() => undefined);
+void loadCatalog().then((catalog) => { catalogItems = catalog.items; renderSearchState(); }).catch(() => undefined);
 void performSearch(initialState.filters);
 }
 

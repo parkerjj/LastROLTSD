@@ -1,5 +1,7 @@
 import type { HistoryPage, ListingSearchResult, SearchFilters, SearchPage } from './types';
 import type { SearchControllerState } from './search-controller';
+import { hydrateSearchPage } from './catalog';
+import type { ItemAutocomplete } from './types';
 
 export const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
 
@@ -80,6 +82,15 @@ export function renderSearchResults(container: HTMLElement, page: SearchPage<Lis
     .join('');
   const shown = safeItems.length;
   container.innerHTML = `<div class="results-toolbar"><div><span class="results-kicker">查询结果</span><strong>共 ${shown} 条在售记录</strong></div><span class="results-note">按命中位置分组 · 按价格由低到高</span></div>${sections}<div class="pager"><button id="next-page" type="button" ${page.nextCursor ? '' : 'disabled'} aria-label="加载下一页">${page.nextCursor ? '加载下一页' : '已显示全部'}</button></div>`;
+}
+
+export function renderSearchResultsWithCatalog(
+  container: HTMLElement,
+  page: SearchPage<ListingSearchResult>,
+  state: RenderState,
+  catalog: readonly ItemAutocomplete[],
+): void {
+  renderSearchResults(container, hydrateSearchPage(page, catalog), state);
 }
 
 export function renderHistory(drawer: HTMLElement, history: HistoryPage, listingId?: number): void {

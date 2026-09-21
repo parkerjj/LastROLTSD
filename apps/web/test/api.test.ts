@@ -10,12 +10,6 @@ describe('market API', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/options', expect.objectContaining({ headers: expect.any(Headers) }));
   });
 
-  it('loads catalog autocomplete matches for a Chinese query', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: 'catalog-v1', items: [{ itemId: 1, name: '波利卡片', aliases: ['波利牌'] }, { itemId: 2, name: '波利帽', aliases: [] }] }), { status: 200 })));
-    const result = await new MarketApi().getItems('波利');
-    expect(result.items.map((item) => item.name)).toEqual(['波利卡片', '波利帽']);
-  });
-
   it('serializes structured option filters and all/any mode', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

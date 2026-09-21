@@ -85,8 +85,12 @@ describe('metadata-driven option controls', () => {
     second.querySelector<HTMLInputElement>('[data-option-value]')!.value = '1.50';
     second.querySelector<HTMLInputElement>('[data-option-param]')!.value = '7';
 
-    expect(serializeSearchForm(form, [spRecovery, rate])).toEqual({
+    expect(serializeSearchForm(form, [spRecovery, rate], [
+      { itemId: 4002, name: '波利帽', aliases: [] },
+      { itemId: 4001, name: '波利卡片', aliases: ['波利'] },
+    ])).toEqual({
       q: '波利',
+      item_ids: [4001, 4002],
       limit: 20,
       sort: 'price_asc',
       options: [
