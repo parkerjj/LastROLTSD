@@ -4,6 +4,7 @@ import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, s
 import { compileOptionPredicates, formatOptionDisplay, OPTION_OPERATORS, OptionConditionValidationError, parseStructuredOptionCondition, type OptionDefinition, type OptionOperator, type OptionParamPolicy } from '../domain/option-conditions';
 import { makeTransitionKey } from '../domain/transitions';
 import { createMeteredD1Database, type D1Meter } from './d1-meter';
+import { getOptionDefinitionSet } from '../../../../packages/options/src/index';
 import type { BatchRow, CatalogItemRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, ShopSessionRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 
@@ -301,7 +302,7 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       if (filters.shop_type) where.push(`s.shop_type=${add(filters.shop_type)}`);
       let definitionSet: { version: string; items: OptionDefinition[] };
       try {
-        definitionSet = await loadOptionDefinitions(db, filters.optionVersion);
+        definitionSet = getOptionDefinitionSet(filters.optionVersion);
       } catch (error) {
         if (error instanceof Error && /no such table|no such column/i.test(error.message)) definitionSet = { version: "unpublished", items: [] };
         else throw error;
@@ -368,7 +369,7 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       return { items, inferredSales, nextCursor: rows.length > items.length && items.at(-1) ? encodeHistoryCursor(items.at(-1)!.id, cursorSecret) : null };
     },
     async getOptionDefinitions(version) {
-      return loadOptionDefinitions(db, version);
+      return getOptionDefinitionSet(version);
     },
     async getCatalogVersion() { return 'static'; },
     async searchItems(_query, _limit) {
@@ -404,5 +405,3 @@ function assertQueryBounds(sql: string, boundValues: number): void { assertBatch
 function normalizeCatalogQuery(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
 }
-
-async function loadOptionDefinitions(_db: D1Database, version?: string): Promise<{ version: string; items: OptionDefinition[] }> { if (version !== undefined && version !== 'unpublished') throw Object.assign(new Error('Unknown option version'), { status: 400 }); return { version: version ?? 'unpublished', items: [] }; }

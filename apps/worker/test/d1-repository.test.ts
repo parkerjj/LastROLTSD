@@ -56,7 +56,7 @@ describe('D1 repository', () => {
     expect(search?.sql).toContain('l.price = ?');
     expect(search?.bound).toContain(20);
     expect(search?.bound).toContain(7);
-    expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, display: '未知词条 type=1 value=2 param=0' }]);
+    expect(page.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, display: 'MHP+2' }]);
     const hydration = db.statements.find((statement) => statement.sql.includes('JOIN json_each(?1) input'))!;
     expect(hydration.bound).toEqual(['[2]']);
   });
@@ -72,7 +72,7 @@ describe('D1 repository', () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);
     const result = await repo.searchListings({ limit: 10, option_type: 2, option_value: 3, option_param: 0 } as never);
-    expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, display: '未知词条 type=1 value=2 param=0' }]);
+    expect(result.items[0]?.options).toEqual([{ type: 1, value: 2, param: 0, display: 'MHP+2' }]);
     expect(db.statements.some((statement) => statement.sql.includes('listing_options'))).toBe(true);
   });
 
