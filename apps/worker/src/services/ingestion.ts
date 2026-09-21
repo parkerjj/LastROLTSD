@@ -2,7 +2,7 @@ import type { UploadItem, UploadRequest, UploadShop } from '@lastroweb/protocol'
 import { normalizeItem } from '@lastroweb/protocol';
 import { computeItemFingerprint } from '../domain/fingerprint';
 import { computeShopIdentity } from '../domain/shop-identity';
-import type { MarketRepository, ShopResolution, UploadResultLike } from '../db/repository';
+import type { MarketRepository, ShopResolution, ShopSessionContextInput, UploadResultLike } from '../db/repository';
 import type { ShopSessionRow } from '../db/types';
 import type { AuthenticatedSource } from '../middleware/auth';
 import { createSnapshotReconciler } from './snapshot-reconciler';
@@ -90,12 +90,22 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   try {
     const observedAt = Date.parse(request.observed_at);
     const identityHashes = new Set<string>();
-    const resolved = await mapConcurrent(request.shops, SHOP_RESOLUTION_CONCURRENCY, async (input) => {
+    const identified = await mapConcurrent(request.shops, SHOP_RESOLUTION_CONCURRENCY, async (input) => {
       const identity = await computeShopIdentity({ sourceId: source.id, vendorAccountId: input.vendor_account_id, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y, title: input.title });
+      return { input, identity };
+    });
+    const contexts = identified.map(({ input, identity }) => {
       if (identityHashes.has(identity.identityHash)) throw new IngestionError(400, 'Shop canonical identity must be unique within a batch');
       identityHashes.add(identity.identityHash);
-      return { input, resolution: await resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity) };
+      return { sourceId: source.id, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: input.shop_status, batchId, vendorAccountId: input.vendor_account_id, clientRunId: request.client_run_id, observedAt, vendorName: input.vendor_name, title: input.title, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y } satisfies ShopSessionContextInput;
     });
+    if (request.snapshot_mode !== 'full' && repo.requiresFullSnapshot && await repo.requiresFullSnapshot(contexts)) throw new IngestionError(409, 'The first upload for a shop session must be a full snapshot');
+
+    const resolutions = repo.resolveShopObservations
+      ? await repo.resolveShopObservations(contexts)
+      : await mapConcurrent(identified, SHOP_RESOLUTION_CONCURRENCY, ({ input, identity }) => resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity));
+    if (resolutions.length !== request.shops.length) throw new IngestionError(503, 'Repository returned an incomplete shop resolution');
+    const resolved = request.shops.map((input, index) => ({ input, resolution: resolutions[index]! }));
 
     const opening = resolved.filter((entry) => entry.input.shop_status === 'opening' && entry.resolution.applied && entry.resolution.session);
     const sessions = opening.map((entry) => entry.resolution.session!);
@@ -131,7 +141,13 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, observedAt);
     return response;
   } catch (error) {
-    if (repo.failBatch) await repo.failBatch(source.id, batch.batchId);
+    if (repo.failBatch) {
+      try {
+        await repo.failBatch(source.id, batch.batchId);
+      } catch (cleanupError) {
+        console.error('Failed to mark upload batch rejected', cleanupError);
+      }
+    }
     throw error;
   }
 }

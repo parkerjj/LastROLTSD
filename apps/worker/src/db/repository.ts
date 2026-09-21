@@ -69,6 +69,8 @@ export interface MarketRepository {
   getOrCreateSession(input: SessionInput): Promise<ShopSessionRow>;
   getOrCreateSessions?(inputs: ShopSessionContextInput[]): Promise<ShopSessionRow[]>;
   resolveShopObservation?(input: ShopSessionContextInput): Promise<ShopResolution>;
+  resolveShopObservations?(inputs: ShopSessionContextInput[]): Promise<ShopResolution[]>;
+  requiresFullSnapshot?(inputs: ShopSessionContextInput[]): Promise<boolean>;
   getBatch(sourceId: string, batchId: string): Promise<BatchRow | null>;
   getSnapshotParts(sourceId: string, snapshotId: string): Promise<BatchRow[]>;
   insertBatch(input: Omit<BatchRow, 'id' | 'status'> & { status?: string; receivedAt: number }): Promise<BatchRow & { inserted?: boolean }>;

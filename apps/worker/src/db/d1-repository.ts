@@ -8,10 +8,86 @@ import type { ListingTransitionChange, MarketRepository, ReconciliationResult, S
 
 type Row = Record<string, unknown>;
 const BULK_BATCH_SIZE = 12;
+const SHOP_SESSION_TTL_MS = 30 * 60 * 1000;
 const one = async <T extends Row>(statement: D1PreparedStatement): Promise<T | null> => ((await statement.first<T>()) ?? null);
 const many = async <T extends Row>(statement: D1PreparedStatement): Promise<T[]> => (await statement.all<T>()).results ?? [];
 const bool = (value: unknown): boolean => Number(value) === 1;
 const cards = (row: Row): number[] => [row.card0, row.card1, row.card2, row.card3].map((v) => Number(v ?? 0));
+
+interface BulkShopInput extends ShopSessionContextInput {
+  inputIndex: number;
+  titleNormalized: string;
+  vendorNameNormalized: string;
+}
+
+function prepareBulkShopInputs(inputs: ShopSessionContextInput[]): BulkShopInput[] {
+  return inputs.map((input, inputIndex) => ({
+    ...input,
+    inputIndex,
+    titleNormalized: input.title.normalize('NFKC').toLowerCase(),
+    vendorNameNormalized: input.vendorName.normalize('NFKC').toLowerCase(),
+  }));
+}
+
+async function loadBulkShopState(db: D1Database, inputs: BulkShopInput[]): Promise<Row[]> {
+  if (inputs.length === 0) return [];
+  return many<Row>(db.prepare(`WITH incoming AS (
+      SELECT CAST(key AS INTEGER) AS input_index,
+        json_extract(value,'$.sourceId') AS source_id,
+        json_extract(value,'$.identityHash') AS identity_hash
+      FROM json_each(?1)
+    )
+    SELECT incoming.input_index,
+      shops.id AS internal_shop_id,
+      shops.shop_id AS resolved_shop_id,
+      shops.status AS stored_shop_status,
+      shops.last_status_observed_at,
+      shops.title_normalized AS stored_title_normalized,
+      vendors.name_normalized AS stored_vendor_name_normalized,
+      sessions.id AS session_id,
+      sessions.shop_id AS session_shop_id,
+      sessions.client_run_id AS session_client_run_id,
+      sessions.started_at AS session_started_at,
+      sessions.last_seen_at AS session_last_seen_at,
+      sessions.ended_at AS session_ended_at,
+      sessions.initial_sync_complete AS session_initial_sync_complete,
+      sessions.last_complete_snapshot_id AS session_last_complete_snapshot_id
+    FROM incoming
+    LEFT JOIN shops ON shops.source_id=incoming.source_id AND shops.identity_hash=incoming.identity_hash
+    LEFT JOIN vendors ON vendors.id=shops.vendor_id
+    LEFT JOIN shop_sessions sessions ON sessions.id=(
+      SELECT id FROM shop_sessions
+      WHERE shop_id=shops.id AND ended_at IS NULL
+      ORDER BY id DESC LIMIT 1
+    )
+    ORDER BY incoming.input_index`).bind(JSON.stringify(inputs)));
+}
+
+function isStaleShopObservation(input: BulkShopInput, row: Row): boolean {
+  const previous = row.last_status_observed_at === null || row.last_status_observed_at === undefined ? null : Number(row.last_status_observed_at);
+  return previous !== null && (input.observedAt < previous || (input.observedAt === previous && input.shopStatus === 'opening' && String(row.stored_shop_status) === 'closed'));
+}
+
+function canReuseShopSession(input: BulkShopInput, row: Row): boolean {
+  return row.session_id !== null
+    && row.session_id !== undefined
+    && String(row.session_client_run_id) === input.clientRunId
+    && input.observedAt - Number(row.session_last_seen_at) <= SHOP_SESSION_TTL_MS;
+}
+
+function sessionFromStateRow(row: Row): ReturnType<typeof sessionFromRow> | null {
+  if (row.session_id === null || row.session_id === undefined) return null;
+  return {
+    id: Number(row.session_id),
+    shopId: Number(row.session_shop_id),
+    clientRunId: String(row.session_client_run_id),
+    startedAt: Number(row.session_started_at),
+    lastSeenAt: Number(row.session_last_seen_at),
+    endedAt: row.session_ended_at === null ? null : Number(row.session_ended_at),
+    initialSyncComplete: bool(row.session_initial_sync_complete),
+    lastCompleteSnapshotId: row.session_last_complete_snapshot_id ? String(row.session_last_complete_snapshot_id) : null,
+  };
+}
 
 export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR_SECRET): MarketRepository {
   return {
@@ -94,6 +170,145 @@ export function createD1Repository(db: D1Database, cursorSecret = DEFAULT_CURSOR
       if (input.shopStatus === 'dismissed') return { internalShopId: Number(created.id), shopId: String(created.shop_id), identityHash: input.identityHash, resolution: 'dismissed' as const, status: 'dismissed' as const, applied: true, session: null };
       const session = await getOrCreateD1Session(db, { shopId: Number(created.id), clientRunId: input.clientRunId, observedAt: input.observedAt });
       return { internalShopId: Number(created.id), shopId: String(created.shop_id), identityHash: input.identityHash, resolution: 'created' as const, status: 'opening' as const, applied: true, session };
+    },
+    async requiresFullSnapshot(inputs) {
+      const prepared = prepareBulkShopInputs(inputs);
+      const rows = await loadBulkShopState(db, prepared);
+      const rowsByIndex = new Map(rows.map((row) => [Number(row.input_index), row]));
+      return prepared.some((input) => {
+        if (input.shopStatus !== 'opening') return false;
+        const row = rowsByIndex.get(input.inputIndex);
+        if (!row) return true;
+        if (isStaleShopObservation(input, row)) return false;
+        if (row.internal_shop_id === null || row.internal_shop_id === undefined || !canReuseShopSession(input, row)) return true;
+        return !bool(row.session_initial_sync_complete);
+      });
+    },
+    async resolveShopObservations(inputs) {
+      if (inputs.length === 0) return [];
+      const prepared = prepareBulkShopInputs(inputs);
+      const initialRows = await loadBulkShopState(db, prepared);
+      const initialByIndex = new Map(initialRows.map((row) => [Number(row.input_index), row]));
+      const plans = prepared.map((input) => {
+        const row = initialByIndex.get(input.inputIndex);
+        if (!row) throw new Error('bulk shop state query omitted an input');
+        const exists = row.internal_shop_id !== null && row.internal_shop_id !== undefined;
+        const stale = exists && isStaleShopObservation(input, row);
+        const reuseSession = exists && !stale && input.shopStatus === 'opening' && canReuseShopSession(input, row);
+        const reindex = !stale && (!exists
+          || String(row.stored_title_normalized ?? '') !== input.titleNormalized
+          || String(row.stored_vendor_name_normalized ?? '') !== input.vendorNameNormalized);
+        return { input, row, exists, stale, reuseSession, reindex };
+      });
+      const applied = plans.filter((plan) => !plan.stale);
+
+      if (applied.length > 0) {
+        const appliedPayload = JSON.stringify(applied.map(({ input }) => ({
+          ...input,
+          status: input.shopStatus === 'dismissed' ? 'closed' : 'active',
+          closedAt: input.shopStatus === 'dismissed' ? input.observedAt : null,
+          closeReason: input.shopStatus === 'dismissed' ? 'explicit_dismissed' : null,
+        })));
+        const reindexPayload = JSON.stringify(applied.filter((plan) => plan.reindex).map(({ input }) => {
+          const normalizedTitle = normalizeCatalogQuery(input.title);
+          const normalizedVendor = normalizeCatalogQuery(input.vendorName);
+          return {
+            sourceId: input.sourceId,
+            identityHash: input.identityHash,
+            text: [normalizedTitle, normalizedVendor].filter(Boolean).join(' '),
+            values: [normalizedTitle, normalizedVendor].filter(Boolean),
+          };
+        }));
+        const reusedPayload = JSON.stringify(applied.filter((plan) => plan.reuseSession).map(({ input, row }) => ({ sessionId: Number(row.session_id), observedAt: input.observedAt })));
+        const closingPayload = JSON.stringify(applied.filter((plan) => {
+          const hasSession = plan.row.session_id !== null && plan.row.session_id !== undefined;
+          return hasSession && (plan.input.shopStatus === 'dismissed' || !plan.reuseSession);
+        }).map(({ input, row }) => ({ sessionId: Number(row.session_id), observedAt: input.observedAt })));
+        const newSessionPayload = JSON.stringify(applied.filter((plan) => plan.input.shopStatus === 'opening' && !plan.reuseSession).map(({ input }) => ({
+          sourceId: input.sourceId,
+          identityHash: input.identityHash,
+          clientRunId: input.clientRunId,
+          observedAt: input.observedAt,
+        })));
+
+        const writes = [
+          db.prepare(`INSERT INTO vendors(source_id,vendor_key,name,name_normalized,map_name,x,y,updated_at)
+            SELECT json_extract(value,'$.sourceId'),json_extract(value,'$.vendorAccountId'),json_extract(value,'$.vendorName'),json_extract(value,'$.vendorNameNormalized'),json_extract(value,'$.mapName'),json_extract(value,'$.x'),json_extract(value,'$.y'),json_extract(value,'$.observedAt')
+            FROM json_each(?1) WHERE true
+            ON CONFLICT(source_id,vendor_key) DO UPDATE SET name=excluded.name,name_normalized=excluded.name_normalized,map_name=excluded.map_name,x=excluded.x,y=excluded.y,updated_at=excluded.updated_at`).bind(appliedPayload),
+          db.prepare(`INSERT INTO shops(source_id,vendor_id,shop_key,title,title_normalized,shop_type,map_name,x,y,status,last_seen_at,closed_at,updated_at,identity_version,identity_hash,shop_id,vendor_account_id,last_status_observed_at,last_status_batch_id,close_reason)
+            SELECT json_extract(input.value,'$.sourceId'),vendors.id,json_extract(input.value,'$.identityHash'),json_extract(input.value,'$.title'),json_extract(input.value,'$.titleNormalized'),json_extract(input.value,'$.shopType'),json_extract(input.value,'$.mapName'),json_extract(input.value,'$.x'),json_extract(input.value,'$.y'),json_extract(input.value,'$.status'),json_extract(input.value,'$.observedAt'),json_extract(input.value,'$.closedAt'),json_extract(input.value,'$.observedAt'),1,json_extract(input.value,'$.identityHash'),json_extract(input.value,'$.shopId'),json_extract(input.value,'$.vendorAccountId'),json_extract(input.value,'$.observedAt'),json_extract(input.value,'$.batchId'),json_extract(input.value,'$.closeReason')
+            FROM json_each(?1) input
+            JOIN vendors ON vendors.source_id=json_extract(input.value,'$.sourceId') AND vendors.vendor_key=json_extract(input.value,'$.vendorAccountId')
+            WHERE true
+            ON CONFLICT(source_id,identity_hash) WHERE identity_hash IS NOT NULL DO UPDATE SET
+              vendor_id=excluded.vendor_id,title=excluded.title,title_normalized=excluded.title_normalized,shop_type=excluded.shop_type,map_name=excluded.map_name,x=excluded.x,y=excluded.y,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at,status=excluded.status,closed_at=excluded.closed_at,close_reason=excluded.close_reason,identity_version=1,shop_id=COALESCE(shops.shop_id,excluded.shop_id),vendor_account_id=excluded.vendor_account_id,last_status_observed_at=excluded.last_status_observed_at,last_status_batch_id=excluded.last_status_batch_id`).bind(appliedPayload),
+          db.prepare(`DELETE FROM shop_search_fts WHERE rowid IN (
+            SELECT shops.id FROM json_each(?1) input JOIN shops ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash')
+          )`).bind(reindexPayload),
+          db.prepare(`INSERT INTO shop_search_fts(rowid,shop_id,text)
+            SELECT shops.id,shops.id,json_extract(input.value,'$.text') FROM json_each(?1) input
+            JOIN shops ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash')`).bind(reindexPayload),
+          db.prepare(`DELETE FROM search_short_tokens WHERE scope_type='shop' AND scope_id IN (
+            SELECT shops.id FROM json_each(?1) input JOIN shops ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash')
+          )`).bind(reindexPayload),
+          db.prepare(`INSERT OR IGNORE INTO search_short_tokens(scope_type,scope_id,token)
+            WITH RECURSIVE token_positions(source_id,identity_hash,text,position) AS (
+              SELECT json_extract(input.value,'$.sourceId'),json_extract(input.value,'$.identityHash'),CAST(value.value AS TEXT),1
+              FROM json_each(?1) input JOIN json_each(json_extract(input.value,'$.values')) value
+              WHERE length(CAST(value.value AS TEXT)) > 0
+              UNION ALL
+              SELECT source_id,identity_hash,text,position+1 FROM token_positions WHERE position < length(text)
+            )
+            SELECT 'shop',shops.id,substr(token_positions.text,token_positions.position,widths.width)
+            FROM token_positions
+            JOIN shops ON shops.source_id=token_positions.source_id AND shops.identity_hash=token_positions.identity_hash
+            JOIN (SELECT 1 AS width UNION ALL SELECT 2) widths
+            WHERE token_positions.position+widths.width-1 <= length(token_positions.text)`).bind(reindexPayload),
+          db.prepare(`UPDATE shop_sessions SET last_seen_at=(
+            SELECT json_extract(value,'$.observedAt') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.sessionId') AS INTEGER)=shop_sessions.id
+          ) WHERE id IN (SELECT CAST(json_extract(value,'$.sessionId') AS INTEGER) FROM json_each(?1))`).bind(reusedPayload),
+          db.prepare(`UPDATE shop_sessions SET ended_at=(
+            SELECT json_extract(value,'$.observedAt') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.sessionId') AS INTEGER)=shop_sessions.id
+          ) WHERE ended_at IS NULL AND id IN (SELECT CAST(json_extract(value,'$.sessionId') AS INTEGER) FROM json_each(?1))`).bind(closingPayload),
+          db.prepare(`UPDATE listings SET status='expired',last_changed_at=(
+            SELECT json_extract(value,'$.observedAt') FROM json_each(?1) input WHERE CAST(json_extract(input.value,'$.sessionId') AS INTEGER)=listings.shop_session_id
+          ) WHERE status IN ('active','missing') AND shop_session_id IN (SELECT CAST(json_extract(value,'$.sessionId') AS INTEGER) FROM json_each(?1))`).bind(closingPayload),
+          db.prepare(`INSERT INTO shop_sessions(shop_id,client_run_id,started_at,last_seen_at)
+            SELECT shops.id,json_extract(input.value,'$.clientRunId'),json_extract(input.value,'$.observedAt'),json_extract(input.value,'$.observedAt')
+            FROM json_each(?1) input
+            JOIN shops ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash')`).bind(newSessionPayload),
+        ];
+        assertBatchBounds(writes.length, writes.length);
+        await db.batch(writes);
+      }
+
+      const finalRows = applied.length > 0 ? await loadBulkShopState(db, prepared) : initialRows;
+      const finalByIndex = new Map(finalRows.map((row) => [Number(row.input_index), row]));
+      return plans.map(({ input, row, exists, stale }) => {
+        if (stale) {
+          return {
+            internalShopId: Number(row.internal_shop_id),
+            shopId: row.resolved_shop_id ? String(row.resolved_shop_id) : input.shopId,
+            identityHash: input.identityHash,
+            resolution: 'stale_event_ignored' as const,
+            status: String(row.stored_shop_status) === 'closed' ? 'dismissed' as const : 'opening' as const,
+            applied: false,
+            session: null,
+          };
+        }
+        const final = finalByIndex.get(input.inputIndex);
+        if (!final || final.internal_shop_id === null || final.internal_shop_id === undefined) throw new Error('bulk shop write did not resolve an input');
+        return {
+          internalShopId: Number(final.internal_shop_id),
+          shopId: final.resolved_shop_id ? String(final.resolved_shop_id) : input.shopId,
+          identityHash: input.identityHash,
+          resolution: input.shopStatus === 'dismissed' ? 'dismissed' as const : exists && String(row.stored_shop_status) !== 'closed' ? 'matched' as const : 'created' as const,
+          status: input.shopStatus,
+          applied: true,
+          session: input.shopStatus === 'opening' ? sessionFromStateRow(final) : null,
+        };
+      });
     },
     async getBatch(sourceId, batchId) {
       const row = await one<Row>(db.prepare('SELECT * FROM upload_batches WHERE source_id=?1 AND batch_id=?2 LIMIT 1').bind(sourceId, batchId));

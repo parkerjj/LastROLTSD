@@ -126,6 +126,30 @@ describe('upload ingestion', () => {
     await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
   });
 
+  it('rejects a non-full upload before mutating shops when bulk preflight requires a baseline', async () => {
+    const repo = fakeRepo();
+    let resolved = false;
+    repo.requiresFullSnapshot = async () => true;
+    repo.resolveShopObservations = async () => { resolved = true; return []; };
+    const delta = { ...request, snapshot_mode: 'delta' as const };
+
+    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 409 });
+    expect(resolved).toBe(false);
+  });
+
+  it('preserves the ingestion error when rejected-batch cleanup also fails', async () => {
+    const repo = fakeRepo();
+    repo.failBatch = async () => { throw new Error('cleanup failed'); };
+    const error = new Error('listing write failed');
+    const log = console.error;
+    console.error = () => {};
+    try {
+      await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => { throw error; } })).rejects.toBe(error);
+    } finally {
+      console.error = log;
+    }
+  });
+
   it('returns dismissed shops without processing or creating sold events', async () => {
     const repo = fakeRepo();
     const dismissed = { ...request, snapshot_id: 'dismissed', shops: [{ ...shop, shop_status: 'dismissed' as const, items: [] }] };
