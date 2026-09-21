@@ -14,6 +14,24 @@ export interface UploadResult extends UploadResultLike {}
 export class IngestionError extends Error { constructor(public readonly status: 400 | 409 | 503, message: string) { super(message); this.name = 'IngestionError'; } }
 
 export const MAX_IDEMPOTENCY_KEY_LENGTH = 256;
+const SHOP_RESOLUTION_CONCURRENCY = 16;
+const ITEM_FINGERPRINT_CONCURRENCY = 32;
+
+async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index]!, index);
+    }
+  };
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
 
 export function canonicalBatchId(request: Pick<UploadRequest, 'snapshot_id' | 'part_index'>): string {
   return `${request.snapshot_id}/${request.part_index}`;
@@ -33,9 +51,9 @@ async function payloadHash(request: UploadRequest): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function resolveShop(sourceId: string, clientRunId: string, batchId: string, observedAt: number, shop: UploadShop, repo: MarketRepository): Promise<ShopResolution> {
+async function resolveShop(sourceId: string, clientRunId: string, batchId: string, observedAt: number, shop: UploadShop, repo: MarketRepository, resolvedIdentity?: { identityHash: string; shopId: string }): Promise<ShopResolution> {
   if (!repo.resolveShopObservation) throw new IngestionError(503, 'Repository cannot resolve protocol 2 shop identity');
-  const identity = await computeShopIdentity({ sourceId, vendorAccountId: shop.vendor_account_id, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y, title: shop.title });
+  const identity = resolvedIdentity ?? await computeShopIdentity({ sourceId, vendorAccountId: shop.vendor_account_id, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y, title: shop.title });
   return repo.resolveShopObservation({ sourceId, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: shop.shop_status, batchId, vendorAccountId: shop.vendor_account_id, clientRunId, observedAt, vendorName: shop.vendor_name, title: shop.title, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y });
 }
 
@@ -72,27 +90,26 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   try {
     const observedAt = Date.parse(request.observed_at);
     const identityHashes = new Set<string>();
-    const resolved: Array<{ input: UploadShop; resolution: ShopResolution }> = [];
-    for (const input of request.shops) {
+    const resolved = await mapConcurrent(request.shops, SHOP_RESOLUTION_CONCURRENCY, async (input) => {
       const identity = await computeShopIdentity({ sourceId: source.id, vendorAccountId: input.vendor_account_id, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y, title: input.title });
       if (identityHashes.has(identity.identityHash)) throw new IngestionError(400, 'Shop canonical identity must be unique within a batch');
       identityHashes.add(identity.identityHash);
-      resolved.push({ input, resolution: await resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo) });
-    }
+      return { input, resolution: await resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity) };
+    });
 
     const opening = resolved.filter((entry) => entry.input.shop_status === 'opening' && entry.resolution.applied && entry.resolution.session);
     const sessions = opening.map((entry) => entry.resolution.session!);
     if (request.snapshot_mode !== 'full' && sessions.some((session) => !session.initialSyncComplete)) throw new IngestionError(409, 'The first upload for a shop session must be a full snapshot');
 
-    const observations: NormalizedObservation[] = [];
-    for (const { input, resolution } of opening) {
+    const observationGroups = await mapConcurrent(opening, SHOP_RESOLUTION_CONCURRENCY, async ({ input, resolution }) => {
       const session = resolution.session!;
-      if (request.snapshot_mode === 'heartbeat') continue;
-      for (const rawItem of input.items) {
+      if (request.snapshot_mode === 'heartbeat') return [];
+      return mapConcurrent(input.items, ITEM_FINGERPRINT_CONCURRENCY, async (rawItem) => {
         const item = normalizeItem(rawItem as unknown as Record<string, unknown>);
-        observations.push({ fingerprint: await computeItemFingerprint({ sourceId: source.id, shopSessionId: session.id, ...(item.item_key === undefined ? {} : { itemKey: item.item_key }), itemId: item.item_id, upgrade: item.upgrade, slots: item.slots, cards: item.cards, options: item.options }), item, sessionId: session.id, shopId: resolution.shopId });
-      }
-    }
+        return { fingerprint: await computeItemFingerprint({ sourceId: source.id, shopSessionId: session.id, ...(item.item_key === undefined ? {} : { itemKey: item.item_key }), itemId: item.item_id, upgrade: item.upgrade, slots: item.slots, cards: item.cards, options: item.options }), item, sessionId: session.id, shopId: resolution.shopId };
+      });
+    });
+    const observations = observationGroups.flat();
 
     if (request.snapshot_mode === 'full' && repo.recordSnapshotSessions) await repo.recordSnapshotSessions(source.id, request.snapshot_id, [...new Set(sessions.map((session) => session.id))], observedAt);
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
