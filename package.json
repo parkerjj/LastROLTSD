@@ -17,7 +17,8 @@
     "catalog:import": "node scripts/catalog-import.mjs",
     "secrets:generate": "node scripts/generate-secrets.mjs",
     "cf:config": "node scripts/render-wrangler-config.mjs",
-    "cf:source-seed": "node scripts/render-source-seed.mjs"
+    "cf:source-seed": "node scripts/render-source-seed.mjs",
+    "db:mysql:migrate": "node scripts/mysql-migrate.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250918.0",
