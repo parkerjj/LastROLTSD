@@ -1,15 +1,19 @@
 ENVIRONMENT=local
 BUILD_VERSION=dev
 MAX_BODY_BYTES=524288
-# Set this to the VPS MySQL 8 URL for local Worker development. Never commit a real URL.
-MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-database?ssl=true
-# Optional Node integration-test target. Use a dedicated MySQL test database, never production.
-MYSQL_TEST_URL=mysql://replace-user:replace-password@replace-host:3306/replace-test-database?ssl=true
-# The real MySQL integration test stays skipped unless this is changed to 1 explicitly.
-ALLOW_MYSQL_TEST_DESTRUCTIVE=0
+
 # UPLOAD_API_KEY is only used by local fixtures; never commit real keys.
 UPLOAD_API_KEY=replace-with-local-key
 UPLOAD_API_KEY_SHA256=replace-with-local-key-sha256
 ADMIN_SECRET=replace-with-local-admin-secret
 # Cursor HMAC secret; set a random value in staging/production with wrangler secret put.
 CURSOR_SECRET=replace-with-local-cursor-secret
+
+
+
+# Set this to the VPS MySQL 8 URL for local Worker development. Never commit a real URL.
+MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-database?ssl=true
+# Optional Node integration-test target. Use a dedicated MySQL test database, never production.
+MYSQL_TEST_URL=mysql://replace-user:replace-password@replace-host:3306/replace-test-database?ssl=true
+# The real MySQL integration test stays skipped unless this is changed to 1 explicitly.
+ALLOW_MYSQL_TEST_DESTRUCTIVE=0

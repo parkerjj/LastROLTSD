@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS upload_batches (
   snapshot_mode VARCHAR(16) NOT NULL,
   payload_hash CHAR(64) NOT NULL,
   status VARCHAR(16) NOT NULL,
-  shop_ids_json MEDIUMTEXT NOT NULL DEFAULT '[]',
+  shop_ids_json MEDIUMTEXT NOT NULL,
   response_json MEDIUMTEXT NULL,
   received_at BIGINT UNSIGNED NOT NULL,
   completed_at BIGINT UNSIGNED NULL,

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { prepareD1DumpOutput } from './d1-export-path.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const database = option('--database');
@@ -12,6 +13,7 @@ try {
   const outputPath = resolve(output);
   if (existsSync(outputPath)) throw new Error('refusing to overwrite an existing D1 dump');
   if (!isIgnored(outputPath)) throw new Error('D1 dump output must be an ignored path');
+  await prepareD1DumpOutput(outputPath);
   runWrangler(['whoami']);
   runWrangler(['d1', 'export', database, '--remote', `--output=${outputPath}`]);
   process.stdout.write('[d1-export] export completed\n');

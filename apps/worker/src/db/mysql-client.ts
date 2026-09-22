@@ -48,9 +48,22 @@ export interface MysqlDatabase {
 }
 
 export class MysqlDatabaseError extends Error {
-  constructor() {
+  public readonly code: string = 'MYSQL_CLIENT_ERROR';
+  public readonly errno?: number;
+  public readonly sqlState?: string;
+  constructor(cause?: unknown) {
     super('database operation failed');
     this.name = 'MysqlDatabaseError';
+    if (cause instanceof Error && cause.message.includes('Code generation from strings disallowed')) {
+      this.code = 'MYSQL_EVAL_DISABLED';
+      this.message = 'database operation failed: mysql2 requires disableEval: true in Workers';
+    }
+    if (cause && typeof cause === 'object') {
+      const value = cause as { code?: unknown; errno?: unknown; sqlState?: unknown };
+      if (typeof value.code === 'string') this.code = value.code;
+      if (typeof value.errno === 'number') this.errno = value.errno;
+      if (typeof value.sqlState === 'string') this.sqlState = value.sqlState;
+    }
   }
 }
 
@@ -119,6 +132,8 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
       user: config.user,
       password: config.password,
       database: config.database,
+      // Workers disallow the dynamic Function constructor used by mysql2 parsers.
+      disableEval: true,
       waitForConnections: true,
       connectionLimit: MYSQL_POOL_CONNECTION_LIMIT,
       maxIdle: MYSQL_POOL_CONNECTION_LIMIT,
@@ -128,7 +143,8 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
     }) as unknown as MysqlPoolLike;
     return pool;
   }, async () => {
-    if (pool) await protect(() => pool.end());
+    const poolToClose = pool;
+    if (poolToClose) await protect(() => poolToClose.end());
   });
 }
 
@@ -158,11 +174,12 @@ function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePo
       let connection: MysqlConnectionLike | undefined;
       let began = false;
       try {
-        connection = await protect(() => poolFor().getConnection());
-        await protect(() => connection.beginTransaction());
+        const transactionConnection = await protect(() => poolFor().getConnection());
+        connection = transactionConnection;
+        await protect(() => transactionConnection.beginTransaction());
         began = true;
-        const value = await work(databaseFor(connection, async () => undefined));
-        await protect(() => connection.commit());
+        const value = await work(databaseFor(transactionConnection, async () => undefined));
+        await protect(() => transactionConnection.commit());
         return value;
       } catch (error) {
         if (connection && began) {
@@ -195,8 +212,9 @@ async function execute<T extends MysqlQueryResult>(executor: MysqlExecutorLike, 
 async function protect<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
-  } catch {
-    throw new MysqlDatabaseError();
+  } catch (error) {
+    if (error instanceof MysqlDatabaseError) throw error;
+    throw new MysqlDatabaseError(error);
   }
 }
 

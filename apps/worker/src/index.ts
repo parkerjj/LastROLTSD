@@ -17,19 +17,9 @@ import { registerAssetRoute } from './routes/assets';
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
 
-let cachedDatabase: { mysqlUrl: string; database: MysqlDatabase } | undefined;
-
-function databaseFor(mysqlUrl: string): MysqlDatabase {
-  if (cachedDatabase?.mysqlUrl === mysqlUrl) return cachedDatabase.database;
-  if (cachedDatabase) void cachedDatabase.database.close();
-  const database = createMysqlDatabase(mysqlUrl);
-  cachedDatabase = { mysqlUrl, database };
-  return database;
-}
-
 export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
-  const database = injectedDatabase ?? (env.MYSQL_URL ? databaseFor(env.MYSQL_URL) : undefined);
+  const database = injectedDatabase ?? (env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined);
   app.use('*', async (c, next) => {
     const started = Date.now();
     const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
@@ -64,11 +54,24 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
 }
 
 export default {
-  fetch(request: Request, bindings: Record<string, unknown>): Response | Promise<Response> {
-    return createApp(resolveAppEnv(bindings)).fetch(request);
+  async fetch(request: Request, bindings: Record<string, unknown>): Promise<Response> {
+    const env = resolveAppEnv(bindings);
+    // A Worker socket belongs to the invocation that opened it.
+    const database = env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined;
+    try {
+      return await createApp(env, database).fetch(request);
+    } finally {
+      await database?.close();
+    }
   },
   async scheduled(_event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
-    if (env.MYSQL_URL) await runRetention(Date.now(), {}, createMysqlRepository(databaseFor(env.MYSQL_URL)));
+    if (!env.MYSQL_URL) return;
+    const database = createMysqlDatabase(env.MYSQL_URL);
+    try {
+      await runRetention(Date.now(), {}, createMysqlRepository(database));
+    } finally {
+      await database.close();
+    }
   },
 };

@@ -1,5 +1,5 @@
 import type { AppEnv } from '../env';
-import type { MysqlDatabase } from '../db/mysql-client';
+import { MysqlDatabaseError, type MysqlDatabase } from '../db/mysql-client';
 
 export async function healthPayload(env: AppEnv, database?: Pick<MysqlDatabase, 'healthcheck'>): Promise<{ ok: true; version: string; environment: string; db: 'unconfigured' | 'ok' | 'error' }> {
   let db: 'unconfigured' | 'ok' | 'error' = 'unconfigured';
@@ -8,7 +8,8 @@ export async function healthPayload(env: AppEnv, database?: Pick<MysqlDatabase, 
       if (!database) throw new Error('database is unavailable');
       await database.healthcheck();
       db = 'ok';
-    } catch {
+    } catch (error) {
+      if (error instanceof MysqlDatabaseError) console.error(JSON.stringify({ metric: 'lastroweb.mysql_health_error', code: error.code, errno: error.errno, sql_state: error.sqlState }));
       db = 'error';
     }
   }

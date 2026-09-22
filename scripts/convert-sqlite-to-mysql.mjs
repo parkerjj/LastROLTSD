@@ -152,7 +152,7 @@ function convertCreateTable(sql, line, context) {
   if (context.dataOnly) return null;
 
   let converted = sql
-    .replace(/^CREATE\s+TABLE\s+/iu, 'CREATE TABLE IF NOT EXISTS ')
+    .replace(/^CREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS\b)/iu, 'CREATE TABLE IF NOT EXISTS ')
     .replace(/\s+WITHOUT\s+ROWID\s*$/iu, '')
     .replace(/\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b/iu, 'BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY')
     .replace(/\bINTEGER\s+PRIMARY\s+KEY\b/iu, 'BIGINT UNSIGNED PRIMARY KEY')
@@ -161,6 +161,7 @@ function convertCreateTable(sql, line, context) {
     .replace(/\bINTEGER\b/giu, 'BIGINT')
     .replace(/\bTEXT\b/giu, 'VARCHAR(191)')
     .replace(/\b(shop_ids_json|response_json)\s+VARCHAR\(191\)/giu, '$1 MEDIUMTEXT')
+    .replace(/\b(shop_ids_json|response_json)\s+MEDIUMTEXT(\s+(?:NOT\s+NULL|NULL))?\s+DEFAULT\s+'(?:''|[^'])*'/giu, '$1 MEDIUMTEXT$2')
     .replace(/\b(vendor_name_normalized|title_normalized)\s+VARCHAR\(191\)/giu, '$1 VARCHAR(128)')
     .replace(/\bmap_name\s+VARCHAR\(191\)/giu, 'map_name VARCHAR(64)')
     .replace(/\bshop_type\s+VARCHAR\(191\)/giu, 'shop_type VARCHAR(4)')
@@ -187,6 +188,7 @@ function convertIndex(sql, line, context) {
 function convertInsert(sql, line, context) {
   const table = tableName(sql, /^INSERT\s+(?:OR\s+(?:IGNORE|REPLACE)\s+)?INTO\s+/iu);
   if (!table) throw unsupported(line);
+  if (context.dataOnly && table.toLowerCase() === 'd1_migrations') return null;
   const primaryKey = context.primaryKeys.get(table) ?? conflictTarget(sql);
   const unquoted = sql.replace(/"([^"\n]+)"/gu, '`$1`');
   if (/^INSERT\s+OR\s+REPLACE\s+INTO\s+/iu.test(unquoted)) {
@@ -237,14 +239,26 @@ function unsupported(line) {
 
 async function writeStatement(writer, statement, context) {
   const converted = convertStatement(statement, context);
-  if (converted !== null) await write(writer, `${converted};\n`);
+  if (converted !== null) await writeWithBackpressure(writer, `${converted};\n`);
 }
 
-function write(writer, text) {
+export function writeWithBackpressure(writer, text) {
   if (writer.write(text)) return Promise.resolve();
   return new Promise((resolvePromise, reject) => {
-    writer.once('drain', resolvePromise);
-    writer.once('error', reject);
+    const removeListeners = () => {
+      writer.removeListener('drain', onDrain);
+      writer.removeListener('error', onError);
+    };
+    const onDrain = () => {
+      removeListeners();
+      resolvePromise();
+    };
+    const onError = (error) => {
+      removeListeners();
+      reject(error);
+    };
+    writer.once('drain', onDrain);
+    writer.once('error', onError);
   });
 }
 

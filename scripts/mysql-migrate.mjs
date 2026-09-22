@@ -109,5 +109,8 @@ function parseMysqlUrl(value) {
 
 function safeError(error) {
   if (error instanceof Error && /^(MYSQL_URL|no MySQL migration files found|migration )/u.test(error.message)) return error.message;
+  const code = error && typeof error === 'object' && typeof error.code === 'string' ? error.code : undefined;
+  if (code && /^(ECONN|EHOST|ENOTFOUND|ETIMEDOUT|EPIPE|ECONNRESET)/u.test(code)) return `database connection failed (${code})`;
+  if (code && /^ER_/u.test(code)) return `migration database error (${code})`;
   return 'migration failed';
 }

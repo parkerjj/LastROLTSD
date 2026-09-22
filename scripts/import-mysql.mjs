@@ -7,14 +7,18 @@ const input = option('--input');
 const dryRun = process.argv.includes('--dry-run');
 const replaceExisting = process.argv.includes('--replace-existing');
 
+let stage = 'validating_input';
 try {
   if (!input) throw new Error('usage: --input <mysql.sql> [--dry-run]');
   if (replaceExisting && !process.argv.includes('--confirm-replace-existing')) throw new Error('--replace-existing requires --confirm-replace-existing');
   const config = parseMysqlUrl(requireMysqlUrl());
+  stage = 'reading_input';
   const statements = await readStatements(resolve(input));
   if (statements.some((statement) => /\bDROP\s+DATABASE\b/iu.test(statement))) throw new Error('DROP DATABASE is never allowed');
+  stage = 'opening_connection';
   const connection = await mysql.createConnection(config);
   try {
+    stage = 'checking_target';
     const [databaseRows] = await connection.execute('SELECT DATABASE() AS database_name');
     if (!Array.isArray(databaseRows) || databaseRows[0]?.database_name === null) throw new Error('target database is not selected');
     if (dryRun) {
@@ -36,7 +40,7 @@ try {
     await connection.end();
   }
 } catch (error) {
-  process.stderr.write(`[mysql-import] ${safeError(error)}\n`);
+  process.stderr.write(`[mysql-import] ${safeError(error, stage)}\n`);
   process.exitCode = 1;
 }
 
@@ -106,4 +110,11 @@ function parseMysqlUrl(value) {
 }
 
 function option(name) { const index = process.argv.indexOf(name); return index === -1 ? undefined : process.argv[index + 1]; }
-function safeError(error) { return error instanceof Error && /^(usage:|MYSQL_URL|--replace-existing|DROP DATABASE|target database|unterminated SQL|string|import failed)/u.test(error.message) ? error.message : 'import failed'; }
+function safeError(error, failedStage) {
+  if (error instanceof Error && /^(usage:|MYSQL_URL|--replace-existing|DROP DATABASE|target database|unterminated SQL|string|import failed)/u.test(error.message)) return error.message;
+  const code = error && typeof error === 'object' && typeof error.code === 'string' ? error.code : undefined;
+  if (code && /^(ECONN|EHOST|ENOTFOUND|ETIMEDOUT|EPIPE|ECONNRESET)/u.test(code)) return `database connection failed (${code})`;
+  if (code && /^ER_/u.test(code)) return `import database error (${code})`;
+  if (code === 'ENOENT') return 'input SQL file is unavailable';
+  return `import failed during ${failedStage}`;
+}

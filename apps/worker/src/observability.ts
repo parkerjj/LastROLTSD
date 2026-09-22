@@ -1,6 +1,4 @@
-import type { D1Usage } from './db/d1-meter';
-
-export interface MetricEvent { requestId: string; route: string; status: number; elapsedMs: number; bodyBytes?: number; counts?: Record<string, number>; errorClass?: string; d1?: D1Usage; }
+export interface MetricEvent { requestId: string; route: string; status: number; elapsedMs: number; bodyBytes?: number; counts?: Record<string, number>; errorClass?: string; }
 
 export interface UploadReceivedEvent {
   requestId: string;
@@ -26,8 +24,6 @@ export interface UploadErrorEvent {
 }
 
 export function recordMetric(event: MetricEvent): void {
-  const d1 = event.d1;
-  const includeStages = d1 !== undefined && (d1.rowsRead > 5_000 || d1.rowsWritten > 500 || d1.durationMs > 30 || Math.random() < 0.05);
   console.log(JSON.stringify({
     metric: 'lastroweb.request',
     request_id: event.requestId,
@@ -37,11 +33,6 @@ export function recordMetric(event: MetricEvent): void {
     body_bytes: event.bodyBytes,
     counts: event.counts,
     error_class: event.errorClass,
-    rows_read: d1?.rowsRead,
-    rows_written: d1?.rowsWritten,
-    d1_changes: d1?.changes,
-    d1_duration_ms: d1 === undefined ? undefined : Math.round(d1.durationMs * 100) / 100,
-    d1_stages: includeStages ? d1.stages : undefined,
   }));
 }
 
