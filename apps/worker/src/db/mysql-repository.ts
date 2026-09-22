@@ -1,6 +1,6 @@
 import { DEFAULT_CURSOR_SECRET, SearchValidationError, decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext } from '../domain/search';
 import { makeTransitionKey } from '../domain/transitions';
-import { getOptionDefinitionSet } from '../domain/option-definitions';
+import { getOptionDefinitionSet, OPTION_DEFINITION_MAP } from '../domain/option-definitions';
 import { OptionConditionValidationError, compileOptionPredicates, formatOptionDisplay, parseStructuredOptionCondition } from '../domain/option-conditions';
 import { chunkRows, type MysqlDatabase, type MysqlRow } from './mysql-client';
 import type { SearchFilters } from '@lastroweb/protocol';
@@ -82,6 +82,8 @@ const LISTING_TRANSITION_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
 )) AS transition_input`;
 
 const shopResolutionKey = (sourceId: string, identityHash: string): string => JSON.stringify([sourceId, identityHash]);
+const SHOP_RESOLUTION_COLUMNS = `shops.id, shops.source_id, shops.identity_hash, shops.public_shop_id,
+  shops.status, shops.last_status_observed_at, shops.last_changed_at, shops.full_state_hash, shops.closed_at`;
 
 function normalizeCatalogQuery(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
@@ -273,14 +275,16 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
   const resolveShopObservations = async (inputs: ShopSessionContextInput[]): Promise<ShopResolution[]> => {
     if (inputs.length === 0) return [];
     const payload = shopResolutionPayload(inputs);
+    const hasOpenings = inputs.some((input) => input.shopStatus === 'opening');
+    const hasDismissals = inputs.some((input) => input.shopStatus === 'dismissed');
 
     return db.transaction(async (tx) => {
-      const existingRows = await tx.all<Row>(`SELECT shops.* FROM shops
+      const existingRows = await tx.all<Row>(`SELECT ${SHOP_RESOLUTION_COLUMNS} FROM shops
         JOIN ${SHOP_JSON_TABLE}
           ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash`, [payload]);
       const existingByKey = new Map(existingRows.map((row) => [shopResolutionKey(String(row.source_id), String(row.identity_hash)), row]));
 
-      await tx.run(`INSERT INTO shops(
+      if (hasDismissals) await tx.run(`INSERT INTO shops(
           source_id, identity_hash, public_shop_id, vendor_account_id, vendor_name, vendor_name_normalized,
           title, title_normalized, shop_type, map_name, x, y, status, profile_hash, full_state_hash,
           last_status_observed_at, last_changed_at, closed_at, close_reason
@@ -292,7 +296,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         WHERE shop_status = 'dismissed'
         ON DUPLICATE KEY UPDATE id = id`, [payload]);
 
-      await tx.run(`INSERT INTO shops(
+      if (hasOpenings) await tx.run(`INSERT INTO shops(
           source_id, identity_hash, public_shop_id, vendor_account_id, vendor_name, vendor_name_normalized,
           title, title_normalized, shop_type, map_name, x, y, status, profile_hash, full_state_hash,
           last_status_observed_at, last_changed_at, closed_at, close_reason
@@ -322,7 +326,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
           status = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), 'active', shops.status),
           last_status_observed_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(last_status_observed_at), shops.last_status_observed_at)`, [payload]);
 
-      await tx.run(`UPDATE shops
+      if (hasDismissals) await tx.run(`UPDATE shops
         JOIN ${SHOP_JSON_TABLE}
           ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
         SET shops.status = 'closed',
@@ -333,7 +337,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         WHERE observation.shop_status = 'dismissed'
           AND shops.last_status_observed_at <= observation.observed_at`, [payload]);
 
-      await tx.run(`UPDATE listings
+      if (hasDismissals) await tx.run(`UPDATE listings
         JOIN shops ON shops.id = listings.shop_id
         JOIN ${SHOP_JSON_TABLE}
           ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
@@ -346,7 +350,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
           AND shops.last_status_observed_at <= observation.observed_at
           AND listings.status IN ('active', 'missing')`, [payload]);
 
-      const resolvedRows = await tx.all<Row>(`SELECT shops.* FROM shops
+      const resolvedRows = await tx.all<Row>(`SELECT ${SHOP_RESOLUTION_COLUMNS} FROM shops
         JOIN ${SHOP_JSON_TABLE}
           ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash`, [payload]);
       const resolvedByKey = new Map(resolvedRows.map((row) => [shopResolutionKey(String(row.source_id), String(row.identity_hash)), row]));
@@ -923,8 +927,8 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       if (filters.map) where.push(`s.map_name = ${add(normalizeCatalogQuery(filters.map))}`);
       if (filters.shop_type) where.push(`s.shop_type = ${add(filters.shop_type)}`);
 
-      const definitionSet = getOptionDefinitionSet(filters.optionVersion);
-      const definitionMap = new Map(definitionSet.items.map((definition) => [definition.type, definition]));
+      getOptionDefinitionSet(filters.optionVersion);
+      const definitionMap = OPTION_DEFINITION_MAP;
       if (filters.options && filters.options.length > 0) {
         try {
           const conditions = filters.options.map((option) => parseStructuredOptionCondition(option, definitionMap));
@@ -975,7 +979,9 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         for (const row of optionRows) {
           const listingId = Number(row.listing_id);
           const option = { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param) };
-          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { ...option, display: formatOptionDisplay(option, definitionMap.get(option.type)) }]);
+          let listingOptions = optionsByListing.get(listingId);
+          if (!listingOptions) { listingOptions = []; optionsByListing.set(listingId, listingOptions); }
+          listingOptions.push({ ...option, display: formatOptionDisplay(option, definitionMap.get(option.type)) });
         }
         for (const item of items) item.options = optionsByListing.get(item.id) ?? [];
       }

@@ -1,15 +1,18 @@
 import './styles.css';
 import '@phosphor-icons/web/regular';
+import { initAnalytics } from './analytics';
 import { MarketApi } from './api';
 import { OptionDictionaryStore } from './option-state';
 import { appendOptionRow, serializeSearchForm } from './query-form';
-import { friendlyError, renderHistory, renderHistoryError, renderSearchResultsWithCatalog, rmsAssetUrl } from './render';
+import { cleanItemDescription, friendlyError, renderHistory, renderHistoryError, renderSearchResultsWithCatalog, rmsAssetUrl } from './render';
 import { mapFilterOptions } from './maps';
 import { SearchController } from './search-controller';
 import { initialState } from './state';
 import type { ItemAutocomplete, ItemDescription, ListingSearchResult, SearchFilters } from './types';
 import { createCatalogLoader, createDescriptionLoader, findCatalogMatches } from './catalog';
 import { mountReleasePage } from './release-page';
+
+initAnalytics();
 
 const root = document.querySelector<HTMLElement>('#app')!;
 if (!root) throw new Error('Missing app root');
@@ -31,7 +34,7 @@ root.innerHTML = `
   </header>
   <main id="top" class="page-width">
     <section class="hero" aria-labelledby="page-title">
-      <div class="hero-copy"><p class="eyebrow">露天市场 / 交易索引</p><h1 id="page-title">露天商店<span>.Ro</span></h1><p class="hero-subtitle">在四座城市之间，找到你要的装备与词条。</p><div class="hero-meta"><span aria-live="polite"><i id="market-status-dot" class="status-dot"></i><span id="market-status-label">市场数据调查员在线</span></span><span id="market-updated-at" aria-live="polite">正在获取更新时间</span><span>支持地图定位</span></div></div>
+      <div class="hero-copy"><p class="eyebrow">露天市场 / 交易索引</p><h1 id="page-title">露天商店<span>.Ro</span></h1><p class="hero-subtitle">在城市之间，快速找到你要的装备与词条。</p><div class="hero-meta"><span aria-live="polite"><i id="market-status-dot" class="status-dot"></i><span id="market-status-label">市场数据调查员在线</span></span><span id="market-updated-at" aria-live="polite">正在获取更新时间</span><span>支持地图定位</span></div></div>
     </section>
     <section id="site-notice" class="site-notice" aria-label="站点公告">
       <span class="notice-badge">公告</span>
@@ -163,11 +166,12 @@ function renderSearchState(): void {
   renderSearchResultsWithCatalog(results, current.page ?? { items: [], nextCursor: null }, { ...current, descriptionError: itemDescriptionError, initialBrowse }, catalogItems, itemDescriptions);
 }
 
-async function performSearch(filters: SearchFilters): Promise<void> {
+async function performSearch(filters: SearchFilters, shouldScroll = false): Promise<void> {
   const pending = searchController.search(filters);
   renderSearchState();
   await pending;
   renderSearchState();
+  if (shouldScroll) scrollToResults();
 }
 
 async function loadNextPage(): Promise<void> {
@@ -175,6 +179,25 @@ async function loadNextPage(): Promise<void> {
   renderSearchState();
   await pending;
   renderSearchState();
+  scrollToResults();
+}
+
+async function loadPrevPage(): Promise<void> {
+  const pending = searchController.prevPage();
+  renderSearchState();
+  await pending;
+  renderSearchState();
+  scrollToResults();
+}
+
+function scrollToResults(): void {
+  if (typeof window === 'undefined' || !window.matchMedia?.('(max-width: 760px)').matches) return;
+  const target = results.querySelector<HTMLElement>('.result-group');
+  if (!target) return;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 预留顶部粘性导航（74px）与视觉间距。
+  const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - 84);
+  window.scrollTo({ top, behavior: reducedMotion ? 'auto' : 'smooth' });
 }
 
 function setFormError(message: string | null): void {
@@ -242,21 +265,74 @@ async function openHistory(item: Pick<ListingSearchResult, 'itemId' | 'itemName'
 
 function closeHistory(): void { historyDrawer.hidden = true; }
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;').replace(/"/gu, '&quot;');
+}
+
 function openMap(button: HTMLButtonElement): void {
   const name = button.dataset.mapName || '未知地图'; const image = button.dataset.mapImage || rmsAssetUrl('maps_xl/morocc_re.gif'); const code = button.dataset.mapCode || 'morocc'; const rawX = Number(button.dataset.mapX); const rawY = Number(button.dataset.mapY); const rawLeft = Number(button.dataset.mapMarkerLeft); const rawTop = Number(button.dataset.mapMarkerTop); const x = Number.isFinite(rawX) ? rawX : 50; const y = Number.isFinite(rawY) ? rawY : 50; const left = Number.isFinite(rawLeft) ? rawLeft : 50; const top = Number.isFinite(rawTop) ? rawTop : 50;
-  mapDrawer.innerHTML = `<div class="drawer-inner map-inner"><button type="button" id="close-map" aria-label="关闭地图">关闭</button><p class="drawer-kicker">地图定位 / ${code}</p><h2>${name}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${name}地图" /><span class="map-star" style="left:${left}%;top:${top}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p></div>`;
+  const command = `请带我去 ${code} ${x} ${y} 这个坐标`;
+  const safeName = escapeHtml(name);
+  mapDrawer.innerHTML = `<div class="drawer-inner map-inner"><button type="button" id="close-map" aria-label="关闭地图">关闭</button><p class="drawer-kicker">地图定位 / ${escapeHtml(code)}</p><h2>${safeName}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${safeName}地图" /><span class="map-star" style="left:${left}%;top:${top}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p>
+  <section class="quick-go" aria-labelledby="quick-go-title">
+    <div class="quick-go-heading"><span class="quick-go-icon" aria-hidden="true"><i class="ph ph-navigation-arrow"></i></span><div><p class="quick-go-kicker">GPT 带路</p><h3 id="quick-go-title">快捷前往</h3></div></div>
+    <ol class="quick-go-steps">
+      <li><span class="quick-go-step-num" aria-hidden="true">1</span><p>点击聊天框右下角的<strong>蓝色小点按钮</strong>，在弹出的菜单中选择 <strong>GPT</strong> 频道。</p></li>
+      <li><span class="quick-go-step-num" aria-hidden="true">2</span><p>点击下方指令框<strong>一键复制</strong>，粘贴到 GPT 频道发送，即可自动前往商人位置。</p></li>
+    </ol>
+    <figure class="quick-go-figure"><img src="/tutorial/gpt-guide.png" alt="图示：先点击右下角蓝色小点按钮，再选择GPT频道" loading="lazy" width="1800" height="588" /></figure>
+    <button type="button" class="copy-command" data-command="${escapeHtml(command)}" aria-label="点击复制前往指令">
+      <span class="copy-command-text">请带我去 <em>${escapeHtml(code)}</em> <em>${x}</em> <em>${y}</em> 这个坐标</span>
+      <span class="copy-command-action" aria-hidden="true"><i class="ph ph-copy-simple"></i><span class="copy-command-label">点击复制</span></span>
+    </button>
+    <p class="quick-go-hint"><i class="ph ph-info" aria-hidden="true"></i> 地图名为英文代码（如 prontera），坐标与上方星标一致。</p>
+  </section></div>`;
   mapDrawer.hidden = false;
 }
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch {
+    // Clipboard API 不可用（权限或非安全上下文）时使用降级方案。
+  }
+  try {
+    const fallback = document.createElement('input');
+    fallback.value = text;
+    fallback.style.position = 'fixed';
+    fallback.style.opacity = '0';
+    document.body.appendChild(fallback);
+    fallback.select();
+    document.execCommand('copy');
+    fallback.remove();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let mapCopyTimer: number | undefined;
 
 function closeMap(): void { mapDrawer.hidden = true; }
 
 queryInput.addEventListener('input', () => { void loadSuggestions(queryInput.value); });
-queryInput.addEventListener('keydown', (event) => { if (event.key === 'ArrowDown' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion + 1) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'ArrowUp' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion - 1 + autocompleteItems.length) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'Enter' && activeSuggestion >= 0) { event.preventDefault(); chooseSuggestion(activeSuggestion); } else if (event.key === 'Escape') hideSuggestions(); });
+function submitSearchForm(): void {
+  if (typeof form.requestSubmit === 'function') form.requestSubmit();
+  else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+}
+queryInput.addEventListener('keydown', (event) => { if (event.key === 'ArrowDown' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion + 1) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'ArrowUp' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion - 1 + autocompleteItems.length) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'Enter') { event.preventDefault(); if (activeSuggestion >= 0) chooseSuggestion(activeSuggestion); else submitSearchForm(); } else if (event.key === 'Escape') hideSuggestions(); });
 addOptionButton.addEventListener('click', () => { const state = dictionary.getState(); if (state.status === 'ready') appendOptionRow(optionRows, state.definitions); });
-form.addEventListener('submit', (event) => { event.preventDefault(); void (async () => { try { const catalog = await loadCatalog(); catalogItems = catalog.items; const filters = serializeSearchForm(form, dictionary.getState().definitions, catalog.items); initialBrowse = false; setFormError(null); hideSuggestions(); void performSearch(filters); } catch (error) { setFormError(error instanceof Error ? error.message : '请检查搜索条件'); } })(); });
+form.addEventListener('submit', (event) => { event.preventDefault(); autocompleteRequestId += 1; void (async () => { try { const catalog = await loadCatalog(); catalogItems = catalog.items; const filters = serializeSearchForm(form, dictionary.getState().definitions, catalog.items); initialBrowse = false; setFormError(null); hideSuggestions(); void performSearch(filters, true); } catch (error) { setFormError(error instanceof Error ? error.message : '请检查搜索条件'); } })(); });
 
 results.addEventListener('click', (event) => {
   const target = event.target as Element;
+  const retryButton = target.closest<HTMLButtonElement>('.retry-button');
+  if (retryButton) {
+    const { cursor: _cursor, ...filters } = searchController.getState().filters;
+    initialBrowse = false;
+    void performSearch({ ...filters }, true);
+    return;
+  }
   const historyButton = target.closest<HTMLButtonElement>('.history-button');
   if (historyButton) {
     const itemId = Number(historyButton.dataset.itemId);
@@ -269,7 +345,16 @@ results.addEventListener('click', (event) => {
   if (mapButton) { openMap(mapButton); return; }
   const groupToggle = target.closest<HTMLButtonElement>('.group-toggle');
   if (groupToggle) { const body = document.getElementById(groupToggle.getAttribute('aria-controls') ?? ''); const expanded = groupToggle.getAttribute('aria-expanded') === 'true'; const nextExpanded = !expanded; const groupLabel = groupToggle.dataset.groupLabel ?? ''; groupToggle.setAttribute('aria-expanded', String(nextExpanded)); groupToggle.setAttribute('aria-label', `${nextExpanded ? '收起' : '展开'}${groupLabel}`); groupToggle.title = `${nextExpanded ? '收起' : '展开'}${groupLabel}`; body?.toggleAttribute('hidden', expanded); return; }
-  if (target.closest<HTMLButtonElement>('#next-page')) void loadNextPage();
+  if (target.closest<HTMLButtonElement>('.js-next-page')) { void loadNextPage(); return; }
+  if (target.closest<HTMLButtonElement>('.js-prev-page')) { void loadPrevPage(); return; }
+  const shopChevron = target.closest<HTMLButtonElement>('.vshop-chevron');
+  if (shopChevron) {
+    const body = shopChevron.closest('.vshop')?.querySelector<HTMLElement>('.vshop-body');
+    const nextExpanded = shopChevron.getAttribute('aria-expanded') !== 'true';
+    shopChevron.setAttribute('aria-expanded', String(nextExpanded));
+    shopChevron.setAttribute('aria-label', `${nextExpanded ? '收起' : '展开'}摊位`);
+    body?.toggleAttribute('hidden', !nextExpanded);
+  }
 });
 results.addEventListener('change', (event) => {
   const target = event.target;
@@ -277,7 +362,7 @@ results.addEventListener('change', (event) => {
   if (target.value !== 'price_asc' && target.value !== 'price_desc' && target.value !== 'changed_desc') return;
   initialBrowse = false;
   const { cursor: _cursor, ...filters } = searchController.getState().filters;
-  void performSearch({ ...filters, sort: target.value });
+  void performSearch({ ...filters, sort: target.value }, true);
 });
 results.addEventListener('error', (event) => {
   const image = event.target;
@@ -286,9 +371,145 @@ results.addEventListener('error', (event) => {
   image.parentElement?.querySelector<HTMLElement>('.item-icon-fallback, .detail-art-fallback')?.removeAttribute('hidden');
 }, true);
 
+/* ---- 物品详情浮层（PC 悬停 / 手机点击条目空白处）---- */
+
+const hoverCapable = typeof window.matchMedia === 'function'
+  && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+let popoverEntry: HTMLElement | null = null;
+
+function getPopover(): HTMLElement | null {
+  return results.querySelector<HTMLElement>('#item-popover');
+}
+
+function entryItemId(entry: Element): number | null {
+  const itemId = Number(entry.querySelector<HTMLButtonElement>('.history-button')?.dataset.itemId);
+  return Number.isSafeInteger(itemId) ? itemId : null;
+}
+
+function showItemPopover(entry: HTMLElement): void {
+  const popover = getPopover();
+  const itemId = entryItemId(entry);
+  if (!popover || itemId === null) return;
+  const name = catalogItems.find((item) => item.itemId === itemId)?.name
+    ?? entry.querySelector<HTMLElement>('.mc-main h3, .line-name strong')?.textContent?.trim()
+    ?? `未知物品 #${itemId}`;
+  const rawDescription = itemDescriptions.find((item) => item.itemId === itemId)?.description;
+  const description = rawDescription ? cleanItemDescription(rawDescription) : '';
+  const icon = entry.querySelector<HTMLElement>('.mc-icon img, .line-icon img')?.getAttribute('src') ?? '';
+  const iconMarkup = icon
+    ? `<img src="${escapeHtml(icon)}" alt="" data-image-fallback /><span class="item-icon-fallback" aria-hidden="true" hidden>${itemId}</span>`
+    : `<span class="item-icon-fallback" aria-hidden="true">${itemId}</span>`;
+  popover.innerHTML = `<div class="pop-card"><div class="pop-head"><span class="pop-icon">${iconMarkup}</span><span class="pop-head-copy"><strong>${escapeHtml(name)}</strong><small>物品 ID ${itemId}</small></span><button type="button" class="pop-close" aria-label="关闭物品详情"><i class="ph ph-x" aria-hidden="true"></i></button></div><div class="pop-body">${description ? escapeHtml(description) : '暂无详细描述'}</div></div>`;
+  popover.hidden = false;
+  popoverEntry = entry;
+  positionItemPopover(entry, popover);
+}
+
+function hideItemPopover(): void {
+  const popover = getPopover();
+  if (popover) popover.hidden = true;
+  popoverEntry = null;
+}
+
+function positionItemPopover(entry: HTMLElement, popover: HTMLElement): void {
+  const rect = entry.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const gap = 10;
+  const popWidth = popover.offsetWidth;
+  // 先用视口高度约束，避免长描述超出屏幕。
+  popover.style.maxHeight = `${vh - 16}px`;
+  const constrainedHeight = popover.offsetHeight;
+  const hasRoomRight = rect.right + gap + popWidth <= vw;
+  const hasRoomLeft = rect.left - gap - popWidth >= 0;
+  const hasRoomBelow = rect.bottom + gap + constrainedHeight <= vh;
+  const hasRoomAbove = rect.top - gap - constrainedHeight >= 0;
+  let placement: 'right' | 'left' | 'below' | 'above';
+  if (hoverCapable) {
+    if (hasRoomRight) placement = 'right';
+    else if (hasRoomLeft) placement = 'left';
+    else if (hasRoomBelow) placement = 'below';
+    else placement = 'above';
+  } else {
+    placement = hasRoomAbove || (!hasRoomBelow && rect.top > vh - rect.bottom) ? 'above' : 'below';
+  }
+  popover.classList.remove('pop--right', 'pop--left', 'pop--below', 'pop--above');
+  popover.classList.add(`pop--${placement}`);
+  if (placement === 'below' || placement === 'above') {
+    // 手机浮层不遮挡条目，紧贴可用空间。
+    const available = placement === 'above' ? rect.top - gap - 8 : vh - rect.bottom - gap - 8;
+    if (available > 120) popover.style.maxHeight = `${Math.floor(available)}px`;
+  }
+  const popHeight = popover.offsetHeight;
+  let top: number;
+  let left: number;
+  if (placement === 'right' || placement === 'left') {
+    left = placement === 'right' ? rect.right + gap : rect.left - gap - popWidth;
+    top = rect.top + rect.height / 2 - popHeight / 2;
+  } else {
+    left = rect.left + rect.width / 2 - popWidth / 2;
+    top = placement === 'above' ? rect.top - gap - popHeight : rect.bottom + gap;
+  }
+  popover.style.left = `${Math.round(Math.max(8, Math.min(left, vw - popWidth - 8)))}px`;
+  popover.style.top = `${Math.round(Math.max(8, Math.min(top, vh - popHeight - 8)))}px`;
+}
+
+results.addEventListener('pointerover', (event) => {
+  if (!hoverCapable) return;
+  const entry = (event.target as Element | null)?.closest<HTMLElement>('.market-card, .line');
+  if (entry && entry !== popoverEntry) showItemPopover(entry);
+});
+results.addEventListener('pointerout', (event) => {
+  if (!hoverCapable || popoverEntry === null) return;
+  const next = event.relatedTarget as Node | null;
+  if (popoverEntry.contains(next) || getPopover()?.contains(next)) return;
+  hideItemPopover();
+});
+results.addEventListener('click', (event) => {
+  const target = event.target as Element;
+  if (target.closest('#item-popover .pop-close')) { hideItemPopover(); return; }
+  if (hoverCapable) return;
+  const entry = target.closest<HTMLElement>('.market-card, .line');
+  if (!entry) return;
+  if (target.closest('button, a, input, select, textarea, label')) { hideItemPopover(); return; }
+  if (popoverEntry === entry) hideItemPopover();
+  else showItemPopover(entry);
+});
+document.addEventListener('click', (event) => {
+  const popover = getPopover();
+  if (!popover || popover.hidden) return;
+  const target = event.target as Element;
+  if (!target.closest('#item-popover') && !target.closest('.market-card, .line')) hideItemPopover();
+});
+window.addEventListener('resize', () => hideItemPopover());
+window.addEventListener('scroll', () => hideItemPopover(), true);
+
 historyDrawer.addEventListener('click', (event) => { if ((event.target as Element).closest('#close-history')) closeHistory(); });
-mapDrawer.addEventListener('click', (event) => { if ((event.target as Element).closest('#close-map')) closeMap(); });
-document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (!suggestions.hidden) hideSuggestions(); else if (!historyDrawer.hidden) closeHistory(); else if (!mapDrawer.hidden) closeMap(); });
+mapDrawer.addEventListener('click', (event) => {
+  if ((event.target as Element).closest('#close-map')) { closeMap(); return; }
+  const copyButton = (event.target as Element).closest<HTMLButtonElement>('.copy-command');
+  if (!copyButton) return;
+  void (async () => {
+    const command = copyButton.dataset.command ?? '';
+    const ok = await copyText(command);
+    const label = copyButton.querySelector('.copy-command-label');
+    const icon = copyButton.querySelector('.copy-command-action i');
+    if (ok) {
+      copyButton.classList.add('is-copied');
+      if (label) label.textContent = '已复制';
+      if (icon) icon.className = 'ph ph-check';
+      window.clearTimeout(mapCopyTimer);
+      mapCopyTimer = window.setTimeout(() => {
+        copyButton.classList.remove('is-copied');
+        if (label) label.textContent = '点击复制';
+        if (icon) icon.className = 'ph ph-copy-simple';
+      }, 1800);
+    } else {
+      copyButton.setAttribute('aria-label', '复制失败，请手动选择文本复制');
+    }
+  })();
+});
+document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (!suggestions.hidden) hideSuggestions(); else if (!results.querySelector<HTMLElement>('#item-popover')?.hidden) hideItemPopover(); else if (!historyDrawer.hidden) closeHistory(); else if (!mapDrawer.hidden) closeMap(); });
 
 renderOptionDictionary();
 renderSearchState();

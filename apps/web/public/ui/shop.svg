@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <clipPath id="awningClip">
+      <path d="M20 40 H108 V55 Q101 65 94 55 Q87 65 80 55 Q73 65 66 55 Q59 65 52 55 Q45 65 38 55 Q31 65 24 55 Q22 60 20 60 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- ground shadow -->
+  <ellipse cx="64" cy="116" rx="48" ry="6" fill="#5c4430" opacity=".12"/>
+
+  <!-- sack on the ground -->
+  <path d="M16 110 Q13 96 21 94 L33 94 Q41 96 38 110 Q30 114 27 110 Z" fill="#d9b06a" stroke="#5c4430" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M21 94 Q27 99 33 94" fill="none" stroke="#5c4430" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- posts -->
+  <rect x="26" y="52" width="7" height="40" rx="2" fill="#b57a3c" stroke="#5c4430" stroke-width="2.5"/>
+  <rect x="95" y="52" width="7" height="40" rx="2" fill="#b57a3c" stroke="#5c4430" stroke-width="2.5"/>
+
+  <!-- awning: striped fill clipped to scalloped shape -->
+  <g clip-path="url(#awningClip)">
+    <rect x="20" y="38" width="88" height="28" fill="#f8edd9"/>
+    <rect x="20" y="38" width="11" height="28" fill="#c8493b"/>
+    <rect x="42" y="38" width="11" height="28" fill="#c8493b"/>
+    <rect x="64" y="38" width="11" height="28" fill="#c8493b"/>
+    <rect x="86" y="38" width="11" height="28" fill="#c8493b"/>
+    <rect x="108" y="38" width="11" height="28" fill="#c8493b"/>
+  </g>
+  <path d="M20 40 H108 V55 Q101 65 94 55 Q87 65 80 55 Q73 65 66 55 Q59 65 52 55 Q45 65 38 55 Q31 65 24 55 Q22 60 20 60 Z"
+        fill="none" stroke="#5c4430" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- awning top pole -->
+  <rect x="16" y="34" width="96" height="8" rx="3" fill="#8a5e36" stroke="#5c4430" stroke-width="2.5"/>
+
+  <!-- little flag -->
+  <path d="M64 34 V14" stroke="#5c4430" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M64 15 H82 Q78 20 82 25 H64 Z" fill="#c8493b" stroke="#5c4430" stroke-width="2.2" stroke-linejoin="round"/>
+
+  <!-- hanging sign -->
+  <path d="M58 40 V50 M70 40 V50" stroke="#5c4430" stroke-width="2.2" stroke-linecap="round"/>
+  <rect x="51" y="50" width="26" height="20" rx="4" fill="#f2e2bd" stroke="#5c4430" stroke-width="2.6"/>
+  <circle cx="64" cy="60" r="6.4" fill="#e9bd4e" stroke="#a9742c" stroke-width="1.8"/>
+  <path d="M61.5 56.6 H66.5 L61.8 63.4 H66.7" fill="none" stroke="#7a541a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- counter -->
+  <rect x="22" y="86" width="84" height="24" rx="4" fill="#e0b06f" stroke="#5c4430" stroke-width="2.8"/>
+  <path d="M22 94 H106 M50 86 V110 M78 86 V110" stroke="#b57a3c" stroke-width="2" opacity=".7"/>
+  <rect x="20" y="82" width="88" height="7" rx="3" fill="#f0cb8d" stroke="#5c4430" stroke-width="2.6"/>
+
+  <!-- coin pile on counter -->
+  <ellipse cx="38" cy="80" rx="9" ry="3.4" fill="#c99a35" stroke="#8a6420" stroke-width="1.6"/>
+  <ellipse cx="38" cy="76" rx="7.4" ry="2.8" fill="#e9bd4e" stroke="#8a6420" stroke-width="1.6"/>
+
+  <!-- potion bottle on counter -->
+  <rect x="86" y="70" width="7" height="5" rx="1.4" fill="#9aa9a0" stroke="#5c4430" stroke-width="1.6"/>
+  <path d="M84 81 Q84 75 89.5 75 Q95 75 95 81 Z" fill="#f3e6d2" stroke="#5c4430" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M85.6 81 Q85.6 77.6 89.5 77.6 Q93.4 77.6 93.4 81 Z" fill="#d8564a"/>
+</svg>

@@ -1,4 +1,5 @@
 import type { UploadItem, UploadRequest, UploadShop } from '@lastroweb/protocol';
+import { Buffer } from 'node:buffer';
 import { normalizeItem } from '@lastroweb/protocol';
 import { computeItemFingerprint } from '../domain/fingerprint';
 import { computeShopIdentity } from '../domain/shop-identity';
@@ -74,9 +75,9 @@ function normalizeUploadRequest(request: UploadRequest): UploadRequest {
 }
 
 async function payloadHash(request: UploadRequest): Promise<string> {
-  const canonical = JSON.stringify(normalizeUploadRequest(request));
+  const canonical = JSON.stringify(request);
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return Buffer.from(digest).toString('hex');
 }
 
 async function resolveShop(sourceId: string, clientRunId: string, batchId: string, observedAt: number, shop: UploadShop, repo: MarketRepository, resolvedIdentity?: { identityHash: string; shopId: string }): Promise<ShopResolution> {
@@ -85,10 +86,15 @@ async function resolveShop(sourceId: string, clientRunId: string, batchId: strin
   return repo.resolveShopObservation({ sourceId, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: shop.shop_status, batchId, vendorAccountId: shop.vendor_account_id, clientRunId, observedAt, vendorName: shop.vendor_name, title: shop.title, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y });
 }
 
-export async function ingestUpload(source: AuthenticatedSource, request: UploadRequest, idempotencyKey: string, repo: MarketRepository, state: ListingStateService): Promise<UploadResult> {
+export type IngestionStage = 'normalize' | 'claim_batch' | 'shop_hashes' | 'resolve_shops' | 'item_fingerprints' | 'record_snapshot' | 'apply_listings' | 'mark_observed' | 'complete_batch' | 'update_shop_hashes' | 'finalize_snapshot';
+
+export async function ingestUpload(source: AuthenticatedSource, request: UploadRequest, idempotencyKey: string, repo: MarketRepository, state: ListingStateService, onStage?: (stage: IngestionStage) => void): Promise<UploadResult> {
   const batchId = canonicalBatchId(request);
   if (!isValidIdempotencyKey(idempotencyKey) || idempotencyKey !== batchId) throw new IngestionError(400, 'idempotency_key_mismatch', 'Idempotency-Key must match the canonical snapshot part');
+  onStage?.('normalize');
+  request = normalizeUploadRequest(request);
   const hash = await payloadHash(request);
+  onStage?.('claim_batch');
   const duplicate = await repo.getBatch(source.id, batchId);
   let batch: Awaited<ReturnType<MarketRepository['insertBatch']>> | undefined;
   let retryingRejected = false;
@@ -118,6 +124,7 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   if (!batch) throw new IngestionError(503, 'storage_unavailable', 'Batch claim failed', { retryable: true });
 
   try {
+    onStage?.('shop_hashes');
     const observedAt = Date.parse(request.observed_at);
     const identityHashes = new Set<string>();
     const identified = await mapConcurrent(request.shops, SHOP_RESOLUTION_CONCURRENCY, async (input) => {
@@ -128,9 +135,10 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       if (identityHashes.has(identity.identityHash)) throw new IngestionError(422, 'duplicate_shop_identity', 'Shop canonical identity must be unique within a batch');
       identityHashes.add(identity.identityHash);
       const profileHash = await computeShopProfileHash(input);
-      const fullStateHash = request.snapshot_mode === 'full' ? await computeFullShopStateHash(source.id, identity.identityHash, input.items.map((item) => normalizeItem(item as unknown as Record<string, unknown>))) : undefined;
+      const fullStateHash = request.snapshot_mode === 'full' ? await computeFullShopStateHash(source.id, identity.identityHash, input.items) : undefined;
       return { sourceId: source.id, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: input.shop_status, batchId, clientRunId: request.client_run_id, observedAt, vendorAccountId: input.vendor_account_id, vendorName: input.vendor_name, title: input.title, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y, profileHash, ...(fullStateHash === undefined ? {} : { fullStateHash }) } satisfies ShopSessionContextInput;
     }));
+    onStage?.('resolve_shops');
     const resolutions = repo.resolveShopObservations
       ? await repo.resolveShopObservations(contexts)
       : await mapConcurrent(identified, SHOP_RESOLUTION_CONCURRENCY, ({ input, identity }) => resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity));
@@ -140,18 +148,20 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     const opening = resolved.filter((entry) => entry.input.shop_status === 'opening' && entry.resolution.applied && entry.resolution.session);
     const listingEntries = opening.filter((entry) => request.snapshot_mode !== 'full' || entry.resolution.readListings !== false);
     const sessions = opening.map((entry) => entry.resolution.session!);
+    onStage?.('item_fingerprints');
     const observationGroups = await mapConcurrent(listingEntries, SHOP_RESOLUTION_CONCURRENCY, async ({ input, resolution }) => {
       const session = resolution.session!;
       if (request.snapshot_mode === 'heartbeat') return [];
-      return mapConcurrent(input.items, ITEM_FINGERPRINT_CONCURRENCY, async (rawItem) => {
-        const item = normalizeItem(rawItem as unknown as Record<string, unknown>);
+      return mapConcurrent(input.items, ITEM_FINGERPRINT_CONCURRENCY, async (item) => {
         return { fingerprint: await computeItemFingerprint({ sourceId: source.id, shopSessionId: session.id, ...(item.item_key === undefined ? {} : { itemKey: item.item_key }), itemId: item.item_id, upgrade: item.upgrade, slots: item.slots, cards: item.cards, options: item.options }), item, sessionId: session.id, shopId: resolution.shopId };
       });
     });
     const observations = observationGroups.flat();
 
+    onStage?.('record_snapshot');
     if (request.snapshot_mode === 'full' && repo.recordSnapshotSessions) await repo.recordSnapshotSessions(source.id, request.snapshot_id, [...new Set(sessions.map((session) => session.id))], observedAt);
     const sessionsById = new Map(listingEntries.map((entry) => entry.resolution.session!).map((session) => [session.id, session]));
+    onStage?.('apply_listings');
     const stateResult = request.snapshot_mode === 'heartbeat'
       ? { processedListings: 0, changedListings: 0, soldEvents: 0 }
       : state.applyBatchObservationsBulk
@@ -161,6 +171,7 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     // Listing state transitions already update last_changed_snapshot_id. Observed
     // marking is only needed for listings that were unchanged by the transition
     // service, and must not be performed for unchanged full shops.
+    onStage?.('mark_observed');
     if (request.snapshot_mode !== 'heartbeat' && repo.markListingsObservedBulk) {
       const observed = stateResult.observed ?? observations.map((observation) => ({ sessionId: observation.sessionId, fingerprint: observation.fingerprint }));
       if (observed.length > 0) await repo.markListingsObservedBulk(observed, batch.batchId, observedAt);
@@ -171,18 +182,23 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     }
 
     const response: UploadResult = { accepted: true, batch_id: batchId, duplicate: false, processed_shops: request.shops.length, processed_listings: stateResult.processedListings, changed_listings: stateResult.changedListings, sold_events: stateResult.soldEvents, shops: resolved.map(({ input, resolution }) => ({ uuid: input.uuid, shop_id: resolution.shopId, shop_status: input.shop_status, applied: resolution.applied, resolution: resolution.resolution })), next: null };
+    onStage?.('complete_batch');
     await repo.completeBatch(source.id, batch.batchId, response);
     if (request.snapshot_mode === 'full' && repo.updateShopFullStateHashes) {
+      onStage?.('update_shop_hashes');
       await repo.updateShopFullStateHashes(opening.flatMap((entry) => entry.context.fullStateHash === undefined ? [] : [{ shopId: entry.resolution.internalShopId, fullStateHash: entry.context.fullStateHash }]), observedAt);
     }
-    if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, observedAt);
+    if (request.snapshot_mode === 'full') {
+      onStage?.('finalize_snapshot');
+      await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, observedAt);
+    }
     return response;
   } catch (error) {
     if (repo.failBatch) {
       try {
         await repo.failBatch(source.id, batch.batchId);
       } catch (cleanupError) {
-        console.error('Failed to mark upload batch rejected', cleanupError);
+        console.error(JSON.stringify({ metric: 'lastroweb.upload_cleanup_error', source_id: source.id, error_class: cleanupError instanceof Error ? cleanupError.name : 'UnknownError' }));
       }
     }
     throw error;

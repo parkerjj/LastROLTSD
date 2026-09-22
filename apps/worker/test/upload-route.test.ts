@@ -83,7 +83,7 @@ describe('upload route', () => {
     expect((await limited.json() as { error: { code: string } }).error.code).toBe('payload_too_large');
   });
 
-  it('logs the received payload and the expected source state for a 403', async () => {
+  it('logs only safe authentication diagnostics for a 403', async () => {
     const key = 'route-secret';
     const app = new Hono();
     const repository = repo(await hashApiKey(key), 'disabled');
@@ -93,12 +93,56 @@ describe('upload route', () => {
     try {
       const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
       expect(response.status).toBe(403);
-      const received = JSON.parse(String(output.mock.calls[0]?.[0])) as { metric: string; payload: typeof heartbeatPayload };
-      const failure = JSON.parse(String(errors.mock.calls[0]?.[0])) as { metric: string; status: number; details: { expected: string; actual: string; tokenHashPrefix: string; storedHashPrefix: string } };
-      expect(received.metric).toBe('lastroweb.upload_received');
-      expect(received.payload.snapshot_id).toBe('snap');
-      expect(failure).toMatchObject({ metric: 'lastroweb.upload_error', status: 403, details: { expected: 'active', actual: 'disabled' } });
-      expect(failure.details.tokenHashPrefix).toBe(failure.details.storedHashPrefix);
+      expect(output).not.toHaveBeenCalled();
+      const failure = JSON.parse(String(errors.mock.calls[0]?.[0]));
+      expect(failure).toMatchObject({ metric: 'lastroweb.upload_error', status: 403, details: { stage: 'authenticate', expected: 'active', actual: 'disabled' } });
+      expect(failure.details).not.toHaveProperty('tokenHashPrefix');
+      expect(failure.details).not.toHaveProperty('storedHashPrefix');
+      expect(JSON.stringify(errors.mock.calls)).not.toContain('vendor-account');
+    } finally {
+      output.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
+  it('does not log successful upload bodies, including large requests', async () => {
+    const key = 'route-secret';
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      for (const padding of ['', ' '.repeat(70_000)]) {
+        const app = new Hono();
+        registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repo(await hashApiKey(key)), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+        const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) + padding });
+        expect(response.status).toBe(202);
+      }
+      expect(output).not.toHaveBeenCalled();
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      output.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
+  it('keeps malformed JSON, unknown fields, and idempotency values out of error logs', async () => {
+    const key = 'route-secret';
+    const app = new Hono();
+    registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repo(await hashApiKey(key)), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      for (const [body, idempotencyKey, status] of [
+        ['{"private-payload":secret-value}', 'snap/0', 400],
+        [JSON.stringify({ ...heartbeatPayload, 'private-field-name': 'secret-value' }), 'snap/0', 422],
+        [JSON.stringify(heartbeatPayload), 'private-key/0', 400],
+      ] as const) {
+        const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'idempotency-key': idempotencyKey }, body });
+        expect(response.status).toBe(status);
+      }
+      expect(errors).toHaveBeenCalledTimes(3);
+      const logs = JSON.stringify([...output.mock.calls, ...errors.mock.calls]);
+      for (const value of ['private-payload', 'secret-value', 'private-field-name', 'private-key', key, 'vendor-account']) expect(logs).not.toContain(value);
+      expect(JSON.parse(String(errors.mock.calls[1]?.[0])).details).toMatchObject({ stage: 'validate', issues: [{ path: [], code: 'unrecognized_keys' }] });
     } finally {
       output.mockRestore();
       errors.mockRestore();
@@ -117,6 +161,19 @@ describe('upload route', () => {
     expect(body.error.message).toBe('Unexpected internal error');
     expect(body.error.message).not.toContain('SQLITE');
     expect(body.error.retryable).toBe(true);
+  });
+
+  it('uses UTF-8 byte length for upload limits without trusting content-length', async () => {
+    const key = 'route-secret';
+    const payload = JSON.stringify({ ...heartbeatPayload, shops: [{ ...heartbeatPayload.shops[0], title: '\u6d4b\u8bd5\u5546\u5e97' }] });
+    const bytes = new TextEncoder().encode(payload).byteLength;
+    expect(bytes).toBeGreaterThan(payload.length);
+    for (const limit of [bytes - 1, bytes]) {
+      const app = new Hono();
+      registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: limit }, repo(await hashApiKey(key)), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+      const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'idempotency-key': 'snap/0', 'content-length': '1' }, body: payload });
+      expect(response.status).toBe(limit < bytes ? 413 : 202);
+    }
   });
 
   it('logs MySQL error codes without exposing database diagnostics to the client', async () => {
@@ -138,7 +195,7 @@ describe('upload route', () => {
       expect(body).not.toContain('private SQL');
       expect(JSON.parse(String(errors.mock.calls[0]?.[0]))).toMatchObject({
         metric: 'lastroweb.upload_error', source_id: 's1',
-        details: { mysql_code: 'ER_CANT_AGGREGATE_2COLLATIONS', mysql_errno: 1267, mysql_sql_state: 'HY000' },
+        details: { stage: 'claim_batch', mysql_code: 'ER_CANT_AGGREGATE_2COLLATIONS', mysql_errno: 1267, mysql_sql_state: 'HY000' },
       });
       expect(JSON.stringify(errors.mock.calls)).not.toContain('private SQL');
     } finally {

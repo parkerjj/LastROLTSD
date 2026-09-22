@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- light warm medallion background, matching the stall palette -->
+  <circle cx="64" cy="64" r="60" fill="#f5eddd"/>
+  <circle cx="64" cy="64" r="60" fill="none" stroke="#d9c49a" stroke-width="3"/>
+
+  <!-- body / tunic -->
+  <path d="M44 104 Q42 78 64 78 Q86 78 84 104 Z" fill="#e8b06a" stroke="#5c4430" stroke-width="3" stroke-linejoin="round"/>
+  <!-- apron -->
+  <path d="M53 84 H75 V104 H53 Z" fill="#fbf4e4" stroke="#5c4430" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M53 84 Q59 90 64 84 Q69 90 75 84" fill="none" stroke="#5c4430" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- belt -->
+  <rect x="44" y="100" width="40" height="7" fill="#7a4a2c" stroke="#5c4430" stroke-width="2.2"/>
+  <!-- feet -->
+  <ellipse cx="54" cy="110" rx="7" ry="4" fill="#3c2c1e" stroke="#5c4430" stroke-width="2.2"/>
+  <ellipse cx="74" cy="110" rx="7" ry="4" fill="#3c2c1e" stroke="#5c4430" stroke-width="2.2"/>
+
+  <!-- arm holding a coin -->
+  <path d="M82 86 Q94 84 98 76" fill="none" stroke="#5c4430" stroke-width="8" stroke-linecap="round"/>
+  <path d="M82 86 Q94 84 98 76" fill="none" stroke="#e8b06a" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="100" cy="73" r="7.5" fill="#e9bd4e" stroke="#7a541a" stroke-width="2.2"/>
+  <path d="M97.5 70 H102.5 L98 76 H102.8" fill="none" stroke="#7a541a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- head -->
+  <circle cx="64" cy="55" r="21" fill="#f4caa2" stroke="#5c4430" stroke-width="3"/>
+  <!-- ears -->
+  <circle cx="44" cy="56" r="4.4" fill="#f4caa2" stroke="#5c4430" stroke-width="2.4"/>
+  <circle cx="84" cy="56" r="4.4" fill="#f4caa2" stroke="#5c4430" stroke-width="2.4"/>
+
+  <!-- merchant cap -->
+  <path d="M43 50 Q44 30 64 30 Q84 30 85 50 Q75 43 64 43 Q53 43 43 50 Z" fill="#3f7d63" stroke="#5c4430" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M43 50 Q53 45 64 45 Q75 45 85 50" fill="none" stroke="#5c4430" stroke-width="2.6"/>
+  <!-- feather -->
+  <path d="M78 33 Q90 24 92 16 Q84 20 80 30 Z" fill="#fbf4e4" stroke="#5c4430" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M80 30 Q85 24 91 17" fill="none" stroke="#b8a888" stroke-width="1.6"/>
+
+  <!-- face -->
+  <circle cx="56.5" cy="57" r="2.6" fill="#5c4430"/>
+  <circle cx="71.5" cy="57" r="2.6" fill="#5c4430"/>
+  <circle cx="51" cy="63" r="3" fill="#ec8d7a" opacity=".75"/>
+  <circle cx="77" cy="63" r="3" fill="#ec8d7a" opacity=".75"/>
+  <path d="M60 65 Q64 68.5 68 65" fill="none" stroke="#5c4430" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

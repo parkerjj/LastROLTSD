@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>手机端体验重设计 · 效果图</title>
+<style>
+  :root {
+    --forest: #1d332b;
+    --forest-card: #f7f4ee;
+    --red: #b84d3f;
+    --red-dark: #8d3f35;
+    --gold: #c69445;
+    --line: #d1c7b6;
+    --muted: #6d776f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 44px 40px 90px;
+    background: #e6dfd0;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #27352e;
+  }
+  .doc-head { max-width: 1280px; margin: 0 auto 14px; }
+  .doc-head .kicker { margin: 0 0 8px; color: var(--red-dark); font-size: .72rem; font-weight: 900; letter-spacing: .22em; }
+  .doc-head h1 { margin: 0 0 10px; font-family: Georgia, "Microsoft YaHei", serif; font-size: 2rem; color: var(--forest); }
+  .doc-head p { margin: 0; color: #5d6961; font-size: .9rem; line-height: 1.8; }
+  .fix-list { max-width: 1280px; margin: 18px auto 40px; padding: 16px 22px; background: rgba(255,253,247,.75); border: 1px solid #c9bda6; border-left: 3px solid var(--gold); border-radius: 8px; }
+  .fix-list h2 { margin: 0 0 8px; font-size: .92rem; color: var(--forest); }
+  .fix-list ul { margin: 0; padding-left: 20px; color: #5d6961; font-size: .8rem; line-height: 1.9; }
+  .fix-list b { color: var(--red-dark); }
+
+  .stage-wrap { display: flex; flex-wrap: wrap; gap: 56px 64px; align-items: flex-start; max-width: 1280px; margin: 0 auto; }
+  .stage { position: relative; }
+  .stage-label { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; max-width: 420px; }
+  .stage-label strong { font-size: 1rem; color: var(--forest); }
+  .stage-label span { font-size: .74rem; color: #808980; }
+  .stage-label .tag { padding: 2px 8px; color: #7a4e14; background: rgba(198,148,69,.18); border-radius: 4px; font-size: .66rem; font-weight: 800; }
+
+  /* ---- 手机外壳 ---- */
+  .frame-phone { background: #eee8dc; border: 1px solid #b9ad97; border-radius: 30px; overflow: visible; box-shadow: 0 24px 50px rgba(74,57,35,.22); }
+  .phone-notch { width: 120px; height: 22px; margin: 0 auto; background: #d8cfbd; border-radius: 0 0 14px 14px; }
+  .phone-body { padding: 14px 12px 22px; }
+  .phone-body .cap { margin: 0 2px 10px; color: #8a9189; font-size: .66rem; }
+
+  /* ---- PC 外壳 ---- */
+  .frame-desktop { width: 760px; background: #eee8dc; border: 1px solid #b9ad97; border-radius: 12px; overflow: visible; box-shadow: 0 24px 50px rgba(74,57,35,.18); }
+  .frame-chrome { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; background: #e2dac9; border-bottom: 1px solid #cbbfaa; border-radius: 12px 12px 0 0; }
+  .frame-chrome i { width: 10px; height: 10px; border-radius: 50%; background: #c4b89f; }
+  .frame-url { margin-left: 12px; padding: 4px 14px; background: #f2ecdf; border-radius: 999px; color: #8a8372; font-size: .68rem; }
+  .frame-body { padding: 20px 22px 26px; }
+
+  /* ================= 真实样式还原 ================= */
+  mark { padding: 0 4px; border-radius: 2px; background: rgba(198,148,69,.32); color: #7a4e14; font-weight: 900; }
+
+  .result-group { border: 1px solid #b9ab94; background: rgba(249,246,239,.92); border-radius: 10px; box-shadow: 0 8px 18px rgba(80,62,35,.06); }
+  .group-heading { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 11px 13px; background: #eee6d8; border-bottom: 1px solid #d4c8b7; border-radius: 9px 9px 0 0; }
+  .group-heading strong { color: var(--forest); font-size: .96rem; }
+  .group-heading small { display: block; color: #7c857d; font-size: .66rem; }
+  .group-count { padding: 4px 8px; color: var(--red-dark); background: #f6ded6; border: 1px solid #e0b5aa; border-radius: 5px; font-size: .66rem; font-weight: 800; white-space: nowrap; }
+
+  /* ---- 新版手机端物品卡片 ---- */
+  .name-stack { display: grid; gap: 10px; padding: 12px; }
+  .market-card {
+    display: grid;
+    grid-template-columns: 44px minmax(0,1fr) auto;
+    grid-template-areas:
+      "icon main price"
+      "loc  loc  loc"
+      "shop shop shop"
+      "foot foot foot";
+    gap: 8px 10px;
+    padding: 12px 13px;
+    background: #fdfaf3;
+    border: 1px solid #dcd1bd;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(80,62,35,.05);
+  }
+  .mc-icon { grid-area: icon; display: grid; place-items: center; width: 44px; height: 44px; background: linear-gradient(180deg,#f6eddc,#eee2cc); border: 1px solid #d6c4a3; border-radius: 8px; overflow: hidden; }
+  .mc-icon img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+  .mc-main { grid-area: main; display: grid; align-content: center; gap: 2px; min-width: 0; }
+  .mc-main h3 { margin: 0; overflow: hidden; color: var(--forest); font-size: .98rem; text-overflow: ellipsis; white-space: nowrap; }
+  .mc-options { margin: 0; overflow: hidden; color: #8a9189; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+  .mc-price { grid-area: price; display: grid; align-content: center; justify-items: end; gap: 3px; min-width: 0; }
+  .mc-price strong { color: var(--red-dark); font-family: ui-monospace, Consolas, monospace; font-size: 1.12rem; line-height: 1; white-space: nowrap; }
+  .mc-price strong small { margin-left: 2px; font-size: .64rem; font-weight: 700; }
+  .mc-qty { padding: 2px 8px; color: #7c6a44; background: #f4ead5; border: 1px solid #e0d0ac; border-radius: 999px; font-size: .6rem; font-weight: 800; white-space: nowrap; }
+  .mc-loc { grid-area: loc; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 8px; padding-top: 7px; border-top: 1px dashed #e5dac7; }
+  .loc-pin { display: inline-flex; align-items: center; gap: 5px; color: #46554b; font-size: .7rem; font-weight: 700; white-space: nowrap; }
+  .loc-pin svg { width: 13px; height: 13px; color: var(--red-dark); }
+  .loc-pin span { color: #8a9189; font-weight: 500; }
+  .mc-shop { grid-area: shop; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; min-width: 0; }
+  .mc-shop strong { overflow: hidden; color: #3c4c42; font-size: .7rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .mc-shop .dot { color: #b7ab95; }
+  .mc-shop small { color: #829086; font-size: .68rem; }
+  .mc-actions { grid-area: foot; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px dashed #e2d8c4; }
+  .rel-time { color: #98a096; font-size: .66rem; white-space: nowrap; }
+  .map-button {
+    display: inline-flex; align-items: center; gap: 4px;
+    min-height: 26px; padding: 3px 10px;
+    color: var(--forest); background: transparent; border: 1px solid #a99b86; border-radius: 999px;
+    font-size: .62rem; font-weight: 800; cursor: pointer;
+  }
+  .history-button {
+    display: inline-flex; align-items: center; gap: 4px;
+    min-height: 28px; padding: 4px 10px;
+    color: var(--forest); background: transparent; border: 1px solid #a99b86; border-radius: 999px;
+    font-size: .62rem; font-weight: 800; white-space: nowrap; cursor: pointer;
+  }
+  .history-button svg { width: 12px; height: 12px; }
+
+  /* ---- 商店卡片（手机） ---- */
+  .shop-stack { display: grid; gap: 12px; padding: 12px; }
+  .shop-card { background: #fbf8f2; border: 1px solid #c3b59d; border-radius: 10px; box-shadow: 0 6px 16px rgba(80,62,35,.07); overflow: visible; }
+  .shop-card-head { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 10px; align-items: center; padding: 12px 13px; background: linear-gradient(180deg,#f4ebd9,#f0e5cf); border-bottom: 1px solid #e1d3b7; border-radius: 10px 10px 0 0; }
+  .shop-avatar { width: 42px; height: 42px; border: 1px solid #c3a368; border-radius: 9px; overflow: hidden; box-shadow: 0 2px 5px rgba(80,62,35,.15); }
+  .shop-avatar img { display: block; width: 100%; height: 100%; }
+  .shop-title-block { min-width: 0; display: grid; gap: 2px; }
+  .shop-title-block h3 { margin: 0; overflow: hidden; color: var(--forest); font-size: 1.02rem; text-overflow: ellipsis; white-space: nowrap; }
+  .shop-title-block small { color: #7c857d; font-size: .66rem; }
+  .shop-meta { grid-column: 1 / -1; display: grid; gap: 6px; }
+  .shop-meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .loc-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; color: #4a3a1c; background: rgba(255,253,246,.85); border: 1px solid #d8c49a; border-radius: 999px; font-size: .64rem; font-weight: 700; white-space: nowrap; }
+  .loc-chip svg { width: 12px; height: 12px; color: var(--red-dark); }
+  .shop-stat-line { display: flex; align-items: center; gap: 5px; color: #8a8372; font-size: .64rem; }
+  .shop-stat-line svg { width: 12px; height: 12px; color: #8a601f; }
+  .shop-stat-line .dot { margin: 0 2px; color: #c4b48f; }
+
+  /* ---- 紧凑商品行：修复后 ---- */
+  .line-list { margin: 0; padding: 5px 7px; list-style: none; }
+  .line {
+    display: grid;
+    grid-template-columns: 30px minmax(0,1fr) auto auto;
+    align-items: center; gap: 8px;
+    padding: 7px 8px;
+    border-radius: 7px;
+  }
+  .line + .line { border-top: 1px solid #ece2d0; }
+  .line-icon { display: grid; place-items: center; width: 30px; height: 30px; background: #f2e9d7; border: 1px solid #ddcfb5; border-radius: 5px; overflow: hidden; }
+  .line-icon img { width: 24px; height: 24px; object-fit: contain; image-rendering: pixelated; }
+  .line-name { display: grid; gap: 1px; min-width: 0; }
+  .line-name strong { overflow: hidden; color: var(--forest); font-size: .83rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+  .line-name small { overflow: hidden; color: #8a9189; font-size: .64rem; text-overflow: ellipsis; white-space: nowrap; }
+  .line-price { color: var(--red-dark); font-family: ui-monospace, Consolas, monospace; font-size: .82rem; font-weight: 800; text-align: right; white-space: nowrap; }
+  .line-price small { margin-left: 2px; font-size: .62rem; font-weight: 600; color: #9aa9a0; }
+  .line .history-button { min-height: 27px; padding: 4px 9px; font-size: .6rem; }
+  .line .history-button svg { width: 11px; height: 11px; }
+
+  /* 超窄屏：图标化历史按钮 */
+  .narrow .line { grid-template-columns: 28px minmax(0,1fr) auto auto; gap: 6px; }
+  .narrow .line-icon { width: 28px; height: 28px; }
+  .narrow .line-name strong { font-size: .8rem; }
+  .narrow .line-price { font-size: .76rem; }
+  .narrow .line .history-button { width: 30px; min-height: 30px; padding: 0; justify-content: center; }
+  .narrow .line .history-button .hb-label { display: none; }
+
+  /* ================= 物品详情浮层 ================= */
+  .item-pop {
+    position: relative;
+    width: 286px;
+    background: #fbf8f2;
+    border: 1px solid #b9ab94;
+    border-radius: 10px;
+    box-shadow: 0 18px 40px rgba(74,57,35,.2);
+    overflow: hidden;
+  }
+  .pop-head { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 9px; align-items: center; padding: 11px 12px; background: linear-gradient(180deg,#f4ebd9,#f1e8d6); border-bottom: 1px solid #e1d3b7; }
+  .pop-icon { display: grid; place-items: center; width: 36px; height: 36px; background: #f2e9d7; border: 1px solid #d8c49a; border-radius: 7px; overflow: hidden; }
+  .pop-icon img { width: 27px; height: 27px; object-fit: contain; image-rendering: pixelated; }
+  .pop-head-copy { min-width: 0; display: grid; gap: 1px; }
+  .pop-head-copy strong { overflow: hidden; color: var(--forest); font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+  .pop-head-copy small { color: #8a8372; font-size: .64rem; }
+  .pop-close { display: grid; place-items: center; width: 28px; min-height: 28px; height: 28px; padding: 0; color: var(--forest); background: transparent; border: 1px solid #c9bb9f; border-radius: 6px; cursor: pointer; }
+  .pop-close svg { width: 13px; height: 13px; }
+  .pop-body { padding: 11px 13px 13px; color: #4c5a50; font-size: .72rem; line-height: 1.75; white-space: pre-line; }
+
+  /* PC：浮层位于卡片右侧 */
+  .desktop-demo { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 26px; align-items: center; padding: 22px; }
+  .desktop-demo .dcard { padding: 13px 15px; background: #fdfaf3; border: 1px solid #dcd1bd; border-radius: 10px; box-shadow: 0 2px 6px rgba(80,62,35,.05); display: grid; grid-template-columns: 46px minmax(0,1fr) auto; gap: 11px; align-items: center; }
+  .desktop-demo .dcard .mc-icon { width: 46px; height: 46px; }
+  .desktop-demo .dcard h3 { margin: 0; color: var(--forest); font-size: 1rem; }
+  .desktop-demo .dcard small { color: #8a9189; font-size: .68rem; }
+  .desktop-demo .dcard .dprice { color: var(--red-dark); font-family: ui-monospace, Consolas, monospace; font-size: 1.15rem; font-weight: 800; white-space: nowrap; }
+  .pop-wrap--right { position: relative; }
+  .pop-wrap--right .item-pop::before {
+    position: absolute; top: 50%; left: -5px; width: 9px; height: 9px;
+    background: #fbf8f2; border-left: 1px solid #b9ab94; border-bottom: 1px solid #b9ab94;
+    content: ""; transform: translateY(-50%) rotate(45deg);
+  }
+  .pop-note { margin: 10px 0 0; color: #8a8372; font-size: .68rem; text-align: center; }
+
+  /* 手机：浮层锚定在条目上方 */
+  .mobile-demo { padding: 14px 12px 18px; position: relative; }
+  .pop-wrap--above { display: grid; justify-items: center; margin-bottom: 12px; position: relative; }
+  .pop-wrap--above .item-pop { width: 100%; }
+  .pop-wrap--above .item-pop::after {
+    position: absolute; bottom: -5px; left: 50%; width: 9px; height: 9px;
+    background: #fbf8f2; border-right: 1px solid #b9ab94; border-bottom: 1px solid #b9ab94;
+    content: ""; transform: translateX(-50%) rotate(45deg);
+  }
+  .tap-card { width: 100%; padding: 11px 13px; background: #fdfaf3; border: 1px dashed #c8b592; border-radius: 10px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto; gap: 9px; align-items: center; }
+  .tap-card .mc-icon { width: 38px; height: 38px; }
+  .tap-card h3 { margin: 0; color: var(--forest); font-size: .88rem; }
+  .tap-card small { color: #8a9189; font-size: .64rem; }
+  .tap-card .dprice { color: var(--red-dark); font-family: ui-monospace, Consolas, monospace; font-size: 1rem; font-weight: 800; }
+  .tap-hint { margin: 10px 2px 0; color: #8a8372; font-size: .64rem; text-align: center; }
+  .tap-hint b { color: var(--red-dark); }
+
+  .anno { margin-top: 26px; padding: 14px 18px; background: rgba(255,253,247,.75); border: 1px solid #c9bda6; border-radius: 8px; max-width: 1280px; }
+  .anno h2 { margin: 0 0 6px; font-size: .92rem; color: var(--forest); }
+  .anno p { margin: 0; color: #5d6961; font-size: .8rem; line-height: 1.9; }
+  .anno code { padding: 1px 6px; color: #8d3f35; background: rgba(184,77,63,.1); border-radius: 4px; font-family: ui-monospace, Consolas, monospace; font-size: .78rem; }
+</style>
+</head>
+<body>
+
+<div class="doc-head">
+  <p class="kicker">MOBILE POLISH / 响应式重设计</p>
+  <h1>手机端体验重设计 · 效果图</h1>
+  <p>仅重排 ≤760px 的手机布局，PC 端现有布局完全不动。下方同时展示紧凑行按钮修复与物品详情浮层的恢复方案。</p>
+</div>
+
+<div class="fix-list">
+  <h2>本次包含的 5 项修复</h2>
+  <ul>
+    <li><b>① 手机端物品卡片重排</b>：图标 / 名称 / 价格同一行，位置与商店信息紧凑排列，底部操作行固定 —— 消除大面积空白。</li>
+    <li><b>② 卡片图标</b>：物品名最后两个字为「卡片」时（如 波利卡片、研究所进出卡片），图标固定取 <code>items/small/card.gif</code>；「仙境环保卡片夹」等不以卡片结尾的道具不受影响。</li>
+    <li><b>③ 主搜索框回车搜索</b>：按回车（含手机软键盘的前往 / 搜索键）直接发起搜索；下拉建议高亮时回车仍为选中建议。</li>
+    <li><b>④ 修复价格历史按钮边框</b>：商店 / 商人命中区紧凑行在手机端按钮不再被挤成圆形，恢复为正常胶囊，超窄屏（≤380px）自动收成图标按钮。</li>
+    <li><b>⑤ 恢复物品详情浮层</b>：PC 端鼠标悬停条目即显示；手机端点击条目空白处（非按钮区域）弹出锚定浮层，点击关闭按钮 / 浮层外 / Esc 关闭。浮层会自动清洗 RO 颜色代码（^000088 等）。</li>
+  </ul>
+</div>
+
+<div class="stage-wrap">
+
+  <!-- ========== ① 新版手机物品卡片 ========== -->
+  <div class="stage">
+    <div class="stage-label"><span class="tag">手机 390px</span><strong>物品名称命中 · 新版卡片</strong><span>高密度四行结构</span></div>
+    <div class="frame-phone">
+      <div class="phone-notch"></div>
+      <div class="phone-body">
+        <div class="result-group">
+          <div class="group-heading">
+            <div><strong>物品名称命中</strong><small>名称中包含搜索词</small></div>
+            <span class="group-count">20 条</span>
+          </div>
+          <div class="name-stack">
+
+            <article class="market-card">
+              <div class="mc-icon"><img src="http://localhost:8787/api/v1/assets/items/small/601.gif?lastroweb=v3" alt="" /></div>
+              <div class="mc-main">
+                <h3>苍蝇<mark>翅膀</mark></h3>
+                <p class="mc-options">暂无词条</p>
+              </div>
+              <div class="mc-price">
+                <strong>150<small>z</small></strong>
+                <span class="mc-qty">×658 件</span>
+              </div>
+              <div class="mc-loc">
+                <span class="loc-pin"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a72 72 0 0 0-72 72c0 50 72 136 72 136s72-86 72-136a72 72 0 0 0-72-72Zm0 98a26 26 0 1 1 0-52 26 26 0 0 1 0 52Z"/></svg>梦罗克 <span>154，90</span></span>
+                <button type="button" class="map-button">地图定位</button>
+              </div>
+              <div class="mc-shop">
+                <strong>卖草莓苍蝇攒点转生钱</strong><span class="dot">·</span><small>希诺宁</small>
+              </div>
+              <div class="mc-actions">
+                <button type="button" class="history-button"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+                <time class="rel-time">9 分钟前</time>
+              </div>
+            </article>
+
+            <article class="market-card">
+              <div class="mc-icon"><img src="http://localhost:8787/api/v1/assets/items/small/1203.gif?lastroweb=v3" alt="" /></div>
+              <div class="mc-main">
+                <h3>疾风<mark>翅膀</mark></h3>
+                <p class="mc-options">AGI + 3 · 3 插槽</p>
+              </div>
+              <div class="mc-price">
+                <strong>12,800<small>z</small></strong>
+                <span class="mc-qty">×2 件</span>
+              </div>
+              <div class="mc-loc">
+                <span class="loc-pin"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a72 72 0 0 0-72 72c0 50 72 136 72 136s72-86 72-136a72 72 0 0 0-72-72Zm0 98a26 26 0 1 1 0-52 26 26 0 0 1 0 52Z"/></svg>普隆德拉 <span>88，152</span></span>
+                <button type="button" class="map-button">地图定位</button>
+              </div>
+              <div class="mc-shop">
+                <strong>风之装备小店</strong><span class="dot">·</span><small>风之商人</small>
+              </div>
+              <div class="mc-actions">
+                <button type="button" class="history-button"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+                <time class="rel-time">2 小时前</time>
+              </div>
+            </article>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== ② 紧凑行修复：390px ========== -->
+  <div class="stage">
+    <div class="stage-label"><span class="tag">手机 390px</span><strong>商店 / 商人命中 · 紧凑行修复</strong><span>按钮留在同一行</span></div>
+    <div class="frame-phone">
+      <div class="phone-notch"></div>
+      <div class="phone-body">
+        <div class="result-group">
+          <div class="group-heading">
+            <div><strong>商店名称命中</strong><small>商店标题中包含搜索词 · 按商店聚合</small></div>
+            <span class="group-count">1 间商店 · 3 件</span>
+          </div>
+          <div class="shop-stack">
+            <article class="shop-card">
+              <header class="shop-card-head">
+                <span class="shop-avatar"><img src="/ui/shop.svg" alt="" /></span>
+                <div class="shop-title-block">
+                  <h3>卖草莓苍蝇<mark>攒点</mark>转生钱</h3>
+                  <small>店主 <b>希诺宁</b></small>
+                </div>
+                <div class="shop-meta">
+                  <div class="shop-meta-row">
+                    <span class="loc-chip"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a72 72 0 0 0-72 72c0 50 72 136 72 136s72-86 72-136a72 72 0 0 0-72-72Zm0 98a26 26 0 1 1 0-52 26 26 0 0 1 0 52Z"/></svg>梦罗克 154，90</span>
+                    <button type="button" class="map-button">地图定位</button>
+                  </div>
+                  <div class="shop-stat-line">
+                    <svg viewBox="0 0 256 256" fill="currentColor"><path d="M128 28a100 100 0 1 0 100 100A100 100 0 0 0 128 28Zm10 108H70v-20h48V74h20Z"/></svg>
+                    本页 3 件在售商品<span class="dot">·</span>最近变动 13 分钟前
+                  </div>
+                </div>
+              </header>
+              <ul class="line-list">
+                <li class="line">
+                  <span class="line-icon"><img src="http://localhost:8787/api/v1/assets/items/small/601.gif?lastroweb=v3" alt="" /></span>
+                  <span class="line-name"><strong>苍蝇翅膀</strong><small>暂无词条</small></span>
+                  <span class="line-price">150z<small>· 658 件</small></span>
+                  <button type="button" class="history-button"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+                </li>
+                <li class="line">
+                  <span class="line-icon"><img src="http://localhost:8787/api/v1/assets/items/small/513.gif?lastroweb=v3" alt="" /></span>
+                  <span class="line-name"><strong>草莓</strong><small>暂无词条</small></span>
+                  <span class="line-price">200z<small>· 2243 件</small></span>
+                  <button type="button" class="history-button"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+                </li>
+                <li class="line">
+                  <span class="line-icon"><img src="http://localhost:8787/api/v1/assets/items/small/card.gif?lastroweb=v3" alt="" /></span>
+                  <span class="line-name"><strong>波利卡片</strong><small>LUK+2 · 完全回避+1</small></span>
+                  <span class="line-price">8,500z<small>· 1 件</small></span>
+                  <button type="button" class="history-button"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+                </li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== ③ 超窄屏 340px ========== -->
+  <div class="stage">
+    <div class="stage-label"><span class="tag">超窄屏 340px</span><strong>历史按钮自动图标化</strong><span>≤380px 触发</span></div>
+    <div class="frame-phone narrow" style="width:340px">
+      <div class="phone-notch"></div>
+      <div class="phone-body">
+        <ul class="line-list" style="background:rgba(249,246,239,.92);border:1px solid #b9ab94;border-radius:10px">
+          <li class="line">
+            <span class="line-icon"><img src="http://localhost:8787/api/v1/assets/items/small/601.gif?lastroweb=v3" alt="" /></span>
+            <span class="line-name"><strong>苍蝇翅膀</strong><small>暂无词条</small></span>
+            <span class="line-price">150z<small>·658件</small></span>
+            <button type="button" class="history-button" aria-label="查看价格历史"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+          </li>
+          <li class="line">
+            <span class="line-icon"><img src="http://localhost:8787/api/v1/assets/items/small/card.gif?lastroweb=v3" alt="" /></span>
+            <span class="line-name"><strong>波利卡片</strong><small>LUK+2</small></span>
+            <span class="line-price">8,500z<small>·1件</small></span>
+            <button type="button" class="history-button" aria-label="查看价格历史"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M32 204h42V96H32Zm75 0h42V48h-42Zm75 0h42v-72h-42Z"/></svg><span class="hb-label">价格历史</span></button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== ④ PC 详情浮层 ========== -->
+  <div class="stage">
+    <div class="stage-label"><span class="tag">PC 端</span><strong>物品详情浮层 · 悬停恢复</strong><span>鼠标移入条目即显示</span></div>
+    <div class="frame-desktop">
+      <div class="frame-chrome"><i></i><i></i><i></i><span class="frame-url">lastroweb — 搜索：翅膀</span></div>
+      <div class="frame-body">
+        <div class="desktop-demo">
+          <div class="dcard">
+            <span class="mc-icon"><img src="http://localhost:8787/api/v1/assets/items/small/card.gif?lastroweb=v3" alt="" style="width:34px;height:34px" /></span>
+            <div>
+              <h3>波利<mark>卡片</mark></h3>
+              <small>物品 ID 4001</small>
+            </div>
+            <span class="dprice">8,500 z</span>
+          </div>
+          <div class="pop-wrap--right">
+            <div class="item-pop">
+              <div class="pop-head">
+                <span class="pop-icon"><img src="http://localhost:8787/api/v1/assets/items/small/card.gif?lastroweb=v3" alt="" /></span>
+                <span class="pop-head-copy"><strong>波利卡片</strong><small>物品 ID 4001</small></span>
+                <button type="button" class="pop-close" aria-label="关闭"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M208 56 136 128l72 72-24 24-72-72-72 72-24-24 72-72L16 56l24-24 72 72 72-72Z"/></svg></button>
+              </div>
+              <div class="pop-body">LUK+2
+完全回避+1
+系列: 卡片
+装备: 盔甲
+重量: 1</div>
+            </div>
+          </div>
+        </div>
+        <p class="pop-note">浮层优先显示在条目右侧，靠近屏幕边缘时自动翻到左侧 / 下方；^000088 等颜色代码自动清洗。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== ⑤ 手机详情浮层 ========== -->
+  <div class="stage">
+    <div class="stage-label"><span class="tag">手机 390px</span><strong>物品详情浮层 · 点击空白处</strong><span>非按钮区域触发展开</span></div>
+    <div class="frame-phone">
+      <div class="phone-notch"></div>
+      <div class="phone-body">
+        <div class="mobile-demo result-group">
+          <div class="pop-wrap--above">
+            <div class="item-pop">
+              <div class="pop-head">
+                <span class="pop-icon"><img src="http://localhost:8787/api/v1/assets/items/small/601.gif?lastroweb=v3" alt="" /></span>
+                <span class="pop-head-copy"><strong>苍蝇翅膀</strong><small>物品 ID 601</small></span>
+                <button type="button" class="pop-close" aria-label="关闭"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M208 56 136 128l72 72-24 24-72-72-72 72-24-24 72-72L16 56l24-24 72 72 72-72Z"/></svg></button>
+              </div>
+              <div class="pop-body">将苍蝇的翅膀剪下后，制作出的具有魔法力量的物品，可在地图上移动至任意的位置上。
+
+【此物品无法交易、露天贩卖、露天收购】
+重量: 0</div>
+            </div>
+          </div>
+          <div class="tap-card">
+            <span class="mc-icon"><img src="http://localhost:8787/api/v1/assets/items/small/601.gif?lastroweb=v3" alt="" style="width:28px;height:28px" /></span>
+            <div>
+              <h3>苍蝇翅膀</h3>
+              <small>暂无词条</small>
+            </div>
+            <span class="dprice">150 z</span>
+          </div>
+          <p class="tap-hint"><b>点击条目空白处</b>弹出 / 收起浮层 · 点浮层外或关闭按钮关闭</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="anno" style="margin:56px auto 0;">
+  <h2>补充说明</h2>
+  <p>· 手机卡片不再单独展示「物品 ID」一行（节省纵向空间），ID 移入详情浮层头部；如需保留请告知。<br />
+  · 卡片图标规则为名称结尾硬匹配：<code>/卡片$/</code>，仅影响图标 URL，不影响搜索与价格数据。<br />
+  · 所有变更只在 <code>@media (max-width: 760px)</code> 内覆盖手机端，PC 端 grid 与浮层定位独立实现，不改变现有 PC 视觉。</p>
+</div>
+
+</body>
+</html>

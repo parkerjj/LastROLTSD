@@ -77,6 +77,18 @@ function listingInput(index: number, options: ListingOption[] = []): { sessionId
 }
 
 describe('MySQL repository upload core', () => {
+  it.each(['opening', 'dismissed', 'mixed'] as const)('only sends applicable shop writes for %s batches', async (mode) => {
+    const db = new RecordingMysqlDatabase();
+    const inputs = observations(2).map((input, index) => ({ ...input, shopStatus: mode === 'dismissed' || (mode === 'mixed' && index === 1) ? 'dismissed' as const : 'opening' as const }));
+    const result = await createMysqlRepository(db).resolveShopObservations!(inputs);
+    expect(result.map((entry) => entry.status)).toEqual(inputs.map((input) => input.shopStatus));
+    expect(db.transactions).toBe(1);
+    const writes = db.sql.filter((sql) => /^(INSERT|UPDATE)/.test(sql));
+    expect(writes.filter((sql) => sql.includes("'dismissed'"))).toHaveLength(mode === 'opening' ? 0 : 3);
+    expect(writes.filter((sql) => sql.includes("WHERE shop_status = 'opening'"))).toHaveLength(mode === 'dismissed' ? 0 : 1);
+    expect(db.sql.filter((sql) => sql.startsWith('SELECT')).every((sql) => !sql.includes('shops.*'))).toBe(true);
+  });
+
   it('resolves 1000 shops with bounded tuple reads and a single transaction', async () => {
     const db = new RecordingMysqlDatabase();
     const result = await createMysqlRepository(db).resolveShopObservations!(observations(1_000));

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { ingestUpload } from '../src/services/ingestion';
 import type { MarketRepository } from '../src/db/repository';
 import type { ShopSessionRow } from '../src/db/types';
@@ -56,6 +57,23 @@ function fakeRepo(session = baseSession): MarketRepository {
 }
 
 describe('upload ingestion', () => {
+  it('preserves the stored payload hash and does not mutate input while reusing normalized items', async () => {
+    const repo = fakeRepo();
+    const input = structuredClone(request);
+    input.shops[0]!.items[0]!.item_key = '  item-v1:slot-0  ';
+    const original = structuredClone(input);
+    const canonical = { ...request, shops: [{ ...shop, items: [{ item_key: 'item-v1:slot-0', item_id: 1, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 2, options: [] }] }] };
+    const expectedHash = createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+    const observed: unknown[] = [];
+    await ingestUpload(source, input, 'snap/0', repo, { applyBatchObservations: async (_source, _session, observations) => {
+      observed.push(...observations.map((observation) => observation.item));
+      return { processedListings: observations.length, changedListings: 0, soldEvents: 0 };
+    } });
+    expect((await repo.getBatch(source.id, 'snap/0'))?.payloadHash).toBe(expectedHash);
+    expect(observed).toEqual(canonical.shops[0]!.items);
+    expect(input).toEqual(original);
+  });
+
   it('accepts a protocol 2 baseline without item names and replays it idempotently', async () => {
     const repo = fakeRepo();
     const state = { applyBatchObservations: async (_s: any, _session: any, observations: any[]) => ({ processedListings: observations.length, changedListings: observations.length, soldEvents: 0 }) };

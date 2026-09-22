@@ -27,4 +27,18 @@ describe('search controller', () => {
     await controller.nextPage();
     expect(search).toHaveBeenLastCalledWith({ q: '波利', limit: 20, sort: 'price_asc', cursor: 'next' }, expect.any(AbortSignal));
   });
+
+  it('returns to a previous page using the stored cursor history', async () => {
+    const search = vi.fn()
+      .mockResolvedValueOnce(page(1))
+      .mockResolvedValueOnce(page(2))
+      .mockResolvedValueOnce(page(1));
+    const controller = new SearchController({ search });
+    await controller.search({ q: '波利', limit: 20, sort: 'price_asc' });
+    await controller.nextPage();
+    expect(controller.getState()).toMatchObject({ pageIndex: 1, canGoPrev: true });
+    await controller.prevPage();
+    expect(search).toHaveBeenLastCalledWith({ q: '波利', limit: 20, sort: 'price_asc' }, expect.any(AbortSignal));
+    expect(controller.getState()).toMatchObject({ pageIndex: 0, canGoPrev: false });
+  });
 });

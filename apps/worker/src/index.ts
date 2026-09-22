@@ -4,7 +4,7 @@ import { healthPayload } from './routes/health';
 import { createMysqlDatabase, type MysqlDatabase } from './db/mysql-client';
 import { createMysqlRepository } from './db/mysql-repository';
 import { registerUploadRoute } from './routes/upload';
-import { registerSearchRoute } from './routes/search';
+import { registerSearchRoute, searchResponse } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
 import { registerHistoryRoute } from './routes/history';
 import { registerStatusRoute } from './routes/status';
@@ -13,6 +13,7 @@ import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
 import { recordMetric } from './observability';
 import { registerAssetRoute } from './routes/assets';
+import { withSearchCache } from './middleware/search-cache';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -54,8 +55,12 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
 }
 
 export default {
-  async fetch(request: Request, bindings: Record<string, unknown>): Promise<Response> {
+  async fetch(request: Request, bindings: Record<string, unknown>, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
     const env = resolveAppEnv(bindings);
+    const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/api/v1/market/search' && env.MYSQL_URL) {
+      return fetchSearch(request, url, env, context);
+    }
     // A Worker socket belongs to the invocation that opened it.
     const database = env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined;
     try {
@@ -75,3 +80,27 @@ export default {
     }
   },
 };
+
+// The hot search path reuses this handler instead of rebuilding every Hono route.
+async function fetchSearch(request: Request, url: URL, env: AppEnv, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
+  const started = Date.now();
+  const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
+  let response: Response;
+  try {
+    response = await withSearchCache(request, url, env, async () => {
+      const database = createMysqlDatabase(env.MYSQL_URL!);
+      try {
+        // MySQL validates the cursor before issuing SQL; avoid route-level revalidation.
+        return await searchResponse(request, createMysqlRepository(database, env.CURSOR_SECRET), env.CURSOR_SECRET, false);
+      } finally {
+        await database.close();
+      }
+    }, context);
+  } catch (error) {
+    console.error(error);
+    response = new Response('Internal Server Error', { status: 500, headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': 'no-store' } });
+  }
+  response.headers.set('x-request-id', requestId);
+  recordMetric({ requestId, route: url.pathname, status: response.status, elapsedMs: Date.now() - started });
+  return response;
+}

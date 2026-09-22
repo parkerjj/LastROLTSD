@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>翻页体验重设计 · 效果图</title>
+<style>
+  :root {
+    --forest: #1d332b;
+    --red-dark: #8d3f35;
+    --gold: #c69445;
+    --line: #d1c7b6;
+    --muted: #6d776f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 44px 40px 80px;
+    background: #e6dfd0;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #27352e;
+  }
+  .doc-head { max-width: 1200px; margin: 0 auto 36px; }
+  .doc-head .kicker { margin: 0 0 8px; color: var(--red-dark); font-size: .72rem; font-weight: 900; letter-spacing: .22em; }
+  .doc-head h1 { margin: 0 0 10px; font-family: Georgia, "Microsoft YaHei", serif; font-size: 2rem; color: var(--forest); }
+  .doc-head p { margin: 0; color: #5d6961; font-size: .9rem; line-height: 1.8; }
+
+  .stage-wrap { display: flex; flex-wrap: wrap; gap: 48px 56px; align-items: flex-start; max-width: 1200px; margin: 0 auto; }
+  .stage { position: relative; }
+  .stage-label { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; }
+  .stage-label strong { font-size: 1rem; color: var(--forest); }
+  .stage-label span { font-size: .76rem; color: #808980; }
+
+  /* ============ 浏览器 / 手机外壳 ============ */
+  .frame-desktop { width: 820px; padding: 0; background: #eee8dc; border: 1px solid #b9ad97; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 50px rgba(74,57,35,.18); }
+  .frame-chrome { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; background: #e2dac9; border-bottom: 1px solid #cbbfaa; }
+  .frame-chrome i { width: 10px; height: 10px; border-radius: 50%; background: #c4b89f; }
+  .frame-url { margin-left: 12px; padding: 4px 14px; background: #f2ecdf; border-radius: 999px; color: #8a8372; font-size: .68rem; }
+  .frame-body { padding: 22px 26px 30px; }
+
+  .frame-phone { width: 390px; background: #eee8dc; border: 1px solid #b9ad97; border-radius: 30px; overflow: hidden; box-shadow: 0 24px 50px rgba(74,57,35,.22); }
+  .phone-notch { width: 120px; height: 22px; margin: 0 auto; background: #d8cfbd; border-radius: 0 0 14px 14px; }
+  .phone-body { padding: 16px 16px 26px; }
+
+  /* ============ 结果工具栏（真实样式还原） ============ */
+  .results-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 4px 0 13px; border-bottom: 1px solid #cbbfaa; }
+  .results-overview { display: grid; gap: 4px; }
+  .results-overview strong { color: var(--forest); font-family: Georgia, "Microsoft YaHei", serif; font-size: 1.25rem; }
+  .results-note { color: #7b847c; font-size: .73rem; }
+  .sort-control { display: grid; grid-template-columns: auto 170px; align-items: center; gap: 9px; color: #7b847c; font-size: .73rem; font-weight: 700; }
+  .sort-control select { min-height: 36px; padding: 7px 10px; color: #29362f; background: #fffdf8; border: 1px solid #aa9d88; border-radius: 6px; }
+
+  /* ============ 新版翻页条 ============ */
+  .pager-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin: 0 0 16px; padding: 10px 14px;
+    background: linear-gradient(180deg, #fdfaf3, #f7f0e3);
+    border: 1px solid #c4b499; border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(80,62,38,.09);
+  }
+  .pager-bar.is-bottom { margin: 16px 0 0; }
+  .pager-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    min-height: 44px; padding: 10px 20px;
+    border-radius: 999px; font-size: .82rem; font-weight: 800;
+    cursor: pointer;
+  }
+  .pager-btn svg { width: 14px; height: 14px; }
+  .pager-btn--next { color: #fff8ef; background: var(--forest); border: 1px solid var(--forest); box-shadow: 0 6px 14px rgba(29,51,43,.24); }
+  .pager-btn--next:hover { background: #27463c; }
+  .pager-btn--prev { color: var(--forest); background: transparent; border: 1.5px solid var(--forest); }
+  .pager-btn--prev:hover { background: rgba(29,51,43,.07); }
+  .pager-btn:disabled { color: #a89f8e; background: transparent; border-color: #c8bca5; box-shadow: none; cursor: not-allowed; }
+  .pager-position { display: grid; gap: 2px; text-align: center; }
+  .pager-position small { color: #8a9189; font-size: .66rem; }
+  .pager-position strong { color: var(--forest); font-family: Georgia, "Microsoft YaHei", serif; font-size: 1.02rem; letter-spacing: .02em; }
+
+  /* ============ 结果分组（简化示意） ============ */
+  .result-group { margin: 12px 0; border: 1px solid #b9ab94; background: rgba(249,246,239,.92); border-radius: 10px; box-shadow: 0 8px 18px rgba(80,62,38,.06); }
+  .group-heading { display: grid; grid-template-columns: minmax(0,1fr) auto 32px; align-items: center; gap: 12px; min-height: 60px; padding: 11px 14px; background: #eee6d8; border-bottom: 1px solid #d4c8b7; border-radius: 9px 9px 0 0; }
+  .group-heading-copy { display: grid; gap: 3px; min-width: 0; }
+  .group-heading strong { color: var(--forest); font-size: .95rem; }
+  .group-heading small { color: #7c857d; font-size: .68rem; }
+  .group-count { justify-self: end; padding: 5px 8px; color: var(--red-dark); background: #f6ded6; border: 1px solid #e0b5aa; border-radius: 5px; font-size: .68rem; font-weight: 800; white-space: nowrap; }
+  .group-caret { display: grid; place-items: center; width: 30px; height: 30px; color: var(--forest); background: transparent; border: 1px solid #a99b86; border-radius: 6px; font-size: .8rem; }
+  .group-body { padding: 13px 14px 15px; display: grid; gap: 9px; }
+  .fake-card { height: 52px; border: 1px solid #ddd2be; border-radius: 9px; background: #fdfaf3; }
+  .fake-line { height: 14px; border-radius: 4px; background: #e7ddca; }
+  .fake-line.short { width: 55%; }
+
+  /* ============ 手机端微调 ============ */
+  .frame-phone .results-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .frame-phone .sort-control { grid-template-columns: auto minmax(0,1fr); width: 100%; margin-top: 2px; }
+  .frame-phone .pager-bar { gap: 8px; padding: 8px; }
+  .frame-phone .pager-btn { flex: 1; justify-content: center; min-height: 46px; padding: 10px 8px; font-size: .76rem; }
+  .frame-phone .pager-btn--next { flex: 1.05; }
+  .frame-phone .pager-position { flex: 0 0 auto; min-width: 86px; }
+  .frame-phone .pager-position strong { font-size: .9rem; }
+
+  /* ============ 标注 ============ */
+  .note-marker {
+    position: absolute; z-index: 5; display: grid; place-items: center;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--gold); color: #231708; font-size: .78rem; font-weight: 900;
+    border: 2px solid #f0d29a; box-shadow: 0 4px 10px rgba(120,80,20,.3);
+  }
+  .legend {
+    max-width: 1200px; margin: 52px auto 0; padding: 22px 26px;
+    background: #f7f2e8; border: 1px solid #c9bda6; border-radius: 12px;
+    display: grid; gap: 12px;
+  }
+  .legend h2 { margin: 0; font-size: .95rem; color: var(--forest); font-family: Georgia, "Microsoft YaHei", serif; }
+  .legend ol { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 10px; }
+  .legend li { display: flex; gap: 12px; align-items: flex-start; font-size: .85rem; color: #4d5a51; line-height: 1.7; }
+  .legend li b { flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--gold); color: #231708; font-size: .7rem; }
+  .legend code { padding: 1px 6px; background: #e8dfcc; border-radius: 4px; font-size: .8rem; color: var(--red-dark); }
+  .scroll-hint {
+    margin-top: 4px; display: inline-flex; align-items: center; gap: 6px;
+    color: var(--red-dark); font-size: .7rem; font-weight: 800;
+  }
+  .target-ring { box-shadow: 0 0 0 3px rgba(198,148,69,.55), 0 8px 18px rgba(80,62,38,.06); border-radius: 10px; }
+</style>
+</head>
+<body>
+
+<div class="doc-head">
+  <p class="kicker">DESIGN PREVIEW · 待确认</p>
+  <h1>搜索结果计数与翻页体验重设计</h1>
+  <p>三处改动：① 计数文案改为当前查看区间（1–20 / 21–40）；② 翻页条醒目重设计，搜索结果顶部与底部各一条，新增「上一页」；③ 手机端搜索或翻页后自动滚动到「物品名称命中」分组。下方为桌面端第 2 页与手机端第 1 页两种状态。</p>
+</div>
+
+<div class="stage-wrap">
+
+  <!-- ================= 桌面端：第 2 页 ================= -->
+  <div class="stage">
+    <p class="stage-label"><strong>桌面端</strong><span>第 2 页状态 · 21–40 · 上一页可用</span></p>
+    <div class="frame-desktop">
+      <div class="frame-chrome"><i></i><i></i><i></i><span class="frame-url">lastro.cn/search?q=蓝宝石</span></div>
+      <div class="frame-body">
+
+        <div class="results-toolbar">
+          <div class="results-overview">
+            <strong>查看 21–40 个商品</strong>
+            <span class="results-note">按命中位置分组 · 按价格由低到高</span>
+          </div>
+          <label class="sort-control"><span>排序</span>
+            <select><option>价格从低到高</option></select>
+          </label>
+        </div>
+
+        <div class="pager-bar">
+          <button class="pager-btn pager-btn--prev" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            上一页
+          </button>
+          <div class="pager-position"><small>第 2 页</small><strong>21 – 40</strong></div>
+          <button class="pager-btn pager-btn--next" type="button">
+            下一页
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+
+        <div class="result-group">
+          <div class="group-heading">
+            <span class="group-heading-copy"><strong>物品名称命中</strong><small>名称中包含搜索词</small></span>
+            <span class="group-count">20 条</span>
+            <span class="group-caret">⌄</span>
+          </div>
+          <div class="group-body">
+            <div class="fake-card"></div><div class="fake-card"></div><div class="fake-card"></div>
+          </div>
+        </div>
+
+        <div class="result-group">
+          <div class="group-heading">
+            <span class="group-heading-copy"><strong>商店名称命中</strong><small>商店标题中包含搜索词 · 按商店聚合</small></span>
+            <span class="group-count">3 间商店 · 7 件商品</span>
+            <span class="group-caret">⌄</span>
+          </div>
+          <div class="group-body"><div class="fake-card"></div></div>
+        </div>
+
+        <div class="pager-bar is-bottom">
+          <button class="pager-btn pager-btn--prev" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            上一页
+          </button>
+          <div class="pager-position"><small>第 2 页</small><strong>21 – 40</strong></div>
+          <button class="pager-btn pager-btn--next" type="button">
+            下一页
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+
+      </div>
+    </div>
+    <span class="note-marker" style="left: 8px; top: 96px;">1</span>
+    <span class="note-marker" style="left: 12px; top: 196px;">2</span>
+    <span class="note-marker" style="right: 14px; top: 520px;">3</span>
+  </div>
+
+  <!-- ================= 手机端：第 1 页 ================= -->
+  <div class="stage">
+    <p class="stage-label"><strong>手机端</strong><span>390px · 第 1 页 · 搜索后自动滚到此处</span></p>
+    <div class="frame-phone">
+      <div class="phone-notch"></div>
+      <div class="phone-body">
+
+        <div class="results-toolbar">
+          <div class="results-overview">
+            <strong>查看 1–20 个商品</strong>
+            <span class="results-note">按命中位置分组 · 按价格由低到高</span>
+          </div>
+          <label class="sort-control"><span>排序</span>
+            <select><option>价格从低到高</option></select>
+          </label>
+        </div>
+
+        <div class="pager-bar">
+          <button class="pager-btn pager-btn--prev" type="button" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            上一页
+          </button>
+          <div class="pager-position"><small>第 1 页</small><strong>1 – 20</strong></div>
+          <button class="pager-btn pager-btn--next" type="button">
+            下一页
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+
+        <div class="result-group target-ring">
+          <div class="group-heading">
+            <span class="group-heading-copy"><strong>物品名称命中</strong><small>名称中包含搜索词</small></span>
+            <span class="group-count">20 条</span>
+            <span class="group-caret">⌄</span>
+          </div>
+          <div class="group-body">
+            <div class="fake-card"></div><div class="fake-card"></div><div class="fake-card"></div><div class="fake-card"></div>
+          </div>
+        </div>
+        <p class="scroll-hint">↑ 搜索 / 翻页后自动滚动落点（金色描边示意）</p>
+
+        <div class="result-group">
+          <div class="group-heading">
+            <span class="group-heading-copy"><strong>商人名称命中</strong><small>摆摊玩家名称中包含搜索词 · 按玩家聚合</small></span>
+            <span class="group-count">2 位商人 · 5 件商品</span>
+            <span class="group-caret">⌄</span>
+          </div>
+          <div class="group-body"><div class="fake-card"></div></div>
+        </div>
+
+        <div class="pager-bar is-bottom">
+          <button class="pager-btn pager-btn--prev" type="button" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            上一页
+          </button>
+          <div class="pager-position"><small>第 1 页</small><strong>1 – 20</strong></div>
+          <button class="pager-btn pager-btn--next" type="button">
+            下一页
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <h2>改动说明</h2>
+  <ol>
+    <li><b>1</b><span><strong>区间文案</strong>：把<code>共 20 条在售记录</code>改为<code>查看 1–20 个商品</code>，翻页后为<code>查看 21–40 个商品</code>；末页不足 20 条时如实显示（如 101–107）。首屏浏览态显示为「最新收录 1–20 个商品」。由前端按页累计偏移量，不再暗示这是全部结果数。</span></li>
+    <li><b>2</b><span><strong>醒目翻页条（顶部 + 底部）</strong>：暖奶油色卡片条 + 阴影；「下一页」为森林绿实心胶囊主按钮（带箭头），「上一页」为同色描边次按钮；中间显示「第 N 页 · 区间」。手机端按钮等高 46px、三等分布局，拇指可直接点按；顶部翻页无需再滚到底部。加载中时按钮显示转圈并临时禁用，防重复点击。</span></li>
+    <li><b>3</b><span><strong>新增「上一页」</strong>：基于游标历史实现（不依赖总数），可逐页返回，区间与页码同步。若你不希望增加此按钮，也可以只保留下一页。</span></li>
+    <li><b>↧</b><span><strong>自动滚动（仅手机）</strong>：搜索结果展现或翻页完成后，≤760px 视口自动平滑滚动到「物品名称命中」分组标题（预留顶部粘性导航间距）；若该分组不存在（纯商店/商人命中），则滚动到第一个分组。遵循系统「减少动态效果」设置时改为瞬间定位，桌面端不触发。</span></li>
+  </ol>
+</div>
+
+</body>
+</html>

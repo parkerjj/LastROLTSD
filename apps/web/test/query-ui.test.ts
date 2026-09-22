@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { renderHistory, renderSearchResults } from '../src/render';
+import { formatRelativeTime, renderHistory, renderSearchResults } from '../src/render';
 import type { ListingSearchResult } from '../src/types';
 
 const listing = (overrides: Partial<ListingSearchResult> = {}): ListingSearchResult => ({
@@ -17,7 +17,7 @@ const listing = (overrides: Partial<ListingSearchResult> = {}): ListingSearchRes
   ...overrides,
 });
 
-const state = { filters: { limit: 20, sort: 'price_asc' as const }, loading: false, error: null, empty: false, cursor: null };
+const state = { filters: { limit: 20, sort: 'price_asc' as const }, loading: false, error: null, empty: false, cursor: null, pageIndex: 0 };
 
 function getResults(): HTMLElement {
   const dom = new JSDOM('<div id="results"></div>');
@@ -30,24 +30,42 @@ describe('query UI rendering', () => {
     renderSearchResults(element, { items: [], nextCursor: null }, { ...state, loading: true });
     expect(element.textContent).toContain('正在加载');
     renderSearchResults(element, { items: [], nextCursor: null }, { ...state, empty: true });
-    expect(element.textContent).toContain('没有匹配的在售商品');
+    expect(element.textContent).toContain('没有找到匹配的在售商品');
+    // 空结果不是错误：展示插图与说明，但不提供重试按钮
+    expect(element.querySelector('.state-panel--empty .retry-button')).toBeNull();
     renderSearchResults(element, { items: [], nextCursor: null }, { ...state, error: '查询失败' });
     expect(element.querySelector('[role="alert"]')?.textContent).toContain('查询失败');
+    expect(element.querySelector('.state-panel--error .retry-button')?.textContent).toContain('重新加载');
+    expect(element.querySelector('.state-panel-art')?.getAttribute('src')).toBe('/ui/market-state.png');
     renderSearchResults(element, { items: [listing()], nextCursor: 'next' }, { ...state, cursor: 'next' });
     expect(element.textContent).toContain('波利卡片');
     expect(element.textContent).toContain('物品 ID');
     expect(element.textContent).toContain('1234');
     expect(element.textContent).toContain('SP恢复速度增加50%');
     expect(element.querySelector('.history-button')).not.toBeNull();
-    expect(element.querySelector('#next-page')).not.toBeNull();
-    expect(element.querySelector('.item-icon img')?.getAttribute('src')).toBe('/api/v1/assets/items/small/1234.gif?lastroweb=v3');
+    // 计数文案展示当前查看区间（1 条结果 → 1 – 1），翻页条顶部、底部各一条
+    expect(element.textContent).toContain('查看 1 – 1 个商品');
+    expect(element.querySelectorAll('.pager-bar')).toHaveLength(2);
+    expect(element.querySelector('.js-next-page')).not.toBeNull();
+    expect(element.querySelector('.js-prev-page')).not.toBeNull();
+    expect(element.querySelector('.js-prev-page')?.hasAttribute('disabled')).toBe(true);
+    // 第 2 页：区间从 21 开始，上一页可用
+    renderSearchResults(element, { items: [listing()], nextCursor: null }, { ...state, pageIndex: 1 });
+    expect(element.textContent).toContain('查看 21 – 21 个商品');
+    expect(element.textContent).toContain('第 2 页');
+    expect(element.querySelector('.js-prev-page')?.hasAttribute('disabled')).toBe(false);
+    expect(element.querySelector('.js-next-page')?.hasAttribute('disabled')).toBe(true);
+    expect(element.querySelector('.mc-icon img')?.getAttribute('src')).toBe('/api/v1/assets/items/small/card.gif?lastroweb=v3');
     expect(element.querySelector('.map-button')?.getAttribute('data-map-image')).toBe('/api/v1/assets/maps_xl/prontera_re.gif?lastroweb=v3');
+    // 相对时间位于操作列内、价格历史按钮下方
+    expect(element.querySelector('.mc-actions .mc-time')).not.toBeNull();
+    expect(element.querySelector('.market-card > .mc-time')).toBeNull();
   });
 
   it('translates map codes and supplies the map marker position from listing coordinates', () => {
     const element = getResults();
     renderSearchResults(element, { items: [listing({ mapName: 'payon', x: 300, y: 360 })], nextCursor: null }, state);
-    expect(element.querySelector('.item-location strong')?.textContent).toBe('斐扬');
+    expect(element.querySelector('.loc-pin')?.textContent).toContain('斐扬');
     expect(element.querySelector('.map-button')?.getAttribute('data-map-marker-left')).toBe('100');
     expect(element.querySelector('.map-button')?.getAttribute('data-map-marker-top')).toBe('0');
   });
@@ -79,11 +97,25 @@ describe('query UI rendering', () => {
     }, { ...state, filters: { q: '利卡', limit: 20, sort: 'changed_desc' } });
 
     expect(Array.from(element.querySelectorAll<HTMLElement>('.result-group')).map((group) => group.dataset.group)).toEqual(['name', 'shop', 'vendor']);
-    expect(Array.from(element.querySelectorAll('.result-group')).map((group) => group.querySelectorAll('.item-row').length)).toEqual([1, 1, 1]);
+    expect(Array.from(element.querySelectorAll<HTMLElement>('.result-group')).map((group) => {
+      const key = group.dataset.group;
+      return group.querySelectorAll(key === 'name' ? '.market-card' : key === 'shop' ? '.shop-card' : '.vendor-card').length;
+    })).toEqual([1, 1, 1]);
+    expect(element.querySelectorAll('mark')).toHaveLength(3);
+    expect(element.querySelector('.rel-time')).not.toBeNull();
+    expect(element.querySelector('.vshop-chevron')?.getAttribute('aria-expanded')).toBe('true');
     expect(element.querySelectorAll('.group-toggle .ph-caret-down')).toHaveLength(3);
     expect(element.querySelectorAll('.toggle-mark')).toHaveLength(0);
     expect(element.querySelector<HTMLSelectElement>('#result-sort')?.value).toBe('changed_desc');
     expect(Array.from(element.querySelectorAll<HTMLOptionElement>('#result-sort option')).map((option) => option.value)).toEqual(['price_asc', 'price_desc', 'changed_desc']);
+  });
+
+  it('formats timestamps as Chinese relative time', () => {
+    const now = 1_000_000_000_000;
+    expect(formatRelativeTime(now - 10_000, now)).toBe('刚刚');
+    expect(formatRelativeTime(now - 5 * 60_000, now)).toBe('5 分钟前');
+    expect(formatRelativeTime(now - 2 * 60 * 60_000, now)).toBe('2 小时前');
+    expect(formatRelativeTime(now - 3 * 24 * 60 * 60_000, now)).toBe('3 天前');
   });
 
   it('renders history drawer pagination and inferred sales in Chinese', () => {
@@ -110,7 +142,7 @@ describe('query UI rendering', () => {
     } as any, listing({ itemId: 1001, itemName: '长发' }));
 
     expect(drawer.querySelector('.history-item-summary')?.textContent).toContain('长发');
-    expect(drawer.querySelector('.history-chart-explanation')?.textContent).toContain('横轴');
+    expect(drawer.querySelector('.history-chart-explanation')?.textContent).toContain('中位价');
     expect(drawer.querySelector('[data-history-chart]')).not.toBeNull();
     expect(drawer.querySelector('.current-listings')?.textContent).toContain('长发特卖');
     expect(drawer.textContent).toContain('售出记录');
