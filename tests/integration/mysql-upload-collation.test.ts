@@ -5,6 +5,23 @@ import { createMysqlRepository } from '../../apps/worker/src/db/mysql-repository
 const mysqlTestUrl = process.env.MYSQL_TEST_URL;
 
 describe('MySQL upload SQL (read-only)', () => {
+  it.skipIf(!mysqlTestUrl)('executes and reuses the prepared locking read for listing transitions', async () => {
+    const database = createMysqlDatabase(mysqlTestUrl!);
+    try {
+      const repository = createMysqlRepository(database);
+      // ID zero is absent from the auto-increment table, so no writes are reached.
+      expect(await database.first('SELECT id FROM listings WHERE id = 0')).toBeNull();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await expect(repository.applyListingTransitions!([{
+          listingId: 0, shopSessionId: 0, expectedVersion: 0, price: 1, quantity: 1,
+          status: 'active', observedAt: 1, batchId: 'diagnostic/0',
+        }])).resolves.toMatchObject({ updated: 0, conflicts: 1, soldEvents: 0, conflictIds: [0] });
+      }
+    } finally {
+      await database.close();
+    }
+  }, 20_000);
+
   it.skipIf(!mysqlTestUrl).each(['pool', 'transaction'] as const)(
     'joins upload JSON_TABLE strings to migrated tables through a %s connection',
     async (mode) => {

@@ -439,13 +439,14 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     return db.transaction(async (tx) => {
       // The lock read is the authoritative optimistic-lock decision. The following
       // writes use the same predicates and connection, so histories/events can only
-      // be emitted for winners.
+      // be emitted for winners. Exclude JSON_TABLE from locking: MySQL 8.4 rejects
+      // the unqualified FOR UPDATE with ER_DUPLICATE_TABLE_LOCK at execution time.
       const winnerRows = await tx.all<Row>(`SELECT listings.id FROM listings
         JOIN ${LISTING_TRANSITION_JSON_TABLE}
           ON listings.id = transition_input.listing_id
           AND (transition_input.shop_id = 0 OR listings.shop_id = transition_input.shop_id)
           AND listings.state_version = transition_input.expected_version
-        FOR UPDATE`, [payload]);
+        FOR UPDATE OF listings`, [payload]);
       const updatedIds = new Set(winnerRows.map((row) => Number(row.id)));
       if (updatedIds.size === 0) {
         return { updated: 0, conflicts: changes.length, soldEvents: 0, conflictIds: changes.map((change) => change.listingId) };
