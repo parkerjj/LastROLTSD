@@ -1,7 +1,10 @@
-import { DEFAULT_CURSOR_SECRET } from '../domain/search';
+import { DEFAULT_CURSOR_SECRET, SearchValidationError, decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, searchCursorContext } from '../domain/search';
 import { makeTransitionKey } from '../domain/transitions';
+import { getOptionDefinitionSet } from '../domain/option-definitions';
+import { OptionConditionValidationError, compileOptionPredicates, formatOptionDisplay, parseStructuredOptionCondition } from '../domain/option-conditions';
 import { chunkRows, type MysqlDatabase, type MysqlRow } from './mysql-client';
-import type { BatchRow, ListingOption, ListingRow, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
+import type { SearchFilters } from '@lastroweb/protocol';
+import type { BatchRow, ListingOption, ListingRow, ListingSearchOption, ListingSearchRow, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
 import type { ListingTransitionChange, MarketRepository, ShopResolution, ShopSessionContextInput, UploadResultLike } from './repository';
 
 type Row = MysqlRow;
@@ -177,6 +180,28 @@ function listingFromRow(row: Row): ListingRow {
     missingStreak: Number(row.missing_full_count),
     lastChangedAt: Number(row.last_changed_at),
   };
+}
+
+function listingFromSearchRow(row: Row): ListingSearchRow {
+  return {
+    ...listingFromRow(row),
+    shopId: String(row.shop_id_display ?? row.shop_key),
+    shopStatus: String(row.shop_status) as ListingSearchRow['shopStatus'],
+    shopKey: String(row.shop_key),
+    title: String(row.title),
+    vendorName: String(row.vendor_name),
+    mapName: String(row.map_name),
+    x: Number(row.x),
+    y: Number(row.y),
+    shopType: String(row.shop_type) as ListingSearchRow['shopType'],
+    options: [],
+  };
+}
+
+// This receives only SQL emitted by compileOptionPredicates, whose numbered
+// placeholders are positional and sequential. User input remains in values.
+function mysqlPlaceholders(sql: string): string {
+  return sql.replace(/\?\d+/gu, '?');
 }
 
 type NewListingInput = {
@@ -480,6 +505,50 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       const soldEvents = soldCandidates.filter((change) => updatedIds.has(change.listingId)).length;
       return { updated: updatedIds.size, conflicts: conflictIds.length, soldEvents, conflictIds };
     });
+  };
+
+  const insertListingOptionsBatch = async (inputs: Array<{ listingId: number; options: ListingOption[] }>): Promise<void> => {
+    const payload = JSON.stringify(inputs.map((input) => ({
+      listingId: input.listingId,
+      options: [...input.options].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param),
+    })));
+    if (inputs.length === 0) return;
+    await db.run(`INSERT INTO listing_options(listing_id, option_index, option_type, option_value, option_param)
+      SELECT option_input.listing_id, option_input.option_ordinal - 1, option_input.option_type,
+        option_input.option_value, option_input.option_param
+      FROM JSON_TABLE(?, '$[*]' COLUMNS(
+        listing_id BIGINT UNSIGNED PATH '$.listingId',
+        NESTED PATH '$.options[*]' COLUMNS(
+          option_ordinal FOR ORDINALITY,
+          option_type BIGINT UNSIGNED PATH '$.type',
+          option_value BIGINT PATH '$.value',
+          option_param BIGINT PATH '$.param'
+        )
+      )) AS option_input
+      WHERE option_input.option_ordinal IS NOT NULL
+      ON DUPLICATE KEY UPDATE
+        option_type = VALUES(option_type), option_value = VALUES(option_value), option_param = VALUES(option_param)`, [payload]);
+  };
+
+  const insertHistoriesBatch = async (inputs: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string; batchId: string }>): Promise<void> => {
+    if (inputs.length === 0) return;
+    await db.run(`INSERT INTO listing_events(
+        listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+        sold_quantity, reason, transition_key
+      ) SELECT history_input.listing_id, history_input.batch_id, history_input.observed_at,
+        CASE WHEN history_input.event_type = 'first_seen' THEN 'first_seen' ELSE 'state_changed' END,
+        NULL, history_input.price, NULL, history_input.quantity, 0,
+        CASE WHEN history_input.event_type = 'price_changed' THEN 'price' ELSE NULL END,
+        CONCAT(history_input.batch_id, ':', history_input.listing_id, ':', history_input.event_type)
+      FROM JSON_TABLE(?, '$[*]' COLUMNS(
+        listing_id BIGINT UNSIGNED PATH '$.listingId',
+        observed_at BIGINT UNSIGNED PATH '$.observedAt',
+        price BIGINT UNSIGNED PATH '$.price',
+        quantity BIGINT UNSIGNED PATH '$.quantity',
+        event_type VARCHAR(32) PATH '$.eventType',
+        batch_id VARCHAR(191) PATH '$.batchId'
+      )) AS history_input
+      ON DUPLICATE KEY UPDATE transition_key = transition_key`, [JSON.stringify(inputs)]);
   };
 
   return {
@@ -788,11 +857,231 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       return rows.map(listingFromRow);
     },
     insertNewListingsBulk,
+    async insertListingOptions(input) {
+      await insertListingOptionsBatch([input]);
+    },
+    insertListingOptionsBatch,
+    async insertHistory(input) {
+      await insertHistoriesBatch([input]);
+    },
+    insertHistoriesBatch,
+    async insertSoldEvent(input) {
+      const result = await db.run(`INSERT INTO listing_events(
+          listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+          sold_quantity, reason, transition_key
+        ) VALUES (?, ?, ?, 'state_changed', NULL, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE transition_key = transition_key`, [
+        input.listingId, input.snapshotId ?? input.transitionKey, input.observedAt, input.price ?? 0,
+        input.fromQuantity, input.toQuantity, input.soldQuantity, input.reason, input.transitionKey,
+      ]);
+      return result.affectedRows === 1;
+    },
     applyListingTransitions,
     applyListingTransitionsBulk: applyListingTransitions,
     async applyListingChanges(changes) {
       const result = await applyListingTransitions(changes.map((change) => ({ ...change, shopSessionId: 0 })));
       return { updated: result.updated, conflicts: result.conflicts };
+    },
+    async getOptionDefinitions(version) {
+      return getOptionDefinitionSet(version);
+    },
+    async getCatalogVersion() {
+      return 'static';
+    },
+    async searchItems() {
+      return [];
+    },
+    async searchListings(filters: SearchFilters) {
+      const params: unknown[] = [];
+      const add = (value: unknown): string => {
+        params.push(value);
+        return '?';
+      };
+      const where = [
+        filters.include_stale ? "l.status IN ('active', 'missing')" : "l.status = 'active'",
+        filters.include_stale ? "s.status IN ('active', 'stale')" : "s.status = 'active'",
+      ];
+      const itemIds = [...new Set([
+        ...(filters.item_ids ?? []).filter((id) => Number.isSafeInteger(id) && id >= 0),
+        ...(filters.item_id !== undefined ? [filters.item_id] : []),
+      ])];
+      const matchPredicates: string[] = [];
+      if (itemIds.length > 0) {
+        matchPredicates.push(`l.item_id IN (${itemIds.map((itemId) => add(itemId)).join(', ')})`);
+      }
+      const normalizedQuery = filters.q ? normalizeCatalogQuery(filters.q) : '';
+      if ([...normalizedQuery].length >= 2) {
+        const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\${value}`);
+        const titleQuery = add(`%${escaped}%`);
+        const vendorQuery = add(`%${escaped}%`);
+        matchPredicates.push(`(s.title_normalized LIKE ${titleQuery} ESCAPE '\\\\' OR COALESCE(s.vendor_name_normalized, '') LIKE ${vendorQuery} ESCAPE '\\\\')`);
+      }
+      if (matchPredicates.length > 0) where.push(`(${matchPredicates.join(' OR ')})`);
+      if (filters.price_min !== undefined) where.push(`l.price >= ${add(filters.price_min)}`);
+      if (filters.price_max !== undefined) where.push(`l.price <= ${add(filters.price_max)}`);
+      if (filters.map) where.push(`s.map_name = ${add(normalizeCatalogQuery(filters.map))}`);
+      if (filters.shop_type) where.push(`s.shop_type = ${add(filters.shop_type)}`);
+
+      const definitionSet = getOptionDefinitionSet(filters.optionVersion);
+      const definitionMap = new Map(definitionSet.items.map((definition) => [definition.type, definition]));
+      if (filters.options && filters.options.length > 0) {
+        try {
+          const conditions = filters.options.map((option) => parseStructuredOptionCondition(option, definitionMap));
+          const compiled = compileOptionPredicates(conditions, filters.option_mode ?? 'all', definitionMap, params.length + 1);
+          where.push(mysqlPlaceholders(compiled.sql));
+          params.push(...compiled.values);
+        } catch (error) {
+          if (error instanceof OptionConditionValidationError) throw new SearchValidationError(error.message);
+          throw error;
+        }
+      } else if (filters.option_type !== undefined && filters.option_value !== undefined && filters.option_param !== undefined) {
+        where.push(`EXISTS (SELECT 1 FROM listing_options lo WHERE lo.listing_id = l.id AND lo.option_type = ${add(filters.option_type)} AND lo.option_value = ${add(filters.option_value)} AND lo.option_param = ${add(filters.option_param)})`);
+      } else if (filters.option_type !== undefined || filters.option_value !== undefined || filters.option_param !== undefined) {
+        throw new SearchValidationError('Incomplete legacy option filter');
+      }
+
+      const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: searchCursorContext(filters) }, cursorSecret) : null;
+      const sortColumn = filters.sort === 'changed_desc' ? 'l.last_changed_at' : 'l.price';
+      if (cursor) {
+        const operator = filters.sort === 'price_asc' ? '>' : '<';
+        const value = add(cursor.sortValue);
+        const sameValue = add(cursor.sortValue);
+        const id = add(cursor.id);
+        where.push(`(${sortColumn} ${operator} ${value} OR (${sortColumn} = ${sameValue} AND l.id ${operator} ${id}))`);
+      }
+      const limit = Math.min(50, Math.max(1, filters.limit));
+      params.push(limit + 1);
+      const order = filters.sort === 'price_desc'
+        ? 'l.price DESC, l.id DESC'
+        : filters.sort === 'changed_desc'
+          ? 'l.last_changed_at DESC, l.id DESC'
+          : 'l.price ASC, l.id ASC';
+      const rows = await db.all<Row>(`SELECT l.id, l.shop_id, l.item_fingerprint, l.item_key, l.item_id, l.upgrade, l.slots,
+          l.card0, l.card1, l.card2, l.card3, l.price, l.quantity, l.status, l.state_version, l.missing_full_count,
+          l.last_changed_at, s.public_shop_id AS shop_id_display, s.status AS shop_status, s.public_shop_id AS shop_key,
+          s.title, s.vendor_name, s.map_name, s.x, s.y, s.shop_type
+        FROM listings l JOIN shops s ON s.id = l.shop_id
+        WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?`, params);
+      const items = rows.slice(0, limit).map(listingFromSearchRow);
+      if (items.length > 0) {
+        const optionRows = await db.all<Row>(`SELECT listing_options.listing_id, listing_options.option_type,
+            listing_options.option_value, listing_options.option_param
+          FROM listing_options
+          JOIN JSON_TABLE(?, '$[*]' COLUMNS(listing_id BIGINT UNSIGNED PATH '$')) AS result_listing
+            ON listing_options.listing_id = result_listing.listing_id
+          ORDER BY listing_options.listing_id, listing_options.option_index`, [JSON.stringify(items.map((item) => item.id))]);
+        const optionsByListing = new Map<number, ListingSearchOption[]>();
+        for (const row of optionRows) {
+          const listingId = Number(row.listing_id);
+          const option = { type: Number(row.option_type), value: Number(row.option_value), param: Number(row.option_param) };
+          optionsByListing.set(listingId, [...(optionsByListing.get(listingId) ?? []), { ...option, display: formatOptionDisplay(option, definitionMap.get(option.type)) }]);
+        }
+        for (const item of items) item.options = optionsByListing.get(item.id) ?? [];
+      }
+      const last = items.at(-1);
+      const sortValue = last ? (filters.sort === 'changed_desc' ? last.lastChangedAt : last.price) : 0;
+      return {
+        items,
+        nextCursor: rows.length > limit && last ? encodeCursor({ sort: filters.sort, sortValue, id: last.id, context: searchCursorContext(filters) }, cursorSecret) : null,
+      };
+    },
+    async getListingHistory(listingId, limit, cursor) {
+      const listing = await db.first<Row>('SELECT id FROM listings WHERE id = ? LIMIT 1', [listingId]);
+      if (!listing) return null;
+      const boundedLimit = Math.min(50, Math.max(1, limit));
+      const values: unknown[] = [listingId];
+      let where = 'listing_id = ?';
+      if (cursor) {
+        where += ' AND id < ?';
+        values.push(decodeHistoryCursor(cursor, cursorSecret));
+      }
+      values.push(boundedLimit + 1);
+      const rows = await db.all<Row>(`SELECT id, listing_id, snapshot_id, observed_at, event_type, from_price, to_price,
+          from_quantity, to_quantity, sold_quantity, reason, transition_key
+        FROM listing_events WHERE ${where} ORDER BY id DESC LIMIT ?`, values);
+      const items = rows.slice(0, boundedLimit).map((row) => ({
+        id: Number(row.id),
+        listingId: Number(row.listing_id),
+        observedAt: Number(row.observed_at),
+        price: Number(row.to_price),
+        quantity: Number(row.to_quantity),
+        eventType: row.reason == null ? String(row.event_type) : String(row.reason),
+        batchId: String(row.snapshot_id),
+      }));
+      const saleRows = await db.all<Row>(`SELECT observed_at, sold_quantity, from_quantity, to_quantity, reason
+        FROM listing_events WHERE listing_id = ? AND sold_quantity > 0 ORDER BY id DESC LIMIT ?`, [listingId, boundedLimit]);
+      const inferredSales = saleRows.map((row) => ({
+        observedAt: Number(row.observed_at),
+        soldQuantity: Number(row.sold_quantity),
+        fromQuantity: Number(row.from_quantity),
+        toQuantity: Number(row.to_quantity),
+        reason: String(row.reason),
+      }));
+      const last = items.at(-1);
+      return { items, inferredSales, nextCursor: rows.length > boundedLimit && last ? encodeHistoryCursor(last.id, cursorSecret) : null };
+    },
+    async getItemMarketHistory(itemId, windowStart, windowEnd) {
+      const item = await db.first<Row>('SELECT item_id FROM listings WHERE item_id = ? LIMIT 1', [itemId]);
+      if (!item) return null;
+      const [currentRows, saleRows, eventRows] = await Promise.all([
+        db.all<Row>(`SELECT listings.id, listings.price, listings.quantity, listings.last_changed_at,
+            shops.vendor_name, shops.title, shops.map_name
+          FROM listings JOIN shops ON shops.id = listings.shop_id
+          WHERE listings.item_id = ? AND listings.status = 'active' AND shops.status = 'active' AND shops.shop_type = 'sell'
+          ORDER BY listings.price ASC, listings.id ASC`, [itemId]),
+        db.all<Row>(`SELECT listing_events.listing_id, listing_events.observed_at, listing_events.to_price,
+            listing_events.sold_quantity, shops.vendor_name, shops.title
+          FROM listing_events JOIN listings ON listings.id = listing_events.listing_id
+          JOIN shops ON shops.id = listings.shop_id
+          WHERE listings.item_id = ? AND listing_events.observed_at >= ? AND listing_events.observed_at <= ?
+            AND listing_events.sold_quantity > 0 AND shops.shop_type = 'sell'
+          ORDER BY listing_events.observed_at DESC, listing_events.id DESC`, [itemId, windowStart, windowEnd]),
+        db.all<Row>(`SELECT listing_events.listing_id, listing_events.observed_at, listing_events.to_price,
+            listing_events.to_quantity, listing_events.event_type, listing_events.reason
+          FROM listing_events JOIN listings ON listings.id = listing_events.listing_id
+          JOIN shops ON shops.id = listings.shop_id
+          WHERE listings.item_id = ? AND listing_events.observed_at >= ? AND listing_events.observed_at <= ?
+            AND shops.shop_type = 'sell'
+          ORDER BY listing_events.observed_at ASC, listing_events.id ASC`, [itemId, windowStart, windowEnd]),
+      ]);
+      return {
+        itemId,
+        windowStart,
+        windowEnd,
+        currentListings: currentRows.map((row) => ({ listingId: Number(row.id), price: Number(row.price), quantity: Number(row.quantity), vendorName: String(row.vendor_name), title: String(row.title), mapName: String(row.map_name), lastChangedAt: Number(row.last_changed_at) })),
+        sales: saleRows.map((row) => ({ listingId: Number(row.listing_id), observedAt: Number(row.observed_at), price: Number(row.to_price), soldQuantity: Number(row.sold_quantity), vendorName: String(row.vendor_name), title: String(row.title) })),
+        events: eventRows.map((row) => ({ listingId: Number(row.listing_id), observedAt: Number(row.observed_at), price: Number(row.to_price), quantity: Number(row.to_quantity), eventType: row.reason == null ? String(row.event_type) : String(row.reason) })),
+      };
+    },
+    async deleteExpiredHistory(before, limit) {
+      const result = await db.run(`DELETE FROM listing_events
+        WHERE id IN (
+          SELECT id FROM (
+            SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
+          ) AS expired_history
+        )`, [before, limit]);
+      return result.affectedRows;
+    },
+    async deleteExpiredSoldEvents(before, limit) {
+      const result = await db.run(`DELETE FROM listing_events
+        WHERE id IN (
+          SELECT id FROM (
+            SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
+          ) AS expired_sold_events
+        )`, [before, limit]);
+      return result.affectedRows;
+    },
+    async countExpiredHistory(before, limit) {
+      const row = await db.first<Row>(`SELECT COUNT(*) AS count FROM (
+        SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
+      ) AS expired_history`, [before, limit]);
+      return Number(row?.count ?? 0);
+    },
+    async countExpiredSoldEvents(before, limit) {
+      const row = await db.first<Row>(`SELECT COUNT(*) AS count FROM (
+        SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
+      ) AS expired_sold_events`, [before, limit]);
+      return Number(row?.count ?? 0);
     },
   } as MarketRepository;
 }

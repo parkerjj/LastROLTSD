@@ -211,4 +211,54 @@ describe('MySQL repository upload core', () => {
     expect(db.sql.some((sql) => sql.includes('missing_full_count = listings.missing_full_count + 1') && sql.includes('JSON_TABLE'))).toBe(true);
     expect(db.sql.join('\n')).not.toContain('json_each');
   });
+
+  it('keeps option definitions static and uses MySQL-safe bounded retention deletes', async () => {
+    const db = new RecordingMysqlDatabase();
+    const repo = createMysqlRepository(db);
+
+    const definitions = await repo.getOptionDefinitions();
+    await repo.deleteExpiredHistory!(100, 50);
+    await repo.deleteExpiredSoldEvents!(100, 50);
+
+    expect(definitions.items.length).toBeGreaterThan(0);
+    expect(db.sql).toHaveLength(2);
+    expect(db.sql.every((sql) => sql.includes('DELETE FROM listing_events') && /FROM \(\s*SELECT id FROM listing_events/u.test(sql))).toBe(true);
+    expect(db.sql.join('\n')).not.toContain('LIMIT ?1');
+  });
+
+  it('returns null history for an unknown listing without using SQLite cursor syntax', async () => {
+    const db = new RecordingMysqlDatabase();
+    const result = await createMysqlRepository(db).getListingHistory(999, 50);
+
+    expect(result).toBeNull();
+    expect(db.sql).toEqual(['SELECT id FROM listings WHERE id = ? LIMIT 1']);
+  });
+
+  it('builds parameterized MySQL search SQL without numbered D1 placeholders', async () => {
+    const db = new RecordingMysqlDatabase();
+    const result = await createMysqlRepository(db).searchListings({
+      limit: 50,
+      sort: 'price_asc',
+      item_ids: [1, 2],
+      q: '测试商店',
+    });
+
+    expect(result).toEqual({ items: [], nextCursor: null });
+    expect(db.sql[0]).toContain('l.item_id IN (?, ?)');
+    expect(db.sql[0]).not.toMatch(/\?\d+/u);
+    expect(db.values[0]).toEqual([1, 2, '%测试商店%', '%测试商店%', 51]);
+  });
+
+  it('keeps legacy listing writes batched and parameterized for service compatibility', async () => {
+    const db = new RecordingMysqlDatabase();
+    const repo = createMysqlRepository(db);
+
+    await repo.insertListingOptionsBatch!([{ listingId: 1, options: [{ type: 1, value: 2, param: 3 }] }]);
+    await repo.insertHistoriesBatch!([{ listingId: 1, observedAt: 100, price: 10, quantity: 1, eventType: 'first_seen', batchId: 'snapshot/0' }]);
+    await repo.insertSoldEvent!({ listingId: 1, soldQuantity: 1, fromQuantity: 1, toQuantity: 0, reason: 'sold_out', observedAt: 100, transitionKey: 'a'.repeat(64), snapshotId: 'snapshot/0', price: 10 });
+
+    expect(db.sql).toHaveLength(3);
+    expect(db.sql.every((sql) => !sql.includes('INSERT OR') && !sql.includes('?1'))).toBe(true);
+    expect(db.values.some((values) => values.some((value) => typeof value === 'string' && value.includes('snapshot/0')))).toBe(true);
+  });
 });
