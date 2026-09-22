@@ -18,7 +18,10 @@
     "secrets:generate": "node scripts/generate-secrets.mjs",
     "cf:config": "node scripts/render-wrangler-config.mjs",
     "cf:source-seed": "node scripts/render-source-seed.mjs",
-    "db:mysql:migrate": "node scripts/mysql-migrate.mjs"
+    "db:mysql:migrate": "node scripts/mysql-migrate.mjs",
+    "db:d1:export": "node scripts/export-d1.mjs",
+    "db:mysql:import": "node scripts/import-mysql.mjs",
+    "db:mysql:verify": "node scripts/verify-mysql-migration.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250918.0",
