@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createMysqlRepository } from '../src/db/mysql-repository';
 import type { MysqlDatabase, MysqlRow, MysqlWriteResult } from '../src/db/mysql-client';
 import type { ShopSessionContextInput } from '../src/db/repository';
+import type { ListingOption } from '../src/db/types';
 
 class RecordingMysqlDatabase implements MysqlDatabase {
   readonly sql: string[] = [];
@@ -11,11 +12,13 @@ class RecordingMysqlDatabase implements MysqlDatabase {
   constructor(
     private readonly writeResult: MysqlWriteResult = { affectedRows: 1, insertId: 1 },
     private readonly batchRow: MysqlRow | null = null,
+    private readonly lockedListingIds: number[] = [],
   ) {}
 
   async all<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> {
     this.sql.push(sql);
     this.values.push(values);
+    if (sql.includes('FOR UPDATE')) return this.lockedListingIds.map((id) => ({ id }) as T);
     if (sql.includes('FROM upload_batches')) return this.batchRow ? [this.batchRow as T] : [];
     if (!sql.includes('FROM shops')) return [];
     return Array.from({ length: 1_000 }, (_, index) => ({
@@ -69,6 +72,10 @@ function observations(count: number): ShopSessionContextInput[] {
   }));
 }
 
+function listingInput(index: number, options: ListingOption[] = []): { sessionId: number; fingerprint: string; itemId: number; upgrade: number; slots: number; cards: number[]; price: number; quantity: number; observedAt: number; batchId: string; options: ListingOption[] } {
+  return { sessionId: index + 1, fingerprint: `f${index}`.padEnd(64, '0'), itemId: 100 + index, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 1_000, quantity: 1, observedAt: 100, batchId: 'snapshot/0', options };
+}
+
 describe('MySQL repository upload core', () => {
   it('resolves 1000 shops with bounded tuple reads and a single transaction', async () => {
     const db = new RecordingMysqlDatabase();
@@ -119,5 +126,57 @@ describe('MySQL repository upload core', () => {
     expect(db.sql[0]).toContain('ON DUPLICATE KEY UPDATE batch_id = VALUES(batch_id)');
     expect(db.sql[0]).not.toContain('INSERT OR IGNORE');
     expect(db.values[0]).toContain('snapshot/0');
+  });
+
+  it('uses one set read and one transaction for a 1000-listing upload bundle', async () => {
+    const db = new RecordingMysqlDatabase();
+    const repo = createMysqlRepository(db);
+    const inputs = Array.from({ length: 1_000 }, (_, index) => listingInput(index, [{ type: 1, value: 2, param: 3 }]));
+
+    await repo.loadListingsByObservations!(inputs.map((input) => ({ sessionId: input.sessionId, fingerprint: input.fingerprint })));
+    await repo.insertNewListingsBulk!(inputs);
+
+    const listingReads = db.sql.filter((sql) => sql.includes('FROM listings'));
+    expect(listingReads).toHaveLength(1);
+    expect(listingReads[0]).toContain('JSON_TABLE');
+    expect(db.transactions).toBe(1);
+    const writes = db.sql.filter((sql) => sql.startsWith('INSERT'));
+    expect(writes).toHaveLength(3);
+    expect(writes.every((sql) => sql.includes('JSON_TABLE') && !sql.includes('INSERT OR'))).toBe(true);
+  });
+
+  it('emits sold-event counts only for optimistic-lock winners', async () => {
+    const db = new RecordingMysqlDatabase({ affectedRows: 1, insertId: 0 }, null, [42]);
+    const result = await createMysqlRepository(db).applyListingTransitions!([
+      {
+        listingId: 42,
+        shopSessionId: 7,
+        expectedVersion: 3,
+        price: 100,
+        quantity: 0,
+        status: 'sold_out',
+        observedAt: 100,
+        batchId: 'snapshot/0',
+        history: { eventType: 'quantity_changed' },
+        soldEvent: { soldQuantity: 1, fromQuantity: 1, toQuantity: 0, reason: 'sold_out', transitionKey: 'a'.repeat(64) },
+      },
+      {
+        listingId: 43,
+        shopSessionId: 7,
+        expectedVersion: 3,
+        price: 100,
+        quantity: 0,
+        status: 'sold_out',
+        observedAt: 100,
+        batchId: 'snapshot/0',
+        history: { eventType: 'quantity_changed' },
+        soldEvent: { soldQuantity: 1, fromQuantity: 1, toQuantity: 0, reason: 'sold_out', transitionKey: 'b'.repeat(64) },
+      },
+    ]);
+
+    expect(result).toMatchObject({ updated: 1, conflicts: 1, soldEvents: 1, conflictIds: [43] });
+    expect(db.transactions).toBe(1);
+    expect(db.sql.some((sql) => sql.includes('FOR UPDATE') && sql.includes('state_version = transition_input.expected_version'))).toBe(true);
+    expect(db.sql.join('\n')).not.toContain('RETURNING');
   });
 });

@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS listing_events (
   to_quantity BIGINT UNSIGNED NOT NULL,
   sold_quantity BIGINT UNSIGNED NOT NULL DEFAULT 0,
   reason VARCHAR(32) NULL,
-  transition_key CHAR(64) NOT NULL,
+  transition_key VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_listing_events_transition_key (transition_key),
   INDEX idx_listing_events_history (listing_id, observed_at DESC, id DESC),

@@ -1,7 +1,7 @@
 import { DEFAULT_CURSOR_SECRET } from '../domain/search';
 import { chunkRows, type MysqlDatabase, type MysqlRow } from './mysql-client';
-import type { BatchRow, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
-import type { MarketRepository, ShopResolution, ShopSessionContextInput, UploadResultLike } from './repository';
+import type { BatchRow, ListingOption, ListingRow, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
+import type { ListingTransitionChange, MarketRepository, ShopResolution, ShopSessionContextInput, UploadResultLike } from './repository';
 
 type Row = MysqlRow;
 
@@ -25,6 +25,57 @@ const SHOP_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   full_state_hash CHAR(64) PATH '$.fullStateHash' NULL ON EMPTY,
   observed_at BIGINT UNSIGNED PATH '$.observedAt'
 )) AS observation`;
+
+const LISTING_OBSERVATION_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
+  session_id BIGINT UNSIGNED PATH '$.sessionId',
+  fingerprint CHAR(64) PATH '$.fingerprint'
+)) AS observation`;
+
+const LISTING_INPUT_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
+  session_id BIGINT UNSIGNED PATH '$.sessionId',
+  fingerprint CHAR(64) PATH '$.fingerprint',
+  item_key VARCHAR(191) PATH '$.itemKey' NULL ON EMPTY,
+  item_id BIGINT UNSIGNED PATH '$.itemId',
+  upgrade INT UNSIGNED PATH '$.upgrade',
+  slots INT UNSIGNED PATH '$.slots',
+  card0 BIGINT UNSIGNED PATH '$.cards[0]',
+  card1 BIGINT UNSIGNED PATH '$.cards[1]',
+  card2 BIGINT UNSIGNED PATH '$.cards[2]',
+  card3 BIGINT UNSIGNED PATH '$.cards[3]',
+  price BIGINT UNSIGNED PATH '$.price',
+  quantity BIGINT UNSIGNED PATH '$.quantity',
+  observed_at BIGINT UNSIGNED PATH '$.observedAt',
+  batch_id VARCHAR(191) PATH '$.batchId'
+)) AS listing_input`;
+
+const LISTING_OPTIONS_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
+  session_id BIGINT UNSIGNED PATH '$.sessionId',
+  fingerprint CHAR(64) PATH '$.fingerprint',
+  batch_id VARCHAR(191) PATH '$.batchId',
+  NESTED PATH '$.options[*]' COLUMNS(
+    option_ordinal FOR ORDINALITY,
+    option_type BIGINT UNSIGNED PATH '$.type',
+    option_value BIGINT PATH '$.value',
+    option_param BIGINT PATH '$.param'
+  )
+)) AS listing_option_input`;
+
+const LISTING_TRANSITION_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
+  listing_id BIGINT UNSIGNED PATH '$.listingId',
+  shop_id BIGINT UNSIGNED PATH '$.shopSessionId',
+  expected_version BIGINT UNSIGNED PATH '$.expectedVersion',
+  price BIGINT UNSIGNED PATH '$.price',
+  quantity BIGINT UNSIGNED PATH '$.quantity',
+  status VARCHAR(16) PATH '$.status',
+  observed_at BIGINT UNSIGNED PATH '$.observedAt',
+  batch_id VARCHAR(191) PATH '$.batchId',
+  history_event_type VARCHAR(32) PATH '$.historyEventType' NULL ON EMPTY,
+  sold_quantity BIGINT UNSIGNED PATH '$.soldQuantity' NULL ON EMPTY,
+  sold_from_quantity BIGINT UNSIGNED PATH '$.soldFromQuantity' NULL ON EMPTY,
+  sold_to_quantity BIGINT UNSIGNED PATH '$.soldToQuantity' NULL ON EMPTY,
+  sold_reason VARCHAR(32) PATH '$.soldReason' NULL ON EMPTY,
+  transition_key VARCHAR(255) PATH '$.transitionKey' NULL ON EMPTY
+)) AS transition_input`;
 
 const shopResolutionKey = (sourceId: string, identityHash: string): string => JSON.stringify([sourceId, identityHash]);
 
@@ -105,6 +156,77 @@ function shopFromRow(row: Row, sourceId: string, vendorId: number): ShopRow {
     closedAt: row.closed_at == null ? null : Number(row.closed_at),
     updatedAt: Number(row.last_changed_at),
   };
+}
+
+function listingFromRow(row: Row): ListingRow {
+  return {
+    id: Number(row.id),
+    shopSessionId: Number(row.shop_id),
+    itemFingerprint: String(row.item_fingerprint),
+    itemKey: row.item_key == null ? null : String(row.item_key),
+    itemId: Number(row.item_id),
+    upgrade: Number(row.upgrade),
+    slots: Number(row.slots),
+    cards: [row.card0, row.card1, row.card2, row.card3].map((value) => Number(value ?? 0)),
+    price: Number(row.price),
+    quantity: Number(row.quantity),
+    lastQuantity: Number(row.quantity),
+    status: String(row.status),
+    stateVersion: Number(row.state_version),
+    missingStreak: Number(row.missing_full_count),
+    lastChangedAt: Number(row.last_changed_at),
+  };
+}
+
+type NewListingInput = {
+  sessionId: number;
+  fingerprint: string;
+  itemKey?: string;
+  itemId: number;
+  upgrade: number;
+  slots: number;
+  cards: number[];
+  price: number;
+  quantity: number;
+  observedAt: number;
+  batchId: string;
+  options?: ListingOption[];
+};
+
+function listingInputPayload(inputs: readonly NewListingInput[]): string {
+  return JSON.stringify(inputs.map((input) => ({
+    sessionId: input.sessionId,
+    fingerprint: input.fingerprint,
+    itemKey: input.itemKey ?? null,
+    itemId: input.itemId,
+    upgrade: input.upgrade,
+    slots: input.slots,
+    cards: [input.cards[0] ?? 0, input.cards[1] ?? 0, input.cards[2] ?? 0, input.cards[3] ?? 0],
+    price: input.price,
+    quantity: input.quantity,
+    observedAt: input.observedAt,
+    batchId: input.batchId,
+    options: [...(input.options ?? [])].sort((left, right) => left.type - right.type || left.value - right.value || left.param - right.param),
+  })));
+}
+
+function listingTransitionPayload(changes: readonly ListingTransitionChange[]): string {
+  return JSON.stringify(changes.map((change) => ({
+    listingId: change.listingId,
+    shopSessionId: change.shopSessionId,
+    expectedVersion: change.expectedVersion,
+    price: change.price,
+    quantity: change.quantity,
+    status: change.status,
+    observedAt: change.observedAt,
+    batchId: change.batchId,
+    historyEventType: change.history?.eventType ?? null,
+    soldQuantity: change.soldEvent?.soldQuantity ?? null,
+    soldFromQuantity: change.soldEvent?.fromQuantity ?? null,
+    soldToQuantity: change.soldEvent?.toQuantity ?? null,
+    soldReason: change.soldEvent?.reason ?? null,
+    transitionKey: change.soldEvent?.transitionKey ?? null,
+  })));
 }
 
 export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_CURSOR_SECRET): MarketRepository {
@@ -235,6 +357,120 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     });
   };
 
+  const insertListingRows = async (target: MysqlDatabase, payload: string): Promise<void> => {
+    await target.run(`INSERT INTO listings(
+        shop_id, item_fingerprint, item_key, item_id, upgrade, slots, card0, card1, card2, card3,
+        price, quantity, status, first_seen_at, last_changed_at, last_changed_snapshot_id
+      ) SELECT
+        session_id, fingerprint, item_key, item_id, upgrade, slots, card0, card1, card2, card3,
+        price, quantity, 'active', observed_at, observed_at, batch_id
+      FROM ${LISTING_INPUT_JSON_TABLE}
+      ON DUPLICATE KEY UPDATE id = id`, [payload]);
+  };
+
+  const insertNewListingsBulk = async (inputs: NewListingInput[]): Promise<void> => {
+    if (inputs.length === 0) return;
+    const payload = listingInputPayload(inputs);
+    await db.transaction(async (tx) => {
+      await insertListingRows(tx, payload);
+      await tx.run(`INSERT INTO listing_events(
+          listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+          sold_quantity, reason, transition_key
+        ) SELECT
+          listings.id, listing_input.batch_id, listing_input.observed_at, 'first_seen', NULL, listing_input.price,
+          NULL, listing_input.quantity, 0, NULL, CONCAT(listing_input.batch_id, ':', listings.id)
+        FROM ${LISTING_INPUT_JSON_TABLE}
+        JOIN listings ON listings.shop_id = listing_input.session_id
+          AND listings.item_fingerprint = listing_input.fingerprint
+          AND listings.last_changed_snapshot_id = listing_input.batch_id
+        ON DUPLICATE KEY UPDATE transition_key = transition_key`, [payload]);
+      await tx.run(`INSERT INTO listing_options(listing_id, option_index, option_type, option_value, option_param)
+        SELECT listings.id, listing_option_input.option_ordinal - 1, listing_option_input.option_type,
+          listing_option_input.option_value, listing_option_input.option_param
+        FROM ${LISTING_OPTIONS_JSON_TABLE}
+        JOIN listings ON listings.shop_id = listing_option_input.session_id
+          AND listings.item_fingerprint = listing_option_input.fingerprint
+          AND listings.last_changed_snapshot_id = listing_option_input.batch_id
+        WHERE listing_option_input.option_ordinal IS NOT NULL
+        ON DUPLICATE KEY UPDATE
+          option_type = VALUES(option_type), option_value = VALUES(option_value), option_param = VALUES(option_param)`, [payload]);
+    });
+  };
+
+  const applyListingTransitions = async (changes: ListingTransitionChange[]) => {
+    if (changes.length === 0) return { updated: 0, conflicts: 0, soldEvents: 0, conflictIds: [] };
+    const payload = listingTransitionPayload(changes);
+    return db.transaction(async (tx) => {
+      // The lock read is the authoritative optimistic-lock decision. The following
+      // writes use the same predicates and connection, so histories/events can only
+      // be emitted for winners.
+      const winnerRows = await tx.all<Row>(`SELECT listings.id FROM listings
+        JOIN ${LISTING_TRANSITION_JSON_TABLE}
+          ON listings.id = transition_input.listing_id
+          AND (transition_input.shop_id = 0 OR listings.shop_id = transition_input.shop_id)
+          AND listings.state_version = transition_input.expected_version
+        FOR UPDATE`, [payload]);
+      const updatedIds = new Set(winnerRows.map((row) => Number(row.id)));
+      if (updatedIds.size === 0) {
+        return { updated: 0, conflicts: changes.length, soldEvents: 0, conflictIds: changes.map((change) => change.listingId) };
+      }
+      await tx.run(`UPDATE listings
+        JOIN ${LISTING_TRANSITION_JSON_TABLE}
+          ON listings.id = transition_input.listing_id
+          AND (transition_input.shop_id = 0 OR listings.shop_id = transition_input.shop_id)
+          AND listings.state_version = transition_input.expected_version
+        SET listings.price = transition_input.price,
+          listings.quantity = transition_input.quantity,
+          listings.status = transition_input.status,
+          listings.last_changed_at = transition_input.observed_at,
+          listings.state_version = listings.state_version + 1,
+          listings.last_changed_snapshot_id = transition_input.batch_id,
+          listings.missing_full_count = 0`, [payload]);
+
+      const historyCandidates = changes.some((change) => change.history !== undefined);
+      if (historyCandidates) {
+        await tx.run(`INSERT INTO listing_events(
+            listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+            sold_quantity, reason, transition_key
+          ) SELECT
+            listings.id, transition_input.batch_id, transition_input.observed_at,
+            CASE WHEN transition_input.history_event_type = 'first_seen' THEN 'first_seen' ELSE 'state_changed' END,
+            NULL, transition_input.price, NULL, transition_input.quantity, 0,
+            CASE WHEN transition_input.history_event_type = 'price_changed' THEN 'price' ELSE NULL END,
+            CONCAT(transition_input.batch_id, ':', listings.id, ':', transition_input.history_event_type)
+          FROM ${LISTING_TRANSITION_JSON_TABLE}
+          JOIN listings ON listings.id = transition_input.listing_id
+            AND (transition_input.shop_id = 0 OR listings.shop_id = transition_input.shop_id)
+            AND listings.last_changed_snapshot_id = transition_input.batch_id
+            AND listings.state_version = transition_input.expected_version + 1
+          WHERE transition_input.history_event_type IS NOT NULL
+          ON DUPLICATE KEY UPDATE transition_key = transition_key`, [payload]);
+      }
+
+      const soldCandidates = changes.filter((change) => change.soldEvent !== undefined);
+      if (soldCandidates.length > 0) {
+        await tx.run(`INSERT INTO listing_events(
+            listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+            sold_quantity, reason, transition_key
+          ) SELECT
+            listings.id, transition_input.batch_id, transition_input.observed_at, 'state_changed', NULL,
+            transition_input.price, transition_input.sold_from_quantity, transition_input.sold_to_quantity,
+            transition_input.sold_quantity, transition_input.sold_reason, transition_input.transition_key
+          FROM ${LISTING_TRANSITION_JSON_TABLE}
+          JOIN listings ON listings.id = transition_input.listing_id
+            AND (transition_input.shop_id = 0 OR listings.shop_id = transition_input.shop_id)
+            AND listings.last_changed_snapshot_id = transition_input.batch_id
+            AND listings.state_version = transition_input.expected_version + 1
+          WHERE transition_input.sold_quantity IS NOT NULL
+          ON DUPLICATE KEY UPDATE transition_key = transition_key`, [payload]);
+      }
+
+      const conflictIds = changes.filter((change) => !updatedIds.has(change.listingId)).map((change) => change.listingId);
+      const soldEvents = soldCandidates.filter((change) => updatedIds.has(change.listingId)).length;
+      return { updated: updatedIds.size, conflicts: conflictIds.length, soldEvents, conflictIds };
+    });
+  };
+
   return {
     async getLatestMarketUpdateAt() {
       const row = await db.first<Row>("SELECT MAX(completed_at) AS latest_updated_at FROM upload_batches WHERE status = 'accepted'");
@@ -309,6 +545,86 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     },
     async failBatch(sourceId, batchId) {
       await db.run("UPDATE upload_batches SET status = 'rejected', response_json = NULL WHERE source_id = ? AND batch_id = ? AND status = 'processing'", [sourceId, batchId]);
+    },
+    async loadListingsByFingerprint(sessionId, fingerprints) {
+      if (fingerprints.length === 0) return [];
+      const uniqueFingerprints = [...new Set(fingerprints)];
+      const placeholders = uniqueFingerprints.map(() => '?').join(', ');
+      const rows = await db.all<Row>(`SELECT * FROM listings WHERE shop_id = ? AND item_fingerprint IN (${placeholders})`, [sessionId, ...uniqueFingerprints]);
+      return rows.map(listingFromRow);
+    },
+    async loadListingsByObservations(observations) {
+      if (observations.length === 0) return [];
+      const payload = JSON.stringify(observations);
+      const rows = await db.all<Row>(`SELECT listings.* FROM listings
+        JOIN ${LISTING_OBSERVATION_JSON_TABLE}
+          ON listings.shop_id = observation.session_id
+          AND listings.item_fingerprint = observation.fingerprint`, [payload]);
+      return rows.map(listingFromRow);
+    },
+    async loadListingById(listingId, sessionId) {
+      const row = sessionId === undefined
+        ? await db.first<Row>('SELECT * FROM listings WHERE id = ? LIMIT 1', [listingId])
+        : await db.first<Row>('SELECT * FROM listings WHERE id = ? AND shop_id = ? LIMIT 1', [listingId, sessionId]);
+      return row ? listingFromRow(row) : null;
+    },
+    async markListingsObservedBulk(observations, batchId, observedAt) {
+      if (observations.length === 0) return 0;
+      const payload = JSON.stringify(observations);
+      const result = await db.run(`UPDATE listings
+        JOIN ${LISTING_OBSERVATION_JSON_TABLE}
+          ON listings.shop_id = observation.session_id
+          AND listings.item_fingerprint = observation.fingerprint
+        SET listings.last_changed_at = ?, listings.last_changed_snapshot_id = ?, listings.missing_full_count = 0,
+          listings.status = CASE WHEN listings.quantity = 0 THEN 'sold_out' ELSE 'active' END`, [payload, observedAt, batchId]);
+      return result.affectedRows;
+    },
+    async markListingsObserved(sessionId, fingerprints, batchId, observedAt) {
+      if (fingerprints.length === 0) return 0;
+      const uniqueFingerprints = [...new Set(fingerprints)];
+      const placeholders = uniqueFingerprints.map(() => '?').join(', ');
+      const result = await db.run(`UPDATE listings
+        SET last_changed_at = ?, last_changed_snapshot_id = ?, missing_full_count = 0,
+          status = CASE WHEN quantity = 0 THEN 'sold_out' ELSE 'active' END
+        WHERE shop_id = ? AND item_fingerprint IN (${placeholders})`, [observedAt, batchId, sessionId, ...uniqueFingerprints]);
+      return result.affectedRows;
+    },
+    async createListing(input) {
+      const payload = listingInputPayload([input]);
+      return db.transaction(async (tx) => {
+        await insertListingRows(tx, payload);
+        const row = await tx.first<Row>('SELECT * FROM listings WHERE shop_id = ? AND item_fingerprint = ? LIMIT 1', [input.sessionId, input.fingerprint]);
+        if (!row) throw new Error('listing insert returned no row');
+        return listingFromRow(row);
+      });
+    },
+    async createListingsBatch(inputs) {
+      if (inputs.length === 0) return [];
+      const payload = listingInputPayload(inputs);
+      return db.transaction(async (tx) => {
+        await insertListingRows(tx, payload);
+        const rows = await tx.all<Row>(`SELECT listings.* FROM listings
+          JOIN ${LISTING_OBSERVATION_JSON_TABLE}
+            ON listings.shop_id = observation.session_id
+            AND listings.item_fingerprint = observation.fingerprint`, [JSON.stringify(inputs.map((input) => ({ sessionId: input.sessionId, fingerprint: input.fingerprint })))]);
+        return rows.map(listingFromRow);
+      });
+    },
+    async createListingsBundleBatch(inputs) {
+      if (inputs.length === 0) return [];
+      await insertNewListingsBulk(inputs);
+      const rows = await db.all<Row>(`SELECT listings.* FROM listings
+        JOIN ${LISTING_OBSERVATION_JSON_TABLE}
+          ON listings.shop_id = observation.session_id
+          AND listings.item_fingerprint = observation.fingerprint`, [JSON.stringify(inputs.map((input) => ({ sessionId: input.sessionId, fingerprint: input.fingerprint })))]);
+      return rows.map(listingFromRow);
+    },
+    insertNewListingsBulk,
+    applyListingTransitions,
+    applyListingTransitionsBulk: applyListingTransitions,
+    async applyListingChanges(changes) {
+      const result = await applyListingTransitions(changes.map((change) => ({ ...change, shopSessionId: 0 })));
+      return { updated: result.updated, conflicts: result.conflicts };
     },
   } as MarketRepository;
 }
