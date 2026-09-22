@@ -4,7 +4,7 @@ import { decodeCursor, decodeHistoryCursor, encodeCursor, encodeHistoryCursor, s
 import { compileOptionPredicates, formatOptionDisplay, OPTION_OPERATORS, OptionConditionValidationError, parseStructuredOptionCondition, type OptionDefinition, type OptionOperator, type OptionParamPolicy } from '../domain/option-conditions';
 import { makeTransitionKey } from '../domain/transitions';
 import { createMeteredD1Database, type D1Meter } from './d1-meter';
-import { getOptionDefinitionSet } from '@lastroweb/options';
+import { getOptionDefinitionSet } from '../domain/option-definitions';
 import type { BatchRow, CatalogItemRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, ShopSessionRow, SourceRow, VendorInput } from './types';
 import type { ListingTransitionChange, MarketRepository, ReconciliationResult, ShopResolution, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 

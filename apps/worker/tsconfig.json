@@ -5,7 +5,6 @@
     "noEmit": true,
     "baseUrl": "../..",
     "paths": {
-      "@lastroweb/options": ["packages/options/src/index.ts"],
       "@lastroweb/protocol": ["packages/protocol/src/index.ts"]
     }
   },

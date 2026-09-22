@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lastroweb/options": "workspace:*",
-    "hono": "^4.7.11"
+    "hono": "^4.7.11",
+    "mysql2": "^3.14.3"
   }
 }

@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@lastroweb/options': resolve(process.cwd(), 'packages/options/src/index.ts'),
       '@lastroweb/protocol': resolve(process.cwd(), 'packages/protocol/src/index.ts'),
     },
   },

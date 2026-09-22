@@ -1,5 +1,5 @@
 /**
- * Versioned official LastRO option metadata.
+ * Worker-owned, versioned official LastRO option metadata.
  *
  * This bundle is deliberately independent from D1. Both the Worker validator and
  * the Web options endpoint use this same source of truth, so option metadata does
@@ -232,4 +232,3 @@ export function getOptionDefinitionSet(version?: string): { version: string; ite
   }
   return { version: OPTION_DEFINITIONS_VERSION, items: OPTION_DEFINITIONS };
 }
-
