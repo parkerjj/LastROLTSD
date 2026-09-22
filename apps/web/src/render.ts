@@ -2,6 +2,7 @@ import type { HistoryPage, ListingSearchResult, SearchFilters, SearchPage } from
 import type { SearchControllerState } from './search-controller';
 import { hydrateSearchPage } from './catalog';
 import type { ItemAutocomplete, ItemDescription } from './types';
+import { mapDetails, mapMarkerPosition } from './maps';
 
 export const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
 
@@ -24,13 +25,6 @@ type RichListing = ListingSearchResult & {
   mapX?: number;
   mapY?: number;
   itemIcon?: string;
-};
-
-const MAP_CATALOG: Record<string, { image: string; code: string }> = {
-  普隆德拉: { code: 'prontera', image: rmsAssetUrl('maps_xl/prontera_re.gif') },
-  梦罗克: { code: 'morocc', image: rmsAssetUrl('maps_xl/morocc_re.gif') },
-  吉芬: { code: 'geffen', image: rmsAssetUrl('maps_xl/geffen.gif') },
-  斐扬: { code: 'payon', image: rmsAssetUrl('maps_xl/payon_re.gif') },
 };
 
 export function rmsAssetUrl(path: string): string {
@@ -149,6 +143,7 @@ function renderListing(item: ListingSearchResult): string {
   const largeIcon = rmsAssetUrl(`items/large/${encodeURIComponent(String(item.itemId))}.gif`);
   const map = mapInfo(item.mapName);
   const coordinates = getCoordinates(rich, item.mapName);
+  const marker = mapMarkerPosition(item.mapName, coordinates.x, coordinates.y);
   const image = /[<>]/u.test(rawName) ? '' : `<img src="${escape(icon)}" alt="" loading="lazy" data-image-fallback /><span class="item-icon-fallback" aria-hidden="true" hidden>RO</span>`;
   const detailImage = /[<>]/u.test(rawName) ? '' : `<img src="${escape(largeIcon)}" alt="${escape(itemName)}" loading="lazy" data-image-fallback /><span class="detail-art-fallback" aria-hidden="true" hidden>RO</span>`;
   return `<article class="item-row">
@@ -158,16 +153,18 @@ function renderListing(item: ListingSearchResult): string {
       <div class="item-detail-popover" role="tooltip"><div class="detail-art">${detailImage}</div><div><strong>${escape(itemName)}</strong><span class="detail-id">ID：${escape(item.itemId)}</span><p>${parseRoMarkup(description)}</p></div></div>
     </div>
     <div class="item-price"><span>价格</span><strong>${item.price.toLocaleString('zh-CN')} <small>z</small></strong><em>${item.quantity} 件</em></div>
-    <div class="item-location"><span>地图</span><strong>${escape(item.mapName || '未知地图')}</strong><small>${coordinates.x}，${coordinates.y}</small><button type="button" class="map-button" data-map-name="${escape(item.mapName)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" aria-label="查看${escape(item.mapName)}地图">地图定位</button></div>
+    <div class="item-location"><span>地图</span><strong>${escape(map.name)}</strong><small>${coordinates.x}，${coordinates.y}</small><button type="button" class="map-button" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" aria-label="查看${escape(map.name)}地图">地图定位</button></div>
     <div class="item-shop"><span>商店 / 玩家</span><strong>${escape(item.title || '未命名商店')}</strong><small>${escape(item.vendorName || '未知玩家')}</small></div>
     <div class="item-updated"><span>最近变动</span><time>${new Date(item.lastChangedAt).toLocaleString('zh-CN')}</time></div>
     <div class="item-actions"><button class="history-button" data-listing-id="${escape(item.id)}" type="button" aria-label="查看${escape(itemName)}价格历史">价格历史</button></div>
   </article>`;
 }
 
-function mapInfo(mapName: string): { image: string; code: string } {
-  const key = Object.keys(MAP_CATALOG).find((candidate) => mapName.includes(candidate));
-  return (key ? MAP_CATALOG[key] : undefined) ?? { code: 'morocc', image: rmsAssetUrl('maps_xl/morocc_re.gif') };
+function mapInfo(mapName: string): { image: string; code: string; name: string } {
+  const map = mapDetails(mapName);
+  return map
+    ? { code: map.code, name: map.name, image: rmsAssetUrl(map.image) }
+    : { code: 'morocc', name: mapName || '未知地图', image: rmsAssetUrl('maps_xl/morocc_re.gif') };
 }
 
 function getCoordinates(item: RichListing, mapName: string): { x: number; y: number } {
@@ -175,7 +172,13 @@ function getCoordinates(item: RichListing, mapName: string): { x: number; y: num
   const match = source.match(/(?:坐标|位置)?\s*[（(]?\s*(\d{1,3})\s*[,，]\s*(\d{1,3})/u);
   const rawX = item.x ?? item.mapX ?? Number(match?.[1]);
   const rawY = item.y ?? item.mapY ?? Number(match?.[2]);
-  return { x: Number.isFinite(rawX) ? Math.max(0, Math.min(100, Math.round(rawX))) : 50, y: Number.isFinite(rawY) ? Math.max(0, Math.min(100, Math.round(rawY))) : 50 };
+  const map = mapDetails(mapName);
+  const maxX = map?.maxX ?? 100;
+  const maxY = map?.maxY ?? 100;
+  return {
+    x: Number.isFinite(rawX) ? Math.max(0, Math.min(maxX, Math.round(rawX))) : Math.round(maxX / 2),
+    y: Number.isFinite(rawY) ? Math.max(0, Math.min(maxY, Math.round(rawY))) : Math.round(maxY / 2),
+  };
 }
 
 function translateHistoryEvent(value: string): string {

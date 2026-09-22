@@ -17,11 +17,10 @@ export type IngestionErrorCode =
   | 'idempotency_key_reused'
   | 'batch_in_progress'
   | 'duplicate_shop_identity'
-  | 'full_snapshot_required'
   | 'listing_state_conflict'
   | 'ingestion_invariant_failed'
   | 'storage_unavailable';
-export type IngestionErrorAction = 'send_full_snapshot' | 'new_snapshot';
+export type IngestionErrorAction = 'new_snapshot';
 export interface IngestionErrorMetadata { retryable?: boolean; action?: IngestionErrorAction; retryAfterSeconds?: number; }
 export class IngestionError extends Error {
   public readonly retryable: boolean;
@@ -29,7 +28,7 @@ export class IngestionError extends Error {
   public readonly retryAfterSeconds: number | undefined;
 
   constructor(
-    public readonly status: 400 | 409 | 422 | 423 | 428 | 500 | 503,
+    public readonly status: 400 | 409 | 422 | 423 | 500 | 503,
     public readonly code: IngestionErrorCode,
     message: string,
     metadata: IngestionErrorMetadata = {},
@@ -132,8 +131,6 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       const fullStateHash = request.snapshot_mode === 'full' ? await computeFullShopStateHash(source.id, identity.identityHash, input.items.map((item) => normalizeItem(item as unknown as Record<string, unknown>))) : undefined;
       return { sourceId: source.id, identityHash: identity.identityHash, shopId: identity.shopId, shopStatus: input.shop_status, batchId, clientRunId: request.client_run_id, observedAt, vendorAccountId: input.vendor_account_id, vendorName: input.vendor_name, title: input.title, shopType: input.shop_type, mapName: input.map_name, x: input.x, y: input.y, profileHash, ...(fullStateHash === undefined ? {} : { fullStateHash }) } satisfies ShopSessionContextInput;
     }));
-    if (request.snapshot_mode !== 'full' && repo.requiresFullSnapshot && await repo.requiresFullSnapshot(contexts)) throw new IngestionError(428, 'full_snapshot_required', 'The first upload for a shop session must be a full snapshot', { action: 'send_full_snapshot' });
-
     const resolutions = repo.resolveShopObservations
       ? await repo.resolveShopObservations(contexts)
       : await mapConcurrent(identified, SHOP_RESOLUTION_CONCURRENCY, ({ input, identity }) => resolveShop(source.id, request.client_run_id, batchId, observedAt, input, repo, identity));
@@ -143,8 +140,6 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     const opening = resolved.filter((entry) => entry.input.shop_status === 'opening' && entry.resolution.applied && entry.resolution.session);
     const listingEntries = opening.filter((entry) => request.snapshot_mode !== 'full' || entry.resolution.readListings !== false);
     const sessions = opening.map((entry) => entry.resolution.session!);
-    if (request.snapshot_mode !== 'full' && sessions.some((session) => !session.initialSyncComplete)) throw new IngestionError(428, 'full_snapshot_required', 'The first upload for a shop session must be a full snapshot', { action: 'send_full_snapshot' });
-
     const observationGroups = await mapConcurrent(listingEntries, SHOP_RESOLUTION_CONCURRENCY, async ({ input, resolution }) => {
       const session = resolution.session!;
       if (request.snapshot_mode === 'heartbeat') return [];

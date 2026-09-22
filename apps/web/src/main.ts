@@ -3,6 +3,7 @@ import { MarketApi } from './api';
 import { OptionDictionaryStore } from './option-state';
 import { appendOptionRow, serializeSearchForm } from './query-form';
 import { friendlyError, renderHistory, renderHistoryError, renderSearchResultsWithCatalog, rmsAssetUrl } from './render';
+import { mapFilterOptions } from './maps';
 import { SearchController } from './search-controller';
 import { initialState } from './state';
 import type { ItemAutocomplete, ItemDescription, SearchFilters } from './types';
@@ -13,6 +14,7 @@ const root = document.querySelector<HTMLElement>('#app')!;
 if (!root) throw new Error('Missing app root');
 
 const isReleasePage = /^\/updates\/?$/u.test(window.location.pathname);
+const mapFilterMarkup = mapFilterOptions().map((map) => `<option value="${map.value}">${map.label}</option>`).join('');
 
 function mountSearchPage(): void {
 const api = new MarketApi();
@@ -45,7 +47,7 @@ root.innerHTML = `
             <button type="button" class="search-toggle" data-panel="option-search-panel" aria-controls="option-search-panel" aria-expanded="false" aria-pressed="false"><span aria-hidden="true">＋</span>词条搜索</button>
           </div>
         </div>
-        <div id="advanced-filters" class="search-reveal advanced-filters" hidden><div class="reveal-heading"><div><strong>高级搜索</strong><span>缩小价格、地图和商店类型范围</span></div><span class="reveal-caption">可选</span></div><div class="filters"><label for="price-max">最高价格<input id="price-max" name="price_max" inputmode="numeric" type="number" min="0" placeholder="不限" /></label><label for="map-name">地图<select id="map-name" name="map"><option value="">全部</option><option value="普隆德拉">普隆德拉</option><option value="梦罗克">梦罗克</option><option value="吉芬">吉芬</option><option value="斐扬">斐扬</option></select></label><label for="shop-type">商店类型<select id="shop-type" name="shop_type"><option value="">全部类型</option><option value="sell">出售</option><option value="buy">收购</option></select></label></div></div>
+        <div id="advanced-filters" class="search-reveal advanced-filters" hidden><div class="reveal-heading"><div><strong>高级搜索</strong><span>缩小价格、地图和商店类型范围</span></div><span class="reveal-caption">可选</span></div><div class="filters"><label for="price-max">最高价格<input id="price-max" name="price_max" inputmode="numeric" type="number" min="0" placeholder="不限" /></label><label for="map-name">地图<select id="map-name" name="map"><option value="">全部</option>${mapFilterMarkup}</select></label><label for="shop-type">商店类型<select id="shop-type" name="shop_type"><option value="">全部类型</option><option value="sell">出售</option><option value="buy">收购</option></select></label></div></div>
         <div id="option-search-panel" class="search-reveal option-search-panel" hidden><div id="option-dictionary-status" class="option-dictionary-status" role="status" aria-live="polite"></div><fieldset id="option-fieldset" class="option-filters"><legend>词条搜索与过滤</legend><div class="option-heading"><p>添加词条条件，筛选精炼、卡片与装备属性。</p><div class="option-mode" role="group" aria-label="词条匹配方式"><label><input type="radio" name="option_mode" value="all" checked />全部满足</label><label><input type="radio" name="option_mode" value="any" />满足任一</label></div></div><div id="option-rows"></div><button type="button" id="add-option" class="secondary-button" disabled aria-label="添加词条条件">＋ 添加词条条件</button></fieldset></div>
         <p id="form-error" class="form-error" role="alert" hidden></p>
       </form>
@@ -202,8 +204,8 @@ async function openHistory(listingId: number): Promise<void> {
 function closeHistory(): void { historyDrawer.hidden = true; }
 
 function openMap(button: HTMLButtonElement): void {
-  const name = button.dataset.mapName || '未知地图'; const image = button.dataset.mapImage || rmsAssetUrl('maps_xl/morocc_re.gif'); const code = button.dataset.mapCode || 'morocc'; const x = Number(button.dataset.mapX) || 50; const y = Number(button.dataset.mapY) || 50;
-  mapDrawer.innerHTML = `<div class="drawer-inner map-inner"><button type="button" id="close-map" aria-label="关闭地图">关闭</button><p class="drawer-kicker">地图定位 / ${code}</p><h2>${name}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${name}地图" /><span class="map-star" style="left:${x}%;top:${y}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p></div>`;
+  const name = button.dataset.mapName || '未知地图'; const image = button.dataset.mapImage || rmsAssetUrl('maps_xl/morocc_re.gif'); const code = button.dataset.mapCode || 'morocc'; const rawX = Number(button.dataset.mapX); const rawY = Number(button.dataset.mapY); const rawLeft = Number(button.dataset.mapMarkerLeft); const rawTop = Number(button.dataset.mapMarkerTop); const x = Number.isFinite(rawX) ? rawX : 50; const y = Number.isFinite(rawY) ? rawY : 50; const left = Number.isFinite(rawLeft) ? rawLeft : 50; const top = Number.isFinite(rawTop) ? rawTop : 50;
+  mapDrawer.innerHTML = `<div class="drawer-inner map-inner"><button type="button" id="close-map" aria-label="关闭地图">关闭</button><p class="drawer-kicker">地图定位 / ${code}</p><h2>${name}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${name}地图" /><span class="map-star" style="left:${left}%;top:${top}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p></div>`;
   mapDrawer.hidden = false;
 }
 

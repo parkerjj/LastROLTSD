@@ -130,7 +130,7 @@ describe('upload route', () => {
     expect((await response.json() as { error: { code: string; retryable: boolean } }).error).toMatchObject({ code: 'rate_limited', retryable: true });
   });
 
-  it('distinguishes schema, upload-limit, baseline, and batch-state failures', async () => {
+  it('distinguishes schema, upload-limit, and batch-state failures without requiring a baseline', async () => {
     const key = 'route-secret'; const hash = await hashApiKey(key);
     const request = async (repository: MarketRepository, payload: unknown, idempotencyKey = 'snap/0') => {
       const app = new Hono();
@@ -146,11 +146,9 @@ describe('upload route', () => {
     expect(tooManyParts.status).toBe(413);
     expect((await tooManyParts.json() as { error: { code: string; action: string } }).error).toMatchObject({ code: 'upload_limit_exceeded', action: 'reshard_upload' });
 
-    const baselineRepo = repo(hash);
-    baselineRepo.requiresFullSnapshot = async () => true;
-    const baseline = await request(baselineRepo, heartbeatPayload);
-    expect(baseline.status).toBe(428);
-    expect((await baseline.json() as { error: { code: string; action: string; retryable: boolean } }).error).toMatchObject({ code: 'full_snapshot_required', action: 'send_full_snapshot', retryable: false });
+    const heartbeat = await request(repo(hash), heartbeatPayload);
+    expect(heartbeat.status).toBe(202);
+    expect((await heartbeat.json() as { accepted: boolean }).accepted).toBe(true);
 
     const processingRepo = repo(hash);
     processingRepo.completeBatch = async () => { throw new Error('synthetic interruption'); };

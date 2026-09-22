@@ -146,11 +146,6 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       return resolution;
     },
     resolveShopObservations,
-    async requiresFullSnapshot(inputs) {
-      if (inputs.length === 0) return false;
-      const rows = await many<Row>(db.prepare("SELECT input.value AS identity_hash FROM json_each(?2) input WHERE NOT EXISTS (SELECT 1 FROM shops s WHERE s.source_id=?1 AND s.identity_hash=json_extract(input.value,'$.identityHash') AND s.full_state_hash IS NOT NULL AND s.status IN ('active','stale'))").bind(inputs[0]!.sourceId, JSON.stringify(inputs)));
-      return rows.length > 0;
-    },
     async getBatch(sourceId, batchId) {
       const row = await one<Row>(db.prepare('SELECT * FROM upload_batches WHERE source_id=?1 AND batch_id=?2 LIMIT 1').bind(sourceId, batchId));
       return row ? batchFromRow(row) : null;
@@ -414,7 +409,7 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       }
       const limit = Math.min(50, Math.max(1, filters.limit)); params.push(limit + 1);
       const order = filters.sort === 'price_desc' ? 'l.price DESC,l.id DESC' : filters.sort === 'changed_desc' ? 'l.last_changed_at DESC,l.id DESC' : 'l.price ASC,l.id ASC';
-      const searchSql = `SELECT l.id,l.shop_id,l.item_fingerprint,l.item_key,l.item_id,l.upgrade,l.slots,l.card0,l.card1,l.card2,l.card3,l.price,l.quantity,l.status,l.state_version,l.missing_full_count,l.last_changed_at,s.public_shop_id AS shop_id_display,s.status AS shop_status,s.public_shop_id AS shop_key,s.title,s.vendor_name,s.map_name,s.shop_type FROM listings l JOIN shops s ON s.id=l.shop_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`;
+      const searchSql = `SELECT l.id,l.shop_id,l.item_fingerprint,l.item_key,l.item_id,l.upgrade,l.slots,l.card0,l.card1,l.card2,l.card3,l.price,l.quantity,l.status,l.state_version,l.missing_full_count,l.last_changed_at,s.public_shop_id AS shop_id_display,s.status AS shop_status,s.public_shop_id AS shop_key,s.title,s.vendor_name,s.map_name,s.x,s.y,s.shop_type FROM listings l JOIN shops s ON s.id=l.shop_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?${params.length}`;
       assertQueryBounds(searchSql, params.length);
       const rows = await many<Row>(db.prepare(searchSql).bind(...params));
       const items = rows.slice(0, limit).map(listingFromSearchRow);
@@ -464,7 +459,7 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
 
 function batchFromRow(row: Row): BatchRow { return { id: Number(row.id), sourceId: String(row.source_id), batchId: String(row.batch_id), snapshotId: String(row.snapshot_id), partIndex: Number(row.part_index), partCount: Number(row.part_count), snapshotMode: String(row.snapshot_mode) as BatchRow['snapshotMode'], payloadHash: String(row.payload_hash), status: String(row.status), responseJson: row.response_json === null ? null : String(row.response_json) }; }
 function listingFromRow(row: Row): ListingRow { return { id: Number(row.id), shopSessionId: Number(row.shop_id), itemFingerprint: String(row.item_fingerprint), itemKey: row.item_key === null ? null : String(row.item_key), itemId: Number(row.item_id), upgrade: Number(row.upgrade), slots: Number(row.slots), cards: cards(row), price: Number(row.price), quantity: Number(row.quantity), lastQuantity: Number(row.quantity), status: String(row.status), stateVersion: Number(row.state_version), missingStreak: Number(row.missing_full_count), lastChangedAt: Number(row.last_changed_at) }; }
-function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), shopId: String(row.shop_id_display ?? row.shop_key), shopStatus: String(row.shop_status) as ListingSearchRow['shopStatus'], shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
+function listingFromSearchRow(row: Row): ListingSearchRow { return { ...listingFromRow(row), shopId: String(row.shop_id_display ?? row.shop_key), shopStatus: String(row.shop_status) as ListingSearchRow['shopStatus'], shopKey: String(row.shop_key), title: String(row.title), vendorName: String(row.vendor_name), mapName: String(row.map_name), x: Number(row.x), y: Number(row.y), shopType: String(row.shop_type) as 'buy' | 'sell', options: [] }; }
 
 function sessionFromShopRow(row: Row, clientRunId: string, observedAt: number): ShopSessionRow {
   const lastSeenAt = Math.max(Number(row.last_status_observed_at ?? 0), observedAt);

@@ -136,21 +136,11 @@ describe('upload ingestion', () => {
     await expect(ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 500, code: 'ingestion_invariant_failed', retryable: true });
   });
 
-  it('requires a full snapshot before accepting a delta for a new session', async () => {
+  it('accepts a delta for a new session without a completed full snapshot', async () => {
     const repo = fakeRepo({ ...baseSession, initialSyncComplete: false, lastCompleteSnapshotId: null });
     const delta = { ...request, snapshot_mode: 'delta' as const };
-    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 428, code: 'full_snapshot_required', action: 'send_full_snapshot' });
-  });
-
-  it('rejects a non-full upload before mutating shops when bulk preflight requires a baseline', async () => {
-    const repo = fakeRepo();
-    let resolved = false;
-    repo.requiresFullSnapshot = async () => true;
-    repo.resolveShopObservations = async () => { resolved = true; return []; };
-    const delta = { ...request, snapshot_mode: 'delta' as const };
-
-    await expect(ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) })).rejects.toMatchObject({ status: 428, code: 'full_snapshot_required', action: 'send_full_snapshot' });
-    expect(resolved).toBe(false);
+    const result = await ingestUpload(source, delta, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 1, changedListings: 1, soldEvents: 0 }) });
+    expect(result).toMatchObject({ accepted: true, batch_id: 'snap/0', processed_listings: 1, changed_listings: 1 });
   });
 
   it('preserves the ingestion error when rejected-batch cleanup also fails', async () => {

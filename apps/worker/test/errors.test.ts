@@ -4,9 +4,9 @@ import { enforceUploadLimits } from '../src/middleware/limits';
 
 describe('errors and limits', () => {
   it('returns a standard error without secrets', async () => {
-    const response = jsonError('full_snapshot_required', 'A full snapshot is required', 428, 'request-1', { retryable: false, action: 'send_full_snapshot' });
-    expect(response.status).toBe(428);
-    expect(await response.json()).toEqual({ error: { code: 'full_snapshot_required', message: 'A full snapshot is required', request_id: 'request-1', retryable: false, action: 'send_full_snapshot' } });
+    const response = jsonError('idempotency_key_reused', 'A new snapshot is required', 422, 'request-1', { retryable: false, action: 'new_snapshot' });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: { code: 'idempotency_key_reused', message: 'A new snapshot is required', request_id: 'request-1', retryable: false, action: 'new_snapshot' } });
   });
   it('enforces body and part limits', () => {
     const request = new Request('https://example.test', { headers: { 'content-length': String(512 * 1024 + 1) } });

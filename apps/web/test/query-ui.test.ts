@@ -44,6 +44,14 @@ describe('query UI rendering', () => {
     expect(element.querySelector('.map-button')?.getAttribute('data-map-image')).toBe('/api/v1/assets/maps_xl/prontera_re.gif?lastroweb=v3');
   });
 
+  it('translates map codes and supplies the map marker position from listing coordinates', () => {
+    const element = getResults();
+    renderSearchResults(element, { items: [listing({ mapName: 'payon', x: 300, y: 360 })], nextCursor: null }, state);
+    expect(element.querySelector('.item-location strong')?.textContent).toBe('斐扬');
+    expect(element.querySelector('.map-button')?.getAttribute('data-map-marker-left')).toBe('100');
+    expect(element.querySelector('.map-button')?.getAttribute('data-map-marker-top')).toBe('0');
+  });
+
   it('renders deterministic fallbacks for unknown items and unknown option types', () => {
     const element = getResults();
     renderSearchResults(element, { items: [listing({ itemName: '', itemId: 9999, options: [{ type: 777, value: 3, param: 4, display: '' }] })], nextCursor: null }, state);

@@ -233,7 +233,7 @@ label { display: grid; gap: 6px; color: #c1cbc2; font-size: .75rem; font-weight:
 .map-coordinates { color: #b2beb2; font-size: .78rem; }
 .map-frame { position: relative; margin-top: 22px; overflow: hidden; border: 1px solid #778475; background: #e8dfcc; }
 .map-frame img { display: block; width: 100%; height: auto; image-rendering: auto; }
-.map-star { position: absolute; z-index: 1; color: #df4c3f; font-size: 31px; line-height: 1; text-shadow: 0 1px 3px #fff, 0 0 0 2px rgba(40,20,14,.35); transform: translate(-50%, -55%); }
+.map-star { position: absolute; z-index: 1; display: grid; place-items: center; width: 34px; height: 34px; border: 3px solid #fff; border-radius: 50%; background: #bd2f28; color: #fff; font-size: 24px; font-weight: 900; line-height: 1; text-shadow: 0 1px 2px rgba(45, 10, 6, .9); box-shadow: 0 0 0 2px rgba(45, 20, 14, .72), 0 2px 7px rgba(0, 0, 0, .6); transform: translate(-50%, -50%); }
 .map-note { margin-top: 13px; color: #809087; font-size: .7rem; line-height: 1.6; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

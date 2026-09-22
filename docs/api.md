@@ -55,11 +55,11 @@ Upload errors use this envelope and never echo bearer tokens or complete payload
 ```json
 {
   "error": {
-    "code": "full_snapshot_required",
-    "message": "The first upload for a shop session must be a full snapshot",
+    "code": "idempotency_key_reused",
+    "message": "Idempotency key was reused with a different payload",
     "request_id": "request-id",
     "retryable": false,
-    "action": "send_full_snapshot"
+    "action": "new_snapshot"
   }
 }
 ```
@@ -81,7 +81,6 @@ Upload errors use this envelope and never echo bearer tokens or complete payload
 | 422 | `duplicate_shop_identity` | Two shops in one part resolve to the same canonical identity. | Fix or merge the duplicate shop observations. |
 | 422 | `idempotency_key_reused` | A completed, processing, or rejected key has a different payload hash. | Create a new snapshot and key (`action: new_snapshot`). |
 | 423 | `batch_in_progress` | Another request owns the same batch claim. | Retry the identical request with the same key after `Retry-After`. |
-| 428 | `full_snapshot_required` | The shop session has no completed full baseline. | Send a new full snapshot (`action: send_full_snapshot`). |
 | 429 | `rate_limited` | The source upload rate limit was reached. | Retry the identical request with the same key after `Retry-After`. |
 | 500 | `internal_error` | An unexpected server failure occurred. | Retry with bounded exponential backoff using the same key; alert after the retry budget is exhausted. |
 | 500 | `ingestion_invariant_failed` | An internal ingestion capability or state invariant failed. | Retry with bounded exponential backoff using the same key and alert operators. |

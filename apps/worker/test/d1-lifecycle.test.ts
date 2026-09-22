@@ -88,17 +88,15 @@ describe('D1 clean-break lifecycle', () => {
     } finally { d1.database.close(); }
   });
 
-  it('requires a full snapshot until finalized and preserves source-scoped shop state', async () => {
+  it('finalizes a full snapshot and preserves source-scoped shop state', async () => {
     const d1 = createDatabase();
     try {
       const repository = createD1Repository(d1 as never);
       const first = await observation('source-a', 100);
-      expect(await repository.requiresFullSnapshot!([first])).toBe(true);
       const resolved = await repository.resolveShopObservation!(first);
       await addBatch(repository, 'source-a', 'full-1/0', 'full-1', 100);
       await repository.recordSnapshotSessions!('source-a', 'full-1', [resolved.internalShopId], 100);
       await repository.finalizeSnapshot('source-a', 'full-1', 100);
-      expect(await repository.requiresFullSnapshot!([{ ...first, observedAt: 200, batchId: 'full-2/0' }])).toBe(false);
       const matched = await repository.resolveShopObservation!({ ...first, observedAt: 200, batchId: 'full-2/0' });
       expect(matched).toMatchObject({ resolution: 'matched', session: { initialSyncComplete: true, lastCompleteSnapshotId: 'full-1' } });
       const other = await repository.resolveShopObservation!(await observation('source-b', 200, 'opening', 'account-b'));
