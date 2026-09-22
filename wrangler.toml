@@ -16,30 +16,13 @@ MAX_BODY_BYTES = "524288"
 [triggers]
 crons = ["0 3 * * *"]
 
-[[d1_databases]]
-binding = "DB"
-database_name = "lastroweb-local"
-database_id = "local"
-migrations_dir = "migrations"
-
 [env.staging]
 name = "lastroweb-staging"
 vars = { ENVIRONMENT = "staging", BUILD_VERSION = "staging", MAX_BODY_BYTES = "524288" }
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "lastroweb-staging"
-database_id = "replace-at-deploy"
-migrations_dir = "migrations"
 
 [env.production]
 name = "lastroweb-production"
 vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288" }
-[[env.production.d1_databases]]
-binding = "DB"
-database_name = "lastro-ltsd-db"
-database_id = "replace-at-deploy"
-migrations_dir = "migrations"
-
 
 [observability.logs]
 enabled = true
@@ -50,4 +33,3 @@ invocation_logs = true
 enabled = true
 head_sampling_rate = 1
 persist = true
-

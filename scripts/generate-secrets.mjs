@@ -30,6 +30,8 @@ const local = [
   'ENVIRONMENT=local',
   'BUILD_VERSION=dev',
   'MAX_BODY_BYTES=524288',
+  '# Point local development at a MySQL 8 server. Replace before running Wrangler.',
+  'MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-database?ssl=true',
   `UPLOAD_API_KEY=${localSourceKey}`,
   `UPLOAD_API_KEY_SHA256=${hash(localSourceKey)}`,
   `ADMIN_SECRET=${secret()}`,
@@ -39,7 +41,7 @@ const local = [
 
 const deployment = [
   '# Generated deployment credentials. Do not commit, paste into logs, or send in chat.',
-  '# The source API key is given to the uploader; only its SHA-256 hash is stored in D1.',
+  '# The source API key is given to the uploader; only its SHA-256 hash is stored in MySQL.',
   `STAGING_SOURCE_API_KEY=${stagingSourceKey}`,
   `STAGING_SOURCE_API_KEY_SHA256=${hash(stagingSourceKey)}`,
   `STAGING_CURSOR_SECRET=${secret()}`,

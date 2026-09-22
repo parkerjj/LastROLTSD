@@ -1,8 +1,8 @@
-import type { D1Database, Fetcher } from '@cloudflare/workers-types';
+import type { Fetcher } from '@cloudflare/workers-types';
 import { DEFAULT_CURSOR_SECRET } from './domain/search';
 
 export interface AppEnv {
-  DB?: D1Database | undefined;
+  MYSQL_URL?: string | undefined;
   ASSETS?: Fetcher | undefined;
   ENVIRONMENT: string;
   BUILD_VERSION: string;
@@ -16,9 +16,11 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
   const maxBody = Number(bindings.MAX_BODY_BYTES ?? 512 * 1024);
   const environment = String(bindings.ENVIRONMENT ?? 'local');
   const configuredCursorSecret = typeof bindings.CURSOR_SECRET === 'string' ? bindings.CURSOR_SECRET : '';
+  const mysqlUrl = typeof bindings.MYSQL_URL === 'string' && bindings.MYSQL_URL.trim() !== '' ? bindings.MYSQL_URL : undefined;
   if ((environment === 'staging' || environment === 'production') && configuredCursorSecret.length < 16) throw new Error('CURSOR_SECRET must be configured with at least 16 characters');
+  if ((environment === 'staging' || environment === 'production') && !mysqlUrl) throw new Error('MYSQL_URL must be configured outside local environments');
   return {
-    DB: bindings.DB as D1Database | undefined,
+    MYSQL_URL: mysqlUrl,
     ASSETS: bindings.ASSETS as Fetcher | undefined,
     ENVIRONMENT: environment,
     BUILD_VERSION: String(bindings.BUILD_VERSION ?? 'dev'),

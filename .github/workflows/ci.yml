@@ -40,17 +40,22 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web build
-      - name: Render production Wrangler configuration
-        run: pnpm cf:config -- --input wrangler.toml --output wrangler.production.local.toml --environment production
+      - name: Apply MySQL schema migrations
+        run: pnpm db:mysql:migrate
         env:
-          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
-      - name: Apply production D1 migrations
-        run: pnpm exec wrangler d1 migrations apply DB --remote --env production --config wrangler.production.local.toml
+          MYSQL_URL: ${{ secrets.MYSQL_URL }}
+      - name: Check MySQL connectivity
+        run: pnpm db:mysql:migrate -- --dry-run
         env:
+          MYSQL_URL: ${{ secrets.MYSQL_URL }}
+      - name: Set Worker MySQL URL secret
+        run: node -e "process.stdout.write(process.env.MYSQL_URL)" | pnpm exec wrangler secret put MYSQL_URL --env production --config wrangler.toml
+        env:
+          MYSQL_URL: ${{ secrets.MYSQL_URL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy production Worker and web assets
-        run: pnpm exec wrangler deploy --env production --config wrangler.production.local.toml
+        run: pnpm exec wrangler deploy --env production --config wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

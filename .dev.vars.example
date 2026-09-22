@@ -1,6 +1,8 @@
 ENVIRONMENT=local
 BUILD_VERSION=dev
 MAX_BODY_BYTES=524288
+# Set this to the VPS MySQL 8 URL for local Worker development. Never commit a real URL.
+MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-database?ssl=true
 # UPLOAD_API_KEY is only used by local fixtures; never commit real keys.
 UPLOAD_API_KEY=replace-with-local-key
 UPLOAD_API_KEY_SHA256=replace-with-local-key-sha256

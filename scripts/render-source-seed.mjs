@@ -23,11 +23,11 @@ try {
   const sql = [
     'INSERT INTO market_sources (id, name, api_key_hash, status, created_at, updated_at)',
     `VALUES ('${escapeSql(sourceId)}', '${escapeSql(sourceName)}', '${apiKeyHash}', 'active', ${now}, ${now})`,
-    'ON CONFLICT(id) DO UPDATE SET',
-    '  name = excluded.name,',
-    '  api_key_hash = excluded.api_key_hash,',
+    'ON DUPLICATE KEY UPDATE',
+    '  name = VALUES(name),',
+    '  api_key_hash = VALUES(api_key_hash),',
     "  status = 'active',",
-    '  updated_at = excluded.updated_at;',
+    '  updated_at = VALUES(updated_at);',
     '',
   ].join('\n');
   const output = resolve(requiredOption('--output'));

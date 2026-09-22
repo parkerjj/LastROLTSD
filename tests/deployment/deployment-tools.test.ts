@@ -57,35 +57,28 @@ describe('deployment secret generation', () => {
   });
 });
 
-describe('Wrangler deployment config rendering', () => {
-  const fixture = `name = "lastroweb"\nmain = "apps/worker/src/index.ts"\n\n[env.staging]\nname = "lastroweb-staging"\n[[env.staging.d1_databases]]\ndatabase_id = "replace-at-deploy"\n\n[env.production]\nname = "lastroweb-production"\n[[env.production.d1_databases]]\ndatabase_id = "replace-at-deploy"\n`;
-
-  it('replaces only the selected environment database ID', () => {
-    const outputDir = mkdtempSync(join(tmpdir(), 'lastroweb-wrangler-'));
-    const input = join(outputDir, 'wrangler.toml');
-    const output = join(outputDir, 'wrangler.production.toml');
-    writeFileSync(input, fixture);
-    const databaseId = '123e4567-e89b-12d3-a456-426614174000';
-    const result = runScript('render-wrangler-config.mjs', ['--input', input, '--output', output, '--environment', 'production'], { CLOUDFLARE_D1_DATABASE_ID: databaseId });
-    expect(result.status, result.stderr).toBe(0);
-    const rendered = readFileSync(output, 'utf8');
-    expect(rendered).toContain(`[env.staging]\nname = "lastroweb-staging"\n[[env.staging.d1_databases]]\ndatabase_id = "replace-at-deploy"`);
-    expect(rendered).toContain(`[env.production]\nname = "lastroweb-production"\n[[env.production.d1_databases]]\ndatabase_id = "${databaseId}"`);
+describe('MySQL Worker deployment configuration', () => {
+  it('removes all D1 bindings while keeping the MySQL URL external to Wrangler config', () => {
+    const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
+    expect(config).not.toMatch(/d1_databases|binding\s*=\s*"DB"|migrations_dir/iu);
+    expect(config).not.toContain('MYSQL_URL=');
+    const localVariables = readFileSync(resolve(repoRoot, '.dev.vars.example'), 'utf8');
+    expect(localVariables).toContain('MYSQL_URL=mysql://');
+    expect(localVariables).toContain('replace-');
   });
 
-  it.each(['', 'not-a-cloudflare-d1-id'])('rejects a missing or malformed database ID: %j', (databaseId) => {
-    const outputDir = mkdtempSync(join(tmpdir(), 'lastroweb-wrangler-invalid-'));
-    const input = join(outputDir, 'wrangler.toml');
-    const output = join(outputDir, 'wrangler.production.toml');
-    writeFileSync(input, fixture);
-    const result = runScript('render-wrangler-config.mjs', ['--input', input, '--output', output, '--environment', 'production'], { CLOUDFLARE_D1_DATABASE_ID: databaseId });
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('CLOUDFLARE_D1_DATABASE_ID');
+  it('runs the MySQL migration and passes MYSQL_URL through stdin to the Worker secret', () => {
+    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    expect(workflow).toContain('pnpm db:mysql:migrate');
+    expect(workflow).toContain('MYSQL_URL: ${{ secrets.MYSQL_URL }}');
+    expect(workflow).toContain('wrangler secret put MYSQL_URL');
+    expect(workflow).toContain('process.stdout.write(process.env.MYSQL_URL)');
+    expect(workflow).not.toMatch(/wrangler\s+d1\s+migrations|CLOUDFLARE_D1_DATABASE_ID|cf:config/iu);
   });
 });
 
 describe('market source seed rendering', () => {
-  it('writes an idempotent D1 seed containing only the API key hash', () => {
+  it('writes an idempotent MySQL seed containing only the API key hash', () => {
     const outputDir = mkdtempSync(join(tmpdir(), 'lastroweb-source-seed-'));
     const output = join(outputDir, 'source.sql');
     const hash = 'a'.repeat(64);
@@ -99,7 +92,8 @@ describe('market source seed rendering', () => {
     expect(result.status, result.stderr).toBe(0);
     const sql = readFileSync(output, 'utf8');
     expect(sql).toContain("VALUES ('primary-source', 'Parker''s source', '" + hash + "', 'active'");
-    expect(sql).toContain('ON CONFLICT(id) DO UPDATE SET');
+    expect(sql).toContain('ON DUPLICATE KEY UPDATE');
+    expect(sql).toContain('api_key_hash = VALUES(api_key_hash)');
     expect(sql).not.toContain('must-not-appear');
   });
 

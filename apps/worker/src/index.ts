@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { resolveAppEnv, type AppEnv } from './env';
 import { healthPayload } from './routes/health';
-import { createD1Repository } from './db/d1-repository';
+import { createMysqlDatabase, type MysqlDatabase } from './db/mysql-client';
+import { createMysqlRepository } from './db/mysql-repository';
 import { registerUploadRoute } from './routes/upload';
 import { registerSearchRoute } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
@@ -11,18 +12,25 @@ import { createListingStateService } from './services/state-transition';
 import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
 import { recordMetric } from './observability';
-import { createD1Meter } from './db/d1-meter';
 import { registerAssetRoute } from './routes/assets';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
 
-export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
-  const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
-  const d1Meter = createD1Meter();
+let cachedDatabase: { mysqlUrl: string; database: MysqlDatabase } | undefined;
 
+function databaseFor(mysqlUrl: string): MysqlDatabase {
+  if (cachedDatabase?.mysqlUrl === mysqlUrl) return cachedDatabase.database;
+  if (cachedDatabase) void cachedDatabase.database.close();
+  const database = createMysqlDatabase(mysqlUrl);
+  cachedDatabase = { mysqlUrl, database };
+  return database;
+}
+
+export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
+  const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
+  const database = injectedDatabase ?? (env.MYSQL_URL ? databaseFor(env.MYSQL_URL) : undefined);
   app.use('*', async (c, next) => {
-    d1Meter.reset();
     const started = Date.now();
     const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
     c.header('x-request-id', requestId);
@@ -30,15 +38,15 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
       await next();
     } finally {
       const declaredBytes = Number(c.req.header('content-length') ?? 0);
-      recordMetric({ requestId, route: c.req.path, status: c.res.status, elapsedMs: Date.now() - started, d1: d1Meter.snapshot(), ...(Number.isFinite(declaredBytes) && declaredBytes > 0 ? { bodyBytes: declaredBytes } : {}) });
+      recordMetric({ requestId, route: c.req.path, status: c.res.status, elapsedMs: Date.now() - started, ...(Number.isFinite(declaredBytes) && declaredBytes > 0 ? { bodyBytes: declaredBytes } : {}) });
     }
   });
 
-  app.get('/api/health', async (c) => c.json(await healthPayload(env)));
+  app.get('/api/health', async (c) => c.json(await healthPayload(env, database)));
   registerAssetRoute(app);
 
-  if (env.DB) {
-    const repository = createD1Repository(env.DB, env.CURSOR_SECRET, d1Meter);
+  if (database) {
+    const repository = createMysqlRepository(database, env.CURSOR_SECRET);
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
@@ -61,6 +69,6 @@ export default {
   },
   async scheduled(_event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
-    if (env.DB) await runRetention(Date.now(), {}, createD1Repository(env.DB));
+    if (env.MYSQL_URL) await runRetention(Date.now(), {}, createMysqlRepository(databaseFor(env.MYSQL_URL)));
   },
 };
