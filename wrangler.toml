@@ -1,7 +1,7 @@
 name = "lastroweb"
 main = "apps/worker/src/index.ts"
 compatibility_date = "2026-09-18"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = [ "nodejs_compat", "disableEval: true" ]
 
 [assets]
 directory = "apps/web/dist"

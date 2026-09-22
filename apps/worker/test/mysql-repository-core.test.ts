@@ -6,7 +6,7 @@ import type { ListingOption } from '../src/db/types';
 
 class RecordingMysqlDatabase implements MysqlDatabase {
   readonly sql: string[] = [];
-  readonly values: readonly unknown[][] = [];
+  readonly values: unknown[][] = [];
   transactions = 0;
 
   constructor(
@@ -18,7 +18,7 @@ class RecordingMysqlDatabase implements MysqlDatabase {
   async all<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> {
     this.sql.push(sql);
     this.values.push(values);
-    if (sql.includes('FOR UPDATE')) return this.lockedListingIds.map((id) => ({ id }) as T);
+    if (sql.includes('FOR UPDATE')) return this.lockedListingIds.map((id) => ({ id }) as unknown as T);
     if (sql.includes('FROM upload_batches')) return this.batchRow ? [this.batchRow as T] : [];
     if (!sql.includes('FROM shops')) return [];
     return Array.from({ length: 1_000 }, (_, index) => ({
@@ -31,7 +31,7 @@ class RecordingMysqlDatabase implements MysqlDatabase {
       last_changed_at: 100,
       full_state_hash: null,
       closed_at: null,
-    }) as T);
+    }) as unknown as T);
   }
 
   async first<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T | null> {
@@ -119,6 +119,7 @@ describe('MySQL repository upload core', () => {
       partCount: 1,
       snapshotMode: 'full',
       payloadHash: 'a'.repeat(64),
+      responseJson: null,
       receivedAt: 100,
     });
 
