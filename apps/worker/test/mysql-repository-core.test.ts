@@ -6,7 +6,7 @@ import type { ListingOption } from '../src/db/types';
 
 class RecordingMysqlDatabase implements MysqlDatabase {
   readonly sql: string[] = [];
-  readonly values: unknown[][] = [];
+  readonly values: Array<readonly unknown[]> = [];
   transactions = 0;
 
   constructor(
