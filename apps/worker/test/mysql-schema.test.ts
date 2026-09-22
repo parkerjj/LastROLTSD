@@ -14,6 +14,7 @@ describe('MySQL 8 market schema', () => {
     expect(sql).toMatch(/ENGINE=InnoDB/iu);
     expect(sql).toMatch(/UNIQUE KEY .*transition_key/iu);
     expect(sql).toMatch(/INDEX idx_listings_active_item_price \(status, item_id, price, id\)/u);
+    expect(sql).toMatch(/shop_ids_json MEDIUMTEXT NOT NULL DEFAULT '\[\]'/u);
     expect(sql).not.toMatch(/WITHOUT ROWID|PRAGMA|AUTOINCREMENT|json_each|\?\d+/iu);
   });
 });
