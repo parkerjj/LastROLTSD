@@ -91,7 +91,7 @@ describe('query UI rendering', () => {
     const drawer = dom.window.document.querySelector('aside') as HTMLElement;
     renderHistory(drawer, { items: [{ id: 1, observedAt: 1, price: 50, quantity: 1, eventType: 'observed' }], inferredSales: [{ observedAt: 2, soldQuantity: 1, fromQuantity: 2, toQuantity: 1, reason: 'quantity_decrease' }], nextCursor: 'history-next' }, 1);
     expect(drawer.textContent).toContain('价格历史');
-    expect(drawer.textContent).toContain('售出记录');
+    expect(drawer.textContent).toContain('售出：1（2 → 1）');
     expect(drawer.querySelector('#next-history')).not.toBeNull();
     expect(drawer.querySelector('#close-history')).not.toBeNull();
   });

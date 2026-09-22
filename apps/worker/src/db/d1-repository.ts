@@ -123,6 +123,12 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
     return { updated: updatedIds.size, conflicts: conflictIds.length, soldEvents: Number(results[2]?.meta?.changes ?? 0), conflictIds };
   };
   return {
+    async getLatestMarketUpdateAt() {
+      const row = await one<Row>(db.prepare("SELECT MAX(completed_at) AS latest_updated_at FROM upload_batches WHERE status='accepted'").bind());
+      if (row?.latest_updated_at === null || row?.latest_updated_at === undefined) return null;
+      const latestUpdatedAt = Number(row.latest_updated_at);
+      return Number.isSafeInteger(latestUpdatedAt) ? latestUpdatedAt : null;
+    },
     async findSourceByApiKeyHash(hash) {
       const row = await one<Row>(db.prepare('SELECT id,name,api_key_hash,status FROM market_sources WHERE api_key_hash = ?1 LIMIT 1').bind(hash));
       return row ? { id: String(row.id), name: String(row.name), apiKeyHash: String(row.api_key_hash), status: String(row.status) as SourceRow['status'] } : null;

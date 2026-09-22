@@ -144,7 +144,7 @@ describe('listing state transition', () => {
 
     const result = await createListingStateService(repository).applyBatchObservationsBulk!({ id: 's1' } as any, sessions as any, observations as any, 'b', 2);
 
-    expect(result.observed).toEqual([{ sessionId: 1, fingerprint: 'unchanged' }]);
+    expect(result).toMatchObject({ processedListings: 3, changedListings: 1, soldEvents: 0 });
     expect(inserted).toHaveLength(1);
     expect(transitions).toHaveLength(1);
   });

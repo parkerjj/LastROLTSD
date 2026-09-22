@@ -2,7 +2,12 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'node:path';
 
 export default defineConfig({
-  resolve: { alias: { '@lastroweb/protocol': resolve(process.cwd(), 'packages/protocol/src/index.ts') } },
+  resolve: {
+    alias: {
+      '@lastroweb/options': resolve(process.cwd(), 'packages/options/src/index.ts'),
+      '@lastroweb/protocol': resolve(process.cwd(), 'packages/protocol/src/index.ts'),
+    },
+  },
   test: {
     environment: 'node',
     include: ['**/*.test.ts'],

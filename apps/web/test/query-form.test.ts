@@ -54,7 +54,7 @@ describe('metadata-driven option controls', () => {
     expect(row.querySelector<HTMLLabelElement>(`label[for="${operator.id}"]`)).not.toBeNull();
     expect(row.querySelector<HTMLLabelElement>(`label[for="${value.id}"]`)).not.toBeNull();
     expect(operator.disabled).toBe(true);
-    expect(operator.options[0]?.textContent).toBe('—');
+    expect(operator.options[0]?.textContent).toBe('');
     expect(operator.title).toBe('请先选择词条');
     expect(operator.getAttribute('aria-label')).toBe('比较符，请先选择词条');
   });

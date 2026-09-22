@@ -6,6 +6,7 @@ import { registerUploadRoute } from './routes/upload';
 import { registerSearchRoute } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
 import { registerHistoryRoute } from './routes/history';
+import { registerStatusRoute } from './routes/status';
 import { createListingStateService } from './services/state-transition';
 import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
@@ -41,6 +42,7 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
+    registerStatusRoute(app, repository);
     registerUploadRoute(app, env, repository, createListingStateService(repository));
     registerAdminRoutes(app, env, repository);
   }

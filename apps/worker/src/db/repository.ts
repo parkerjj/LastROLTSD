@@ -66,6 +66,7 @@ export interface ShopResolution {
 }
 
 export interface MarketRepository {
+  getLatestMarketUpdateAt?(): Promise<number | null>;
   findSourceByApiKeyHash(hash: string): Promise<SourceRow | null>;
   getOrCreateVendor(sourceId: string, input: VendorInput): Promise<VendorRow>;
   getOrCreateShop(sourceId: string, input: ShopInput): Promise<ShopRow>;

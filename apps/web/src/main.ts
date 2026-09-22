@@ -31,7 +31,7 @@ root.innerHTML = `
   </header>
   <main id="top" class="page-width">
     <section class="hero" aria-labelledby="page-title">
-      <div class="hero-copy"><p class="eyebrow">露天市场 / 交易索引</p><h1 id="page-title">露天商店<span>.Ro</span></h1><p class="hero-subtitle">在四座城市之间，找到你要的装备与词条。</p><div class="hero-meta"><span><i class="status-dot"></i>市场数据在线</span><span>更新于今日</span><span>支持地图定位</span></div></div>
+      <div class="hero-copy"><p class="eyebrow">露天市场 / 交易索引</p><h1 id="page-title">露天商店<span>.Ro</span></h1><p class="hero-subtitle">在四座城市之间，找到你要的装备与词条。</p><div class="hero-meta"><span aria-live="polite"><i id="market-status-dot" class="status-dot"></i><span id="market-status-label">市场数据调查员在线</span></span><span id="market-updated-at" aria-live="polite">正在获取更新时间</span><span>支持地图定位</span></div></div>
     </section>
     <section id="site-notice" class="site-notice" aria-label="站点公告">
       <span class="notice-badge">公告</span>
@@ -74,6 +74,42 @@ const mapDrawer = root.querySelector<HTMLElement>('#map-drawer')!;
 const queryInput = root.querySelector<HTMLInputElement>('#global-query')!;
 const suggestions = root.querySelector<HTMLUListElement>('#item-suggestions')!;
 const copyQqGroupButton = root.querySelector<HTMLButtonElement>('#copy-qq-group')!;
+const marketStatusDot = root.querySelector<HTMLElement>('#market-status-dot')!;
+const marketStatusLabel = root.querySelector<HTMLElement>('#market-status-label')!;
+const marketUpdatedAt = root.querySelector<HTMLElement>('#market-updated-at')!;
+
+type MarketInvestigatorState = 'online' | 'resting' | 'offline';
+
+function marketInvestigatorState(latestUpdatedAt: number | null): MarketInvestigatorState {
+  if (latestUpdatedAt === null || !Number.isFinite(latestUpdatedAt)) return 'offline';
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - latestUpdatedAt) / 60_000));
+  if (elapsedMinutes > 120) return 'offline';
+  if (elapsedMinutes > 30) return 'resting';
+  return 'online';
+}
+
+function renderMarketStatus(latestUpdatedAt: number | null): void {
+  const state = marketInvestigatorState(latestUpdatedAt);
+  const labels: Record<MarketInvestigatorState, string> = {
+    online: '市场数据调查员在线',
+    resting: '市场数据调查员正在小憩',
+    offline: '市场数据调查员离线',
+  };
+  marketStatusDot.className = `status-dot status-dot--${state}`;
+  marketStatusLabel.textContent = labels[state];
+  marketUpdatedAt.textContent = latestUpdatedAt === null || !Number.isFinite(latestUpdatedAt)
+    ? '暂无更新记录'
+    : `更新于 ${Math.max(0, Math.floor((Date.now() - latestUpdatedAt) / 60_000))} 分钟前`;
+}
+
+async function loadMarketStatus(): Promise<void> {
+  try {
+    renderMarketStatus((await api.getStatus()).latestUpdatedAt);
+  } catch {
+    renderMarketStatus(null);
+    marketUpdatedAt.textContent = '更新时间暂不可用';
+  }
+}
 
 let copyHintTimer: number | undefined;
 copyQqGroupButton.addEventListener('click', async () => {
@@ -256,6 +292,8 @@ document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') re
 
 renderOptionDictionary();
 renderSearchState();
+void loadMarketStatus();
+window.setInterval(() => void loadMarketStatus(), 60_000);
 void loadOptionDictionary();
 void loadCatalog().then((catalog) => { catalogItems = catalog.items; renderSearchState(); }).catch(() => undefined);
 void Promise.resolve().then(() => loadItemDescriptions()).then((payload) => {

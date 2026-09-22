@@ -113,3 +113,7 @@ export interface ItemMarketHistory {
   sales: Array<{ listingId: number; observedAt: number; price: number; soldQuantity: number; vendorName: string; title: string }>;
   events: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string }>;
 }
+
+export interface MarketStatus {
+  latestUpdatedAt: number | null;
+}

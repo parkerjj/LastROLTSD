@@ -60,6 +60,8 @@ h1 span { color: var(--red); }
 .hero-meta { display: flex; flex-wrap: wrap; gap: 16px; color: #5f6d62; font-size: .73rem; }
 .hero-meta span { display: inline-flex; align-items: center; gap: 6px; }
 .status-dot { display: inline-block; width: 7px; height: 7px; background: #77b28a; border-radius: 50%; box-shadow: 0 0 0 3px rgba(119, 178, 138, .12); }
+.status-dot--resting { background: #c69445; box-shadow: 0 0 0 3px rgba(198, 148, 69, .14); }
+.status-dot--offline { background: #b84d3f; box-shadow: 0 0 0 3px rgba(184, 77, 63, .14); }
 .site-notice { display: flex; align-items: center; gap: 15px; margin-top: 34px; padding: 15px 17px; background: linear-gradient(90deg, rgba(255, 250, 240, .88), rgba(255, 250, 240, .58) 60%, rgba(255, 250, 240, .2)); border: 1px solid #c6b99f; border-left: 3px solid var(--gold); box-shadow: 0 12px 28px rgba(74, 57, 35, .1); }
 .notice-badge { flex: 0 0 auto; padding: 4px 9px; color: #1c1508; background: var(--gold); border: 0; font-size: .68rem; font-weight: 900; letter-spacing: .18em; }
 .notice-body { min-width: 0; }
