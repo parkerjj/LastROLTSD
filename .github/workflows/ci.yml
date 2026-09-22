@@ -45,7 +45,7 @@ jobs:
         env:
           CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
       - name: Apply production D1 migrations
-        run: pnpm exec wrangler d1 migrations apply lastroweb-production --remote --env production --config wrangler.production.local.toml
+        run: pnpm exec wrangler d1 migrations apply lastro-ltsd-db --remote --env production --config wrangler.production.local.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
