@@ -1,4 +1,5 @@
 import { DEFAULT_CURSOR_SECRET } from '../domain/search';
+import { makeTransitionKey } from '../domain/transitions';
 import { chunkRows, type MysqlDatabase, type MysqlRow } from './mysql-client';
 import type { BatchRow, ListingOption, ListingRow, ShopRow, ShopSessionRow, SourceRow, VendorInput, VendorRow } from './types';
 import type { ListingTransitionChange, MarketRepository, ShopResolution, ShopSessionContextInput, UploadResultLike } from './repository';
@@ -227,6 +228,16 @@ function listingTransitionPayload(changes: readonly ListingTransitionChange[]): 
     soldReason: change.soldEvent?.reason ?? null,
     transitionKey: change.soldEvent?.transitionKey ?? null,
   })));
+}
+
+function parseShopIds(value: unknown): number[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? [...new Set(parsed.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))] : [];
+  } catch {
+    return [];
+  }
 }
 
 export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_CURSOR_SECRET): MarketRepository {
@@ -545,6 +556,163 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     },
     async failBatch(sourceId, batchId) {
       await db.run("UPDATE upload_batches SET status = 'rejected', response_json = NULL WHERE source_id = ? AND batch_id = ? AND status = 'processing'", [sourceId, batchId]);
+    },
+    async markShopHeartbeats(sourceId, identityHashes, observedAt) {
+      if (identityHashes.length === 0) return 0;
+      const result = await db.run(`UPDATE shops
+        JOIN JSON_TABLE(?, '$[*]' COLUMNS(identity_hash CHAR(64) PATH '$')) AS heartbeat
+          ON shops.identity_hash = heartbeat.identity_hash
+        SET shops.last_status_observed_at = ?, shops.last_changed_at = ?,
+          shops.status = CASE WHEN shops.status = 'closed' THEN shops.status ELSE 'active' END
+        WHERE shops.source_id = ?`, [JSON.stringify([...new Set(identityHashes)]), observedAt, observedAt, sourceId]);
+      return result.affectedRows;
+    },
+    async getUninitializedShopKeys(sourceId, identityHashes) {
+      if (identityHashes.length === 0) return [];
+      const rows = await db.all<Row>(`SELECT requested.identity_hash AS shop_key
+        FROM JSON_TABLE(?, '$[*]' COLUMNS(identity_hash CHAR(64) PATH '$')) AS requested
+        LEFT JOIN shops ON shops.source_id = ? AND shops.identity_hash = requested.identity_hash
+          AND shops.full_state_hash IS NOT NULL AND shops.status IN ('active', 'stale')
+        WHERE shops.id IS NULL`, [JSON.stringify([...new Set(identityHashes)]), sourceId]);
+      return rows.map((row) => String(row.shop_key));
+    },
+    async recordSnapshotSessions(sourceId, snapshotId, sessionIds, observedAt) {
+      if (sessionIds.length === 0) return;
+      await db.run('UPDATE upload_batches SET shop_ids_json = ? WHERE source_id = ? AND snapshot_id = ?', [JSON.stringify([...new Set(sessionIds)]), sourceId, snapshotId]);
+      void observedAt;
+    },
+    async getSnapshotSessionIds(sourceId, snapshotId) {
+      const row = await db.first<Row>('SELECT shop_ids_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1', [sourceId, snapshotId]);
+      return parseShopIds(row?.shop_ids_json);
+    },
+    async updateShopFullStateHashes(updates, observedAt) {
+      if (updates.length === 0) return;
+      await db.run(`UPDATE shops
+        JOIN JSON_TABLE(?, '$[*]' COLUMNS(
+          shop_id BIGINT UNSIGNED PATH '$.shopId',
+          full_state_hash CHAR(64) PATH '$.fullStateHash'
+        )) AS state_update ON shops.id = state_update.shop_id
+        SET shops.full_state_hash = state_update.full_state_hash`, [JSON.stringify(updates)]);
+      void observedAt;
+    },
+    async finalizeSnapshot(sourceId, snapshotId, observedAt) {
+      await db.run('UPDATE market_sources SET last_full_snapshot_id = ?, last_full_snapshot_at = ?, updated_at = ? WHERE id = ?', [snapshotId, observedAt, observedAt, sourceId]);
+      const row = await db.first<Row>('SELECT shop_ids_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1', [sourceId, snapshotId]);
+      const sessionIds = parseShopIds(row?.shop_ids_json);
+      if (sessionIds.length === 0) return;
+      await db.run(`UPDATE shops
+        JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+          ON shops.id = snapshot_shop.shop_id
+        SET shops.full_state_hash = ?,
+          shops.status = CASE WHEN shops.status = 'closed' THEN shops.status ELSE 'active' END,
+          shops.last_changed_at = ?
+        WHERE shops.source_id = ?`, [JSON.stringify(sessionIds), snapshotId, observedAt, sourceId]);
+    },
+    async reconcileSnapshot(input) {
+      const empty = (complete: boolean, baseline: boolean) => ({
+        sourceId: input.sourceId,
+        snapshotId: input.snapshotId,
+        complete,
+        baseline,
+        shops: 0,
+        candidates: 0,
+        markedMissing: 0,
+        inferredSold: 0,
+        expired: 0,
+      });
+      if (input.batchIds.length === 0) return empty(false, false);
+      const sessionIds = [...new Set((input.sessionIds ?? []).filter((id) => Number.isSafeInteger(id) && id > 0))];
+      if (sessionIds.length === 0) return empty(true, false);
+      const scope = JSON.stringify(sessionIds);
+      const batches = JSON.stringify([...new Set(input.batchIds)]);
+
+      return db.transaction(async (tx) => {
+        const baseline = await tx.first<Row>(`SELECT COUNT(*) AS count FROM shops
+          JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+            ON shops.id = snapshot_shop.shop_id
+          WHERE shops.source_id = ? AND shops.full_state_hash IS NULL`, [scope, input.sourceId]);
+        if (Number(baseline?.count ?? 0) > 0) return empty(true, true);
+
+        const candidateRows = await tx.all<Row>(`SELECT listings.id, listings.quantity, listings.state_version FROM listings
+          JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+            ON listings.shop_id = snapshot_shop.shop_id
+          WHERE listings.status IN ('active', 'missing')
+            AND listings.missing_full_count = 1
+            AND listings.quantity > 0
+            AND (listings.last_changed_snapshot_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(batch_id VARCHAR(191) PATH '$')) AS accepted_batch
+              WHERE accepted_batch.batch_id = listings.last_changed_snapshot_id
+            ))`, [scope, batches]);
+        const inferredCandidates = await Promise.all(candidateRows.map(async (row) => ({
+          listingId: Number(row.id),
+          soldQuantity: Number(row.quantity),
+          fromQuantity: Number(row.quantity),
+          toQuantity: 0,
+          observedAt: input.observedAt,
+          newStateVersion: Number(row.state_version) + 1,
+          transitionKey: await makeTransitionKey(Number(row.id), Number(row.state_version), Number(row.quantity), 0, 'missing_full'),
+        })));
+
+        const stale = await tx.run(`UPDATE listings
+          JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+            ON listings.shop_id = snapshot_shop.shop_id
+          SET listings.missing_full_count = listings.missing_full_count + 1,
+            listings.status = CASE WHEN listings.missing_full_count + 1 >= 2 THEN 'missing' ELSE listings.status END,
+            listings.last_changed_at = ?, listings.state_version = listings.state_version + 1
+          WHERE listings.status IN ('active', 'missing')
+            AND (listings.last_changed_snapshot_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(batch_id VARCHAR(191) PATH '$')) AS accepted_batch
+              WHERE accepted_batch.batch_id = listings.last_changed_snapshot_id
+            ))`, [scope, input.observedAt, batches]);
+
+        let inferredSold = 0;
+        if (inferredCandidates.length > 0) {
+          const inferred = await tx.run(`INSERT INTO listing_events(
+              listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+              sold_quantity, reason, transition_key
+            ) SELECT candidate.listing_id, ?, candidate.observed_at, 'missing', NULL, 0,
+              candidate.from_quantity, candidate.to_quantity, candidate.sold_quantity, 'missing_full', candidate.transition_key
+            FROM JSON_TABLE(?, '$[*]' COLUMNS(
+              listing_id BIGINT UNSIGNED PATH '$.listingId',
+              sold_quantity BIGINT UNSIGNED PATH '$.soldQuantity',
+              from_quantity BIGINT UNSIGNED PATH '$.fromQuantity',
+              to_quantity BIGINT UNSIGNED PATH '$.toQuantity',
+              observed_at BIGINT UNSIGNED PATH '$.observedAt',
+              new_state_version BIGINT UNSIGNED PATH '$.newStateVersion',
+              transition_key VARCHAR(255) PATH '$.transitionKey'
+            )) AS candidate
+            JOIN listings ON listings.id = candidate.listing_id
+              AND listings.state_version = candidate.new_state_version
+              AND listings.missing_full_count = 2
+              AND listings.status = 'missing'
+            ON DUPLICATE KEY UPDATE transition_key = transition_key`, [input.snapshotId, JSON.stringify(inferredCandidates)]);
+          inferredSold = inferred.affectedRows;
+        }
+
+        const expired = await tx.run(`UPDATE listings
+          JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+            ON listings.shop_id = snapshot_shop.shop_id
+          JOIN shops ON shops.id = listings.shop_id
+          SET listings.status = 'expired', listings.last_changed_at = ?
+          WHERE listings.status IN ('active', 'missing')
+            AND shops.status = 'closed' AND shops.closed_at IS NOT NULL AND shops.closed_at <= ?`, [scope, input.observedAt, input.observedAt]);
+        const shops = await tx.first<Row>(`SELECT COUNT(*) AS count FROM shops
+          JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+            ON shops.id = snapshot_shop.shop_id
+          WHERE shops.source_id = ? AND shops.status IN ('active', 'stale')`, [scope, input.sourceId]);
+        const markedMissing = stale.affectedRows;
+        return {
+          sourceId: input.sourceId,
+          snapshotId: input.snapshotId,
+          complete: true,
+          baseline: false,
+          shops: Number(shops?.count ?? 0),
+          candidates: markedMissing,
+          markedMissing,
+          inferredSold,
+          expired: expired.affectedRows,
+        };
+      });
     },
     async loadListingsByFingerprint(sessionId, fingerprints) {
       if (fingerprints.length === 0) return [];

@@ -179,4 +179,36 @@ describe('MySQL repository upload core', () => {
     expect(db.sql.some((sql) => sql.includes('FOR UPDATE') && sql.includes('state_version = transition_input.expected_version'))).toBe(true);
     expect(db.sql.join('\n')).not.toContain('RETURNING');
   });
+
+  it('updates snapshot lifecycle data with set-based MySQL statements', async () => {
+    const db = new RecordingMysqlDatabase();
+    const repo = createMysqlRepository(db);
+    const identities = Array.from({ length: 1_000 }, (_, index) => `identity-${index}`);
+    const sessionIds = Array.from({ length: 1_000 }, (_, index) => index + 1);
+
+    await repo.markShopHeartbeats!('source', identities, 100);
+    await repo.getUninitializedShopKeys!('source', identities);
+    await repo.recordSnapshotSessions!('source', 'snapshot', sessionIds, 100);
+    await repo.updateShopFullStateHashes!(sessionIds.map((shopId) => ({ shopId, fullStateHash: 'a'.repeat(64) })), 100);
+
+    expect(db.sql.filter((sql) => sql.includes('JSON_TABLE'))).toHaveLength(3);
+    expect(db.sql.join('\n')).not.toContain('json_each');
+    expect(db.values.filter((values) => values.some((value) => typeof value === 'string' && value.includes('identity-0')))).toHaveLength(2);
+  });
+
+  it('reconciles a full snapshot in one transaction without per-listing SQL', async () => {
+    const db = new RecordingMysqlDatabase();
+    const result = await createMysqlRepository(db).reconcileSnapshot!({
+      sourceId: 'source',
+      snapshotId: 'snapshot',
+      observedAt: 100,
+      batchIds: ['snapshot/0'],
+      sessionIds: Array.from({ length: 1_000 }, (_, index) => index + 1),
+    });
+
+    expect(result).toMatchObject({ sourceId: 'source', snapshotId: 'snapshot', complete: true, baseline: false });
+    expect(db.transactions).toBe(1);
+    expect(db.sql.some((sql) => sql.includes('missing_full_count = listings.missing_full_count + 1') && sql.includes('JSON_TABLE'))).toBe(true);
+    expect(db.sql.join('\n')).not.toContain('json_each');
+  });
 });
