@@ -27,6 +27,16 @@ class LocalStatement {
     const result = this.database.prepare(this.sql).run(...this.values as never[]);
     return { meta: { changes: Number(result.changes ?? 0) } };
   }
+
+  async executeForBatch(): Promise<{ meta: { changes: number }; results: unknown[] }> {
+    if (/\breturning\b/iu.test(this.sql)) {
+      const results = this.database.prepare(this.sql).all(...this.values as never[]) as unknown[];
+      const changes = this.database.prepare('SELECT changes() AS changes').get() as { changes: number };
+      return { results, meta: { changes: Number(changes.changes ?? 0) } };
+    }
+    const result = await this.run();
+    return { results: [], meta: result.meta };
+  }
 }
 
 class LocalD1 {
@@ -36,11 +46,11 @@ class LocalD1 {
     return new LocalStatement(this.database, sql);
   }
 
-  async batch(statements: LocalStatement[]): Promise<Array<{ meta: { changes: number } }>> {
+  async batch(statements: LocalStatement[]): Promise<Array<{ meta: { changes: number }; results: unknown[] }>> {
     this.database.exec('BEGIN');
     try {
-      const results: Array<{ meta: { changes: number } }> = [];
-      for (const statement of statements) results.push(await statement.run());
+      const results: Array<{ meta: { changes: number }; results: unknown[] }> = [];
+      for (const statement of statements) results.push(await statement.executeForBatch());
       this.database.exec('COMMIT');
       return results;
     } catch (error) {

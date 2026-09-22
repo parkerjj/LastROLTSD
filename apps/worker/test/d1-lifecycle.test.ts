@@ -7,27 +7,43 @@ import { computeShopIdentity } from '../src/domain/shop-identity';
 
 class SqlitePrepared {
   private values: SQLInputValue[] = [];
-  constructor(private readonly database: DatabaseSync, public readonly sql: string) {}
+  constructor(private readonly database: DatabaseSync, public readonly sql: string, private readonly recordRequest: () => void) {}
   bind(...values: SQLInputValue[]): this { this.values = values; return this; }
-  async all<T>(): Promise<{ results: T[] }> { return { results: this.database.prepare(this.sql).all(...this.values) as T[] }; }
-  async run(): Promise<{ meta: { changes: number } }> { const result = this.database.prepare(this.sql).run(...this.values); return { meta: { changes: Number(result.changes ?? 0) } }; }
+  async all<T>(): Promise<{ results: T[] }> { this.recordRequest(); return { results: this.database.prepare(this.sql).all(...this.values) as T[] }; }
+  async run(): Promise<{ meta: { changes: number } }> { this.recordRequest(); const result = this.database.prepare(this.sql).run(...this.values); return { meta: { changes: Number(result.changes ?? 0) } }; }
+  async executeForBatch(): Promise<{ meta: { changes: number }; results: unknown[] }> {
+    if (/\breturning\b/iu.test(this.sql)) {
+      const results = this.database.prepare(this.sql).all(...this.values) as unknown[];
+      const changes = this.database.prepare('SELECT changes() AS changes').get() as { changes: number };
+      return { results, meta: { changes: Number(changes.changes ?? 0) } };
+    }
+    const result = await this.run();
+    return { results: [], meta: result.meta };
+  }
 }
 
 class SqliteD1 {
+  requests = 0;
+  private batching = false;
   constructor(public readonly database: DatabaseSync) {}
-  prepare(sql: string): SqlitePrepared { return new SqlitePrepared(this.database, sql); }
-  async batch(statements: SqlitePrepared[]): Promise<Array<{ meta: { changes: number } }>> {
+  prepare(sql: string): SqlitePrepared { return new SqlitePrepared(this.database, sql, () => { if (!this.batching) this.requests += 1; }); }
+  async batch(statements: SqlitePrepared[]): Promise<Array<{ meta: { changes: number }; results: unknown[] }>> {
+    this.requests += 1;
+    this.batching = true;
     this.database.exec('BEGIN');
     try {
-      const results: Array<{ meta: { changes: number } }> = [];
-      for (const statement of statements) results.push(await statement.run());
+      const results: Array<{ meta: { changes: number }; results: unknown[] }> = [];
+      for (const statement of statements) results.push(await statement.executeForBatch());
       this.database.exec('COMMIT');
       return results;
     } catch (error) {
       this.database.exec('ROLLBACK');
       throw error;
+    } finally {
+      this.batching = false;
     }
   }
+  resetRequests(): void { this.requests = 0; }
 }
 
 function createDatabase(): SqliteD1 {
@@ -88,6 +104,51 @@ describe('D1 clean-break lifecycle', () => {
       const other = await repository.resolveShopObservation!(await observation('source-b', 200, 'opening', 'account-b'));
       expect(other.internalShopId).not.toBe(matched.internalShopId);
       expect(d1.database.prepare('SELECT full_state_hash FROM shops WHERE id=?').get(matched.internalShopId)).toEqual({ full_state_hash: 'full-1' });
+    } finally { d1.database.close(); }
+  });
+
+  it('resolves opening shops with two D1 requests regardless of batch size', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const inputs = await Promise.all(Array.from({ length: 12 }, (_, index) => observation('source-a', 100, 'opening', `account-${index}`)));
+
+      const resolved = await repository.resolveShopObservations!(inputs);
+
+      expect(resolved).toHaveLength(inputs.length);
+      expect(resolved.every((entry) => entry.resolution === 'created' && entry.session !== null)).toBe(true);
+      expect(d1.requests).toBe(2);
+    } finally { d1.database.close(); }
+  });
+
+  it('applies existing listing transitions in one D1 batch', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const shop = await repository.resolveShopObservation!(await observation('source-a', 100));
+      const listings = await Promise.all(Array.from({ length: 12 }, (_, index) => repository.createListing!({ sessionId: shop.internalShopId, fingerprint: `transition-${index}`, itemId: 4000 + index, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 100, quantity: 3, observedAt: 100, batchId: 'setup' })));
+      d1.resetRequests();
+
+      const result = await repository.applyListingTransitionsBulk!(listings.map((listing) => ({ listingId: listing.id, shopSessionId: listing.shopSessionId, expectedVersion: listing.stateVersion, price: 90, quantity: 3, status: 'active', observedAt: 200, batchId: 'transitions', history: { eventType: 'price_changed' } })));
+
+      expect(result).toMatchObject({ updated: listings.length, conflicts: 0, soldEvents: 0 });
+      expect(d1.requests).toBe(1);
+      expect(d1.database.prepare("SELECT COUNT(*) AS count FROM listing_events WHERE snapshot_id='transitions'").get()).toEqual({ count: listings.length });
+    } finally { d1.database.close(); }
+  });
+
+  it('writes new listings and their options in one D1 batch', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const shop = await repository.resolveShopObservation!(await observation('source-a', 100));
+      d1.resetRequests();
+
+      await repository.insertNewListingsBulk!(Array.from({ length: 12 }, (_, index) => ({ sessionId: shop.internalShopId, fingerprint: `new-${index}`, itemId: 5000 + index, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 100, quantity: 3, observedAt: 100, batchId: 'new-listings', options: [{ type: 1, value: index, param: 0 }, { type: 2, value: index + 1, param: 0 }] })));
+
+      expect(d1.requests).toBe(1);
+      expect(d1.database.prepare("SELECT COUNT(*) AS count FROM listings WHERE last_changed_snapshot_id='new-listings'").get()).toEqual({ count: 12 });
+      expect(d1.database.prepare('SELECT COUNT(*) AS count FROM listing_options').get()).toEqual({ count: 24 });
     } finally { d1.database.close(); }
   });
 

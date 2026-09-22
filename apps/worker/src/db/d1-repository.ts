@@ -6,16 +6,122 @@ import { makeTransitionKey } from '../domain/transitions';
 import { createMeteredD1Database, type D1Meter } from './d1-meter';
 import { getOptionDefinitionSet } from '@lastroweb/options';
 import type { BatchRow, CatalogItemRow, InferredSaleRow, ListingRow, ListingOption, ListingSearchOption, ListingSearchRow, SessionInput, ShopInput, ShopRow, ShopSessionRow, SourceRow, VendorInput } from './types';
-import type { ListingTransitionChange, MarketRepository, ReconciliationResult, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
+import type { ListingTransitionChange, MarketRepository, ReconciliationResult, ShopResolution, SnapshotReconciliationInput, UploadResultLike, ShopSessionContextInput } from './repository';
 
 type Row = Record<string, unknown>;
 const BULK_BATCH_SIZE = 12;
 const one = async <T extends Row>(statement: D1PreparedStatement): Promise<T | null> => ((await statement.all<T>()).results?.[0] ?? null);
 const many = async <T extends Row>(statement: D1PreparedStatement): Promise<T[]> => (await statement.all<T>()).results ?? [];
 const cards = (row: Row): number[] => [row.card0, row.card1, row.card2, row.card3].map((v) => Number(v ?? 0));
+const shopResolutionKey = (sourceId: string, identityHash: string): string => JSON.stringify([sourceId, identityHash]);
+
+function rowsFromBatchResult(result: unknown): Row[] {
+  if (!result || typeof result !== 'object') return [];
+  const rows = (result as { results?: unknown }).results;
+  return Array.isArray(rows) ? rows.filter((row): row is Row => row !== null && typeof row === 'object' && !Array.isArray(row)) : [];
+}
+
+function isStaleShopObservation(existing: Row | undefined, input: ShopSessionContextInput): boolean {
+  return existing !== undefined && (input.observedAt < Number(existing.last_status_observed_at) || (input.observedAt === Number(existing.last_status_observed_at) && input.shopStatus === 'opening' && String(existing.status) === 'closed'));
+}
+
+function shopResolutionPayload(inputs: ShopSessionContextInput[]): string {
+  return JSON.stringify(inputs.map((input) => ({
+    sourceId: input.sourceId,
+    identityHash: input.identityHash,
+    shopId: input.shopId,
+    shopStatus: input.shopStatus,
+    vendorAccountId: input.vendorAccountId,
+    vendorName: input.vendorName,
+    vendorNameNormalized: normalizeCatalogQuery(input.vendorName),
+    title: input.title,
+    titleNormalized: normalizeCatalogQuery(input.title),
+    shopType: input.shopType,
+    mapName: input.mapName,
+    x: input.x,
+    y: input.y,
+    profileHash: input.profileHash ?? input.identityHash,
+    fullStateHash: input.fullStateHash ?? null,
+    observedAt: input.observedAt,
+  })));
+}
 
 export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_CURSOR_SECRET, meter?: D1Meter): MarketRepository {
   const db = meter ? createMeteredD1Database(inputDb, meter) : inputDb;
+  const resolveShopObservations = async (inputs: ShopSessionContextInput[]): Promise<ShopResolution[]> => {
+    if (inputs.length === 0) return [];
+    const identities = JSON.stringify(inputs.map((input) => ({ sourceId: input.sourceId, identityHash: input.identityHash })));
+    const existingRows = await many<Row>(db.prepare(`SELECT shops.* FROM shops JOIN json_each(?1) AS input
+      ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash')`).bind(identities));
+    const existingByKey = new Map(existingRows.map((row) => [shopResolutionKey(String(row.source_id), String(row.identity_hash)), row]));
+    const payload = shopResolutionPayload(inputs);
+    const insertDismissed = db.prepare(`INSERT OR IGNORE INTO shops(source_id,identity_hash,public_shop_id,vendor_account_id,vendor_name,vendor_name_normalized,title,title_normalized,shop_type,map_name,x,y,status,profile_hash,full_state_hash,last_status_observed_at,last_changed_at,closed_at,close_reason)
+      SELECT json_extract(value,'$.sourceId'),json_extract(value,'$.identityHash'),json_extract(value,'$.shopId'),json_extract(value,'$.vendorAccountId'),json_extract(value,'$.vendorName'),json_extract(value,'$.vendorNameNormalized'),json_extract(value,'$.title'),json_extract(value,'$.titleNormalized'),json_extract(value,'$.shopType'),json_extract(value,'$.mapName'),json_extract(value,'$.x'),json_extract(value,'$.y'),'closed',json_extract(value,'$.profileHash'),NULL,json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),'explicit_dismissed'
+      FROM json_each(?1) WHERE json_extract(value,'$.shopStatus')='dismissed'`);
+    const upsertOpening = db.prepare(`INSERT INTO shops(source_id,identity_hash,public_shop_id,vendor_account_id,vendor_name,vendor_name_normalized,title,title_normalized,shop_type,map_name,x,y,status,profile_hash,full_state_hash,last_status_observed_at,last_changed_at,closed_at,close_reason)
+      SELECT json_extract(value,'$.sourceId'),json_extract(value,'$.identityHash'),json_extract(value,'$.shopId'),json_extract(value,'$.vendorAccountId'),json_extract(value,'$.vendorName'),json_extract(value,'$.vendorNameNormalized'),json_extract(value,'$.title'),json_extract(value,'$.titleNormalized'),json_extract(value,'$.shopType'),json_extract(value,'$.mapName'),json_extract(value,'$.x'),json_extract(value,'$.y'),'active',json_extract(value,'$.profileHash'),json_extract(value,'$.fullStateHash'),json_extract(value,'$.observedAt'),json_extract(value,'$.observedAt'),NULL,NULL
+      FROM json_each(?1) WHERE json_extract(value,'$.shopStatus')='opening'
+      ON CONFLICT(source_id,identity_hash) DO UPDATE SET public_shop_id=excluded.public_shop_id,vendor_account_id=excluded.vendor_account_id,vendor_name=excluded.vendor_name,vendor_name_normalized=excluded.vendor_name_normalized,title=excluded.title,title_normalized=excluded.title_normalized,shop_type=excluded.shop_type,map_name=excluded.map_name,x=excluded.x,y=excluded.y,status='active',profile_hash=excluded.profile_hash,full_state_hash=CASE WHEN shops.status='closed' THEN NULL ELSE shops.full_state_hash END,missing_full_count=CASE WHEN shops.status='closed' THEN 0 ELSE shops.missing_full_count END,last_status_observed_at=excluded.last_status_observed_at,last_changed_at=excluded.last_changed_at,closed_at=NULL,close_reason=NULL
+      WHERE excluded.last_status_observed_at>shops.last_status_observed_at OR (excluded.last_status_observed_at=shops.last_status_observed_at AND shops.status<>'closed')
+      RETURNING *`);
+    const closeDismissed = db.prepare(`UPDATE shops SET status='closed',last_status_observed_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) AS input WHERE input.value IS NOT NULL AND shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash') LIMIT 1),last_changed_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) AS input WHERE input.value IS NOT NULL AND shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash') LIMIT 1),closed_at=(SELECT json_extract(input.value,'$.observedAt') FROM json_each(?1) AS input WHERE input.value IS NOT NULL AND shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash') LIMIT 1),close_reason='explicit_dismissed'
+      WHERE EXISTS (SELECT 1 FROM json_each(?1) AS input WHERE json_extract(input.value,'$.shopStatus')='dismissed' AND shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash') AND shops.last_status_observed_at<=json_extract(input.value,'$.observedAt'))
+      RETURNING *`);
+    const expireDismissedListings = db.prepare(`UPDATE listings SET status='expired',last_changed_at=(SELECT json_extract(input.value,'$.observedAt') FROM shops JOIN json_each(?1) AS input ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash') WHERE shops.id=listings.shop_id AND json_extract(input.value,'$.shopStatus')='dismissed' LIMIT 1),state_version=state_version+1,missing_full_count=0
+      WHERE status IN ('active','missing') AND EXISTS (SELECT 1 FROM shops JOIN json_each(?1) AS input
+        ON shops.source_id=json_extract(input.value,'$.sourceId') AND shops.identity_hash=json_extract(input.value,'$.identityHash')
+        WHERE shops.id=listings.shop_id AND json_extract(input.value,'$.shopStatus')='dismissed' AND shops.status='closed' AND shops.last_status_observed_at<=json_extract(input.value,'$.observedAt'))`);
+    assertBatchBounds(4, 4);
+    const writeResults = await db.batch([insertDismissed.bind(payload), upsertOpening.bind(payload), closeDismissed.bind(payload), expireDismissedListings.bind(payload)]);
+    const resolvedRows = new Map(existingByKey);
+    for (const row of [...rowsFromBatchResult(writeResults[1]), ...rowsFromBatchResult(writeResults[2])]) resolvedRows.set(shopResolutionKey(String(row.source_id), String(row.identity_hash)), row);
+
+    return inputs.map((input) => {
+      const key = shopResolutionKey(input.sourceId, input.identityHash);
+      const existing = existingByKey.get(key);
+      const row = resolvedRows.get(key);
+      if (!row) throw new Error('shop resolution failed');
+      if (isStaleShopObservation(existing, input)) return { internalShopId: Number(row.id), shopId: String(row.public_shop_id), identityHash: input.identityHash, resolution: 'stale_event_ignored' as const, status: String(row.status) === 'closed' ? 'dismissed' as const : 'opening' as const, applied: false, session: null };
+      if (input.shopStatus === 'dismissed') return { internalShopId: Number(row.id), shopId: String(row.public_shop_id), identityHash: input.identityHash, resolution: 'dismissed' as const, status: 'dismissed' as const, applied: true, session: null };
+      const unchangedFull = input.fullStateHash !== undefined && existing?.full_state_hash === input.fullStateHash && existing?.status !== 'closed';
+      return { internalShopId: Number(row.id), shopId: String(row.public_shop_id), identityHash: input.identityHash, resolution: existing?.status === 'closed' ? 'created' as const : existing ? 'matched' as const : 'created' as const, status: 'opening' as const, applied: true, readListings: !unchangedFull, session: sessionFromShopRow(row, input.clientRunId, input.observedAt) };
+    });
+  };
+  const applyListingTransitionBatch = async (changes: ListingTransitionChange[]) => {
+    if (changes.length === 0) return { updated: 0, conflicts: 0, soldEvents: 0, conflictIds: [] };
+    const payload = JSON.stringify(changes.map((change) => ({
+      listingId: change.listingId,
+      shopSessionId: change.shopSessionId,
+      expectedVersion: change.expectedVersion,
+      price: change.price,
+      quantity: change.quantity,
+      status: change.status,
+      observedAt: change.observedAt,
+      batchId: change.batchId,
+      historyEventType: change.history?.eventType ?? null,
+      soldQuantity: change.soldEvent?.soldQuantity ?? null,
+      soldFromQuantity: change.soldEvent?.fromQuantity ?? null,
+      soldToQuantity: change.soldEvent?.toQuantity ?? null,
+      soldReason: change.soldEvent?.reason ?? null,
+      transitionKey: change.soldEvent?.transitionKey ?? null,
+    })));
+    const update = db.prepare(`UPDATE listings SET price=json_extract(input.value,'$.price'),quantity=json_extract(input.value,'$.quantity'),status=json_extract(input.value,'$.status'),last_changed_at=json_extract(input.value,'$.observedAt'),state_version=state_version+1,last_changed_snapshot_id=json_extract(input.value,'$.batchId'),missing_full_count=0
+      FROM json_each(?1) AS input WHERE listings.id=CAST(json_extract(input.value,'$.listingId') AS INTEGER) AND listings.shop_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER) AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER)
+      RETURNING listings.id`);
+    const history = db.prepare(`INSERT OR IGNORE INTO listing_events(listing_id,snapshot_id,observed_at,event_type,from_price,to_price,from_quantity,to_quantity,reason,transition_key)
+      SELECT listings.id,json_extract(input.value,'$.batchId'),json_extract(input.value,'$.observedAt'),CASE WHEN json_extract(input.value,'$.historyEventType')='first_seen' THEN 'first_seen' ELSE 'state_changed' END,NULL,json_extract(input.value,'$.price'),NULL,json_extract(input.value,'$.quantity'),CASE WHEN json_extract(input.value,'$.historyEventType')='price_changed' THEN 'price' ELSE NULL END,json_extract(input.value,'$.batchId') || ':' || listings.id || ':' || json_extract(input.value,'$.historyEventType')
+      FROM json_each(?1) AS input JOIN listings ON listings.id=CAST(json_extract(input.value,'$.listingId') AS INTEGER) AND listings.shop_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER)
+      WHERE json_extract(input.value,'$.historyEventType') IS NOT NULL AND listings.last_changed_snapshot_id=json_extract(input.value,'$.batchId') AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER)+1`);
+    const soldEvent = db.prepare(`INSERT OR IGNORE INTO listing_events(listing_id,snapshot_id,observed_at,event_type,from_price,to_price,from_quantity,to_quantity,sold_quantity,reason,transition_key)
+      SELECT listings.id,json_extract(input.value,'$.batchId'),json_extract(input.value,'$.observedAt'),'state_changed',NULL,json_extract(input.value,'$.price'),json_extract(input.value,'$.soldFromQuantity'),json_extract(input.value,'$.soldToQuantity'),json_extract(input.value,'$.soldQuantity'),json_extract(input.value,'$.soldReason'),json_extract(input.value,'$.transitionKey')
+      FROM json_each(?1) AS input JOIN listings ON listings.id=CAST(json_extract(input.value,'$.listingId') AS INTEGER) AND listings.shop_id=CAST(json_extract(input.value,'$.shopSessionId') AS INTEGER)
+      WHERE json_extract(input.value,'$.soldQuantity') IS NOT NULL AND listings.last_changed_snapshot_id=json_extract(input.value,'$.batchId') AND listings.state_version=CAST(json_extract(input.value,'$.expectedVersion') AS INTEGER)+1`);
+    assertBatchBounds(3, 3);
+    const results = await db.batch([update.bind(payload), history.bind(payload), soldEvent.bind(payload)]);
+    const updatedIds = new Set(rowsFromBatchResult(results[0]).map((row) => Number(row.id)));
+    const conflictIds = changes.filter((change) => !updatedIds.has(change.listingId)).map((change) => change.listingId);
+    return { updated: updatedIds.size, conflicts: conflictIds.length, soldEvents: Number(results[2]?.meta?.changes ?? 0), conflictIds };
+  };
   return {
     async findSourceByApiKeyHash(hash) {
       const row = await one<Row>(db.prepare('SELECT id,name,api_key_hash,status FROM market_sources WHERE api_key_hash = ?1 LIMIT 1').bind(hash));
@@ -35,33 +141,11 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       return sessionFromShopRow(row, input.clientRunId, input.observedAt);
     },
     async resolveShopObservation(input) {
-      const existing = await one<Row>(db.prepare('SELECT * FROM shops WHERE source_id=?1 AND identity_hash=?2 LIMIT 1').bind(input.sourceId, input.identityHash));
-      if (existing && (input.observedAt < Number(existing.last_status_observed_at) || (input.observedAt === Number(existing.last_status_observed_at) && input.shopStatus === 'opening' && String(existing.status) === 'closed'))) {
-        return { internalShopId: Number(existing.id), shopId: String(existing.public_shop_id), identityHash: input.identityHash, resolution: 'stale_event_ignored', status: String(existing.status) === 'closed' ? 'dismissed' : 'opening', applied: false, session: null };
-      }
-      if (input.shopStatus === 'dismissed') {
-        // A full/delta payload may first mention a shop after it has already
-        // closed. Keep that observation as a closed shop so the upload remains
-        // idempotent and the response can still expose its stable shop id.
-        if (!existing) {
-          await db.prepare(`INSERT OR IGNORE INTO shops(source_id,identity_hash,public_shop_id,vendor_account_id,vendor_name,vendor_name_normalized,title,title_normalized,shop_type,map_name,x,y,status,profile_hash,full_state_hash,last_status_observed_at,last_changed_at,closed_at,close_reason)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'closed',?13,NULL,?14,?14,?14,'explicit_dismissed')`).bind(input.sourceId,input.identityHash,input.shopId,input.vendorAccountId,input.vendorName,normalizeCatalogQuery(input.vendorName),input.title,normalizeCatalogQuery(input.title),input.shopType,input.mapName,input.x,input.y,input.profileHash ?? input.identityHash,input.observedAt).run();
-        }
-        const close = db.prepare("UPDATE shops SET status='closed',last_status_observed_at=?3,last_changed_at=?3,closed_at=?3,close_reason='explicit_dismissed' WHERE source_id=?1 AND identity_hash=?2 AND last_status_observed_at<=?3").bind(input.sourceId, input.identityHash, input.observedAt);
-        const expire = db.prepare("UPDATE listings SET status='expired',last_changed_at=?2,state_version=state_version+1,missing_full_count=0 WHERE shop_id=(SELECT id FROM shops WHERE source_id=?1 AND identity_hash=?3) AND status IN ('active','missing')").bind(input.sourceId, input.observedAt, input.identityHash);
-        await db.batch([close, expire]);
-        const row = await one<Row>(db.prepare('SELECT * FROM shops WHERE source_id=?1 AND identity_hash=?2 LIMIT 1').bind(input.sourceId, input.identityHash));
-        if (!row) throw new Error('shop resolution failed');
-        return { internalShopId: Number(row.id), shopId: String(row.public_shop_id), identityHash: input.identityHash, resolution: 'dismissed', status: 'dismissed', applied: true, session: null };
-      }
-      const row = await one<Row>(db.prepare(`INSERT INTO shops(source_id,identity_hash,public_shop_id,vendor_account_id,vendor_name,vendor_name_normalized,title,title_normalized,shop_type,map_name,x,y,status,profile_hash,full_state_hash,last_status_observed_at,last_changed_at,closed_at,close_reason)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'active',?13,?14,?15,?15,NULL,NULL)
-        ON CONFLICT(source_id,identity_hash) DO UPDATE SET public_shop_id=excluded.public_shop_id,vendor_account_id=excluded.vendor_account_id,vendor_name=excluded.vendor_name,vendor_name_normalized=excluded.vendor_name_normalized,title=excluded.title,title_normalized=excluded.title_normalized,shop_type=excluded.shop_type,map_name=excluded.map_name,x=excluded.x,y=excluded.y,status='active',profile_hash=excluded.profile_hash,full_state_hash=CASE WHEN shops.status='closed' THEN NULL ELSE shops.full_state_hash END,missing_full_count=CASE WHEN shops.status='closed' THEN 0 ELSE shops.missing_full_count END,last_status_observed_at=excluded.last_status_observed_at,last_changed_at=excluded.last_changed_at,closed_at=NULL,close_reason=NULL RETURNING *`).bind(input.sourceId,input.identityHash,input.shopId,input.vendorAccountId,input.vendorName,normalizeCatalogQuery(input.vendorName),input.title,normalizeCatalogQuery(input.title),input.shopType,input.mapName,input.x,input.y,input.profileHash ?? input.identityHash,input.fullStateHash ?? null,input.observedAt));
-      if (!row) throw new Error('shop resolution failed');
-      const unchangedFull = input.fullStateHash !== undefined && existing?.full_state_hash === input.fullStateHash && existing?.status !== 'closed';
-      return { internalShopId: Number(row.id), shopId: String(row.public_shop_id), identityHash: input.identityHash, resolution: existing?.status === 'closed' ? 'created' : existing ? 'matched' : 'created', status: 'opening', applied: true, readListings: !unchangedFull, session: sessionFromShopRow(row, input.clientRunId, input.observedAt) };
+      const [resolution] = await resolveShopObservations([input]);
+      if (!resolution) throw new Error('shop resolution failed');
+      return resolution;
     },
-    async resolveShopObservations(inputs) { const results = []; for (const input of inputs) results.push(await this.resolveShopObservation!(input)); return results; },
+    resolveShopObservations,
     async requiresFullSnapshot(inputs) {
       if (inputs.length === 0) return false;
       const rows = await many<Row>(db.prepare("SELECT input.value AS identity_hash FROM json_each(?2) input WHERE NOT EXISTS (SELECT 1 FROM shops s WHERE s.source_id=?1 AND s.identity_hash=json_extract(input.value,'$.identityHash') AND s.full_state_hash IS NOT NULL AND s.status IN ('active','stale'))").bind(inputs[0]!.sourceId, JSON.stringify(inputs)));
@@ -206,19 +290,8 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       const results = await db.batch(statements);
       return { updated: results.filter((result) => Number(result.meta?.changes ?? 0) > 0).length, conflicts: results.filter((result) => Number(result.meta?.changes ?? 0) === 0).length };
     },
-    async applyListingTransitions(changes: ListingTransitionChange[]) {
-      if (changes.length === 0) return { updated: 0, conflicts: 0, soldEvents: 0, conflictIds: [] };
-      let updated = 0; let conflicts = 0; let soldEvents = 0; const conflictIds: number[] = [];
-      for (const change of changes) {
-        const result = await db.prepare('UPDATE listings SET price=?1,quantity=?2,status=?3,last_changed_at=?4,state_version=state_version+1,last_changed_snapshot_id=?5,missing_full_count=0 WHERE id=?6 AND shop_id=?7 AND state_version=?8').bind(change.price, change.quantity, change.status, change.observedAt, change.batchId, change.listingId, change.shopSessionId, change.expectedVersion).run();
-        if (Number(result.meta?.changes ?? 0) === 0) { conflicts += 1; conflictIds.push(change.listingId); continue; }
-        updated += 1;
-        if (change.history) await db.prepare("INSERT OR IGNORE INTO listing_events(listing_id,snapshot_id,observed_at,event_type,from_price,to_price,from_quantity,to_quantity,reason,transition_key) VALUES(?1,?6,?2,CASE WHEN ?5='first_seen' THEN 'first_seen' ELSE 'state_changed' END,NULL,?3,NULL,?4,CASE WHEN ?5='price_changed' THEN 'price' ELSE NULL END,?6 || ':' || ?1 || ':' || ?5)").bind(change.listingId, change.observedAt, change.price, change.quantity, change.history.eventType, change.batchId).run();
-        if (change.soldEvent) { const sold = await db.prepare("INSERT OR IGNORE INTO listing_events(listing_id,snapshot_id,observed_at,event_type,from_price,to_price,from_quantity,to_quantity,sold_quantity,reason,transition_key) VALUES(?1,?9,?6,'state_changed',NULL,?8,?3,?4,?2,?5,?7)").bind(change.listingId, change.soldEvent.soldQuantity, change.soldEvent.fromQuantity, change.soldEvent.toQuantity, change.soldEvent.reason, change.observedAt, change.soldEvent.transitionKey, change.price, change.batchId).run(); soldEvents += Number(sold.meta?.changes ?? 0); }
-      }
-      return { updated, conflicts, soldEvents, conflictIds };
-    },
-    async applyListingTransitionsBulk(changes) { return this.applyListingTransitions!(changes); },
+    applyListingTransitions: applyListingTransitionBatch,
+    applyListingTransitionsBulk: applyListingTransitionBatch,
     async markShopHeartbeats(sourceId, shopKeys, observedAt) {
       if (shopKeys.length === 0) return 0;
       let updated = 0;
