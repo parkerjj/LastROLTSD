@@ -134,7 +134,7 @@ function renderItemMarketHistory(drawer: HTMLElement, history: ItemMarketHistory
     ? `<ul class="history-list current-listings">${history.currentListings.map((listing) => `<li><div><strong>${listing.price.toLocaleString('zh-CN')} <small>z</small></strong><span>${escape(listing.title || '未命名商店')} · ${escape(listing.vendorName || '未知玩家')}</span></div><div class="history-row-meta"><span>${listing.quantity} 件 · ${escape(listing.mapName || '未知地图')}</span><time>${new Date(listing.lastChangedAt).toLocaleString('zh-CN')}</time></div></li>`).join('')}</ul>`
     : '<p class="history-empty">当前没有正在出售的记录</p>';
   const sales = history.sales.length
-    ? `<ul class="history-list history-sales">${history.sales.map((sale) => `<li><div><strong>售出记录</strong><span>此道具在 <time>${new Date(sale.observedAt).toLocaleString('zh-CN')}</time> 以 ${sale.price.toLocaleString('zh-CN')} Zeny 售出 ${sale.soldQuantity} 个 · ${escape(sale.title || '未命名商店')} / ${escape(sale.vendorName || '未知玩家')}</span></div></li>`).join('')}</ul>`
+    ? `<ul class="history-list history-sales">${history.sales.map((sale) => `<li><div><span>此道具在 <time>${new Date(sale.observedAt).toLocaleString('zh-CN')}</time> 以 ${sale.price.toLocaleString('zh-CN')} Zeny 售出 ${sale.soldQuantity} 个 · ${escape(sale.title || '未命名商店')} / ${escape(sale.vendorName || '未知玩家')}</span></div></li>`).join('')}</ul>`
     : '<p class="history-empty">30 天内没有可确认的售出变动</p>';
   drawer.innerHTML = `<div class="drawer-inner history-drawer-inner">
     <button type="button" id="close-history" aria-label="关闭价格历史">关闭</button>
@@ -149,7 +149,7 @@ function renderItemMarketHistory(drawer: HTMLElement, history: ItemMarketHistory
       ${renderHistoryTrend(history)}
     </section>
     <section class="history-section"><div class="history-section-heading"><div><p class="drawer-kicker">当前在售</p><h3>所有出售商店</h3></div><span>${history.currentListings.length} 条</span></div>${currentListings}</section>
-    <section class="history-section"><div class="history-section-heading"><div><p class="drawer-kicker">历史成交</p><h3>推断售出记录</h3></div><span>${history.sales.length} 条</span></div>${sales}</section>
+    <section class="history-section"><div class="history-section-heading"><div><p class="drawer-kicker">历史成交</p><h3>售出记录</h3></div><span>${history.sales.length} 条</span></div>${sales}</section>
   </div>`;
   drawer.hidden = false;
 }
