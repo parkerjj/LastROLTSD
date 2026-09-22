@@ -49,6 +49,7 @@ class SqliteD1 {
 function createDatabase(): SqliteD1 {
   const database = new DatabaseSync(':memory:');
   database.exec(readFileSync(resolve(process.cwd(), 'migrations/0001_initial.sql'), 'utf8'));
+  database.exec(readFileSync(resolve(process.cwd(), 'migrations/0002_listing_observation.sql'), 'utf8'));
   database.exec("INSERT INTO market_sources(id,name,api_key_hash,created_at,updated_at) VALUES ('source-a','A','hash-a',0,0),('source-b','B','hash-b',0,0)");
   return new SqliteD1(database);
 }
@@ -145,8 +146,21 @@ describe('D1 clean-break lifecycle', () => {
       await repository.insertNewListingsBulk!(Array.from({ length: 12 }, (_, index) => ({ sessionId: shop.internalShopId, fingerprint: `new-${index}`, itemId: 5000 + index, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 100, quantity: 3, observedAt: 100, batchId: 'new-listings', options: [{ type: 1, value: index, param: 0 }, { type: 2, value: index + 1, param: 0 }] })));
 
       expect(d1.requests).toBe(1);
-      expect(d1.database.prepare("SELECT COUNT(*) AS count FROM listings WHERE last_changed_snapshot_id='new-listings'").get()).toEqual({ count: 12 });
+      expect(d1.database.prepare("SELECT COUNT(*) AS count FROM listings WHERE last_changed_snapshot_id='new-listings' AND last_observed_snapshot_id='new-listings'").get()).toEqual({ count: 12 });
       expect(d1.database.prepare('SELECT COUNT(*) AS count FROM listing_options').get()).toEqual({ count: 24 });
+    } finally { d1.database.close(); }
+  });
+
+  it('marks unchanged listings as observed without changing their last-change identity', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const shop = await repository.resolveShopObservation!(await observation('source-a', 100));
+      const listing = await repository.createListing!({ sessionId: shop.internalShopId, fingerprint: 'observed-only', itemId: 4001, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 100, batchId: 'changed-1' });
+
+      await repository.markListingsObservedBulk!([{ sessionId: shop.internalShopId, fingerprint: 'observed-only' }], 'observed-2', 200);
+
+      expect(d1.database.prepare('SELECT last_changed_at,last_changed_snapshot_id,last_observed_snapshot_id FROM listings WHERE id=?').get(listing.id)).toEqual({ last_changed_at: 100, last_changed_snapshot_id: 'changed-1', last_observed_snapshot_id: 'observed-2' });
     } finally { d1.database.close(); }
   });
 

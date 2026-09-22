@@ -27,4 +27,13 @@ describe('market API', () => {
     expect(url.searchParams.getAll('option')).toEqual(['12:gte:50']);
     expect(url.searchParams.get('option_mode')).toBe('any');
   });
+
+  it('loads item-wide history without allowing a client-side day range', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ itemId: 1001, currentListings: [], sales: [], events: [], windowStart: 1, windowEnd: 2 }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await (new MarketApi() as any).getItemHistory(1001);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/market/items/1001/history', {});
+  });
 });

@@ -67,13 +67,53 @@ describe('query UI rendering', () => {
     expect(element.textContent).toContain('<img src=x onerror=alert(1)>');
   });
 
+  it('groups mixed matches by item, shop, and vendor with icon controls and sorting', () => {
+    const element = getResults();
+    renderSearchResults(element, {
+      items: [
+        listing({ id: 1, itemName: '利卡短剑', title: '普通商店', vendorName: '普通商人' }),
+        listing({ id: 2, itemName: '普通短剑', title: '利卡特价店', vendorName: '普通商人' }),
+        listing({ id: 3, itemName: '普通长剑', title: '普通商店', vendorName: '杰利卡' }),
+      ],
+      nextCursor: null,
+    }, { ...state, filters: { q: '利卡', limit: 20, sort: 'changed_desc' } });
+
+    expect(Array.from(element.querySelectorAll<HTMLElement>('.result-group')).map((group) => group.dataset.group)).toEqual(['name', 'shop', 'vendor']);
+    expect(Array.from(element.querySelectorAll('.result-group')).map((group) => group.querySelectorAll('.item-row').length)).toEqual([1, 1, 1]);
+    expect(element.querySelectorAll('.group-toggle .ph-caret-down')).toHaveLength(3);
+    expect(element.querySelectorAll('.toggle-mark')).toHaveLength(0);
+    expect(element.querySelector<HTMLSelectElement>('#result-sort')?.value).toBe('changed_desc');
+    expect(Array.from(element.querySelectorAll<HTMLOptionElement>('#result-sort option')).map((option) => option.value)).toEqual(['price_asc', 'price_desc', 'changed_desc']);
+  });
+
   it('renders history drawer pagination and inferred sales in Chinese', () => {
     const dom = new JSDOM('<aside></aside>');
     const drawer = dom.window.document.querySelector('aside') as HTMLElement;
     renderHistory(drawer, { items: [{ id: 1, observedAt: 1, price: 50, quantity: 1, eventType: 'observed' }], inferredSales: [{ observedAt: 2, soldQuantity: 1, fromQuantity: 2, toQuantity: 1, reason: 'quantity_decrease' }], nextCursor: 'history-next' }, 1);
     expect(drawer.textContent).toContain('价格历史');
-    expect(drawer.textContent).toContain('推断售出');
+    expect(drawer.textContent).toContain('售出记录');
     expect(drawer.querySelector('#next-history')).not.toBeNull();
     expect(drawer.querySelector('#close-history')).not.toBeNull();
+  });
+
+  it('renders the item brief, chart explanation, current listings, and sales in an item-wide history drawer', () => {
+    const dom = new JSDOM('<aside></aside>');
+    const drawer = dom.window.document.querySelector('aside') as HTMLElement;
+    renderHistory(drawer, {
+      items: [], inferredSales: [], nextCursor: null,
+      itemId: 1001,
+      windowStart: 1,
+      windowEnd: 2,
+      currentListings: [{ listingId: 8, price: 1200, quantity: 3, vendorName: '商人甲', title: '长发特卖', mapName: 'prontera', lastChangedAt: 2 }],
+      sales: [{ listingId: 6, observedAt: 2, price: 1100, soldQuantity: 1, vendorName: '商人乙', title: '旧店' }],
+      events: [{ listingId: 6, observedAt: 2, price: 1100, quantity: 0, eventType: 'quantity_decrease' }],
+    } as any, listing({ itemId: 1001, itemName: '长发' }));
+
+    expect(drawer.querySelector('.history-item-summary')?.textContent).toContain('长发');
+    expect(drawer.querySelector('.history-chart-explanation')?.textContent).toContain('横轴');
+    expect(drawer.querySelector('[data-history-chart]')).not.toBeNull();
+    expect(drawer.querySelector('.current-listings')?.textContent).toContain('长发特卖');
+    expect(drawer.querySelector('.history-sales')?.textContent).toContain('售出记录');
+    expect(drawer.querySelector('.history-sales')?.textContent).toContain('以 1,100 Zeny 售出 1 个');
   });
 });

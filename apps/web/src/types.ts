@@ -104,3 +104,12 @@ export interface HistoryPage {
   inferredSales?: Array<{ observedAt: number; soldQuantity: number; fromQuantity: number; toQuantity: number; reason: string }>;
   nextCursor: string | null;
 }
+
+export interface ItemMarketHistory {
+  itemId: number;
+  windowStart: number;
+  windowEnd: number;
+  currentListings: Array<{ listingId: number; price: number; quantity: number; vendorName: string; title: string; mapName: string; lastChangedAt: number }>;
+  sales: Array<{ listingId: number; observedAt: number; price: number; soldQuantity: number; vendorName: string; title: string }>;
+  events: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string }>;
+}

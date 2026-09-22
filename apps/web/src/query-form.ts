@@ -11,6 +11,7 @@ const OPERATOR_LABELS: Record<OptionOperator, string> = {
 };
 
 const OPTION_OPERATORS = new Set<OptionOperator>(Object.keys(OPERATOR_LABELS) as OptionOperator[]);
+let nextOptionRowId = 0;
 
 function isOptionOperator(value: string): value is OptionOperator {
   return OPTION_OPERATORS.has(value as OptionOperator);
@@ -85,28 +86,40 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
 export function appendOptionRow(container: HTMLElement, definitions: readonly OptionDefinition[] = []): HTMLElement {
   const document = container.ownerDocument;
   const row = document.createElement('div');
+  const rowId = `option-row-${++nextOptionRowId}`;
+  const typeId = `${rowId}-type`;
+  const operatorId = `${rowId}-operator`;
+  const valueId = `${rowId}-value`;
   row.dataset.optionRow = 'true';
   row.className = 'option-row';
   row.innerHTML = `
-    <label><span>词条</span><select data-option-type aria-label="词条"><option value="">选择词条</option>${definitions.map((definition) => `<option value="${definition.type}">${escapeAttribute(definition.labelZh)}</option>`).join('')}</select></label>
-    <label>比较符<select data-option-operator aria-label="比较符"></select></label>
-    <label class="option-value-label">数值<input data-option-value aria-label="词条数值" inputmode="decimal" type="number" step="any" /></label>
-    <span class="option-unit" data-option-unit aria-live="polite"></span>
+    <label for="${typeId}"><span>词条</span><select id="${typeId}" data-option-type aria-label="词条"><option value="">请先选择词条</option>${definitions.map((definition) => `<option value="${definition.type}">${escapeAttribute(definition.labelZh)}</option>`).join('')}</select></label>
+    <label for="${operatorId}"><span>比较符</span><select id="${operatorId}" data-option-operator aria-label="比较符"></select></label>
+    <label class="option-value-label" for="${valueId}"><span>数值</span><input id="${valueId}" data-option-value aria-label="词条数值" inputmode="decimal" type="number" step="any" /></label>
     <button type="button" data-remove-option aria-label="删除词条">删除</button>`;
   const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
   const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
-  const unit = row.querySelector<HTMLElement>('[data-option-unit]')!;
+  const valueInput = row.querySelector<HTMLInputElement>('[data-option-value]')!;
+  const valueLabel = row.querySelector<HTMLElement>('.option-value-label > span')!;
   const update = (): void => {
     const definition = definitions.find((candidate) => candidate.type === Number(type.value));
     const allowedOperators = definition?.allowedOperators.filter(isOptionOperator) ?? [];
-    operator.innerHTML = allowedOperators.map((value) => `<option value="${value}">${OPERATOR_LABELS[value]}</option>`).join('');
+    operator.disabled = !definition || allowedOperators.length === 0;
+    operator.title = definition ? '选择比较符' : '请先选择词条';
+    operator.setAttribute('aria-label', definition ? '比较符' : '比较符，请先选择词条');
+    operator.innerHTML = allowedOperators.length > 0
+      ? allowedOperators.map((value) => `<option value="${value}">${OPERATOR_LABELS[value]}</option>`).join('')
+      : '<option value=""></option>';
     const prompt = definition?.descriptionTemplate.replace('{value}', '数值') ?? '';
-    unit.textContent = definition ? [prompt, definition.unit ? `单位：${definition.unit}` : ''].filter(Boolean).join(' · ') : '';
+    valueLabel.textContent = definition?.unit ? `数值（${definition.unit}）` : '数值';
+    valueInput.title = prompt;
     row.querySelector('[data-option-param-wrap]')?.remove();
     if (definition?.paramPolicy.filterable) {
       const paramWrap = document.createElement('label');
+      const paramId = `${rowId}-param`;
       paramWrap.dataset.optionParamWrap = 'true';
-      paramWrap.innerHTML = '<span>参数</span><input data-option-param aria-label="词条参数" inputmode="numeric" type="number" step="1" />';
+      paramWrap.htmlFor = paramId;
+      paramWrap.innerHTML = `<span>参数</span><input id="${paramId}" data-option-param aria-label="词条参数" inputmode="numeric" type="number" step="1" />`;
       row.insertBefore(paramWrap, row.querySelector('[data-remove-option]'));
     }
   };

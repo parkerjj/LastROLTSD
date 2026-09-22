@@ -105,6 +105,7 @@ export interface MarketRepository {
   reconcileSnapshot?(input: SnapshotReconciliationInput): Promise<ReconciliationResult>;
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
   getListingHistory(listingId: number, limit: number, cursor?: string): Promise<{ items: HistoryRow[]; inferredSales?: InferredSaleRow[]; nextCursor: string | null } | null>;
+  getItemMarketHistory?(itemId: number, windowStart: number, windowEnd: number): Promise<ItemMarketHistory | null>;
   getOptionDefinitions(version?: string): Promise<{ version: string; items: OptionDefinition[] }>;
   getCatalogVersion(): Promise<string>;
   searchItems(query: string, limit: number): Promise<CatalogItemRow[]>;
@@ -112,6 +113,15 @@ export interface MarketRepository {
   deleteExpiredSoldEvents?(before: number, limit: number): Promise<number>;
   countExpiredHistory?(before: number, limit: number): Promise<number>;
   countExpiredSoldEvents?(before: number, limit: number): Promise<number>;
+}
+
+export interface ItemMarketHistory {
+  itemId: number;
+  windowStart: number;
+  windowEnd: number;
+  currentListings: Array<{ listingId: number; price: number; quantity: number; vendorName: string; title: string; mapName: string; lastChangedAt: number }>;
+  sales: Array<{ listingId: number; observedAt: number; price: number; soldQuantity: number; vendorName: string; title: string }>;
+  events: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string }>;
 }
 
 export interface UploadShopResult { uuid: string; shop_id: string; shop_status: 'opening' | 'dismissed'; applied: boolean; resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored'; }

@@ -3,6 +3,17 @@ import type { MarketRepository } from '../db/repository';
 import { decodeHistoryCursor, SearchValidationError } from '../domain/search';
 
 export function registerHistoryRoute(app: Hono<any>, repo: MarketRepository, cursorSecret?: string): void {
+  app.get('/api/v1/market/items/:id/history', async (c) => {
+    const itemId = Number(c.req.param('id'));
+    const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
+    if (!Number.isSafeInteger(itemId) || itemId <= 0) return c.json({ error: { code: 'not_found', message: 'Item not found', request_id: requestId } }, 404);
+    const windowEnd = Date.now();
+    const windowStart = windowEnd - 30 * 24 * 60 * 60 * 1000;
+    const history = await repo.getItemMarketHistory?.(itemId, windowStart, windowEnd);
+    if (!history) return c.json({ error: { code: 'not_found', message: 'Item not found', request_id: requestId } }, 404);
+    return c.json(history, 200, { 'cache-control': 'public, max-age=30, s-maxage=30' });
+  });
+
   app.get('/api/v1/market/listings/:id/history', async (c) => {
     const id = Number(c.req.param('id'));
     const cursor = c.req.query('cursor');

@@ -206,7 +206,11 @@ importers:
         specifier: ^4.133.0
         version: 4.133.0(@cloudflare/workers-types@4.20260702.1)(@types/node@24.13.5)
 
-  apps/web: {}
+  apps/web:
+    dependencies:
+      '@phosphor-icons/web':
+        specifier: ^2.1.2
+        version: 2.1.2
 
   apps/worker:
     dependencies:
@@ -871,6 +875,9 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@phosphor-icons/web@2.1.2':
+    resolution: {integrity: sha512-rPAR9o/bEcp4Cw4DEeZHXf+nlGCMNGkNDRizYHM47NLxz9vvEHp/Tt6FMK1NcWadzw/pFDPnRBGi/ofRya958A==}
 
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
@@ -2457,6 +2464,8 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
+
+  '@phosphor-icons/web@2.1.2': {}
 
   '@poppinss/colors@4.1.6':
     dependencies:

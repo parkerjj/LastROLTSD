@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { registerHistoryRoute } from '../src/routes/history';
 import { encodeHistoryCursor } from '../src/domain/search';
@@ -54,4 +54,35 @@ it('returns inferred sale details alongside price history', async () => {
   expect(response.status).toBe(200);
   const body = await response.json() as any;
   expect(body.inferredSales[0].reason).toBe('sold_out');
+});
+
+it('returns item-wide market history for the server-defined thirty-day window', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-22T12:00:00.000Z'));
+  try {
+    const expected = {
+      itemId: 1001,
+      currentListings: [{ listingId: 8, price: 1200, quantity: 3, vendorName: '商人甲', title: '长发特卖', mapName: 'prontera', lastChangedAt: 1 }],
+      sales: [{ listingId: 6, observedAt: 2, price: 1100, soldQuantity: 1, vendorName: '商人乙', title: '旧店' }],
+      events: [{ listingId: 6, observedAt: 2, price: 1100, quantity: 0, eventType: 'quantity_decrease' }],
+      windowStart: Date.parse('2026-08-23T12:00:00.000Z'),
+      windowEnd: Date.parse('2026-09-22T12:00:00.000Z'),
+    };
+    let received: [number, number, number] | undefined;
+    const app = new Hono();
+    registerHistoryRoute(app, {
+      getItemMarketHistory: async (...args: [number, number, number]) => {
+        received = args;
+        return expected;
+      },
+    } as never);
+
+    const response = await app.request('/api/v1/market/items/1001/history?days=365');
+
+    expect(response.status).toBe(200);
+    expect(received).toEqual([1001, Date.parse('2026-08-23T12:00:00.000Z'), Date.parse('2026-09-22T12:00:00.000Z')]);
+    expect(await response.json()).toEqual(expected);
+  } finally {
+    vi.useRealTimers();
+  }
 });

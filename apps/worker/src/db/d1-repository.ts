@@ -443,6 +443,32 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       const inferredSales: InferredSaleRow[] = saleRows.map((row) => ({ observedAt: Number(row.observed_at), soldQuantity: Number(row.sold_quantity), fromQuantity: Number(row.from_quantity), toQuantity: Number(row.to_quantity), reason: String(row.reason) }));
       return { items, inferredSales, nextCursor: rows.length > items.length && items.at(-1) ? encodeHistoryCursor(items.at(-1)!.id, cursorSecret) : null };
     },
+    async getItemMarketHistory(itemId, windowStart, windowEnd) {
+      const item = await one<Row>(db.prepare('SELECT item_id FROM listings WHERE item_id=?1 LIMIT 1').bind(itemId));
+      if (!item) return null;
+      const [currentRows, saleRows, eventRows] = await Promise.all([
+        many<Row>(db.prepare(`SELECT l.id,l.price,l.quantity,l.last_changed_at,s.vendor_name,s.title,s.map_name
+          FROM listings l JOIN shops s ON s.id=l.shop_id
+          WHERE l.item_id=?1 AND l.status='active' AND s.status='active' AND s.shop_type='sell'
+          ORDER BY l.price ASC,l.id ASC`).bind(itemId)),
+        many<Row>(db.prepare(`SELECT e.listing_id,e.observed_at,e.to_price,e.sold_quantity,s.vendor_name,s.title
+          FROM listing_events e JOIN listings l ON l.id=e.listing_id JOIN shops s ON s.id=l.shop_id
+          WHERE l.item_id=?1 AND e.observed_at>=?2 AND e.observed_at<=?3 AND e.sold_quantity>0 AND s.shop_type='sell'
+          ORDER BY e.observed_at DESC,e.id DESC`).bind(itemId, windowStart, windowEnd)),
+        many<Row>(db.prepare(`SELECT e.listing_id,e.observed_at,e.to_price,e.to_quantity,e.event_type,e.reason
+          FROM listing_events e JOIN listings l ON l.id=e.listing_id JOIN shops s ON s.id=l.shop_id
+          WHERE l.item_id=?1 AND e.observed_at>=?2 AND e.observed_at<=?3 AND s.shop_type='sell'
+          ORDER BY e.observed_at ASC,e.id ASC`).bind(itemId, windowStart, windowEnd)),
+      ]);
+      return {
+        itemId,
+        windowStart,
+        windowEnd,
+        currentListings: currentRows.map((row) => ({ listingId: Number(row.id), price: Number(row.price), quantity: Number(row.quantity), vendorName: String(row.vendor_name), title: String(row.title), mapName: String(row.map_name), lastChangedAt: Number(row.last_changed_at) })),
+        sales: saleRows.map((row) => ({ listingId: Number(row.listing_id), observedAt: Number(row.observed_at), price: Number(row.to_price), soldQuantity: Number(row.sold_quantity), vendorName: String(row.vendor_name), title: String(row.title) })),
+        events: eventRows.map((row) => ({ listingId: Number(row.listing_id), observedAt: Number(row.observed_at), price: Number(row.to_price), quantity: Number(row.to_quantity), eventType: row.reason == null ? String(row.event_type) : String(row.reason) })),
+      };
+    },
     async getOptionDefinitions(version) {
       return getOptionDefinitionSet(version);
     },

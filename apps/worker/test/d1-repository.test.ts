@@ -188,6 +188,37 @@ describe('D1 repository', () => {
     expect(statements.some((sql) => sql.includes('FROM listing_events') && sql.includes('LIMIT'))).toBe(true);
   });
 
+  it('aggregates active listings, sales, and trend events by item ID', async () => {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind: (..._values: unknown[]) => ({
+            all: async <T>() => {
+              if (sql.includes('SELECT item_id FROM listings')) return { results: [{ item_id: 1001 }] as T[] };
+              if (sql.includes("l.status='active'")) return { results: [{ id: 8, price: 1200, quantity: 3, vendor_name: '商人甲', title: '长发特卖', map_name: 'prontera', last_changed_at: 50 }] as T[] };
+              if (sql.includes('sold_quantity>0')) return { results: [{ listing_id: 6, observed_at: 20, to_price: 1100, sold_quantity: 1, vendor_name: '商人乙', title: '旧店' }] as T[] };
+              return { results: [{ listing_id: 6, observed_at: 20, to_price: 1100, to_quantity: 0, event_type: 'state_changed', reason: 'quantity_decrease' }] as T[] };
+            },
+          }),
+        } as never;
+      },
+    };
+    const repo = createD1Repository(db as never) as unknown as {
+      getItemMarketHistory(itemId: number, windowStart: number, windowEnd: number): Promise<unknown>;
+    };
+
+    const page = await repo.getItemMarketHistory(1001, 10, 30);
+
+    expect(page).toEqual({
+      itemId: 1001,
+      currentListings: [{ listingId: 8, price: 1200, quantity: 3, vendorName: '商人甲', title: '长发特卖', mapName: 'prontera', lastChangedAt: 50 }],
+      sales: [{ listingId: 6, observedAt: 20, price: 1100, soldQuantity: 1, vendorName: '商人乙', title: '旧店' }],
+      events: [{ listingId: 6, observedAt: 20, price: 1100, quantity: 0, eventType: 'quantity_decrease' }],
+      windowStart: 10,
+      windowEnd: 30,
+    });
+  });
+
   it('uses one JSON1 heartbeat statement per bounded chunk', async () => {
     const db = new FakeDb();
     const repo = createD1Repository(db as never);

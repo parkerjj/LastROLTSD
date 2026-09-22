@@ -32,7 +32,7 @@ const REMOVED_OBJECTS = [
 
 describe('D1 migrations', () => {
   it('uses one clean-break migration with exactly six dynamic-market tables', () => {
-    expect(migrationNames()).toEqual(['0001_initial.sql']);
+    expect(migrationNames()).toEqual(['0001_initial.sql', '0002_listing_observation.sql']);
     const db = openDatabase();
     try {
       const objects = db.prepare(`SELECT name,type FROM sqlite_master
@@ -83,7 +83,7 @@ describe('D1 migrations', () => {
       expect(sqlByTable.get('upload_batches')).toMatch(/WITHOUT ROWID/iu);
 
       expect(columns(db, 'shops')).toEqual(expect.arrayContaining(['profile_hash', 'full_state_hash', 'missing_full_count', 'last_missing_snapshot_id']));
-      expect(columns(db, 'listings')).toEqual(expect.arrayContaining(['shop_id', 'missing_full_count', 'last_changed_snapshot_id']));
+      expect(columns(db, 'listings')).toEqual(expect.arrayContaining(['shop_id', 'missing_full_count', 'last_changed_snapshot_id', 'last_observed_snapshot_id']));
       expect(columns(db, 'listings')).not.toEqual(expect.arrayContaining(['shop_session_id', 'last_seen_at', 'last_batch_id']));
       expect(columns(db, 'upload_batches')).toContain('shop_ids_json');
     } finally {

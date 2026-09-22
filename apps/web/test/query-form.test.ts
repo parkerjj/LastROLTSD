@@ -40,6 +40,39 @@ function createForm(): { dom: JSDOM; form: HTMLFormElement; rows: HTMLElement } 
 }
 
 describe('metadata-driven option controls', () => {
+  it('renders associated controls and an operator prompt before a term is selected', () => {
+    const { rows } = createForm();
+    const row = appendOptionRow(rows, [spRecovery]);
+    const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
+    const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
+    const value = row.querySelector<HTMLInputElement>('[data-option-value]')!;
+
+    expect(type.id).toBeTruthy();
+    expect(operator.id).toBeTruthy();
+    expect(value.id).toBeTruthy();
+    expect(row.querySelector<HTMLLabelElement>(`label[for="${type.id}"]`)).not.toBeNull();
+    expect(row.querySelector<HTMLLabelElement>(`label[for="${operator.id}"]`)).not.toBeNull();
+    expect(row.querySelector<HTMLLabelElement>(`label[for="${value.id}"]`)).not.toBeNull();
+    expect(operator.disabled).toBe(true);
+    expect(operator.options[0]?.textContent).toBe('—');
+    expect(operator.title).toBe('请先选择词条');
+    expect(operator.getAttribute('aria-label')).toBe('比较符，请先选择词条');
+  });
+
+  it('keeps option guidance out of the numeric input after selecting a term', () => {
+    const { rows } = createForm();
+    const row = appendOptionRow(rows, [rate]);
+    const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
+    const value = row.querySelector<HTMLInputElement>('[data-option-value]')!;
+
+    type.value = '198';
+    type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
+
+    expect(value.placeholder).toBe('');
+    expect(row.querySelector('.option-value-label > span')?.textContent).toBe('数值（%）');
+    expect(row.querySelector('[data-option-unit]')).toBeNull();
+  });
+
   it('renders Chinese option labels and only the operators allowed by the definition', () => {
     const { rows } = createForm();
     const row = appendOptionRow(rows, [spRecovery, rate]);
@@ -52,7 +85,8 @@ describe('metadata-driven option controls', () => {
     const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
     expect(Array.from(operator.options).map((option) => option.value)).toEqual(['eq', 'gte', 'lte']);
     expect(row.querySelector<HTMLInputElement>('[data-option-param]')).toBeNull();
-    expect(row.querySelector('[data-option-unit]')?.textContent).not.toContain('点');
+    expect(row.querySelector('[data-option-unit]')).toBeNull();
+    expect(row.querySelector<HTMLInputElement>('[data-option-value]')?.title).toContain('数值');
   });
 
   it('shows a parameter control only when server metadata requires it', () => {

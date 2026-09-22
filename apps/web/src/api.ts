@@ -1,4 +1,4 @@
-import type { HistoryPage, ListingSearchResult, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
+import type { HistoryPage, ItemMarketHistory, ListingSearchResult, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -15,6 +15,7 @@ interface ApiResponse<T> {
 export interface MarketApiClient {
   search(filters: SearchFilters, signal?: AbortSignal): Promise<SearchPage<ListingSearchResult>>;
   getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage>;
+  getItemHistory(itemId: number, signal?: AbortSignal): Promise<ItemMarketHistory>;
   getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse>;
 }
 
@@ -37,6 +38,10 @@ export class MarketApi implements MarketApiClient {
   async getHistory(listingId: number, cursor?: string, signal?: AbortSignal): Promise<HistoryPage> {
     const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
     return this.request(`/api/v1/market/listings/${listingId}/history${params}`, signal);
+  }
+
+  async getItemHistory(itemId: number, signal?: AbortSignal): Promise<ItemMarketHistory> {
+    return this.request(`/api/v1/market/items/${itemId}/history`, signal);
   }
 
   async getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse> {

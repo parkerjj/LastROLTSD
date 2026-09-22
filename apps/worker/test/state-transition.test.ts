@@ -125,6 +125,30 @@ describe('listing state transition', () => {
     expect(calls).toEqual(['load:2', 'insert:2']);
   });
 
+  it('returns only unchanged existing listings for observation marking', async () => {
+    const unchanged = { ...listing, id: 1, shopSessionId: 1, itemFingerprint: 'unchanged', price: 10, quantity: 5, stateVersion: 2 };
+    const changed = { ...listing, id: 2, shopSessionId: 1, itemFingerprint: 'changed', price: 10, quantity: 5, stateVersion: 2 };
+    const inserted: unknown[] = [];
+    const transitions: unknown[] = [];
+    const repository = {
+      loadListingsByObservations: async () => [unchanged, changed],
+      insertNewListingsBulk: async (inputs: unknown[]) => { inserted.push(...inputs); },
+      applyListingTransitionsBulk: async (changes: unknown[]) => { transitions.push(...changes); return { updated: changes.length, conflicts: 0, soldEvents: 0, conflictIds: [] }; },
+    } as any;
+    const sessions = new Map([[1, { id: 1, initialSyncComplete: true }]]);
+    const observations = [
+      { fingerprint: 'unchanged', sessionId: 1, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 5, options: [] } },
+      { fingerprint: 'changed', sessionId: 1, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 11, quantity: 5, options: [] } },
+      { fingerprint: 'new', sessionId: 1, item: { item_id: 2, upgrade: 0, slots: 0, cards: [], price: 20, quantity: 1, options: [] } },
+    ];
+
+    const result = await createListingStateService(repository).applyBatchObservationsBulk!({ id: 's1' } as any, sessions as any, observations as any, 'b', 2);
+
+    expect(result.observed).toEqual([{ sessionId: 1, fingerprint: 'unchanged' }]);
+    expect(inserted).toHaveLength(1);
+    expect(transitions).toHaveLength(1);
+  });
+
   it('reloads and retries a bulk optimistic conflict once', async () => {
     const existing = { ...listing, shopSessionId: 1, itemFingerprint: 'a', quantity: 5, stateVersion: 2 };
     let attempts = 0;
