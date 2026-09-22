@@ -38,6 +38,16 @@ export interface ItemAutocompletePage {
   items: ItemAutocomplete[];
 }
 
+export interface ItemDescription {
+  itemId: number;
+  description: string;
+}
+
+export interface ItemDescriptionPage {
+  version: string;
+  descriptions: ItemDescription[];
+}
+
 export interface SearchOptionFilter {
   type: number;
   operator: OptionOperator;

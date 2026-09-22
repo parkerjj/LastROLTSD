@@ -110,14 +110,14 @@ describe('metadata-driven option controls', () => {
     expect(rows.querySelectorAll('[data-option-row]')).toHaveLength(1);
   });
 
-  it('rejects an incomplete row instead of sending a partial option filter', () => {
+  it('ignores an incomplete row instead of sending a partial option filter', () => {
     const { form, rows } = createForm();
     const row = appendOptionRow(rows, [spRecovery]);
     const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
     type.value = '12';
     type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
 
-    expect(() => serializeSearchForm(form, [spRecovery])).toThrow('请完整填写词条条件');
+    expect(serializeSearchForm(form, [spRecovery])).toEqual({ q: '波利', limit: 20, sort: 'price_asc' });
   });
 
   it('does not expose unknown operators from malformed metadata', () => {

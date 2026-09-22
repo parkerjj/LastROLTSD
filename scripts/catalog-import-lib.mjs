@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 export const IMPORTER_VERSION = '2.0.0';
 export const MAX_CATALOG_ASSET_BYTES = 2 * 1024 * 1024;
+export const MAX_DESCRIPTION_ASSET_BYTES = 32 * 1024 * 1024;
 const MAX_TEXT_LENGTH = 10_000;
 
 export function sha256Hex(value) {
@@ -60,6 +61,60 @@ export function buildCatalogAsset(input, options = {}) {
   const asset = { version, checksum: sha256Hex(JSON.stringify(items)), items };
   assertAssetSize(asset);
   return asset;
+}
+
+export function parseDescriptionInput(buffer, metadata = {}) {
+  const filename = String(metadata.filename ?? 'itemsdescriptions');
+  const text = decodeInput(buffer, metadata.encoding ?? 'auto', filename).replace(/\r\n?/gu, '\n');
+  const descriptions = new Map();
+  let current = null;
+  const flush = (line) => {
+    if (!current) return;
+    const description = normalizeDescriptionText(current.lines.join('\n'));
+    if (description) descriptions.set(current.itemId, { itemId: current.itemId, description });
+    current = null;
+  };
+  text.split('\n').forEach((rawLine, index) => {
+    const lineNumber = index + 1;
+    const line = rawLine.trimEnd();
+    const start = /^(\d+)#(.*)$/u.exec(line);
+    if (start) {
+      flush(lineNumber);
+      const itemId = parseItemId(start[1], filename, lineNumber);
+      let content = start[2];
+      const closed = content.endsWith('#');
+      if (closed) content = content.slice(0, -1);
+      current = { itemId, lines: [content] };
+      if (closed) flush(lineNumber);
+      return;
+    }
+    if (!current) {
+      if (!line.trim() || line.trim().startsWith('//')) return;
+      throw validationError(filename, lineNumber, 'record', 'description continuation without item id');
+    }
+    const closed = line.endsWith('#');
+    current.lines.push(closed ? line.slice(0, -1) : line);
+    if (closed) flush(lineNumber);
+  });
+  flush(text.split('\n').length);
+  return { kind: 'descriptions', descriptions: [...descriptions.values()] };
+}
+
+export function buildDescriptionAsset(input, options = {}) {
+  const version = String(options.version ?? '');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(version)) throw new Error('version must be a stable release identifier');
+  const descriptions = [...input.descriptions]
+    .sort((left, right) => left.itemId - right.itemId)
+    .map((row) => ({ itemId: row.itemId, description: normalizeDescriptionText(row.description) }))
+    .filter((row) => row.description);
+  const asset = { version, checksum: sha256Hex(JSON.stringify(descriptions)), descriptions };
+  const serialized = JSON.stringify(asset) + '\n';
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_DESCRIPTION_ASSET_BYTES) throw new Error('description asset exceeds maximum size');
+  return asset;
+}
+
+function normalizeDescriptionText(value) {
+  return String(value ?? '').replace(/\r\n?/gu, '\n').split('\n').map((line) => line.trimEnd()).join('\n').trim();
 }
 
 export function serializeCatalogAsset(asset) {
@@ -220,12 +275,7 @@ function validateItemSet(items, fallbackFilename) {
     ids.add(item.itemId);
     const normalized = normalizeCatalogText(item.name);
     if (!normalized) throw validationError(filename, line, 'name', 'empty canonical name');
-    if (canonicalNames.has(normalized)) {
-      const previousId = canonicalNames.get(normalized);
-      if (previousId !== item.itemId) throw validationError(filename, line, 'name', 'canonical name collision');
-      throw validationError(filename, line, 'name', 'duplicate canonical name');
-    }
-    canonicalNames.set(normalized, item.itemId);
+    if (!canonicalNames.has(normalized)) canonicalNames.set(normalized, item.itemId);
   }
 
   const aliases = new Map();

@@ -50,34 +50,33 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
   }
 
   const definitionMap = new Map(definitions.map((definition) => [definition.type, definition]));
-  const options = Array.from(form.querySelectorAll<HTMLElement>('[data-option-row]')).map((row): SearchOptionFilter | null => {
+  const options = Array.from(form.querySelectorAll<HTMLElement>('[data-option-row]')).flatMap((row): SearchOptionFilter[] => {
     const type = Number(row.querySelector<HTMLSelectElement>('[data-option-type]')?.value);
     const definition = definitionMap.get(type);
     const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')?.value as OptionOperator | undefined;
     const value = row.querySelector<HTMLInputElement>('[data-option-value]')?.value.trim() ?? '';
     const paramInput = row.querySelector<HTMLInputElement>('[data-option-param]');
-    if (!definition || !Number.isSafeInteger(type) || !operator || !definition.allowedOperators.includes(operator) || !value) return null;
+    if (!definition || !Number.isSafeInteger(type) || !operator || !definition.allowedOperators.includes(operator) || !value) return [];
     if (!isValidOptionValue(value, definition)) throw new Error('词条数值格式无效');
-    if (definition.paramPolicy.mode === 'required_exact' && !paramInput?.value.trim()) return null;
+    if (definition.paramPolicy.mode === 'required_exact' && !paramInput?.value.trim()) return [];
     const param = paramInput?.value.trim();
     const expectedParam = definition.paramPolicy.mode === 'ignored' ? undefined : definition.paramPolicy.value;
     if (param && (!/^-?\d+$/u.test(param) || !Number.isSafeInteger(Number(param)) || (expectedParam !== undefined && Number(param) !== expectedParam))) {
       throw new Error('词条参数格式无效');
     }
-    return {
+    return [{
       type,
       operator,
       value,
       ...(param ? { param: Number(param) } : {}),
-    };
+    }];
   });
-  if (options.some((option) => option === null)) throw new Error('请完整填写词条条件');
   if (filters.q && catalog.length > 0) {
     const itemIds = catalogItemIds(catalog, filters.q);
     if (itemIds.length > 0) filters.item_ids = itemIds;
   }
   if (options.length > 0) {
-    filters.options = options as SearchOptionFilter[];
+    filters.options = options;
     filters.option_mode = form.querySelector<HTMLInputElement>('input[name="option_mode"]:checked')?.value === 'any' ? 'any' : 'all';
   }
   return filters;

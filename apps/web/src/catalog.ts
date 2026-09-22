@@ -1,4 +1,4 @@
-import type { ItemAutocomplete, ItemAutocompletePage, ListingSearchResult, SearchPage } from './types';
+import type { ItemAutocomplete, ItemAutocompletePage, ItemDescription, ItemDescriptionPage, ListingSearchResult, SearchPage } from './types';
 
 export const AUTOCOMPLETE_LIMIT = 20;
 export const SEARCH_ITEM_ID_LIMIT = 50;
@@ -39,6 +39,27 @@ export function createCatalogLoader(
   };
 }
 
+export function createDescriptionLoader(
+  fetcher: typeof fetch = fetch,
+  path = '/catalog/itemsdescriptions.json',
+): () => Promise<ItemDescriptionPage> {
+  let pending: Promise<ItemDescriptionPage> | undefined;
+  return () => {
+    if (pending) return pending;
+    pending = fetcher(path).then(async (response) => {
+      if (!response.ok) throw new Error('item descriptions unavailable');
+      const payload = await response.json() as Partial<ItemDescriptionPage> | null;
+      if (!payload || typeof payload !== 'object' || !Array.isArray(payload.descriptions)) throw new Error('item descriptions invalid');
+      if (payload.descriptions.some((item) => !item || !Number.isSafeInteger(item.itemId) || typeof item.description !== 'string')) throw new Error('item descriptions invalid');
+      return { version: String(payload.version ?? ''), descriptions: payload.descriptions };
+    }).catch((error) => {
+      pending = undefined;
+      throw error;
+    });
+    return pending;
+  };
+}
+
 export function catalogItemIds(items: readonly ItemAutocomplete[], query: string): number[] {
   return findCatalogMatches(items, query, SEARCH_ITEM_ID_LIMIT).map((item) => item.itemId);
 }
@@ -46,13 +67,19 @@ export function catalogItemIds(items: readonly ItemAutocomplete[], query: string
 export function hydrateSearchPage(
   page: SearchPage<ListingSearchResult>,
   items: readonly ItemAutocomplete[],
+  descriptions: readonly ItemDescription[] = [],
 ): SearchPage<ListingSearchResult> {
   const names = new Map(items.map((item) => [item.itemId, item.name]));
+  const descriptionMap = new Map(descriptions.map((item) => [item.itemId, item.description]));
   return {
     ...page,
     items: page.items.map((item) => {
       const name = names.get(item.itemId);
-      return name === undefined ? item : { ...item, itemName: name };
+      const description = descriptionMap.get(item.itemId);
+      if (name === undefined && description === undefined) return item;
+      const currentDescription = String(item.description ?? '').trim();
+      const hasUsableDescription = currentDescription !== '' && currentDescription !== '暂无详细描述';
+      return { ...item, ...(name === undefined ? {} : { itemName: name }), ...(description === undefined || hasUsableDescription ? {} : { description }) };
     }),
   };
 }

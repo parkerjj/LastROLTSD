@@ -36,7 +36,7 @@ name = "lastroweb-production"
 vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288" }
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "lastroweb-production"
+database_name = "lastro-ltsd-db"
 database_id = "replace-at-deploy"
 migrations_dir = "migrations"
 

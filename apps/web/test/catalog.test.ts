@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createCatalogLoader, findCatalogMatches, hydrateSearchPage } from '../src/catalog';
+import { createCatalogLoader, createDescriptionLoader, findCatalogMatches, hydrateSearchPage } from '../src/catalog';
 import type { ItemAutocomplete, ListingSearchResult } from '../src/types';
 
 const catalog: ItemAutocomplete[] = [
@@ -30,5 +30,27 @@ describe('static browser catalog', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     const row = { id: 1, itemId: 4001, price: 10, quantity: 1, mapName: 'prontera', vendorName: '杰利卡', title: '利卡特价', options: [], lastChangedAt: 0 } as ListingSearchResult;
     expect(hydrateSearchPage({ items: [row], nextCursor: null }, catalog).items[0]?.itemName).toBe('波利卡片');
+  });
+
+  it('loads descriptions separately and hydrates listing descriptions when available', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: 'v1', descriptions: [{ itemId: 4001, description: '卡片描述' }] })));
+    const load = createDescriptionLoader(fetcher);
+    await expect(load()).resolves.toEqual({ version: 'v1', descriptions: [{ itemId: 4001, description: '卡片描述' }] });
+    await load();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const row = { id: 1, itemId: 4001, price: 10, quantity: 1, mapName: 'prontera', vendorName: '杰利卡', title: '利卡特价', options: [], lastChangedAt: 0 } as ListingSearchResult;
+    expect(hydrateSearchPage({ items: [row], nextCursor: null }, catalog, [{ itemId: 4001, description: '卡片描述' }]).items[0]?.description).toBe('卡片描述');
+    expect(hydrateSearchPage({ items: [{ ...row, description: '暂无详细描述' }], nextCursor: null }, catalog, [{ itemId: 4001, description: '卡片描述' }]).items[0]?.description).toBe('卡片描述');
+  });
+
+  it('allows a failed description request to be retried', async () => {
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: 'v1', checksum: 'abc', descriptions: [] })));
+    const load = createDescriptionLoader(fetcher);
+
+    await expect(load()).rejects.toThrow('temporary failure');
+    await expect(load()).resolves.toEqual({ version: 'v1', descriptions: [] });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

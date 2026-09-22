@@ -40,6 +40,8 @@ describe('query UI rendering', () => {
     expect(element.textContent).toContain('SP恢复速度增加50%');
     expect(element.querySelector('.history-button')).not.toBeNull();
     expect(element.querySelector('#next-page')).not.toBeNull();
+    expect(element.querySelector('.item-icon img')?.getAttribute('src')).toBe('/api/v1/assets/items/small/1234.gif?lastroweb=v3');
+    expect(element.querySelector('.map-button')?.getAttribute('data-map-image')).toBe('/api/v1/assets/maps_xl/prontera_re.gif?lastroweb=v3');
   });
 
   it('renders deterministic fallbacks for unknown items and unknown option types', () => {

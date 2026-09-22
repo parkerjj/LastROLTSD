@@ -11,6 +11,7 @@ import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
 import { recordMetric } from './observability';
 import { createD1Meter } from './db/d1-meter';
+import { registerAssetRoute } from './routes/assets';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -33,6 +34,7 @@ export function createApp(env: AppEnv): Hono<{ Bindings: WorkerBindings; Variabl
   });
 
   app.get('/api/health', async (c) => c.json(await healthPayload(env)));
+  registerAssetRoute(app);
 
   if (env.DB) {
     const repository = createD1Repository(env.DB, env.CURSOR_SECRET, d1Meter);

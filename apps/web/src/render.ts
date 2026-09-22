@@ -1,13 +1,14 @@
 import type { HistoryPage, ListingSearchResult, SearchFilters, SearchPage } from './types';
 import type { SearchControllerState } from './search-controller';
 import { hydrateSearchPage } from './catalog';
-import type { ItemAutocomplete } from './types';
+import type { ItemAutocomplete, ItemDescription } from './types';
 
 export const escape = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
 
 type RenderState = Pick<SearchControllerState, 'loading' | 'error' | 'empty'> & {
   cursor?: string | null;
   filters?: SearchFilters;
+  descriptionError?: string | null;
 };
 
 export function friendlyError(value: unknown, fallback = '本地接口暂不可用，请确认服务已启动。'): string {
@@ -26,11 +27,23 @@ type RichListing = ListingSearchResult & {
 };
 
 const MAP_CATALOG: Record<string, { image: string; code: string }> = {
-  普隆德拉: { code: 'prontera', image: 'https://file5s.ratemyserver.net/maps_xl/prontera_re.gif' },
-  梦罗克: { code: 'morocc', image: 'https://file5s.ratemyserver.net/maps_xl/morocc_re.gif' },
-  吉芬: { code: 'geffen', image: 'https://file5s.ratemyserver.net/maps_xl/geffen.gif' },
-  斐扬: { code: 'payon', image: 'https://file5s.ratemyserver.net/maps_xl/payon_re.gif' },
+  普隆德拉: { code: 'prontera', image: rmsAssetUrl('maps_xl/prontera_re.gif') },
+  梦罗克: { code: 'morocc', image: rmsAssetUrl('maps_xl/morocc_re.gif') },
+  吉芬: { code: 'geffen', image: rmsAssetUrl('maps_xl/geffen.gif') },
+  斐扬: { code: 'payon', image: rmsAssetUrl('maps_xl/payon_re.gif') },
 };
+
+export function rmsAssetUrl(path: string): string {
+  return `/api/v1/assets/${path.replace(/^\/+|\/+$/gu, '')}?lastroweb=v3`;
+}
+
+function proxyRmsAsset(value: string): string {
+  try {
+    const url = new URL(value, 'https://lastroweb.invalid');
+    if (url.hostname === 'file5s.ratemyserver.net' || url.hostname === 'ratemyserver.net' || url.hostname.endsWith('.ratemyserver.net')) return rmsAssetUrl(url.pathname);
+  } catch { /* Keep malformed or non-RMS values for the normal escaping path. */ }
+  return value;
+}
 
 const GROUPS = [
   { key: 'name', label: '物品名称命中', hint: '名称中包含搜索词' },
@@ -81,7 +94,8 @@ export function renderSearchResults(container: HTMLElement, page: SearchPage<Lis
     })
     .join('');
   const shown = safeItems.length;
-  container.innerHTML = `<div class="results-toolbar"><div><span class="results-kicker">查询结果</span><strong>共 ${shown} 条在售记录</strong></div><span class="results-note">按命中位置分组 · 按价格由低到高</span></div>${sections}<div class="pager"><button id="next-page" type="button" ${page.nextCursor ? '' : 'disabled'} aria-label="加载下一页">${page.nextCursor ? '加载下一页' : '已显示全部'}</button></div>`;
+  const descriptionNotice = state.descriptionError ? `<p role="status" class="description-notice">物品详细描述加载失败，当前显示词条信息。${escape(state.descriptionError)}</p>` : '';
+  container.innerHTML = `${descriptionNotice}<div class="results-toolbar"><div><span class="results-kicker">查询结果</span><strong>共 ${shown} 条在售记录</strong></div><span class="results-note">按命中位置分组 · 按价格由低到高</span></div>${sections}<div class="pager"><button id="next-page" type="button" ${page.nextCursor ? '' : 'disabled'} aria-label="加载下一页">${page.nextCursor ? '加载下一页' : '已显示全部'}</button></div>`;
 }
 
 export function renderSearchResultsWithCatalog(
@@ -89,8 +103,9 @@ export function renderSearchResultsWithCatalog(
   page: SearchPage<ListingSearchResult>,
   state: RenderState,
   catalog: readonly ItemAutocomplete[],
+  descriptions: readonly ItemDescription[] = [],
 ): void {
-  renderSearchResults(container, hydrateSearchPage(page, catalog), state);
+  renderSearchResults(container, hydrateSearchPage(page, catalog, descriptions), state);
 }
 
 export function renderHistory(drawer: HTMLElement, history: HistoryPage, listingId?: number): void {
@@ -130,12 +145,12 @@ function renderListing(item: ListingSearchResult): string {
   const rawName = String(item.itemName ?? '');
   const options = item.options.map((option) => escape(option.display || `未知词条 type=${option.type} value=${option.value} param=${option.param}`)).join('、') || '暂无词条';
   const description = rich.description ?? rich.itemDescription ?? (item.options.map((option) => option.display).filter(Boolean).join('\n') || '暂无详细描述');
-  const icon = rich.itemIcon || `https://file5s.ratemyserver.net/items/small/${encodeURIComponent(String(item.itemId))}.gif`;
-  const largeIcon = `https://file5s.ratemyserver.net/items/large/${encodeURIComponent(String(item.itemId))}.gif`;
+  const icon = proxyRmsAsset(rich.itemIcon || rmsAssetUrl(`items/small/${encodeURIComponent(String(item.itemId))}.gif`));
+  const largeIcon = rmsAssetUrl(`items/large/${encodeURIComponent(String(item.itemId))}.gif`);
   const map = mapInfo(item.mapName);
   const coordinates = getCoordinates(rich, item.mapName);
-  const image = /[<>]/u.test(rawName) ? '' : `<img src="${escape(icon)}" alt="" loading="lazy" />`;
-  const detailImage = /[<>]/u.test(rawName) ? '' : `<img src="${escape(largeIcon)}" alt="${escape(itemName)}" loading="lazy" />`;
+  const image = /[<>]/u.test(rawName) ? '' : `<img src="${escape(icon)}" alt="" loading="lazy" data-image-fallback /><span class="item-icon-fallback" aria-hidden="true" hidden>RO</span>`;
+  const detailImage = /[<>]/u.test(rawName) ? '' : `<img src="${escape(largeIcon)}" alt="${escape(itemName)}" loading="lazy" data-image-fallback /><span class="detail-art-fallback" aria-hidden="true" hidden>RO</span>`;
   return `<article class="item-row">
     <div class="item-main">
       <div class="item-icon">${image || '<span class="item-icon-fallback" aria-hidden="true">RO</span>'}</div>
@@ -152,7 +167,7 @@ function renderListing(item: ListingSearchResult): string {
 
 function mapInfo(mapName: string): { image: string; code: string } {
   const key = Object.keys(MAP_CATALOG).find((candidate) => mapName.includes(candidate));
-  return (key ? MAP_CATALOG[key] : undefined) ?? { code: 'morocc', image: 'https://file5s.ratemyserver.net/maps_xl/morocc_re.gif' };
+  return (key ? MAP_CATALOG[key] : undefined) ?? { code: 'morocc', image: rmsAssetUrl('maps_xl/morocc_re.gif') };
 }
 
 function getCoordinates(item: RichListing, mapName: string): { x: number; y: number } {

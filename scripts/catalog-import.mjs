@@ -1,10 +1,12 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   buildCatalogAsset,
+  buildDescriptionAsset,
   IMPORTER_VERSION,
   mergeCatalogInputs,
   parseCatalogInput,
+  parseDescriptionInput,
   serializeCatalogAsset,
   sha256Hex,
 } from './catalog-import-lib.mjs';
@@ -15,19 +17,32 @@ try {
   const parsed = mergeCatalogInputs(inputs.map((input) => input.parsed));
   const asset = buildCatalogAsset(parsed, { version: args.version });
   const output = serializeCatalogAsset(asset);
+  let descriptionAsset;
+  let descriptionOutput;
+  if (args.descriptionFile) {
+    const descriptionBuffer = await readFile(resolve(args.descriptionFile));
+    descriptionAsset = buildDescriptionAsset(parseDescriptionInput(descriptionBuffer, { filename: args.descriptionFile, encoding: args.descriptionEncoding }), { version: args.version });
+    descriptionOutput = JSON.stringify(descriptionAsset) + '\n';
+  }
   const inputChecksum = sha256Hex(inputs.map((input) => input.checksum).join('\n'));
 
   if (!args.dryRun) {
     const outputFile = resolve(args.outputFile);
     await mkdir(dirname(outputFile), { recursive: true });
     await writeFile(outputFile, output, 'utf8');
+    if (descriptionOutput !== undefined) {
+      const descriptionFile = resolve(args.descriptionOutputFile ?? join(dirname(args.outputFile), 'itemsdescriptions.json'));
+      await mkdir(dirname(descriptionFile), { recursive: true });
+      await writeFile(descriptionFile, descriptionOutput, 'utf8');
+    }
   }
 
   console.log(
     `catalog import ${args.dryRun ? 'dry-run' : 'written'}: version=${asset.version}`
       + ` items=${asset.items.length} aliases=${asset.items.reduce((total, item) => total + item.aliases.length, 0)}`
       + ` skipped=${parsed.skippedCount} bytes=${Buffer.byteLength(output, 'utf8')} errors=0`
-      + ` inputChecksum=${inputChecksum} checksum=${asset.checksum} importer=${IMPORTER_VERSION}`,
+      + ` inputChecksum=${inputChecksum} checksum=${asset.checksum} importer=${IMPORTER_VERSION}`
+      + (descriptionAsset ? ` descriptions=${descriptionAsset.descriptions.length} descriptionChecksum=${descriptionAsset.checksum}` : ''),
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
@@ -59,8 +74,9 @@ function parseArgs(argv) {
   const outputFile = values.get('--output-file');
   if (!outputFile || !outputFile.toLocaleLowerCase().endsWith('.json')) throw new Error('--output-file must be a JSON file');
   const encoding = values.get('--encoding') ?? 'auto';
-  if (!['auto', 'utf8', 'utf8-bom', 'utf16le', 'utf16be'].includes(encoding)) throw new Error('--encoding is invalid');
-  return { inputFile, inputDir, version, outputFile, encoding, dryRun: flags.has('--dry-run'), skipEmptyNames: flags.has('--skip-empty-names') };
+  const descriptionEncoding = values.get('--description-encoding') ?? encoding;
+  if (!['auto', 'utf8', 'utf8-bom', 'utf16le', 'utf16be'].includes(encoding) || !['auto', 'utf8', 'utf8-bom', 'utf16le', 'utf16be'].includes(descriptionEncoding)) throw new Error('--encoding is invalid');
+  return { inputFile, inputDir, version, outputFile, encoding, descriptionFile: values.get('--description-file'), descriptionOutputFile: values.get('--description-output-file'), descriptionEncoding, dryRun: flags.has('--dry-run'), skipEmptyNames: flags.has('--skip-empty-names') };
 }
 
 async function loadInputs(options) {

@@ -26,6 +26,17 @@ pnpm exec wrangler dev --local
 
 The Node version must be 24.x and pnpm must be 12.4.2. The Wrangler command is the production-shaped local server; `pnpm dev` runs only Vite and is useful for UI work. The build intentionally runs before `pnpm test` because `apps/web/test/build.test.ts` verifies the generated SPA document.
 
+When a previously requested RMS image still shows the placeholder during local development, stop Wrangler before clearing the generated local cache and rebuild the static UI. This cache is disposable; do not remove the local D1 directory unless you are intentionally recreating the database:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+Remove-Item -Recurse -Force '.wrangler/state/v3/cache'
+pnpm --filter web build
+pnpm exec wrangler dev --local
+```
+
+The image proxy uses a versioned path query and bypasses the upstream Cloudflare cache, so a rebuilt Worker also avoids old RMS placeholder responses without relying on browser cache settings.
+
 This clean-break release requires a fresh local D1 database. Do not apply `0001_initial.sql` over an older local database: the old schema uses `listings.shop_session_id`, while the supported schema uses `listings.shop_id`. When upgrading an existing local checkout, stop Wrangler, remove the local `.wrangler/state/v3/d1` directory, and rerun the migration command above. Production databases must use a separately reviewed forward migration and must never be reset.
 
 `pnpm secrets:generate` creates `.dev.vars` and `.deployment-secrets.local`. Both are ignored by Git. It refuses to overwrite them unless `--force` is explicitly supplied; forcing rotation invalidates every previously distributed source key. Never paste either file into an issue, log, commit, or chat.

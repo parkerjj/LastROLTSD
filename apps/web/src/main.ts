@@ -2,11 +2,11 @@ import './styles.css';
 import { MarketApi } from './api';
 import { OptionDictionaryStore } from './option-state';
 import { appendOptionRow, serializeSearchForm } from './query-form';
-import { friendlyError, renderHistory, renderHistoryError, renderSearchResultsWithCatalog } from './render';
+import { friendlyError, renderHistory, renderHistoryError, renderSearchResultsWithCatalog, rmsAssetUrl } from './render';
 import { SearchController } from './search-controller';
 import { initialState } from './state';
-import type { ItemAutocomplete, SearchFilters } from './types';
-import { createCatalogLoader, findCatalogMatches } from './catalog';
+import type { ItemAutocomplete, ItemDescription, SearchFilters } from './types';
+import { createCatalogLoader, createDescriptionLoader, findCatalogMatches } from './catalog';
 import { mountReleasePage } from './release-page';
 
 const root = document.querySelector<HTMLElement>('#app')!;
@@ -111,12 +111,15 @@ copyQqGroupButton.addEventListener('click', async () => {
 let autocompleteRequestId = 0;
 let autocompleteItems: ItemAutocomplete[] = [];
 let catalogItems: ItemAutocomplete[] = [];
+let itemDescriptions: ItemDescription[] = [];
+let itemDescriptionError: string | null = null;
 const loadCatalog = createCatalogLoader();
+const loadItemDescriptions = createDescriptionLoader();
 let activeSuggestion = -1;
 
 function renderSearchState(): void {
   const current = searchController.getState();
-  renderSearchResultsWithCatalog(results, current.page ?? { items: [], nextCursor: null }, current, catalogItems);
+  renderSearchResultsWithCatalog(results, current.page ?? { items: [], nextCursor: null }, { ...current, descriptionError: itemDescriptionError }, catalogItems, itemDescriptions);
 }
 
 async function performSearch(filters: SearchFilters): Promise<void> {
@@ -199,7 +202,7 @@ async function openHistory(listingId: number): Promise<void> {
 function closeHistory(): void { historyDrawer.hidden = true; }
 
 function openMap(button: HTMLButtonElement): void {
-  const name = button.dataset.mapName || '未知地图'; const image = button.dataset.mapImage || 'https://file5s.ratemyserver.net/maps_xl/morocc_re.gif'; const code = button.dataset.mapCode || 'morocc'; const x = Number(button.dataset.mapX) || 50; const y = Number(button.dataset.mapY) || 50;
+  const name = button.dataset.mapName || '未知地图'; const image = button.dataset.mapImage || rmsAssetUrl('maps_xl/morocc_re.gif'); const code = button.dataset.mapCode || 'morocc'; const x = Number(button.dataset.mapX) || 50; const y = Number(button.dataset.mapY) || 50;
   mapDrawer.innerHTML = `<div class="drawer-inner map-inner"><button type="button" id="close-map" aria-label="关闭地图">关闭</button><p class="drawer-kicker">地图定位 / ${code}</p><h2>${name}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${name}地图" /><span class="map-star" style="left:${x}%;top:${y}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p></div>`;
   mapDrawer.hidden = false;
 }
@@ -241,6 +244,12 @@ results.addEventListener('click', (event) => {
   if (groupToggle) { const body = document.getElementById(groupToggle.getAttribute('aria-controls') ?? ''); const expanded = groupToggle.getAttribute('aria-expanded') === 'true'; groupToggle.setAttribute('aria-expanded', String(!expanded)); body?.toggleAttribute('hidden', expanded); return; }
   if (target.closest<HTMLButtonElement>('#next-page')) void loadNextPage();
 });
+results.addEventListener('error', (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.hasAttribute('data-image-fallback')) return;
+  image.hidden = true;
+  image.parentElement?.querySelector<HTMLElement>('.item-icon-fallback, .detail-art-fallback')?.removeAttribute('hidden');
+}, true);
 
 historyDrawer.addEventListener('click', (event) => { const target = event.target as Element; if (target.closest('#close-history')) { closeHistory(); return; } const next = target.closest<HTMLButtonElement>('#next-history'); if (!next) return; const listingId = Number(next.dataset.listingId); const cursor = next.dataset.cursor; if (!Number.isSafeInteger(listingId) || !cursor) return; historyDrawer.innerHTML = '<div class="drawer-inner"><p role="status">正在加载更多历史...</p></div>'; void api.getHistory(listingId, cursor).then((history) => renderHistory(historyDrawer, history, listingId)).catch((error) => renderHistoryError(historyDrawer, friendlyError(error, '价格历史接口暂不可用，请确认本地服务已启动。'))); });
 mapDrawer.addEventListener('click', (event) => { if ((event.target as Element).closest('#close-map')) closeMap(); });
@@ -250,6 +259,15 @@ renderOptionDictionary();
 renderSearchState();
 void loadOptionDictionary();
 void loadCatalog().then((catalog) => { catalogItems = catalog.items; renderSearchState(); }).catch(() => undefined);
+void Promise.resolve().then(() => loadItemDescriptions()).then((payload) => {
+  itemDescriptions = payload.descriptions;
+  itemDescriptionError = null;
+  renderSearchState();
+}).catch((error: unknown) => {
+  itemDescriptionError = error instanceof Error ? error.message : 'unknown error';
+  console.warn('[catalog] item descriptions failed to load', error);
+  renderSearchState();
+});
 void performSearch(initialState.filters);
 }
 
