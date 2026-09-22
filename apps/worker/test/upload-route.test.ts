@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { registerUploadRoute } from '../src/routes/upload';
 import { hashApiKey } from '../src/middleware/auth';
 import type { MarketRepository } from '../src/db/repository';
+import { MysqlDatabaseError } from '../src/db/mysql-client';
 
 const heartbeatPayload = {
   protocol_version: 2,
@@ -116,6 +117,33 @@ describe('upload route', () => {
     expect(body.error.message).toBe('Unexpected internal error');
     expect(body.error.message).not.toContain('SQLITE');
     expect(body.error.retryable).toBe(true);
+  });
+
+  it('logs MySQL error codes without exposing database diagnostics to the client', async () => {
+    const key = 'route-secret';
+    const app = new Hono();
+    const repository = repo(await hashApiKey(key));
+    repository.getBatch = async () => {
+      throw new MysqlDatabaseError(Object.assign(new Error('private SQL and credentials'), {
+        code: 'ER_CANT_AGGREGATE_2COLLATIONS', errno: 1267, sqlState: 'HY000',
+      }));
+    };
+    registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
+      expect(response.status).toBe(500);
+      const body = await response.text();
+      expect(body).not.toContain('ER_CANT_AGGREGATE');
+      expect(body).not.toContain('private SQL');
+      expect(JSON.parse(String(errors.mock.calls[0]?.[0]))).toMatchObject({
+        metric: 'lastroweb.upload_error', source_id: 's1',
+        details: { mysql_code: 'ER_CANT_AGGREGATE_2COLLATIONS', mysql_errno: 1267, mysql_sql_state: 'HY000' },
+      });
+      expect(JSON.stringify(errors.mock.calls)).not.toContain('private SQL');
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it('maps an optional source limiter rejection to 429', async () => {

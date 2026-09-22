@@ -132,6 +132,8 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
       user: config.user,
       password: config.password,
       database: config.database,
+      // JSON_TABLE text columns inherit the connection collation; match the schema.
+      charset: 'utf8mb4_0900_ai_ci',
       // Workers disallow the dynamic Function constructor used by mysql2 parsers.
       disableEval: true,
       waitForConnections: true,

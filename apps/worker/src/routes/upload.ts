@@ -8,6 +8,7 @@ import type { AppEnv } from '../env';
 import type { MarketRepository } from '../db/repository';
 import { recordUploadError, recordUploadReceived } from '../observability';
 import type { AuthenticatedSource } from '../middleware/auth';
+import { MysqlDatabaseError } from '../db/mysql-client';
 
 const MAX_LOG_BODY_BYTES = 64 * 1024;
 
@@ -80,7 +81,10 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
       if (error instanceof AuthError) return logError(error.status === 401 ? 'unauthorized' : 'source_disabled', error.message, error.status, error.name, { retryable: false }, error.details);
       if (error instanceof LimitError) return logError(error.code, error.message, error.status, error.name, { retryable: error.status === 429, ...(error.action === undefined ? {} : { action: error.action }) }, { expected: 'configured upload limits', actual: error.message });
       if (error instanceof IngestionError) return logError(error.code, error.message, error.status, error.name, { retryable: error.retryable, ...(error.action === undefined ? {} : { action: error.action }), ...(error.retryAfterSeconds === undefined ? {} : { retryAfter: String(error.retryAfterSeconds) }) }, { expected: 'upload can be ingested', actual: error.message });
-      return logError('internal_error', 'Unexpected internal error', 500, error instanceof Error ? error.name : 'UnknownError', { retryable: true }, { errorMessage: error instanceof Error ? error.message : String(error) });
+      return logError('internal_error', 'Unexpected internal error', 500, error instanceof Error ? error.name : 'UnknownError', { retryable: true }, {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        ...(error instanceof MysqlDatabaseError ? { mysql_code: error.code, mysql_errno: error.errno, mysql_sql_state: error.sqlState } : {}),
+      });
     }
   });
 }

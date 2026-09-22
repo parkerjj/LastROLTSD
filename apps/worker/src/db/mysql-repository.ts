@@ -303,24 +303,24 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         FROM ${SHOP_JSON_TABLE}
         WHERE shop_status = 'opening'
         ON DUPLICATE KEY UPDATE
-          public_shop_id = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(public_shop_id), public_shop_id),
-          vendor_account_id = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(vendor_account_id), vendor_account_id),
-          vendor_name = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(vendor_name), vendor_name),
-          vendor_name_normalized = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(vendor_name_normalized), vendor_name_normalized),
-          title = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(title), title),
-          title_normalized = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(title_normalized), title_normalized),
-          shop_type = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(shop_type), shop_type),
-          map_name = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(map_name), map_name),
-          x = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(x), x),
-          y = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(y), y),
-          profile_hash = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(profile_hash), profile_hash),
-          full_state_hash = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), IF(status = 'closed', NULL, full_state_hash), full_state_hash),
-          missing_full_count = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), IF(status = 'closed', 0, missing_full_count), missing_full_count),
-          last_changed_at = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(last_changed_at), last_changed_at),
-          closed_at = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), NULL, closed_at),
-          close_reason = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), NULL, close_reason),
-          status = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), 'active', status),
-          last_status_observed_at = IF(VALUES(last_status_observed_at) > last_status_observed_at OR (VALUES(last_status_observed_at) = last_status_observed_at AND status <> 'closed'), VALUES(last_status_observed_at), last_status_observed_at)`, [payload]);
+          public_shop_id = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(public_shop_id), shops.public_shop_id),
+          vendor_account_id = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(vendor_account_id), shops.vendor_account_id),
+          vendor_name = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(vendor_name), shops.vendor_name),
+          vendor_name_normalized = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(vendor_name_normalized), shops.vendor_name_normalized),
+          title = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(title), shops.title),
+          title_normalized = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(title_normalized), shops.title_normalized),
+          shop_type = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(shop_type), shops.shop_type),
+          map_name = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(map_name), shops.map_name),
+          x = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(x), shops.x),
+          y = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(y), shops.y),
+          profile_hash = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(profile_hash), shops.profile_hash),
+          full_state_hash = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), IF(shops.status = 'closed', NULL, shops.full_state_hash), shops.full_state_hash),
+          missing_full_count = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), IF(shops.status = 'closed', 0, shops.missing_full_count), shops.missing_full_count),
+          last_changed_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(last_changed_at), shops.last_changed_at),
+          closed_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), NULL, shops.closed_at),
+          close_reason = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), NULL, shops.close_reason),
+          status = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), 'active', shops.status),
+          last_status_observed_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(last_status_observed_at), shops.last_status_observed_at)`, [payload]);
 
       await tx.run(`UPDATE shops
         JOIN ${SHOP_JSON_TABLE}
@@ -480,7 +480,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
             AND listings.last_changed_snapshot_id = transition_input.batch_id
             AND listings.state_version = transition_input.expected_version + 1
           WHERE transition_input.history_event_type IS NOT NULL
-          ON DUPLICATE KEY UPDATE transition_key = transition_key`, [payload]);
+          ON DUPLICATE KEY UPDATE transition_key = listing_events.transition_key`, [payload]);
       }
 
       const soldCandidates = changes.filter((change) => change.soldEvent !== undefined);
@@ -498,7 +498,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
             AND listings.last_changed_snapshot_id = transition_input.batch_id
             AND listings.state_version = transition_input.expected_version + 1
           WHERE transition_input.sold_quantity IS NOT NULL
-          ON DUPLICATE KEY UPDATE transition_key = transition_key`, [payload]);
+          ON DUPLICATE KEY UPDATE transition_key = listing_events.transition_key`, [payload]);
       }
 
       const conflictIds = changes.filter((change) => !updatedIds.has(change.listingId)).map((change) => change.listingId);
