@@ -115,7 +115,7 @@ Successful responses use snake_case and contain `accepted`, `batch_id`, `duplica
 
 `GET /api/v1/market/search` accepts bounded text, exact item ID, map, shop type, price range, structured raw option filters, `limit` (maximum 50), allowlisted sort values, and an opaque keyset `cursor`. Query values are bound parameters; offset pagination and arbitrary SQL sort fields are not accepted. Search responses use `Cache-Control: public, max-age=30, s-maxage=30` and return `nextCursor` for the next keyset page.
 
-Text is normalized with Unicode NFKC, leading/trailing whitespace removal, internal whitespace folding, and lowercase conversion. Empty normalized text disables the text filter. `q` is limited to 80 Unicode code points. One- and two-code-point queries use exact derived `search_short_tokens`; queries of three or more code points use FTS5 trigram indexes. The item index contains server catalog names, approved aliases, and searchable descriptions; the shop index contains the current shop title and vendor name. Search never reads uploaded listing names and does not materialize matching item IDs in TypeScript. The current listing, open session, and non-closed shop state determine whether a listing is returned; `include_stale=true` still excludes closed shops and ended sessions.
+Text is normalized with Unicode NFKC, leading/trailing whitespace removal, internal whitespace folding, and lowercase conversion. Empty normalized text disables the text filter and `q` is limited to 80 Unicode code points. The authoritative catalog is a server-owned static asset; live MySQL search matches the current listing/shop data with bounded, parameterized predicates. The Worker does not construct SQL from request text or materialize an unbounded application-side item-ID `IN` list. The current listing and non-closed shop state determine whether a listing is returned; `include_stale=true` still excludes closed shops.
 
 Example catalog/alias/shop search:
 
@@ -162,7 +162,7 @@ Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/opt
 
 Listing responses preserve `type`, `value`, and `param` and add server-generated `display`. Known displays come from the current definition template and raw tuple. Unknown options use `未知词条 type=<type> value=<value> param=<param>`; client-supplied display text is never trusted.
 
-The search implementation performs one versioned definition lookup, one bounded listing query, and at most one JSON1 option-hydration query. A request has at most eight structured option conditions and 50 results; generated SQL is checked against 100 KiB and bound values against 100. Index generation deduplicates one/two-code-point tokens, uses bounded catalog batches/JSON1 writes, and rejects any single catalog item that exceeds the configured statement budget.
+The search implementation uses the versioned static option definition set and bounded MySQL queries. A request has at most eight structured option conditions and 50 results. SQL values are always bound parameters; dynamic option predicates are compiled only from the server allowlist, while user values remain parameters. Upload-side bulk work is set-based and transactional rather than one query per listing.
 
 `GET /api/v1/market/listings/:id/history` returns bounded price/quantity events, inferred-sale evidence, and a keyset cursor. `inferredSales` contains `observedAt`, `soldQuantity`, `fromQuantity`, `toQuantity`, and a reason (`quantity_decrease`, `sold_out`, or low-confidence `missing_streak`). It is derived from immutable `sold_events` and is never inferred from an omitted delta item.
 
@@ -172,4 +172,4 @@ The server-owned catalog is authoritative and keyed by `item_id`. Existing listi
 
 `GET /api/v1/items?q=<text>&limit=<1..20>` searches catalog names and aliases only. It returns `{ version, items: [{ itemId, name, aliases }] }`, uses `Cache-Control: public, max-age=86400`, and sends an ETag derived from the versioned response. Empty `q` returns no item matches; the endpoint never searches live listings or client-uploaded names.
 
-The item catalog endpoint uses bounded D1 search structures: one- or two-code-point normalized Chinese queries use `search_short_tokens`, while queries of three or more code points use the indexed FTS path. Matching stays inside D1 with `EXISTS` predicates; the Worker does not build an application-side item-ID `IN` list.
+The item catalog endpoint reads the versioned static catalog asset. It does not query D1 or MySQL, and matching does not build an unbounded application-side item-ID `IN` list.

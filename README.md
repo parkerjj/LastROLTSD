@@ -1,31 +1,34 @@
 # LastROWeb
 
-LastROWeb is a Cloudflare Worker + Hono service with a D1-backed market upload API and a Vite query UI. The OpenKore adapter is maintained outside this repository; this project contains only the public HTTP contract and redacted fixtures.
+LastROWeb is a Cloudflare Worker + Hono market API with a Vite query UI. Production market state uses MySQL 8 through `mysql2`; the Worker has no D1 binding or SQLite runtime fallback. The OpenKore adapter remains outside this repository.
 
 ## Local development
 
-```text
+All commands below are PowerShell commands run from the repository root.
+
+```powershell
+$ErrorActionPreference = 'Stop'
 corepack enable
-corepack prepare pnpm@11.19.0 --activate
 pnpm install --frozen-lockfile
 pnpm secrets:generate
-pnpm wrangler d1 migrations apply lastroweb-local --local
+# Edit the ignored .dev.vars and replace MYSQL_URL with the authorized VPS MySQL 8 URL.
+pnpm db:mysql:migrate
 pnpm --filter web build
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:docs
-pnpm wrangler dev --local
+pnpm exec wrangler dev --local
 ```
 
-Use the latest Node.js 24 release (`nvm install && nvm use`) and pnpm 11.19.0 for parity with CI. `pnpm dev` starts only the Vite UI; `pnpm wrangler dev --local` serves the Worker API and built Vite assets from one origin. Generated credentials are stored only in ignored local files. No production database IDs, API keys, or player data belong in this repository.
+`.dev.vars.example` contains safe placeholders for `MYSQL_URL` and the optional `MYSQL_TEST_URL`; do not commit the generated `.dev.vars`. `GET /api/health` reports `db: "ok"` only after a real `SELECT 1`; an unconfigured local URL reports `db: "unconfigured"`.
 
 ## Entrypoints
 
-- `POST /api/v1/market/upload` authenticated upload contract
-- `GET /api/v1/market/search` current listing search
-- `GET /api/v1/market/listings/:id/history` bounded price/quantity history
-- `GET /api/v1/options` versioned option dictionary
-- `GET /api/health` Worker and D1 health
+- `POST /api/v1/market/upload` — authenticated, idempotent market upload
+- `GET /api/v1/market/search` — current listing search
+- `GET /api/v1/market/listings/:id/history` — bounded price/quantity history
+- `GET /api/v1/options` — static option dictionary
+- `GET /api/health` — Worker and MySQL health
 
-See [docs/api.md](docs/api.md) and [docs/deployment.md](docs/deployment.md).
+See [deployment](docs/deployment.md), [MySQL migration](docs/mysql-migration.md), [operations](docs/operations.md), and the [API contract](docs/api.md).

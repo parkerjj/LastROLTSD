@@ -1,220 +1,120 @@
 # Deployment runbook
 
-LastROWeb deploys as one Cloudflare Worker with static Vite assets and a D1 database. Wrangler creates and deploys the Worker; do not create a separate Cloudflare Pages project and do not enable Cloudflare's native Git integration. GitHub Actions is the only automatic production deployment path.
+LastROWeb deploys one Cloudflare Worker plus Vite assets. Its only production database configuration is the `MYSQL_URL` Worker secret. Do not use Hyperdrive, an HTTP database proxy, or a D1 fallback.
 
-All command examples in this runbook use PowerShell. Run them from the repository root with Node.js 24.x and pnpm 12.4.2 available on `PATH`.
+All examples are PowerShell and must be run from the repository root. Never put a real password, token, API key, or connection URL in the repository, a command line, a log, or a screenshot.
 
-For capacity planning, this review uses Cloudflare's documented D1 Free allowance of 5 million rows read per day, 100,000 rows written per day, and 5 GB of storage. Cloudflare may change plan limits; verify the current pricing page and account quota immediately before production deployment. The application's default retention is 90 days for price history and sold events, while current listings are never deleted by retention cleanup. A higher upload rate, larger catalog, or longer retention requires an explicit quota/cost review.
+## Prepare MySQL 8 on the VPS
 
-## Prerequisites and local verification
+Use a dedicated MySQL 8 database and least-privilege application user. Restrict the MySQL firewall and `bind-address`/user host to the Cloudflare egress ranges or other deliberately approved network path; do not expose a broad administrative account. Require TLS if the VPS supports it, use a CA trusted by the Worker, and use a public DNS name rather than a private/loopback address.
+
+At an interactive MySQL administrator prompt, create the database and a dedicated user with only the privileges needed for application DDL/DML. Do not paste the password into a saved script. The Worker URL format is:
+
+`mysql://user:password@mysql.example.com:3306/lastroweb?ssl=true`
+
+Percent-encode reserved characters in the username or password. `ssl=true` means the client requires certificate verification; it is not a substitute for a reachable public host and valid VPS firewall rules.
+
+## Local setup and verification
+
+Generate ignored local variables, then replace the `MYSQL_URL` placeholder in `.dev.vars` with the authorized VPS URL. Local Worker development intentionally uses that MySQL server; it does not create a local SQLite/D1 database.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-Set-Location 'D:\Development\LastROWeb'
-node --version
-pnpm --version
 pnpm install --frozen-lockfile
 pnpm secrets:generate
-pnpm exec wrangler d1 migrations apply lastroweb-local --local
-pnpm --filter web build
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm test:docs
-pnpm exec wrangler dev --local
+$localVars = Get-Content '.dev.vars' | ConvertFrom-StringData
+$env:MYSQL_URL = $localVars.MYSQL_URL
+try {
+  pnpm db:mysql:migrate
+  pnpm db:mysql:migrate -- --dry-run
+  pnpm --filter web build
+  pnpm exec wrangler dev --local
+} finally {
+  Remove-Item Env:MYSQL_URL -ErrorAction SilentlyContinue
+}
 ```
 
-The Node version must be 24.x and pnpm must be 12.4.2. The Wrangler command is the production-shaped local server; `pnpm dev` runs only Vite and is useful for UI work. The build intentionally runs before `pnpm test` because `apps/web/test/build.test.ts` verifies the generated SPA document.
+The migration runner creates `schema_migrations`, applies each `migrations/mysql/*.sql` file exactly once, and rejects a changed checksum. Its `--dry-run` performs a connection check and validates migration files without changing schema.
 
-When a previously requested RMS image still shows the placeholder during local development, stop Wrangler before clearing the generated local cache and rebuild the static UI. This cache is disposable; do not remove the local D1 directory unless you are intentionally recreating the database:
+## First source seed
 
-```powershell
-$ErrorActionPreference = 'Stop'
-Remove-Item -Recurse -Force '.wrangler/state/v3/cache'
-pnpm --filter web build
-pnpm exec wrangler dev --local
-```
-
-The image proxy uses a versioned path query and bypasses the upstream Cloudflare cache, so a rebuilt Worker also avoids old RMS placeholder responses without relying on browser cache settings.
-
-This clean-break release requires a fresh local D1 database. Do not apply `0001_initial.sql` over an older local database: the old schema uses `listings.shop_session_id`, while the supported schema uses `listings.shop_id`. When upgrading an existing local checkout, stop Wrangler, remove the local `.wrangler/state/v3/d1` directory, and rerun the migration command above. Production databases must use a separately reviewed forward migration and must never be reset.
-
-`pnpm secrets:generate` creates `.dev.vars` and `.deployment-secrets.local`. Both are ignored by Git. It refuses to overwrite them unless `--force` is explicitly supplied; forcing rotation invalidates every previously distributed source key. Never paste either file into an issue, log, commit, or chat.
-
-To exercise authenticated uploads locally, load the generated local values without printing them:
+Create the source row only after the schema migration. The renderer writes an idempotent MySQL `ON DUPLICATE KEY UPDATE` statement containing the SHA-256 hash, not the raw upload key.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 $localVars = Get-Content '.dev.vars' | ConvertFrom-StringData
-$env:MARKET_SOURCE_ID = 'local-primary'
-$env:MARKET_SOURCE_NAME = 'Local primary source'
-$env:MARKET_SOURCE_API_KEY_SHA256 = $localVars.UPLOAD_API_KEY_SHA256
-pnpm cf:source-seed -- --output source-seed.local.sql
-pnpm exec wrangler d1 execute lastroweb-local --local --file source-seed.local.sql
-Remove-Item Env:MARKET_SOURCE_ID, Env:MARKET_SOURCE_NAME, Env:MARKET_SOURCE_API_KEY_SHA256
-```
-
-Use `UPLOAD_API_KEY` from `.dev.vars` as the local Bearer token. The SQL file contains only its SHA-256 hash.
-
-## One-time Cloudflare setup
-
-Authenticate interactively from PowerShell for initial setup:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-pnpm exec wrangler login
-pnpm exec wrangler whoami
-pnpm exec wrangler d1 create lastroweb-production
-```
-
-Record the returned D1 UUID outside the repository. Render a temporary production config without committing it:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$env:CLOUDFLARE_D1_DATABASE_ID = '<D1 UUID>'
-pnpm cf:config -- --input wrangler.toml --output wrangler.production.local.toml --environment production
-Remove-Item Env:CLOUDFLARE_D1_DATABASE_ID
-```
-
-Apply migrations before seeding the source:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-pnpm exec wrangler d1 migrations apply lastroweb-production --remote --env production --config wrangler.production.local.toml
-```
-
-Load the generated deployment values without printing them, render an idempotent SQL seed containing only the hash, and apply it:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$deploymentSecrets = Get-Content '.deployment-secrets.local' | ConvertFrom-StringData
+$env:MYSQL_URL = $localVars.MYSQL_URL
 $env:MARKET_SOURCE_ID = 'primary'
 $env:MARKET_SOURCE_NAME = 'Primary market source'
-$env:MARKET_SOURCE_API_KEY_SHA256 = $deploymentSecrets.PRODUCTION_SOURCE_API_KEY_SHA256
-pnpm cf:source-seed -- --output source-seed.production.local.sql
-pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file source-seed.production.local.sql
-Remove-Item Env:MARKET_SOURCE_ID, Env:MARKET_SOURCE_NAME, Env:MARKET_SOURCE_API_KEY_SHA256
-```
-
-Only `PRODUCTION_SOURCE_API_KEY` is given to the external uploader. The Worker authenticates it by comparing its SHA-256 hash with `market_sources.api_key_hash`; `UPLOAD_API_KEY` is not a Worker runtime binding.
-
-Configure the two Worker secrets. These persist across normal deployments:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$deploymentSecrets = Get-Content '.deployment-secrets.local' | ConvertFrom-StringData
-$deploymentSecrets.PRODUCTION_CURSOR_SECRET | pnpm exec wrangler secret put CURSOR_SECRET --env production --config wrangler.production.local.toml
-$deploymentSecrets.PRODUCTION_ADMIN_SECRET | pnpm exec wrangler secret put ADMIN_SECRET --env production --config wrangler.production.local.toml
-```
-
-The cursor secret is mandatory in production. The admin secret enables the retention preview endpoint and should remain private.
-
-## First manual deployment
-
-```powershell
-$ErrorActionPreference = 'Stop'
-pnpm --filter web build
-pnpm exec wrangler deploy --env production --config wrangler.production.local.toml
-```
-
-Use the deployed URL returned by Wrangler:
-
-```powershell
-Invoke-RestMethod -Uri 'https://<worker-host>/api/health' -Method Get
-Invoke-RestMethod -Uri 'https://<worker-host>/api/v1/market/search?limit=1' -Method Get
-```
-
-Perform a redacted smoke upload using the documented fixture and the production source key only from a secure local shell. Never put the key on a command line that will be saved to shell history; prefer an environment variable and an `Authorization` header assembled by the shell.
-
-## Catalog Release
-
-Catalog data is generated offline from the operator-supplied OpenKore `items.txt` and `itemsdescriptions.txt` files. The importer does not access the network, does not modify source files, writes production SQL only below the Git-ignored `.generated\` directory, and never deletes or rewrites listings.
-
-Validate first, then generate the reviewed release:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$openKoreTables = 'C:\path\to\openkore\tables\Lastro-zh_CN'
-$inputFile = Join-Path $openKoreTables 'items.txt'
-$descriptionFile = Join-Path $openKoreTables 'itemsdescriptions.txt'
-$version = 'catalog-2026-09-19'
-$outputDir = Join-Path '.generated' ('catalog\' + $version)
-pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version $version --encoding auto --description-encoding auto --skip-empty-names --output-dir $outputDir --dry-run
-pnpm catalog:import -- --input-file $inputFile --description-file $descriptionFile --kind items --version $version --encoding auto --description-encoding auto --skip-empty-names --output-dir $outputDir
-$manifest = Get-Content (Join-Path $outputDir ('catalog-items-' + $version + '.manifest.json')) -Raw | ConvertFrom-Json
-$manifest | Format-List dataVersion,inputChecksum,dataChecksum,outputChecksum,itemCount,descriptionCount,descriptionRecordCount,descriptionDuplicateCount,aliasCount,errorCount,batchCount,statementCount,sqlBytes
-foreach ($batchFile in $manifest.batchFiles) {
-  Get-FileHash (Join-Path $outputDir $batchFile) -Algorithm SHA256
+$env:MARKET_SOURCE_API_KEY_SHA256 = '<64-lowercase-hex-hash>'
+try {
+  pnpm db:mysql:source-seed -- --output .generated\mysql\source-seed.sql
+  pnpm db:mysql:import -- --input .generated\mysql\source-seed.sql
+} finally {
+  Remove-Item Env:MYSQL_URL, Env:MARKET_SOURCE_ID, Env:MARKET_SOURCE_NAME, Env:MARKET_SOURCE_API_KEY_SHA256 -ErrorAction SilentlyContinue
 }
 ```
 
-Review the manifest and all listed SQL parts before applying them. The output is stable by item ID and normalized alias. The manifest lists bounded `.part-####.sql` files, updates only submitted item IDs and derived rows, and can be applied repeatedly without clearing existing listings. Apply `batchFiles` in manifest order so each Wrangler invocation stays within the bounded batch budget.
+Keep the raw upload key only in the uploader's secret store. Do not set it as a Worker secret.
 
-Apply a reviewed release locally or remotely only after the catalog migrations are present:
+## Cloudflare and GitHub configuration
+
+Create the GitHub Environment named `production` with exactly these deployment secrets:
+
+- `MYSQL_URL`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+The workflow installs, builds, lints, type-checks, tests, applies the idempotent MySQL migration, performs a MySQL dry-run connection check, passes `MYSQL_URL` to `wrangler secret put` through standard input, then deploys. A migration or connection failure prevents deployment. It never prints `MYSQL_URL` and no longer runs D1 migrations or reads a D1 database ID.
+
+Configure the other Worker secrets (`CURSOR_SECRET`, `ADMIN_SECRET`) independently through a secure local terminal. Do not place their values in GitHub workflow YAML or Wrangler TOML. `MYSQL_URL` is intentionally absent from both Wrangler configuration files.
+
+## D1 export and MySQL data migration
+
+Keep an immutable, ignored original dump before any cutover. Wrangler credentials must already be configured; the export tool runs `wrangler whoami` first and does not print its token.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$releaseDir = '.generated\catalog\catalog-2026-09-19'
-$manifest = Get-Content (Join-Path $releaseDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json
-foreach ($batchFile in $manifest.batchFiles) {
-  pnpm exec wrangler d1 execute lastroweb-local --local --file (Join-Path $releaseDir $batchFile)
+pnpm db:d1:export -- --database '<old-d1-database-name>' --output .generated\d1\production.sqlite.sql
+node scripts/convert-sqlite-to-mysql.mjs --input .generated\d1\production.sqlite.sql --output .generated\mysql\production.data.sql --data-only
+$localVars = Get-Content '.dev.vars' | ConvertFrom-StringData
+$env:MYSQL_URL = $localVars.MYSQL_URL
+try {
+  pnpm db:mysql:migrate
+  pnpm db:mysql:import -- --input .generated\mysql\production.data.sql --dry-run
+  pnpm db:mysql:import -- --input .generated\mysql\production.data.sql
+  pnpm db:mysql:verify
+} finally {
+  Remove-Item Env:MYSQL_URL -ErrorAction SilentlyContinue
 }
 ```
 
-For production, use the reviewed production config and an explicit maintenance approval:
+The converter is streaming and fails instead of silently dropping unsupported SQLite statements. The importer refuses `DROP DATABASE`; replacing existing data additionally requires both `--replace-existing` and `--confirm-replace-existing`. The verifier checks all six tables, maximum IDs, required unique keys, foreign keys, nullable values, and Chinese samples. Preserve the original D1 dump outside Git for rollback and auditing.
+
+## Static catalog release
+
+The catalog is a static JSON asset, not a database table. Generate the reviewed JSON files and rebuild the web assets; do not submit catalog SQL to MySQL or D1. See [catalog import](catalog-import.md).
+
+## Worker raw-TCP readiness
+
+This repository has verified that `mysql2/promise` bundles with Wrangler and that `wrangler dev --local` starts. The current Worker compatibility date retains `nodejs_compat`. Cloudflare documents native `node:net` support backed by Worker TCP sockets, but the project has not yet performed a deployed edge `SELECT 1` against the user VPS because no authorized real MySQL test URL was supplied. Therefore do not claim an actual production cutover yet: run the dedicated MySQL integration test and a deployed `/api/health` check first.
+
+The optional integration test is deliberately isolated from the normal local URL:
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$releaseDir = '.generated\catalog\catalog-2026-09-19'
-$manifest = Get-Content (Join-Path $releaseDir 'catalog-items-catalog-2026-09-19.manifest.json') -Raw | ConvertFrom-Json
-foreach ($batchFile in $manifest.batchFiles) {
-  pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file (Join-Path $releaseDir $batchFile)
+$localVars = Get-Content '.dev.vars' | ConvertFrom-StringData
+$env:MYSQL_TEST_URL = $localVars.MYSQL_TEST_URL
+$env:ALLOW_MYSQL_TEST_DESTRUCTIVE = '1'
+try {
+  pnpm exec vitest run tests/integration/catalog-upload-search-flow.test.ts
+} finally {
+  Remove-Item Env:MYSQL_TEST_URL, Env:ALLOW_MYSQL_TEST_DESTRUCTIVE -ErrorAction SilentlyContinue
 }
 ```
 
-Verify the active version and a sample of names after the apply:
+Use a dedicated test database only; the test creates then removes an isolated source row. Never point `MYSQL_TEST_URL` at production.
 
-```powershell
-$ErrorActionPreference = 'Stop'
-pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --command "SELECT current_version FROM catalog_state WHERE id = 1; SELECT item_id,canonical_name_zh,data_version FROM item_catalog ORDER BY item_id LIMIT 20;"
-```
+## Rollback
 
-## GitHub Actions automatic deployment
-
-The repository workflow `.github/workflows/ci.yml` verifies pull requests and pushes to `main`. On a push to `main`, the `deploy-production` job runs only after lint, typecheck, unit/integration tests, documentation checks, and the web build pass. It then applies D1 migrations and deploys the Worker and assets.
-
-Create a GitHub environment named `production`. Add these environment secrets:
-
-- `CLOUDFLARE_API_TOKEN`: a scoped token with Account / Workers Scripts / Edit and Account / D1 / Edit for the selected account.
-- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account ID.
-- `CLOUDFLARE_D1_DATABASE_ID`: the UUID returned by `wrangler d1 create`.
-
-No application key or Worker runtime secret is required in GitHub after the one-time Wrangler secret setup. Optionally add required reviewers to the GitHub `production` environment; this pauses the deploy job after verification until approved.
-
-Pushes are intentionally not performed by setup scripts. Review and merge the deployment branch into `main`; the resulting `main` push triggers production deployment. Do not separately configure Cloudflare to watch the repository, because that would create a second competing deploy path.
-
-## Staging
-
-Repeat the same flow using `lastroweb-staging`, `--environment staging`, `--env staging`, and the `STAGING_*` generated values. Keep a separate D1 database and source API key. A staging deployment must pass the health, upload, search, history, retention-preview, and catalog-release smoke checks before production changes.
-
-## Rollback and migration safety
-
-Use Cloudflare Workers Deployments in the dashboard or Wrangler's version/deployment commands to promote a previously known-good Worker version. Record the deployed commit SHA and Cloudflare version for every release. A Worker rollback does not roll back D1 schema or catalog data; use reviewed forward migrations for database correction.
-
-To roll back catalog data, stop new catalog imports, select the previously reviewed SQL and manifest pair kept outside Git, apply that SQL in a controlled maintenance window, and verify `catalog_state`, item names, aliases, and listing counts:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-$knownGoodDir = 'C:\secure\catalog-releases\catalog-2026-09-18'
-$knownGoodManifest = Get-Content (Join-Path $knownGoodDir 'catalog-items-catalog-2026-09-18.manifest.json') -Raw | ConvertFrom-Json
-foreach ($batchFile in $knownGoodManifest.batchFiles) {
-  pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --file (Join-Path $knownGoodDir $batchFile)
-}
-pnpm exec wrangler d1 execute lastroweb-production --remote --env production --config wrangler.production.local.toml --command "SELECT current_version FROM catalog_state WHERE id = 1; SELECT version,item_count,alias_count,checksum,output_checksum FROM catalog_versions WHERE version=(SELECT current_version FROM catalog_state WHERE id=1); SELECT id,item_id,status FROM listings ORDER BY id DESC LIMIT 5;"
-```
-
-Do not delete or rewrite a production migration, reset the database, or roll back catalog rows by deleting listings. Before schema changes or retention-policy changes, create and verify a D1 export. Retention defaults to 90 days for history and sold events and never deletes current listings. Longer retention or substantially higher upload volume requires a D1 quota and cost review.
-
-## Custom domain
-
-The initial `workers.dev` URL is sufficient. Add a custom domain later in the Cloudflare Worker settings after the first healthy deployment. A custom domain is routing configuration, not a separate Pages project.
+Worker deployment rollback changes Worker code only. It does not roll back MySQL schema or imported data. Preserve the D1 dump and the converter output, take a VPS MySQL backup before importing, and use reviewed forward MySQL migrations to repair schema. Do not reset a production database, delete a migration record, or run `DROP DATABASE`.

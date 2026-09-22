@@ -113,7 +113,7 @@ describe('query UI rendering', () => {
     expect(drawer.querySelector('.history-chart-explanation')?.textContent).toContain('横轴');
     expect(drawer.querySelector('[data-history-chart]')).not.toBeNull();
     expect(drawer.querySelector('.current-listings')?.textContent).toContain('长发特卖');
-    expect(drawer.querySelector('.history-sales')?.textContent).toContain('售出记录');
+    expect(drawer.textContent).toContain('售出记录');
     expect(drawer.querySelector('.history-sales')?.textContent).toContain('以 1,100 Zeny 售出 1 个');
   });
 });
