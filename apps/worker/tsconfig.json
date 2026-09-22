@@ -4,7 +4,10 @@
     "types": ["@cloudflare/workers-types", "node", "vitest/globals"],
     "noEmit": true,
     "baseUrl": "../..",
-    "paths": { "@lastroweb/protocol": ["packages/protocol/src/index.ts"] }
+    "paths": {
+      "@lastroweb/options": ["packages/options/src/index.ts"],
+      "@lastroweb/protocol": ["packages/protocol/src/index.ts"]
+    }
   },
   "include": ["src", "test"]
 }

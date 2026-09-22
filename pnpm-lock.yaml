@@ -210,9 +210,14 @@ importers:
 
   apps/worker:
     dependencies:
+      '@lastroweb/options':
+        specifier: workspace:*
+        version: link:../../packages/options
       hono:
         specifier: ^4.7.11
         version: 4.13.8
+
+  packages/options: {}
 
   packages/protocol:
     dependencies:

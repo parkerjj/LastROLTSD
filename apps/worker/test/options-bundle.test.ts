@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createD1Repository } from '../src/db/d1-repository';
 import { parseOptionCondition } from '../src/domain/option-conditions';
-import { getOptionDefinitionSet, OPTION_DEFINITION_MAP, OPTION_DEFINITIONS, OPTION_DEFINITIONS_VERSION } from '../../../packages/options/src/index';
+import { getOptionDefinitionSet, OPTION_DEFINITION_MAP, OPTION_DEFINITIONS, OPTION_DEFINITIONS_VERSION } from '@lastroweb/options';
 
 describe('static option bundle', () => {
   it('contains the complete official version and validates known types', () => {
