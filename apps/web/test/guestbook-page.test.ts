@@ -10,7 +10,7 @@ const entries: GuestbookEntry[] = [
 
 describe('guestbook page', () => {
   it('renders public entries, escapes user content, and labels expired entries without covering text', async () => {
-    const dom = new JSDOM('<main id="app"></main>');
+    const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/guestbook' });
     const previousDocument = globalThis.document;
     Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
     const api = { searchGuestbook: vi.fn().mockResolvedValue({ items: entries, nextCursor: null }), createGuestbookEntry: vi.fn() };
@@ -29,7 +29,7 @@ describe('guestbook page', () => {
   });
 
   it('requires selected catalog item or Zeny for trades while suggestions need only content', async () => {
-    const dom = new JSDOM('<main id="app"></main>');
+    const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/guestbook' });
     const previousDocument = globalThis.document;
     Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
     const item: ItemAutocomplete = { itemId: 100, name: '波利卡片', aliases: [] };
@@ -63,5 +63,50 @@ describe('guestbook page', () => {
       mountGuestbookPage(dom.window.document.querySelector<HTMLElement>('#app')!, { searchGuestbook: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), createGuestbookEntry: vi.fn() } as any);
       expect(dom.window.document.querySelector('.site-nav a[aria-current="page"]')?.getAttribute('href')).toBe('/guestbook');
     } finally { Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument }); }
+  });
+
+  it('offers Zeny as the first item choice without a separate checkbox', async () => {
+    const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/guestbook' });
+    const previousDocument = globalThis.document;
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+    const api = { searchGuestbook: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), createGuestbookEntry: vi.fn() };
+    try {
+      const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+      mountGuestbookPage(root, api as any);
+      const query = root.querySelector<HTMLInputElement>('#guestbook-item-query')!;
+      expect(root.querySelector('#guestbook-zeny')).toBeNull();
+      query.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(root.querySelector('#guestbook-item-suggestions [data-zeny]')?.textContent).toContain('Zeny');
+    } finally {
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+    }
+  });
+
+  it('hydrates trade entries with the catalog name and item description', async () => {
+    const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/guestbook' });
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith('/catalog/items.json')) return new Response(JSON.stringify({ items: [{ itemId: 601, name: '苍蝇翅膀', aliases: [] }] }), { status: 200 });
+      return new Response(JSON.stringify({ descriptions: [{ itemId: 601, description: '可以瞬间移动到随机位置。' }] }), { status: 200 });
+    }));
+    const api = {
+      searchGuestbook: vi.fn().mockResolvedValue({ items: [{ id: 7, category: 'buy', itemId: 601, isZeny: false, contact: 'QQ', content: '收购一组', createdAt: 1, expiresAt: null, isExpired: false }], nextCursor: null }),
+      createGuestbookEntry: vi.fn(),
+    };
+    try {
+      const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+      mountGuestbookPage(root, api as any);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(root.querySelector('.guestbook-item-name')?.textContent).toBe('苍蝇翅膀');
+      expect(root.querySelector('.guestbook-item-description')?.textContent).toContain('可以瞬间移动');
+      expect(root.querySelector('.guestbook-item-name')?.textContent).not.toContain('#601');
+    } finally {
+      vi.stubGlobal('fetch', previousFetch);
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+    }
   });
 });

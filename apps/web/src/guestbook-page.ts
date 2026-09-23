@@ -1,6 +1,7 @@
 import { MarketApi, type MarketApiClient } from './api';
-import { createCatalogLoader, findCatalogMatches } from './catalog';
-import type { GuestbookCategory, GuestbookEntry, GuestbookFilters, GuestbookSubmissionInput, ItemAutocomplete } from './types';
+import { createCatalogLoader, createDescriptionLoader, findCatalogMatches } from './catalog';
+import { cleanItemDescription, rmsAssetUrl } from './render';
+import type { GuestbookCategory, GuestbookEntry, GuestbookFilters, GuestbookSubmissionInput, ItemAutocomplete, ItemDescription } from './types';
 
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
@@ -8,13 +9,26 @@ function escapeHtml(value: string): string {
 
 const categoryLabels: Record<GuestbookCategory, string> = { buy: '收购', sell: '出售', suggestion: '网站建议' };
 
-function entryMarkup(entry: GuestbookEntry): string {
-  const item = entry.isZeny ? 'Zeny' : entry.itemId === null ? '' : `道具 #${entry.itemId}`;
+type EntryCatalog = ReadonlyMap<number, ItemAutocomplete>;
+type EntryDescriptions = ReadonlyMap<number, ItemDescription>;
+
+function itemIconUrl(itemId: number, itemName: string): string {
+  const file = itemName.endsWith('卡片') ? 'card' : String(itemId);
+  return rmsAssetUrl(`items/large/${encodeURIComponent(file)}.gif`);
+}
+
+function entryMarkup(entry: GuestbookEntry, catalog: EntryCatalog, descriptions: EntryDescriptions): string {
+  const catalogItem = entry.itemId === null ? undefined : catalog.get(entry.itemId);
+  const itemName = entry.isZeny ? 'Zeny 游戏币' : catalogItem?.name ?? '目录道具';
+  const itemDescription = entry.itemId === null ? '' : cleanItemDescription(descriptions.get(entry.itemId)?.description ?? '');
   const expiry = entry.expiresAt === null ? '永久' : `截止 ${new Date(entry.expiresAt).toLocaleString('zh-CN')}`;
   return `<article class="guestbook-entry${entry.isExpired ? ' is-expired' : ''}" data-entry-id="${entry.id}">
-    <header class="guestbook-entry-head"><div class="guestbook-entry-tags"><span class="guestbook-kind guestbook-kind--${entry.category}">${categoryLabels[entry.category]}</span>${item ? `<span class="guestbook-item">${escapeHtml(item)}</span>` : ''}<time datetime="${new Date(entry.createdAt).toISOString()}">${new Date(entry.createdAt).toLocaleString('zh-CN')}</time></div>${entry.isExpired ? '<span class="guestbook-expired-stamp" aria-label="此留言已过期">已过期</span>' : ''}</header>
-    ${entry.contact ? `<p class="guestbook-contact"><i class="ph ph-identification-card" aria-hidden="true"></i>${escapeHtml(entry.contact)}</p>` : ''}
-    <p class="guestbook-content">${escapeHtml(entry.content)}</p><footer class="guestbook-entry-foot"><span>${entry.category === 'suggestion' ? '匿名建议' : expiry}</span></footer>
+    <header class="guestbook-entry-head"><div class="guestbook-entry-tags"><span class="guestbook-kind guestbook-kind--${entry.category}">${categoryLabels[entry.category]}</span><time datetime="${new Date(entry.createdAt).toISOString()}">${new Date(entry.createdAt).toLocaleString('zh-CN')}</time></div>${entry.isExpired ? '<span class="guestbook-expired-stamp" aria-label="此留言已过期">已过期</span>' : ''}</header>
+    ${entry.category === 'suggestion' ? `<div class="guestbook-suggestion-mark"><i class="ph ph-chat-centered-text" aria-hidden="true"></i><span>匿名建议</span></div>` : `<section class="guestbook-item-detail" aria-label="交易道具信息">
+      <div class="guestbook-item-art">${entry.isZeny ? '<span class="guestbook-zeny-glyph" aria-hidden="true">Z</span>' : `<img src="${escapeHtml(itemIconUrl(entry.itemId ?? 0, itemName))}" alt="" loading="lazy" data-item-image>`}</div>
+      <div class="guestbook-item-copy"><span class="guestbook-item-kicker">${entry.category === 'buy' ? '正在收购' : '正在出售'}</span><strong class="guestbook-item-name">${escapeHtml(itemName)}</strong><span class="guestbook-item-id">${entry.isZeny ? '游戏货币' : `ItemID ${entry.itemId}`}</span>${itemDescription ? `<p class="guestbook-item-description">${escapeHtml(itemDescription)}</p>` : '<p class="guestbook-item-description is-muted">目录暂无详细描述</p>'}</div>
+    </section>`}
+    <div class="guestbook-entry-body"><div class="guestbook-entry-meta">${entry.contact ? `<span class="guestbook-contact"><i class="ph ph-identification-card" aria-hidden="true"></i>${escapeHtml(entry.contact)}</span>` : ''}<span class="guestbook-entry-expiry"><i class="ph ph-clock" aria-hidden="true"></i>${escapeHtml(entry.category === 'suggestion' ? '匿名发布' : expiry)}</span></div><p class="guestbook-content">${escapeHtml(entry.content)}</p></div>
   </article>`;
 }
 
