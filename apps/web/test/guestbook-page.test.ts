@@ -21,7 +21,7 @@ describe('guestbook page', () => {
       expect(root.querySelectorAll('.guestbook-entry')).toHaveLength(2);
       expect(root.querySelector('.guestbook-entry.is-expired .guestbook-expired-stamp')?.textContent).toContain('已过期');
       expect(root.querySelector('.guestbook-entry.is-expired .guestbook-content')?.textContent).toContain('<img src=x');
-      expect(root.querySelector('.guestbook-entry img, .guestbook-entry script')).toBeNull();
+      expect(root.querySelector('.guestbook-entry img:not([data-item-image]), .guestbook-entry script')).toBeNull();
       expect(root.querySelector('.guestbook-entry .guestbook-contact')?.textContent).toContain('<script>bad</script>');
     } finally {
       Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
@@ -77,8 +77,47 @@ describe('guestbook page', () => {
       expect(root.querySelector('#guestbook-zeny')).toBeNull();
       query.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(root.querySelector('#guestbook-item-suggestions [data-zeny]')?.textContent).toContain('Zeny');
+      expect(root.querySelector('#guestbook-item-suggestions [data-zeny]')?.textContent ?? '').toContain('Zeny');
     } finally {
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+    }
+  });
+
+  it('keeps keyboard selection aligned with the Zeny-first list', async () => {
+    const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/guestbook' });
+    const previousDocument = globalThis.document;
+    const previousFetch = globalThis.fetch;
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/catalog/items.json')) return new Response(JSON.stringify({ items: [{ itemId: 601, name: '苍蝇翅膀', aliases: [] }] }), { status: 200 });
+      return new Response(JSON.stringify({ descriptions: [] }), { status: 200 });
+    }));
+    const api = { searchGuestbook: vi.fn().mockResolvedValue({ items: [], nextCursor: null }), createGuestbookEntry: vi.fn() };
+    try {
+      const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+      mountGuestbookPage(root, api as any);
+      const query = root.querySelector<HTMLInputElement>('#guestbook-item-query')!;
+      query.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const options = () => [...root.querySelectorAll<HTMLButtonElement>('#guestbook-item-suggestions [role="option"]')];
+      expect(options().map((option) => option.textContent?.trim())).toEqual(['Zeny 游戏币 特殊交易项']);
+
+      query.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(options()[0]!.getAttribute('aria-selected')).toBe('true');
+      query.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(query.value).toBe('Zeny 游戏币');
+
+      query.value = '苍蝇';
+      query.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(options().map((option) => option.textContent?.trim())).toEqual(['Zeny 游戏币 特殊交易项', '苍蝇翅膀']);
+      query.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      query.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(options()[1]!.getAttribute('aria-selected')).toBe('true');
+      query.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(query.value).toBe('苍蝇翅膀');
+    } finally {
+      vi.stubGlobal('fetch', previousFetch);
       Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
     }
   });

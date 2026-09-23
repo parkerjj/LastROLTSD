@@ -128,11 +128,10 @@ label { display: grid; gap: 6px; color: #4c5a50; font-size: .75rem; font-weight:
 .guestbook-kind-select label input:focus-visible + span { outline: 2px solid var(--gold); outline-offset: 3px; }
 .guestbook-kind-select i { font-size: 1.05rem; }
 .guestbook-form { display: grid; gap: 18px; }
-.guestbook-trade-fields { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(180px, .8fr) minmax(140px, .55fr); gap: 13px; align-items: end; }
+.guestbook-trade-fields { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(190px, .8fr) minmax(150px, .6fr); gap: 15px; align-items: start; }
 .guestbook-item-choice { grid-template-columns: 1fr; }
-.guestbook-item-choice .guestbook-zeny-choice { display: inline-flex; align-items: center; gap: 8px; min-height: 22px; width: fit-content; }
-.guestbook-zeny-choice input { width: 16px; min-height: 16px; accent-color: var(--red-dark); }
 .guestbook-item-choice .autocomplete { min-width: 0; }
+.guestbook-item-choice .field-help { margin: 7px 0 0; }
 .guestbook-form textarea { width: 100%; min-height: 116px; padding: 11px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line-light); border-radius: 2px; resize: vertical; }
 .guestbook-form textarea:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .guestbook-form > label { position: relative; }
@@ -145,15 +144,30 @@ label { display: grid; gap: 6px; color: #4c5a50; font-size: .75rem; font-weight:
 .guestbook-search > .secondary-button { min-width: 42px; width: 42px; padding-inline: 0; color: var(--ink); background: #f7f3ea; border-color: #aa9d88; }
 .guestbook-search .autocomplete { min-width: 0; }
 .guestbook-results { display: grid; margin-top: 15px; border-top: 1px solid var(--line); }
-.guestbook-entry { position: relative; min-width: 0; padding: 18px 12px 15px; border-bottom: 1px solid var(--line); transition: opacity .16s ease; }
+.guestbook-entry { position: relative; min-width: 0; padding: 20px 12px 18px; border-bottom: 1px solid var(--line); transition: opacity .16s ease; }
 .guestbook-entry.is-expired { opacity: .52; filter: grayscale(.58); }
-.guestbook-entry-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.guestbook-entry-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .guestbook-entry-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--muted); font-size: .7rem; }
 .guestbook-entry-tags time { font-variant-numeric: tabular-nums; }
 .guestbook-kind { padding: 4px 8px; color: #fffaf0; background: var(--forest); font-size: .68rem; font-weight: 900; }
 .guestbook-kind--sell { background: var(--red-dark); }
 .guestbook-kind--suggestion { color: var(--ink); background: var(--gold); }
 .guestbook-item { color: #516258; font-weight: 800; }
+.guestbook-item-detail { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 16px; align-items: center; margin-bottom: 16px; padding: 13px 15px; background: #eee7da; border: 1px solid #c9bca7; }
+.guestbook-item-art { display: grid; place-items: center; width: 82px; height: 82px; background: #f8f4eb; border: 1px solid #b9ab94; }
+.guestbook-item-art img { width: 62px; height: 62px; object-fit: contain; image-rendering: pixelated; }
+.guestbook-zeny-glyph { display: grid; place-items: center; width: 48px; height: 48px; color: #fff8ef; background: var(--gold); border: 2px solid #8a6c34; border-radius: 50%; font-family: ui-monospace, monospace; font-size: 1.4rem; font-weight: 900; }
+.guestbook-item-copy { display: grid; min-width: 0; gap: 3px; }
+.guestbook-item-kicker { color: var(--red-dark); font-size: .66rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.guestbook-item-name { color: var(--forest); font-size: 1.15rem; line-height: 1.25; }
+.guestbook-item-id { color: #7a8379; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .67rem; }
+.guestbook-item-description { max-width: 70ch; margin: 5px 0 0; color: #5d6b61; font-size: .74rem; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.guestbook-item-description.is-muted { color: #889087; }
+.guestbook-suggestion-mark { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 14px; padding: 7px 10px; color: #6d5a2d; background: #f3e4bd; border-left: 3px solid var(--gold); font-size: .74rem; font-weight: 900; }
+.guestbook-entry-body { padding: 0 2px; }
+.guestbook-entry-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-bottom: 8px; border-bottom: 1px dashed #d2c5b2; }
+.guestbook-entry-meta .guestbook-contact, .guestbook-entry-expiry { margin: 0; }
+.guestbook-entry-expiry { display: inline-flex; align-items: center; gap: 5px; color: #7e887e; font-size: .68rem; }
 .guestbook-expired-stamp { flex: 0 0 auto; align-self: flex-start; padding: 3px 8px; color: var(--red-dark); border: 2px solid var(--red-dark); font-size: .73rem; font-weight: 1000; line-height: 1.1; letter-spacing: .04em; transform: rotate(-9deg); }
 .guestbook-contact { display: flex; align-items: center; gap: 6px; margin: 13px 0 0; color: #526257; font-size: .78rem; font-weight: 800; overflow-wrap: anywhere; }
 .guestbook-content { margin: 11px 0 13px; color: #35443b; font-size: .88rem; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -187,6 +201,10 @@ label { display: grid; gap: 6px; color: #4c5a50; font-size: .75rem; font-weight:
   .guestbook-kind-select label span { min-height: 42px; gap: 4px; font-size: .72rem; }
   .guestbook-trade-fields { grid-template-columns: minmax(0, 1fr); }
   .guestbook-item-choice { grid-column: auto; }
+  .guestbook-item-detail { grid-template-columns: 62px minmax(0, 1fr); gap: 11px; padding: 11px; }
+  .guestbook-item-art { width: 62px; height: 62px; }
+  .guestbook-item-art img { width: 48px; height: 48px; }
+  .guestbook-item-name { font-size: .98rem; }
   .guestbook-search { grid-template-columns: minmax(0, 1fr) auto; }
   .guestbook-search > label:first-child, .guestbook-search > .autocomplete { grid-column: 1 / -1; }
   .guestbook-search > button[type="submit"] { grid-column: 1; }

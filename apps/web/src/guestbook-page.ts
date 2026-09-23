@@ -46,7 +46,7 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
         <form id="guestbook-form" class="guestbook-form" aria-describedby="guestbook-form-status">
           <fieldset class="guestbook-kind-select"><legend>登记类别</legend><label><input type="radio" name="category" value="buy" checked><span><i class="ph ph-hand-coins" aria-hidden="true"></i>收购</span></label><label><input type="radio" name="category" value="sell"><span><i class="ph ph-storefront" aria-hidden="true"></i>出售</span></label><label><input type="radio" name="category" value="suggestion"><span><i class="ph ph-chat-centered-text" aria-hidden="true"></i>网站建议</span></label></fieldset>
           <div id="guestbook-trade-fields" class="guestbook-trade-fields">
-            <fieldset class="guestbook-item-choice"><legend>交易物品</legend><label class="guestbook-zeny-choice"><input id="guestbook-zeny" type="checkbox"><span>交易 Zeny 游戏币</span></label><div id="guestbook-item-picker" class="autocomplete"><input id="guestbook-item-query" role="combobox" aria-autocomplete="list" aria-controls="guestbook-item-suggestions" aria-expanded="false" autocomplete="off" placeholder="输入道具名称搜索" aria-label="搜索并选择道具" /><ul id="guestbook-item-suggestions" class="suggestions" role="listbox" hidden></ul></div><p id="guestbook-item-selected" class="field-help">请选择目录中的道具，或勾选 Zeny。</p></fieldset>
+            <fieldset class="guestbook-item-choice"><legend>交易物品</legend><div id="guestbook-item-picker" class="autocomplete"><input id="guestbook-item-query" role="combobox" aria-autocomplete="list" aria-controls="guestbook-item-suggestions" aria-expanded="false" autocomplete="off" placeholder="输入道具名称搜索" aria-label="搜索并选择道具" /><ul id="guestbook-item-suggestions" class="suggestions" role="listbox" hidden></ul></div><p id="guestbook-item-selected" class="field-help">请选择道具或 Zeny。</p></fieldset>
             <label for="guestbook-contact">联系方式<input id="guestbook-contact" maxlength="120" placeholder="微信、QQ 号或游戏角色名" required></label>
             <label for="guestbook-duration">有效期限<select id="guestbook-duration" required><option value="1d">1 天</option><option value="3d">3 天</option><option value="7d">7 天</option><option value="permanent">永久</option></select></label>
           </div>
@@ -69,7 +69,6 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   const submit = root.querySelector<HTMLButtonElement>('#guestbook-submit')!;
   const itemQuery = root.querySelector<HTMLInputElement>('#guestbook-item-query')!;
   const itemSuggestions = root.querySelector<HTMLUListElement>('#guestbook-item-suggestions')!;
-  const zeny = root.querySelector<HTMLInputElement>('#guestbook-zeny')!;
   const selectedHelp = root.querySelector<HTMLElement>('#guestbook-item-selected')!;
   const searchForm = root.querySelector<HTMLFormElement>('#guestbook-search')!;
   const results = root.querySelector<HTMLElement>('#guestbook-results')!;
@@ -77,7 +76,11 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   const next = root.querySelector<HTMLButtonElement>('#guestbook-next')!;
   const pageStatus = root.querySelector<HTMLElement>('#guestbook-page-status')!;
   const loadCatalog = createCatalogLoader();
+  const loadDescriptions = createDescriptionLoader();
   let catalog: ItemAutocomplete[] = [];
+  let descriptions: ItemDescription[] = [];
+  let catalogById: EntryCatalog = new Map();
+  let descriptionsById: EntryDescriptions = new Map();
   let selectedItem: ItemAutocomplete | null = null;
   let activeIndex = -1;
   let pageIndex = 0;
@@ -86,36 +89,52 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   let currentFilters: GuestbookFilters = { limit: 20 };
 
   const categoryInput = (): GuestbookCategory => form.querySelector<HTMLInputElement>('input[name="category"]:checked')!.value as GuestbookCategory;
-  const setKind = (): void => { const suggestion = categoryInput() === 'suggestion'; tradeFields.hidden = suggestion; tradeFields.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input,select').forEach((field) => { field.disabled = suggestion; field.required = !suggestion && field.id !== 'guestbook-zeny' && field.id !== 'guestbook-item-query'; }); if (suggestion) { selectedItem = null; zeny.checked = false; itemQuery.value = ''; } };
+  const setKind = (): void => { const suggestion = categoryInput() === 'suggestion'; tradeFields.hidden = suggestion; tradeFields.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input,select').forEach((field) => { field.disabled = suggestion; field.required = !suggestion && field.id !== 'guestbook-item-query'; }); if (suggestion) { selectedItem = null; itemQuery.value = ''; } };
   const hideSuggestions = (): void => { itemSuggestions.hidden = true; itemQuery.setAttribute('aria-expanded', 'false'); activeIndex = -1; };
-  const renderSuggestions = (items: ItemAutocomplete[]): void => { itemSuggestions.innerHTML = items.map((item, index) => `<li><button type="button" role="option" aria-selected="${index === activeIndex}" data-index="${index}">${escapeHtml(item.name)} <small>#${item.itemId}</small></button></li>`).join(''); itemSuggestions.hidden = items.length === 0; itemQuery.setAttribute('aria-expanded', String(items.length > 0)); };
-  const chooseItem = (item: ItemAutocomplete): void => { selectedItem = item; itemQuery.value = item.name; selectedHelp.textContent = `已选择：${item.name}（ItemID ${item.itemId}）`; hideSuggestions(); };
+  const renderSuggestions = (items: ItemAutocomplete[]): void => {
+    const zenyMarkup = `<li><button type="button" role="option" aria-selected="${activeIndex === 0}" data-zeny="true"><i class="ph ph-coins" aria-hidden="true"></i> Zeny 游戏币 <small>特殊交易项</small></button></li>`;
+    itemSuggestions.innerHTML = `${zenyMarkup}${items.map((item, index) => `<li><button type="button" role="option" aria-selected="${index + 1 === activeIndex}" data-index="${index}">${escapeHtml(item.name)}</button></li>`).join('')}`;
+    itemSuggestions.hidden = false;
+    itemQuery.setAttribute('aria-expanded', 'true');
+  };
+  const chooseItem = (item: ItemAutocomplete): void => { selectedItem = item; itemQuery.value = item.name; selectedHelp.textContent = `已选择：${item.name} · ItemID ${item.itemId}`; hideSuggestions(); };
+  const chooseZeny = (): void => { selectedItem = null; itemQuery.value = 'Zeny 游戏币'; selectedHelp.textContent = '已选择：Zeny 游戏币'; hideSuggestions(); };
 
   form.querySelectorAll<HTMLInputElement>('input[name="category"]').forEach((input) => input.addEventListener('change', setKind));
   setKind();
   content.addEventListener('input', () => { contentCount.textContent = String([...content.value].length); });
-  zeny.addEventListener('change', () => { if (zeny.checked) { selectedItem = null; itemQuery.value = ''; selectedHelp.textContent = '已选择 Zeny 游戏币'; hideSuggestions(); } else selectedHelp.textContent = '请选择目录中的道具，或勾选 Zeny。'; });
   itemQuery.addEventListener('input', async () => {
     selectedItem = null;
-    zeny.checked = false;
-    selectedHelp.textContent = '请从搜索结果中选择道具。';
-    try { catalog = (await loadCatalog()).items; renderSuggestions(findCatalogMatches(catalog, itemQuery.value)); } catch { hideSuggestions(); }
+    activeIndex = -1;
+    selectedHelp.textContent = '请从搜索结果中选择道具或 Zeny。';
+    try { catalog = (await loadCatalog()).items; catalogById = new Map(catalog.map((item) => [item.itemId, item])); renderSuggestions(findCatalogMatches(catalog, itemQuery.value)); } catch { renderSuggestions([]); }
+  });
+  itemQuery.addEventListener('focus', () => {
+    if (!itemSuggestions.hidden) return;
+    void loadCatalog().then((page) => { catalog = page.items; catalogById = new Map(catalog.map((item) => [item.itemId, item])); renderSuggestions(findCatalogMatches(catalog, itemQuery.value)); }).catch(() => renderSuggestions([]));
   });
   itemQuery.addEventListener('keydown', (event) => {
     const options = [...itemSuggestions.querySelectorAll<HTMLButtonElement>('[role="option"]')];
     if (event.key === 'Escape') hideSuggestions();
     else if (event.key === 'ArrowDown' && options.length) { event.preventDefault(); activeIndex = (activeIndex + 1) % options.length; renderSuggestions(findCatalogMatches(catalog, itemQuery.value)); }
     else if (event.key === 'ArrowUp' && options.length) { event.preventDefault(); activeIndex = (activeIndex - 1 + options.length) % options.length; renderSuggestions(findCatalogMatches(catalog, itemQuery.value)); }
-    else if (event.key === 'Enter' && activeIndex >= 0) { event.preventDefault(); const item = findCatalogMatches(catalog, itemQuery.value)[activeIndex]; if (item) chooseItem(item); }
+    else if (event.key === 'Enter' && activeIndex >= 0) {
+      event.preventDefault();
+      if (activeIndex === 0) { chooseZeny(); return; }
+      const item = findCatalogMatches(catalog, itemQuery.value)[activeIndex - 1];
+      if (item) chooseItem(item);
+    }
   });
-  itemSuggestions.addEventListener('click', (event) => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-index]'); if (!button) return; const item = findCatalogMatches(catalog, itemQuery.value)[Number(button.dataset.index)]; if (item) chooseItem(item); });
+  itemSuggestions.addEventListener('click', (event) => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="option"]'); if (!button) return; if (button.dataset.zeny) { chooseZeny(); return; } const item = findCatalogMatches(catalog, itemQuery.value)[Number(button.dataset.index)]; if (item) chooseItem(item); });
 
   async function loadPage(cursor?: string): Promise<void> {
     results.setAttribute('aria-busy', 'true');
     results.innerHTML = '<div class="guestbook-state"><span class="guestbook-skeleton"></span><span class="guestbook-skeleton"></span></div>';
     try {
       const page = await api.searchGuestbook({ ...currentFilters, ...(cursor ? { cursor } : {}) });
-      results.innerHTML = page.items.length ? page.items.map(entryMarkup).join('') : '<div class="guestbook-state"><i class="ph ph-notebook" aria-hidden="true"></i><strong>暂时没有符合条件的登记</strong><span>调整筛选条件，或发布第一条登记。</span></div>';
+      try { catalog = (await loadCatalog()).items; catalogById = new Map(catalog.map((item) => [item.itemId, item])); } catch { catalog = []; catalogById = new Map(); }
+      try { descriptions = (await loadDescriptions()).descriptions; descriptionsById = new Map(descriptions.map((item) => [item.itemId, item])); } catch { descriptions = []; descriptionsById = new Map(); }
+      results.innerHTML = page.items.length ? page.items.map((entry) => entryMarkup(entry, catalogById, descriptionsById)).join('') : '<div class="guestbook-state"><i class="ph ph-notebook" aria-hidden="true"></i><strong>暂时没有符合条件的登记</strong><span>调整筛选条件，或发布第一条登记。</span></div>';
       nextCursor = page.nextCursor;
       next.disabled = !nextCursor;
       prev.disabled = pageIndex === 0;
@@ -129,19 +148,19 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const category = categoryInput();
-    if (category !== 'suggestion' && !zeny.checked && !selectedItem) { status.textContent = '请选择目录中的道具，或勾选 Zeny。'; itemQuery.focus(); return; }
+    if (category !== 'suggestion' && !selectedItem && itemQuery.value !== 'Zeny 游戏币') { status.textContent = '请选择目录中的道具或 Zeny。'; itemQuery.focus(); return; }
     const input: GuestbookSubmissionInput = category === 'suggestion'
       ? { category, content: content.value }
       : {
           category,
           content: content.value,
-          isZeny: zeny.checked,
+          isZeny: itemQuery.value === 'Zeny 游戏币',
           ...(selectedItem ? { itemId: selectedItem.itemId } : {}),
           contact: root.querySelector<HTMLInputElement>('#guestbook-contact')!.value,
           duration: root.querySelector<HTMLSelectElement>('#guestbook-duration')!.value as NonNullable<GuestbookSubmissionInput['duration']>,
         };
     submit.disabled = true; status.textContent = '正在提交…';
-    try { await api.createGuestbookEntry(input); form.reset(); selectedItem = null; contentCount.textContent = '0'; selectedHelp.textContent = '请选择目录中的道具，或勾选 Zeny。'; setKind(); status.textContent = '登记已发布。'; currentFilters = { limit: 20 }; pageIndex = 0; pageCursors = [null]; await loadPage(); }
+    try { await api.createGuestbookEntry(input); form.reset(); selectedItem = null; contentCount.textContent = '0'; selectedHelp.textContent = '请选择道具或 Zeny。'; setKind(); status.textContent = '登记已发布。'; currentFilters = { limit: 20 }; pageIndex = 0; pageCursors = [null]; await loadPage(); }
     catch (error) { status.textContent = error instanceof Error ? error.message : '提交失败，请稍后重试。'; }
     finally { submit.disabled = false; }
   });
@@ -160,7 +179,7 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
 
   const filterQuery = root.querySelector<HTMLInputElement>('#guestbook-filter-item')!;
   const filterSuggestions = root.querySelector<HTMLUListElement>('#guestbook-filter-suggestions')!;
-  filterQuery.addEventListener('input', async () => { try { catalog = (await loadCatalog()).items; const matches = findCatalogMatches(catalog, filterQuery.value); filterSuggestions.innerHTML = matches.map((item) => `<li><button type="button" role="option" data-id="${item.itemId}">${escapeHtml(item.name)} <small>#${item.itemId}</small></button></li>`).join(''); filterSuggestions.hidden = matches.length === 0; filterQuery.setAttribute('aria-expanded', String(matches.length > 0)); } catch { filterSuggestions.hidden = true; } });
-  filterSuggestions.addEventListener('click', (event) => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-id]'); if (!button) return; searchForm.dataset.itemId = button.dataset.id ?? ''; filterQuery.value = button.textContent?.replace(/\s+#\d+$/u, '').trim() ?? ''; filterSuggestions.hidden = true; filterQuery.setAttribute('aria-expanded', 'false'); });
+  filterQuery.addEventListener('input', async () => { try { catalog = (await loadCatalog()).items; const matches = findCatalogMatches(catalog, filterQuery.value); filterSuggestions.innerHTML = matches.map((item) => `<li><button type="button" role="option" data-id="${item.itemId}">${escapeHtml(item.name)}</button></li>`).join(''); filterSuggestions.hidden = matches.length === 0; filterQuery.setAttribute('aria-expanded', String(matches.length > 0)); } catch { filterSuggestions.hidden = true; } });
+  filterSuggestions.addEventListener('click', (event) => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-id]'); if (!button) return; searchForm.dataset.itemId = button.dataset.id ?? ''; filterQuery.value = button.textContent?.trim() ?? ''; filterSuggestions.hidden = true; filterQuery.setAttribute('aria-expanded', 'false'); });
   void loadPage();
 }
