@@ -1,6 +1,6 @@
 import './styles.css';
 import '@phosphor-icons/web/regular';
-import { initAnalytics } from './analytics';
+import { AnalyticsEvent, initAnalytics, track } from './analytics';
 import { MarketApi } from './api';
 import { OptionDictionaryStore } from './option-state';
 import { appendOptionRow, serializeSearchForm } from './query-form';
@@ -143,6 +143,7 @@ copyQqGroupButton.addEventListener('click', async () => {
   }
   const hint = copyQqGroupButton.querySelector('.copy-hint');
   if (copied && hint) {
+    track(AnalyticsEvent.QqGroupCopy);
     hint.textContent = '已复制';
     window.clearTimeout(copyHintTimer);
     copyHintTimer = window.setTimeout(() => { if (hint) hint.textContent = '复制'; }, 1800);
@@ -170,7 +171,16 @@ async function performSearch(filters: SearchFilters, shouldScroll = false): Prom
   const pending = searchController.search(filters);
   renderSearchState();
   await pending;
+  const state = searchController.getState();
   renderSearchState();
+  if (state.page) {
+    track(AnalyticsEvent.SearchResult, {
+      q: filters.q ?? '',
+      result_count: state.page.items.length,
+      has_results: state.page.items.length > 0,
+      is_empty: state.empty,
+    });
+  }
   if (shouldScroll) scrollToResults();
 }
 
@@ -235,7 +245,7 @@ function updateSuggestionSelection(): void {
   if (activeSuggestion < 0) queryInput.removeAttribute('aria-activedescendant');
 }
 
-function chooseSuggestion(index: number): void { const item = autocompleteItems[index]; if (!item) return; queryInput.value = item.name; hideSuggestions(); queryInput.focus(); }
+function chooseSuggestion(index: number): void { const item = autocompleteItems[index]; if (!item) return; track(AnalyticsEvent.AutocompleteSelect, { item_id: item.itemId, item_name: item.name }); queryInput.value = item.name; hideSuggestions(); queryInput.focus(); }
 
 function renderSuggestions(items: ItemAutocomplete[]): void {
   autocompleteItems = items; activeSuggestion = -1; suggestions.replaceChildren();
@@ -256,6 +266,7 @@ async function loadSuggestions(query: string): Promise<void> {
 }
 
 async function openHistory(item: Pick<ListingSearchResult, 'itemId' | 'itemName' | 'itemIcon'>): Promise<void> {
+  track(AnalyticsEvent.ItemHistory, { item_id: item.itemId, item_name: item.itemName ?? '' });
   historyDrawer.hidden = false; historyDrawer.innerHTML = '<div class="drawer-inner"><p role="status">正在加载价格历史...</p></div>';
   try { renderHistory(historyDrawer, await api.getItemHistory(item.itemId), item); }
   catch (error) {
@@ -271,6 +282,7 @@ function escapeHtml(value: string): string {
 
 function openMap(button: HTMLButtonElement): void {
   const name = button.dataset.mapName || '未知地图'; const image = button.dataset.mapImage || rmsAssetUrl('maps_xl/morocc_re.gif'); const code = button.dataset.mapCode || 'morocc'; const rawX = Number(button.dataset.mapX); const rawY = Number(button.dataset.mapY); const rawLeft = Number(button.dataset.mapMarkerLeft); const rawTop = Number(button.dataset.mapMarkerTop); const x = Number.isFinite(rawX) ? rawX : 50; const y = Number.isFinite(rawY) ? rawY : 50; const left = Number.isFinite(rawLeft) ? rawLeft : 50; const top = Number.isFinite(rawTop) ? rawTop : 50;
+  track(AnalyticsEvent.MapOpen, { map_code: code, map_name: name, x, y });
   const command = `请带我去 ${code} ${x} ${y} 这个坐标`;
   const safeName = escapeHtml(name);
   mapDrawer.innerHTML = `<div class="drawer-inner map-inner"><button type="button" id="close-map" aria-label="关闭地图">关闭</button><p class="drawer-kicker">地图定位 / ${escapeHtml(code)}</p><h2>${safeName}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${safeName}地图" /><span class="map-star" style="left:${left}%;top:${top}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p>
@@ -281,7 +293,7 @@ function openMap(button: HTMLButtonElement): void {
       <li><span class="quick-go-step-num" aria-hidden="true">2</span><p>点击下方指令框<strong>一键复制</strong>，粘贴到 GPT 频道发送，即可自动前往商人位置。</p></li>
     </ol>
     <figure class="quick-go-figure"><img src="/tutorial/gpt-guide.png" alt="图示：先点击右下角蓝色小点按钮，再选择GPT频道" loading="lazy" width="1800" height="588" /></figure>
-    <button type="button" class="copy-command" data-command="${escapeHtml(command)}" aria-label="点击复制前往指令">
+    <button type="button" class="copy-command" data-command="${escapeHtml(command)}" data-map-code="${escapeHtml(code)}" data-map-x="${x}" data-map-y="${y}" aria-label="点击复制前往指令">
       <span class="copy-command-text">请带我去 <em>${escapeHtml(code)}</em> <em>${x}</em> <em>${y}</em> 这个坐标</span>
       <span class="copy-command-action" aria-hidden="true"><i class="ph ph-copy-simple"></i><span class="copy-command-label">点击复制</span></span>
     </button>
@@ -322,7 +334,7 @@ function submitSearchForm(): void {
 }
 queryInput.addEventListener('keydown', (event) => { if (event.key === 'ArrowDown' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion + 1) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'ArrowUp' && autocompleteItems.length > 0) { event.preventDefault(); activeSuggestion = (activeSuggestion - 1 + autocompleteItems.length) % autocompleteItems.length; updateSuggestionSelection(); } else if (event.key === 'Enter') { event.preventDefault(); if (activeSuggestion >= 0) chooseSuggestion(activeSuggestion); else submitSearchForm(); } else if (event.key === 'Escape') hideSuggestions(); });
 addOptionButton.addEventListener('click', () => { const state = dictionary.getState(); if (state.status === 'ready') appendOptionRow(optionRows, state.definitions); });
-form.addEventListener('submit', (event) => { event.preventDefault(); autocompleteRequestId += 1; void (async () => { try { const catalog = await loadCatalog(); catalogItems = catalog.items; const filters = serializeSearchForm(form, dictionary.getState().definitions, catalog.items); initialBrowse = false; setFormError(null); hideSuggestions(); void performSearch(filters, true); } catch (error) { setFormError(error instanceof Error ? error.message : '请检查搜索条件'); } })(); });
+form.addEventListener('submit', (event) => { event.preventDefault(); autocompleteRequestId += 1; void (async () => { try { const catalog = await loadCatalog(); catalogItems = catalog.items; const filters = serializeSearchForm(form, dictionary.getState().definitions, catalog.items); track(AnalyticsEvent.Search, { q: filters.q ?? '', map: filters.map, shop_type: filters.shop_type, price_min: filters.price_min, price_max: filters.price_max, option_count: filters.options?.length ?? 0, option_mode: filters.option_mode, sort: filters.sort, has_advanced: !!(filters.map || filters.shop_type || filters.price_min !== undefined || filters.price_max !== undefined || (filters.options && filters.options.length > 0)) }); initialBrowse = false; setFormError(null); hideSuggestions(); void performSearch(filters, true); } catch (error) { setFormError(error instanceof Error ? error.message : '请检查搜索条件'); } })(); });
 
 results.addEventListener('click', (event) => {
   const target = event.target as Element;
@@ -495,6 +507,11 @@ mapDrawer.addEventListener('click', (event) => {
     const label = copyButton.querySelector('.copy-command-label');
     const icon = copyButton.querySelector('.copy-command-action i');
     if (ok) {
+      track(AnalyticsEvent.CopyCommand, {
+        map_code: copyButton.dataset.mapCode ?? '',
+        x: Number(copyButton.dataset.mapX),
+        y: Number(copyButton.dataset.mapY),
+      });
       copyButton.classList.add('is-copied');
       if (label) label.textContent = '已复制';
       if (icon) icon.className = 'ph ph-check';
