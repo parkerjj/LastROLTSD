@@ -82,15 +82,17 @@ manifest 使用当前 snapshot 的 part/shop 增量记录，不扫描历史 uplo
 
 ## 后台阶段
 
-每阶段都设置最大处理数量和 continuation cursor，单次执行达到预算即保存 cursor 并返回；阶段不能依赖一次 invocation 完成整份 snapshot。
+每阶段都设置最大处理数量和 continuation cursor，单次执行达到预算即保存 cursor 并返回；阶段不能依赖一次 invocation 完成整份 snapshot。Queue 不会自动把一个 80ms 函数切成十个 8ms 函数，只有每条消息只执行一个有界 chunk 时才有独立的 10ms CPU 预算。
 
-1. `materialize_parts`：按 part index 读取 payload，解析并规范化 shop/item，执行 shop resolution 和 listing upsert/transition；为该 part 写 compact manifest。每次最多处理一个 part 或配置的有限 shop 数。
-2. `reconcile_shops`：读取当前 snapshot 的 shop union，与上一份 summary 比较；只更新真正缺失、恢复、资料变化的 shop。part 未到齐时禁止执行。
-3. `reconcile_listings`：仅对 changed/present shop 读取 active listings，按 fingerprint 做 missing/reappeared 判定；每次只处理有限 shop/listing。
-4. `infer_sales`：对确认缺失且数量减少的 listing 生成唯一 transition key 的 inferred sale，并处理关闭 shop 的 listing expire；每次只处理有限候选。
+1. `materialize_parts`：按 part index 读取 payload，解析并规范化 shop/item，执行 shop resolution 和 listing upsert/transition；为该 part 写 compact manifest。一个消息最多处理 20 个 shop 且最多 200 个 listing，先达到任一上限就保存 cursor。
+2. `reconcile_shops`：读取当前 snapshot 的 shop union，与上一份 summary 比较；只更新真正缺失、恢复、资料变化的 shop。part 未到齐时禁止执行；每个消息的 shop 数量由 benchmark 校准并保持有界。
+3. `reconcile_listings`：仅对 changed/present shop 读取 active listings，按 fingerprint 做 missing/reappeared 判定；一个消息最多处理 200 个 listing。
+4. `infer_sales`：对确认缺失且数量减少的 listing 生成唯一 transition key 的 inferred sale，并处理关闭 shop 的 listing expire；一个消息最多处理 200 个候选。
 5. `finalize`：CAS 标记 snapshot completed，写入 summary、source last-full 字段和初始同步标记。重复执行只返回已完成状态。
 
 每个阶段失败都保留错误和 cursor，按指数退避重试；超过最大尝试次数标记 snapshot failed，并提供管理员 repair/requeue 入口。任何阶段不得依赖 HTTP 最后分片继续执行。
+
+每个 chunk 的目标是 benchmark p95 不超过 6ms、p99 不超过 8ms，为 Cloudflare Free 的 10ms CPU 限制保留余量；这些是验收门槛，不是仅凭行数即可证明的数学保证。若生产 `cpuTimeMs` 接近 10ms，按阶段降低 chunk 上限并重新投递 continuation。事务先提交 domain 写入和 cursor，再投递下一条消息；重复投递依赖 CAS/transition key 幂等。
 
 ## Queue 与 Cron
 
@@ -100,6 +102,8 @@ manifest 使用当前 snapshot 的 part/shop 增量记录，不扫描历史 uplo
 * 若没有 Queue binding，使用 MySQL job table + Cron Trigger。每个 stage 使用独立 cron expression/handler 分支，互不在同一次 invocation 中串行执行；每次 cron 只领取对应 stage 的一个或有限 jobs。现有每日 retention cron 保留独立 schedule。
 
 Queue 是加速投递和重试的可选 transport，不是正确性依赖。Cron fallback 必须始终可处理 queued/running lease-expired job，因此免费计划没有 Queue 时不会丢 snapshot。
+
+Queue consumer 必须配置 `max_batch_size = 1`（或等价的单消息消费设置）。如果一次 invocation 接收多个 chunk，即使每个 chunk 单独低于 10ms，累计 CPU 也可能超过限制；Cron fallback 同样每次只领取一个有界 chunk。
 
 因此单个 HTTP full part 本身通常不等于 3 次 Queue 操作：前 8 个分片只写 MySQL，Queue 为 0；最后一个分片只发送一个小的 job 消息，立即产生 1 次写操作，之后由 consumer 的读取和删除各产生 1 次。3 次操作是整条 job 消息从发送到消费完成的生命周期成本。
 
