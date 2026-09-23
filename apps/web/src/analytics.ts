@@ -6,8 +6,7 @@
 const LA_SDK_URL = 'https://sdk.51.la/js-sdk-pro.min.js';
 const LA_SITE_ID = '3RHkJ5YdSFYSeVHk';
 
-// 自定义事件标识。上报前需先在 51.la 控制台「事件管理」中创建同名事件，
-// 否则事件会被丢弃（控制台可开启自动创建，视后台设置而定）。
+// 自定义事件标识。上报前需先在 51.la 控制台「事件管理」中创建同名事件。
 export const AnalyticsEvent = {
   /** 提交搜索表单 */
   Search: 'search',
@@ -28,14 +27,18 @@ export const AnalyticsEvent = {
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];
 export type AnalyticsParams = Record<string, string | number | boolean | null | undefined>;
 
-interface LaEventOptions {
-  callback?: () => void;
-  params?: Record<string, unknown>;
-}
+// 51.la 事件子 SDK（js-sdk-event）对参数的硬限制：
+// key 长度不超过 25，value 转字符串后长度不超过 64，超限字段会被直接丢弃。
+const MAX_KEY_LENGTH = 25;
+const MAX_VALUE_LENGTH = 64;
+
+type LaTrack = (eventId: string, params?: Record<string, unknown>) => void;
 
 interface LaCollector {
   init: (config: Record<string, unknown>) => void;
-  event?: (eventId: string, options?: LaEventOptions) => void;
+  // 网站版 SDK 的自定义事件方法是 LA.track（不是 LA.event），
+  // 由 autoTrack 自动加载的 js-sdk-event.min.js 在加载完成后挂载。
+  track?: LaTrack;
 }
 
 declare global {
@@ -43,6 +46,10 @@ declare global {
     LA?: LaCollector;
   }
 }
+
+// 事件子 SDK 比主 SDK 晚加载；在它就绪前先把事件排队，就绪后补发。
+let pendingEvents: Array<{ eventId: AnalyticsEventName; params?: Record<string, unknown> }> = [];
+let flushStarted = false;
 
 export function initAnalytics(): void {
   if (!import.meta.env.PROD) return;
@@ -61,30 +68,68 @@ export function initAnalytics(): void {
       hashMode: false,
       screenRecord: true,
     });
+    scheduleFlush();
   });
   document.head.appendChild(script);
 }
 
 /**
- * 上报自定义事件。
+ * 上报自定义事件：LA.track(事件名, 扁平参数对象)。
  * - 非生产环境直接跳过；
- * - SDK 尚未加载完成时也直接跳过（事件不缓存，避免离线积压）。
+ * - 事件子 SDK 未就绪时排队等待，就绪后自动补发。
  */
 export function track(eventId: AnalyticsEventName, params?: AnalyticsParams): void {
   if (!import.meta.env.PROD) return;
-  const la = window.LA;
-  if (typeof la?.event !== 'function') return;
 
   const cleaned = cleanParams(params);
-  la.event(eventId, cleaned ? { params: cleaned } : undefined);
+  if (isTrackReady()) {
+    window.LA!.track!(eventId, cleaned);
+    return;
+  }
+  pendingEvents.push(cleaned ? { eventId, params: cleaned } : { eventId });
+  scheduleFlush();
+}
+
+function isTrackReady(): boolean {
+  return typeof window.LA?.track === 'function';
+}
+
+function scheduleFlush(): void {
+  if (flushStarted) return;
+  flushStarted = true;
+  const startedAt = Date.now();
+  const timer = window.setInterval(() => {
+    if (!isTrackReady()) {
+      // 最多等待 30 秒，超时放弃，避免异常情况下常驻定时器。
+      if (Date.now() - startedAt > 30_000) {
+        window.clearInterval(timer);
+        flushStarted = false;
+        pendingEvents = [];
+      }
+      return;
+    }
+    window.clearInterval(timer);
+    flushStarted = false;
+    const queued = pendingEvents;
+    pendingEvents = [];
+    for (const item of queued) {
+      window.LA!.track!(item.eventId, item.params);
+    }
+  }, 500);
 }
 
 function cleanParams(params: AnalyticsParams | undefined): Record<string, unknown> | undefined {
   if (!params) return undefined;
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(params)) {
+    if (key.length === 0 || key.length > MAX_KEY_LENGTH) continue;
     if (value === undefined || value === null || value === '') continue;
-    result[key] = value;
+    if (typeof value === 'string') {
+      // 超长字符串截断后再上报（如很长的搜索词），保证关键词前缀仍可统计。
+      result[key] = value.slice(0, MAX_VALUE_LENGTH);
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      if (String(value).length <= MAX_VALUE_LENGTH) result[key] = value;
+    }
   }
   return Object.keys(result).length > 0 ? result : undefined;
 }
