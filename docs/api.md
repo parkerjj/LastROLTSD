@@ -175,3 +175,13 @@ The server-owned catalog is authoritative and keyed by `item_id`. Existing listi
 `GET /api/v1/items?q=<text>&limit=<1..20>` searches catalog names and aliases only. It returns `{ version, items: [{ itemId, name, aliases }] }`, uses `Cache-Control: public, max-age=86400`, and sends an ETag derived from the versioned response. Empty `q` returns no item matches; the endpoint never searches live listings or client-uploaded names.
 
 The item catalog endpoint reads the versioned static catalog asset. It does not query D1 or MySQL, and matching does not build an unbounded application-side item-ID `IN` list.
+
+## Guestbook
+
+The public guestbook allows anonymous visitors to post a `buy`, `sell`, or `suggestion` entry. `GET /api/v1/guestbook` accepts optional `category`, `item_id`, `q`, `limit` (default 20, maximum 50), and opaque `cursor` filters. Text searches match the entry body and trade contact as literal text. Pages are ordered newest first by `(createdAt,id)` and cursors are signed and bound to the active filters.
+
+Trade entries require an exact item catalog ID or the special Zeny choice, a contact (WeChat, QQ, or in-game character), body text, and a `duration` of `1d`, `3d`, `7d`, or `permanent`. Zeny is represented by `isZeny: true` with `itemId: null`; ordinary items use `isZeny: false` and their exact catalog `itemId`. Suggestions contain only `category: "suggestion"` and `content`, and need no contact or item.
+
+`POST /api/v1/guestbook` accepts JSON up to 16 KiB. Content is limited to 2,000 Unicode code points and contacts to 120. Public submissions are immediately visible. The Worker rate-limits anonymous posts to five per source address per minute using a keyed digest; it does not persist or return the plain address. Rate-limit exhaustion returns HTTP 429 with `error.code: "rate_limited"`; limiter storage failures fail closed.
+
+Entries are not deleted or filtered when they expire. Responses include `expiresAt` (`null` for permanent/suggestions) and `isExpired`; the page visually marks expired entries while keeping them available to search. Suggestions have no expiry. No visitor identity, IP address, edit, or delete operation is exposed.

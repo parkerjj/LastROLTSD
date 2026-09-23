@@ -62,10 +62,11 @@ Keep the raw upload key only in the uploader's secret store. Do not set it as a 
 Create the GitHub Environment named `production` with exactly these deployment secrets:
 
 - `MYSQL_URL`
+- `GUESTBOOK_RATE_SECRET`
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
-The workflow installs, builds, lints, type-checks, tests, applies the idempotent MySQL migration, performs a MySQL dry-run connection check, passes `MYSQL_URL` to `wrangler secret put` through standard input, then deploys. A migration or connection failure prevents deployment. It never prints `MYSQL_URL` and no longer runs D1 migrations or reads a D1 database ID.
+The workflow installs, builds, lints, type-checks, tests, applies the idempotent MySQL migration, performs a MySQL dry-run connection check, passes `MYSQL_URL` and `GUESTBOOK_RATE_SECRET` to `wrangler secret put` through standard input, then deploys. A migration or connection failure prevents deployment. It never prints either secret and no longer runs D1 migrations or reads a D1 database ID.
 
 Configure the other Worker secrets (`CURSOR_SECRET`, `ADMIN_SECRET`) independently through a secure local terminal. Do not place their values in GitHub workflow YAML or Wrangler TOML. `MYSQL_URL` is intentionally absent from both Wrangler configuration files.
 

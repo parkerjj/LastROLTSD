@@ -11,6 +11,7 @@ import { initialState } from './state';
 import type { ItemAutocomplete, ItemDescription, ListingSearchResult, SearchFilters } from './types';
 import { createCatalogLoader, createDescriptionLoader, findCatalogMatches } from './catalog';
 import { mountReleasePage } from './release-page';
+import { mountGuestbookPage } from './guestbook-page';
 
 initAnalytics();
 
@@ -18,6 +19,7 @@ const root = document.querySelector<HTMLElement>('#app')!;
 if (!root) throw new Error('Missing app root');
 
 const isReleasePage = /^\/updates\/?$/u.test(window.location.pathname);
+const isGuestbookPage = /^\/guestbook\/?$/u.test(window.location.pathname);
 const mapFilterMarkup = mapFilterOptions().map((map) => `<option value="${map.value}">${map.label}</option>`).join('');
 
 function mountSearchPage(): void {
@@ -29,7 +31,7 @@ root.innerHTML = `
   <header class="site-header">
     <div class="topbar page-width">
       <a class="brand" href="#top" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
-      <nav class="site-nav" aria-label="主导航"><a class="active" href="#search">搜索市场</a><a href="/updates">更新说明</a><a href="https://github.com/parkerjj/LastROLTSD" target="_blank" rel="noreferrer">代码仓库</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></nav>
+      <nav class="site-nav" aria-label="主导航"><a class="active" href="#search">搜索市场</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://github.com/parkerjj/LastROLTSD" target="_blank" rel="noreferrer">代码仓库</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></nav>
     </div>
   </header>
   <main id="top" class="page-width">
@@ -60,7 +62,7 @@ root.innerHTML = `
       </div>
     </form>
   </main>
-  <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="#top"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="#search">搜索市场</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+  <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="#top"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="#search">搜索市场</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
   <aside id="history-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="价格历史" hidden></aside>
   <aside id="map-drawer" class="drawer map-drawer" role="dialog" aria-modal="true" aria-label="地图定位" hidden></aside>
 `;
@@ -547,4 +549,5 @@ void performSearch(initialState.filters);
 }
 
 if (isReleasePage) mountReleasePage(root);
+else if (isGuestbookPage) mountGuestbookPage(root);
 else mountSearchPage();

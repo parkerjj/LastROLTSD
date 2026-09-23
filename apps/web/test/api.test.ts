@@ -36,4 +36,19 @@ describe('market API', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/market/items/1001/history', {});
   });
+
+  it('serializes guestbook filters and anonymous submissions', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ item: {} }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new MarketApi();
+    await api.searchGuestbook({ category: 'sell', itemId: 100, q: '波利', limit: 20, cursor: 'next' });
+    await api.createGuestbookEntry({ category: 'suggestion', content: '建议' });
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), 'https://example.test');
+    expect(url.pathname).toBe('/api/v1/guestbook');
+    expect(url.searchParams.get('itemId')).toBe('100');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/v1/guestbook');
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ category: 'suggestion', content: '建议' });
+  });
 });

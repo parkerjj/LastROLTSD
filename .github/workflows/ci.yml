@@ -54,6 +54,12 @@ jobs:
           MYSQL_URL: ${{ secrets.MYSQL_URL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set Worker guestbook rate secret
+        run: node -e "process.stdout.write(process.env.GUESTBOOK_RATE_SECRET)" | pnpm exec wrangler secret put GUESTBOOK_RATE_SECRET --env production --config wrangler.toml
+        env:
+          GUESTBOOK_RATE_SECRET: ${{ secrets.GUESTBOOK_RATE_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy production Worker and web assets
         run: pnpm exec wrangler deploy --env production --config wrangler.toml
         env:

@@ -13,16 +13,19 @@ ENVIRONMENT = "local"
 BUILD_VERSION = "dev"
 MAX_BODY_BYTES = "524288"
 
+
 [triggers]
 crons = ["0 3 * * *"]
 
 [env.staging]
 name = "lastroweb-staging"
 vars = { ENVIRONMENT = "staging", BUILD_VERSION = "staging", MAX_BODY_BYTES = "524288" }
+assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application" }
 
 [env.production]
 name = "lastroweb-production"
 vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288" }
+assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application" }
 
 [observability.logs]
 enabled = true

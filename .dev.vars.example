@@ -8,6 +8,7 @@ UPLOAD_API_KEY_SHA256=replace-with-local-key-sha256
 ADMIN_SECRET=replace-with-local-admin-secret
 # Cursor HMAC secret; set a random value in staging/production with wrangler secret put.
 CURSOR_SECRET=replace-with-local-cursor-secret
+GUESTBOOK_RATE_SECRET=replace-with-at-least-32-character-secret
 
 
 

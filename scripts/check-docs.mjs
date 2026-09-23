@@ -7,6 +7,7 @@ const deployment = await readFile(new URL('../docs/deployment.md', import.meta.u
 const migration = await readFile(new URL('../docs/mysql-migration.md', import.meta.url), 'utf8');
 const required = [
   '/api/v1/market/upload', '/api/v1/market/search', '/api/v1/options',
+  'GET /api/v1/guestbook', 'POST /api/v1/guestbook', 'suggestion', 'isExpired', 'rate_limited',
   'Authorization: Bearer', 'Idempotency-Key', '512 KiB', '16 parts',
   'protocol_version": 2', 'snapshot_mode', 'shop_status', 'vendor_account_id', 'uuid', 'options', 'type', 'value', 'param',
   'first complete full snapshot establishes a baseline', 'duplicate: true',

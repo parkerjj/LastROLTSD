@@ -114,6 +114,7 @@ export interface MarketRepository {
   deleteExpiredSoldEvents?(before: number, limit: number): Promise<number>;
   countExpiredHistory?(before: number, limit: number): Promise<number>;
   countExpiredSoldEvents?(before: number, limit: number): Promise<number>;
+  deleteGuestbookRateBuckets?(before: number, limit: number): Promise<number>;
 }
 
 export interface ItemMarketHistory {

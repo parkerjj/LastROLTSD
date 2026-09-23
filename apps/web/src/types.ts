@@ -117,3 +117,35 @@ export interface ItemMarketHistory {
 export interface MarketStatus {
   latestUpdatedAt: number | null;
 }
+
+export type GuestbookCategory = 'buy' | 'sell' | 'suggestion';
+export interface GuestbookEntry {
+  id: number;
+  category: GuestbookCategory;
+  itemId: number | null;
+  isZeny: boolean;
+  contact: string | null;
+  content: string;
+  createdAt: number;
+  expiresAt: number | null;
+  isExpired: boolean;
+}
+export interface GuestbookFilters {
+  category?: GuestbookCategory;
+  itemId?: number;
+  q?: string;
+  limit: number;
+  cursor?: string;
+}
+export interface GuestbookSubmissionInput {
+  category: GuestbookCategory;
+  itemId?: number;
+  isZeny?: boolean;
+  contact?: string;
+  content: string;
+  duration?: '1d' | '3d' | '7d' | 'permanent';
+}
+export interface GuestbookPage {
+  items: GuestbookEntry[];
+  nextCursor: string | null;
+}

@@ -8,6 +8,7 @@ export interface AppEnv {
   BUILD_VERSION: string;
   MAX_BODY_BYTES: number;
   CURSOR_SECRET?: string | undefined;
+  GUESTBOOK_RATE_SECRET?: string | undefined;
   UPLOAD_LIMITER?: Fetcher | undefined;
   ADMIN_SECRET?: string | undefined;
 }
@@ -16,9 +17,11 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
   const maxBody = Number(bindings.MAX_BODY_BYTES ?? 512 * 1024);
   const environment = String(bindings.ENVIRONMENT ?? 'local');
   const configuredCursorSecret = typeof bindings.CURSOR_SECRET === 'string' ? bindings.CURSOR_SECRET : '';
+  const guestbookRateSecret = typeof bindings.GUESTBOOK_RATE_SECRET === 'string' ? bindings.GUESTBOOK_RATE_SECRET : '';
   const mysqlUrl = typeof bindings.MYSQL_URL === 'string' && bindings.MYSQL_URL.trim() !== '' ? bindings.MYSQL_URL : undefined;
-  if ((environment === 'staging' || environment === 'production') && configuredCursorSecret.length < 16) throw new Error('CURSOR_SECRET must be configured with at least 16 characters');
   if ((environment === 'staging' || environment === 'production') && !mysqlUrl) throw new Error('MYSQL_URL must be configured outside local environments');
+  if ((environment === 'staging' || environment === 'production') && configuredCursorSecret.length < 16) throw new Error('CURSOR_SECRET must be configured with at least 16 characters');
+  if ((environment === 'staging' || environment === 'production') && guestbookRateSecret.length < 32) throw new Error('GUESTBOOK_RATE_SECRET must be configured with at least 32 characters');
   return {
     MYSQL_URL: mysqlUrl,
     ASSETS: bindings.ASSETS as Fetcher | undefined,
@@ -26,6 +29,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     BUILD_VERSION: String(bindings.BUILD_VERSION ?? 'dev'),
     MAX_BODY_BYTES: Number.isFinite(maxBody) && maxBody > 0 ? maxBody : 512 * 1024,
     CURSOR_SECRET: configuredCursorSecret.length >= 16 ? configuredCursorSecret : DEFAULT_CURSOR_SECRET,
+    GUESTBOOK_RATE_SECRET: guestbookRateSecret.length >= 32 ? guestbookRateSecret : 'lastroweb-local-guestbook-rate-secret-v1',
     UPLOAD_LIMITER: bindings.UPLOAD_LIMITER as Fetcher | undefined,
     ADMIN_SECRET: bindings.ADMIN_SECRET as string | undefined,
   };

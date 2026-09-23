@@ -1111,6 +1111,15 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       ) AS expired_sold_events`, [before, limit]);
       return Number(row?.count ?? 0);
     },
+    async deleteGuestbookRateBuckets(before, limit) {
+      const boundedLimit = Math.min(500, Math.max(1, Math.trunc(limit)));
+      const result = await db.run(`DELETE FROM guestbook_rate_limits WHERE (rate_key, bucket_start) IN (
+        SELECT rate_key, bucket_start FROM (
+          SELECT rate_key, bucket_start FROM guestbook_rate_limits WHERE bucket_start < ? ORDER BY bucket_start LIMIT ?
+        ) AS expired_rate_buckets
+      )`, [before, boundedLimit]);
+      return result.affectedRows;
+    },
   } as MarketRepository;
 }
 

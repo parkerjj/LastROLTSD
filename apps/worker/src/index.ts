@@ -14,6 +14,8 @@ import { runRetention } from './services/retention';
 import { recordMetric } from './observability';
 import { registerAssetRoute } from './routes/assets';
 import { withSearchCache } from './middleware/search-cache';
+import { createGuestbookRepository } from './db/guestbook-repository';
+import { registerGuestbookRoutes } from './routes/guestbook';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -38,6 +40,12 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
+    const guestbookRepository = createGuestbookRepository(database, env.CURSOR_SECRET ?? '');
+    registerGuestbookRoutes(app, guestbookRepository, {
+      getItemIds: async () => loadCatalogItemIds(env.ASSETS),
+      cursorSecret: env.CURSOR_SECRET ?? '',
+      rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
+    });
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
@@ -80,6 +88,31 @@ export default {
     }
   },
 };
+
+const itemIdsCache = new WeakMap<object, Promise<ReadonlySet<number>>>();
+let catalogItemIdsFallback: Promise<ReadonlySet<number>> | undefined;
+
+async function loadCatalogItemIds(assets: AppEnv['ASSETS']): Promise<ReadonlySet<number>> {
+  if (!assets || typeof assets !== 'object') {
+    catalogItemIdsFallback ??= Promise.resolve(new Set<number>());
+    return catalogItemIdsFallback;
+  }
+  let pending = itemIdsCache.get(assets as object);
+  if (!pending) {
+    pending = Promise.resolve().then(async () => {
+      const response = await assets.fetch(new Request('https://lastroweb.invalid/catalog/items.json'));
+      if (!response.ok) throw new Error('catalog asset unavailable');
+      const payload = await response.json() as { items?: Array<{ itemId?: unknown }> };
+      if (!Array.isArray(payload.items)) throw new Error('catalog asset invalid');
+      return new Set(payload.items.map((item) => Number(item.itemId)).filter((itemId) => Number.isSafeInteger(itemId) && itemId > 0));
+    }).catch((error) => {
+      itemIdsCache.delete(assets as object);
+      throw error;
+    });
+    itemIdsCache.set(assets as object, pending);
+  }
+  return pending;
+}
 
 // The hot search path reuses this handler instead of rebuilding every Hono route.
 async function fetchSearch(request: Request, url: URL, env: AppEnv, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {

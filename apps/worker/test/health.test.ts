@@ -31,6 +31,10 @@ describe('health route', () => {
     expect(() => resolveAppEnv({ ENVIRONMENT: 'production', CURSOR_SECRET: 'a'.repeat(16) })).toThrow('MYSQL_URL must be configured');
   });
 
+  it('requires an independent guestbook rate secret in production', () => {
+    expect(() => resolveAppEnv({ ENVIRONMENT: 'production', MYSQL_URL: 'mysql://user:pass@localhost/db', CURSOR_SECRET: 'a'.repeat(16) })).toThrow('GUESTBOOK_RATE_SECRET');
+  });
+
   it('reports actual healthcheck state without exposing database details', async () => {
     const env = { ENVIRONMENT: 'test', BUILD_VERSION: 'test-build', MAX_BODY_BYTES: 1, MYSQL_URL: 'mysql://redacted' };
     await expect(healthPayload(env, { healthcheck: async () => undefined })).resolves.toMatchObject({ db: 'ok' });

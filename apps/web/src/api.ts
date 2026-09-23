@@ -1,4 +1,4 @@
-import type { HistoryPage, ItemMarketHistory, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
+import type { GuestbookFilters, GuestbookPage, GuestbookSubmissionInput, HistoryPage, ItemMarketHistory, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -18,6 +18,8 @@ export interface MarketApiClient {
   getItemHistory(itemId: number, signal?: AbortSignal): Promise<ItemMarketHistory>;
   getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse>;
   getStatus(signal?: AbortSignal): Promise<MarketStatus>;
+  searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage>;
+  createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }>;
 }
 
 export class MarketApi implements MarketApiClient {
@@ -52,6 +54,22 @@ export class MarketApi implements MarketApiClient {
 
   async getStatus(signal?: AbortSignal): Promise<MarketStatus> {
     return this.request('/api/v1/status', signal);
+  }
+
+  async searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage> {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value));
+    return this.request(`/api/v1/guestbook?${params.toString()}`, signal);
+  }
+
+  async createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }> {
+    const response = await fetch('/api/v1/guestbook', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+      ...(signal ? { signal } : {}),
+    });
+    return this.readResponse(response);
   }
 
   private async request<T>(path: string, signal?: AbortSignal): Promise<T> {
