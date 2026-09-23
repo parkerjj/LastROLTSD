@@ -114,6 +114,22 @@ describe('upload ingestion', () => {
     expect(duplicate).toEqual({ accepted: true, batch_id: 'snap/0', duplicate: true, processed_shops: 1, processed_listings: 1, changed_listings: 0, sold_events: 0, shops: [], next: null });
   });
 
+  it('retries full snapshot reconciliation when an accepted batch is replayed', async () => {
+    const repo = fakeRepo();
+    await ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const accepted = await repo.getBatch(source.id, 'snap/0');
+    expect(accepted?.responseJson).toBeTruthy();
+    const response = JSON.parse(accepted!.responseJson!) as Record<string, unknown>;
+    repo.getSnapshotParts = async () => [{ ...accepted!, responseJson: accepted!.responseJson }];
+    const reconciled: unknown[] = [];
+    repo.reconcileSnapshot = async (input) => { reconciled.push(input); return { sourceId: 's1', snapshotId: 'snap', complete: true, baseline: false, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 }; };
+
+    const duplicate = await ingestUpload(source, request, 'snap/0', repo, { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+
+    expect(duplicate).toEqual({ ...response, duplicate: true });
+    expect(reconciled).toHaveLength(1);
+  });
+
   it('uses shop objects for heartbeat and does not process listings', async () => {
     const repo = fakeRepo();
     const heartbeat = { ...request, snapshot_id: 'heartbeat', snapshot_mode: 'heartbeat' as const, shops: [{ ...shop, items: [] }] };

@@ -15,6 +15,16 @@ const many = async <T extends Row>(statement: D1PreparedStatement): Promise<T[]>
 const cards = (row: Row): number[] => [row.card0, row.card1, row.card2, row.card3].map((v) => Number(v ?? 0));
 const shopResolutionKey = (sourceId: string, identityHash: string): string => JSON.stringify([sourceId, identityHash]);
 
+function parseProfileHashes(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((hash): hash is string => typeof hash === 'string' && /^[0-9a-f]{64}$/u.test(hash)))] : [];
+  } catch {
+    return [];
+  }
+}
+
 function rowsFromBatchResult(result: unknown): Row[] {
   if (!result || typeof result !== 'object') return [];
   const rows = (result as { results?: unknown }).results;
@@ -325,10 +335,26 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       ) WHERE source_id=?2 AND snapshot_id=?3`).bind(payload, sourceId, snapshotId).run();
       void observedAt;
     },
+    async recordSnapshotProfileHashes(sourceId, snapshotId, profileHashes, observedAt) {
+      if (profileHashes.length === 0) return;
+      const payload = JSON.stringify([...new Set(profileHashes)]);
+      await db.prepare(`UPDATE upload_batches SET shop_hashes_json=(
+        SELECT json_group_array(shop_hash) FROM (
+          SELECT value AS shop_hash FROM json_each(upload_batches.shop_hashes_json)
+          UNION
+          SELECT value AS shop_hash FROM json_each(?1)
+        )
+      ) WHERE source_id=?2 AND snapshot_id=?3`).bind(payload, sourceId, snapshotId).run();
+      void observedAt;
+    },
     async getSnapshotSessionIds(sourceId, snapshotId) {
       const rows = await many<Row>(db.prepare("SELECT shop_ids_json FROM upload_batches WHERE source_id=?1 AND snapshot_id=?2 ORDER BY part_index LIMIT 1").bind(sourceId, snapshotId));
       if (!rows[0]?.shop_ids_json) return [];
       try { const parsed = JSON.parse(String(rows[0].shop_ids_json)); return Array.isArray(parsed) ? parsed.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : []; } catch { return []; }
+    },
+    async getSnapshotProfileHashes(sourceId, snapshotId) {
+      const rows = await many<Row>(db.prepare("SELECT shop_hashes_json FROM upload_batches WHERE source_id=?1 AND snapshot_id=?2 ORDER BY part_index LIMIT 1").bind(sourceId, snapshotId));
+      return parseProfileHashes(rows[0]?.shop_hashes_json);
     },
     async updateShopFullStateHashes(updates, observedAt) {
       if (updates.length === 0) return;
@@ -336,7 +362,10 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
       await db.prepare("UPDATE shops SET full_state_hash=(SELECT json_extract(input.value,'$.fullStateHash') FROM json_each(?1) AS input WHERE CAST(json_extract(input.value,'$.shopId') AS INTEGER)=shops.id) WHERE id IN (SELECT CAST(json_extract(input.value,'$.shopId') AS INTEGER) FROM json_each(?1) AS input)").bind(payload).run();
     },
     async finalizeSnapshot(sourceId, snapshotId, observedAt) {
-      await db.prepare('UPDATE market_sources SET last_full_snapshot_id=?1,last_full_snapshot_at=?2,updated_at=?2 WHERE id=?3').bind(snapshotId, observedAt, sourceId).run();
+      const latestSnapshot = await one<Row>(db.prepare('SELECT last_full_snapshot_id,last_full_snapshot_at FROM market_sources WHERE id=?1').bind(sourceId));
+      if (latestSnapshot?.last_full_snapshot_id !== snapshotId && latestSnapshot?.last_full_snapshot_at != null && Number(latestSnapshot.last_full_snapshot_at) > observedAt) return;
+      const sourceUpdate = await db.prepare('UPDATE market_sources SET last_full_snapshot_id=?1,last_full_snapshot_at=?2,updated_at=?2 WHERE id=?3 AND (last_full_snapshot_at IS NULL OR last_full_snapshot_at<?2 OR (last_full_snapshot_at=?2 AND (last_full_snapshot_id IS NULL OR last_full_snapshot_id<>?1)))').bind(snapshotId, observedAt, sourceId).run();
+      void sourceUpdate;
       const rows = await many<Row>(db.prepare("SELECT shop_ids_json FROM upload_batches WHERE source_id=?1 AND snapshot_id=?2 ORDER BY part_index LIMIT 1").bind(sourceId, snapshotId));
       let ids: number[] = [];
       try { const parsed = rows[0]?.shop_ids_json ? JSON.parse(String(rows[0].shop_ids_json)) : []; ids = Array.isArray(parsed) ? parsed.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0) : []; } catch { ids = []; }
@@ -344,17 +373,25 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
     },
     async reconcileSnapshot(input: SnapshotReconciliationInput): Promise<ReconciliationResult> {
       if (input.batchIds.length === 0) return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: false, baseline: false, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
+      const latestSnapshot = await one<Row>(db.prepare('SELECT last_full_snapshot_id,last_full_snapshot_at FROM market_sources WHERE id=?1').bind(input.sourceId));
+      if (latestSnapshot?.last_full_snapshot_id === input.snapshotId || (latestSnapshot?.last_full_snapshot_at != null && Number(latestSnapshot.last_full_snapshot_at) > input.observedAt)) {
+        return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: true, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
+      }
       const shopIds = [...new Set((input.sessionIds ?? []).filter((id) => Number.isSafeInteger(id) && id > 0))];
       const scope = JSON.stringify(shopIds); const batches = JSON.stringify(input.batchIds);
-      const closeMissingShops = db.prepare(`UPDATE shops SET status='closed',full_state_hash=NULL,missing_full_count=0,last_status_observed_at=?1,last_changed_at=?1,closed_at=?1,close_reason='missing_full'
-        WHERE source_id=?2 AND status IN ('active','stale') AND last_status_observed_at<?1
-          AND id NOT IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))`);
+      const profileHashes = input.profileHashes === undefined ? null : [...new Set(input.profileHashes.filter((hash) => /^[0-9a-f]{64}$/u.test(hash)))];
+      const closeMissingShops = profileHashes === null
+        ? db.prepare(`UPDATE shops SET status='closed',full_state_hash=NULL,missing_full_count=0,last_status_observed_at=?1,last_changed_at=?1,closed_at=?1,close_reason='missing_full'
+          WHERE source_id=?2 AND status IN ('active','stale')
+            AND id NOT IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))`).bind(input.observedAt, input.sourceId, scope)
+        : db.prepare(`UPDATE shops SET status='closed',full_state_hash=NULL,missing_full_count=0,last_status_observed_at=?1,last_changed_at=?1,closed_at=?1,close_reason='missing_full'
+          WHERE source_id=?2 AND status IN ('active','stale')
+            AND NOT EXISTS (SELECT 1 FROM json_each(?3) AS snapshot_shop WHERE snapshot_shop.value=shops.profile_hash)`).bind(input.observedAt, input.sourceId, JSON.stringify(profileHashes));
       const expireMissingShopListings = db.prepare(`UPDATE listings SET status='expired',last_changed_at=?1,state_version=state_version+1,missing_full_count=0
         WHERE status IN ('active','missing') AND shop_id IN (
           SELECT id FROM shops WHERE source_id=?2 AND status='closed' AND closed_at=?1 AND close_reason='missing_full'
-            AND id NOT IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))
         )`);
-      await db.batch([closeMissingShops.bind(input.observedAt, input.sourceId, scope), expireMissingShopListings.bind(input.observedAt, input.sourceId, scope)]);
+      await db.batch([closeMissingShops, expireMissingShopListings.bind(input.observedAt, input.sourceId)]);
       const baselineRow = await one<Row>(db.prepare("SELECT COUNT(*) AS count FROM shops WHERE source_id=?3 AND id IN (SELECT CAST(value AS INTEGER) FROM json_each(?2)) AND full_state_hash IS NULL").bind(input.observedAt, scope, input.sourceId));
       if (Number(baselineRow?.count ?? 0) > 0) return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: true, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
       const stalePredicate = "shop_id IN (SELECT CAST(value AS INTEGER) FROM json_each(?2)) AND status IN ('active','missing') AND (last_changed_snapshot_id IS NULL OR last_changed_snapshot_id NOT IN (SELECT value FROM json_each(?3)))";

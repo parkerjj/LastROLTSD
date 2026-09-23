@@ -100,7 +100,10 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
   let retryingRejected = false;
   if (duplicate) {
     if (duplicate.payloadHash !== hash) throw new IngestionError(422, 'idempotency_key_reused', 'Idempotency key was reused with a different payload', { action: 'new_snapshot' });
-    if (duplicate.responseJson) return { ...(JSON.parse(duplicate.responseJson) as UploadResult), duplicate: true };
+    if (duplicate.responseJson) {
+      if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, Date.parse(request.observed_at));
+      return { ...(JSON.parse(duplicate.responseJson) as UploadResult), duplicate: true };
+    }
     if (duplicate.status === 'rejected') {
       if (!repo.retryBatch) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository cannot retry a rejected upload batch', { retryable: true });
       if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(423, 'batch_in_progress', 'Batch retry was claimed by another request', { retryable: true, retryAfterSeconds: 5 });
@@ -113,7 +116,10 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     if (!batch) throw new IngestionError(503, 'storage_unavailable', 'Batch claim failed', { retryable: true });
     if (batch.inserted === false) {
       if (batch.payloadHash !== hash) throw new IngestionError(422, 'idempotency_key_reused', 'Idempotency key was reused with a different payload', { action: 'new_snapshot' });
-      if (batch.responseJson) return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
+      if (batch.responseJson) {
+        if (request.snapshot_mode === 'full') await createSnapshotReconciler(repo).finalizeSnapshot(source.id, request.snapshot_id, Date.parse(request.observed_at));
+        return { ...(JSON.parse(batch.responseJson) as UploadResult), duplicate: true };
+      }
       if (batch.status === 'rejected') {
         if (!repo.retryBatch) throw new IngestionError(500, 'ingestion_invariant_failed', 'Repository cannot retry a rejected upload batch', { retryable: true });
         if (await repo.retryBatch(source.id, batchId) === false) throw new IngestionError(423, 'batch_in_progress', 'Batch retry was claimed by another request', { retryable: true, retryAfterSeconds: 5 });
@@ -159,7 +165,13 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
     const observations = observationGroups.flat();
 
     onStage?.('record_snapshot');
-    if (request.snapshot_mode === 'full' && repo.recordSnapshotSessions) await repo.recordSnapshotSessions(source.id, request.snapshot_id, [...new Set(sessions.map((session) => session.id))], observedAt);
+    if (request.snapshot_mode === 'full') {
+      if (repo.recordSnapshotSessions) await repo.recordSnapshotSessions(source.id, request.snapshot_id, [...new Set(sessions.map((session) => session.id))], observedAt);
+      if (repo.recordSnapshotProfileHashes) {
+        const profileHashes = opening.flatMap((entry) => entry.context.profileHash === undefined ? [] : [entry.context.profileHash]);
+        await repo.recordSnapshotProfileHashes(source.id, request.snapshot_id, [...new Set(profileHashes)], observedAt);
+      }
+    }
     const sessionsById = new Map(listingEntries.map((entry) => entry.resolution.session!).map((session) => [session.id, session]));
     onStage?.('apply_listings');
     const stateResult = request.snapshot_mode === 'heartbeat'

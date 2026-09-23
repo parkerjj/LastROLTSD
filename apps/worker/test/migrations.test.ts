@@ -85,7 +85,7 @@ describe('D1 migrations', () => {
       expect(columns(db, 'shops')).toEqual(expect.arrayContaining(['profile_hash', 'full_state_hash', 'missing_full_count', 'last_missing_snapshot_id']));
       expect(columns(db, 'listings')).toEqual(expect.arrayContaining(['shop_id', 'missing_full_count', 'last_changed_snapshot_id']));
       expect(columns(db, 'listings')).not.toEqual(expect.arrayContaining(['shop_session_id', 'last_seen_at', 'last_batch_id']));
-      expect(columns(db, 'upload_batches')).toContain('shop_ids_json');
+      expect(columns(db, 'upload_batches')).toEqual(expect.arrayContaining(['shop_ids_json', 'shop_hashes_json']));
     } finally {
       db.close();
     }

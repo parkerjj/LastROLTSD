@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createD1Repository } from '../src/db/d1-repository';
 import { computeShopIdentity } from '../src/domain/shop-identity';
+import { createSnapshotReconciler } from '../src/services/snapshot-reconciler';
 
 class SqlitePrepared {
   private values: SQLInputValue[] = [];
@@ -219,8 +220,8 @@ describe('D1 clean-break lifecycle', () => {
       const shopA = await repository.resolveShopObservation!(firstA);
       const shopB = await repository.resolveShopObservation!(firstB);
       const otherSourceShop = await repository.resolveShopObservation!(await observation('source-b', 100, 'opening', 'account-c'));
-      const equallyRecentShop = await repository.resolveShopObservation!(await observation('source-a', 200, 'opening', 'account-d'));
       const listing = await repository.createListing!({ sessionId: shopB.internalShopId, fingerprint: 'fp-omitted-shop', itemId: 4001, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 10, quantity: 1, observedAt: 100, batchId: 'full-1/0' });
+      const otherSourceListing = await repository.createListing!({ sessionId: otherSourceShop.internalShopId, fingerprint: 'fp-other-source', itemId: 4002, upgrade: 0, slots: 0, cards: [0, 0, 0, 0], price: 20, quantity: 1, observedAt: 100, batchId: 'full-1/0' });
       await repository.insertBatch({ sourceId: 'source-a', batchId: 'full-1/0', snapshotId: 'full-1', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'full-1', responseJson: null, receivedAt: 100 });
       await repository.recordSnapshotSessions!('source-a', 'full-1', [shopA.internalShopId, shopB.internalShopId], 100);
       await repository.finalizeSnapshot('source-a', 'full-1', 100);
@@ -228,13 +229,13 @@ describe('D1 clean-break lifecycle', () => {
       const secondA = await repository.resolveShopObservation!({ ...firstA, observedAt: 200, batchId: 'full-2/0' });
       await repository.insertBatch({ sourceId: 'source-a', batchId: 'full-2/0', snapshotId: 'full-2', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'full-2', responseJson: null, receivedAt: 200 });
       await repository.recordSnapshotSessions!('source-a', 'full-2', [secondA.internalShopId], 200);
-      await repository.reconcileSnapshot!({ sourceId: 'source-a', snapshotId: 'full-2', observedAt: 200, batchIds: ['full-2/0'], sessionIds: [secondA.internalShopId] });
+      await repository.reconcileSnapshot!({ sourceId: 'source-a', snapshotId: 'full-2', observedAt: 200, batchIds: ['full-2/0'], sessionIds: [secondA.internalShopId], profileHashes: [secondA.identityHash] });
 
       expect(d1.database.prepare('SELECT status,close_reason,closed_at FROM shops WHERE id=?').get(shopB.internalShopId)).toEqual({ status: 'closed', close_reason: 'missing_full', closed_at: 200 });
       expect(d1.database.prepare('SELECT status FROM listings WHERE id=?').get(listing.id)).toEqual({ status: 'expired' });
       expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(otherSourceShop.internalShopId)).toEqual({ status: 'active' });
-      expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(equallyRecentShop.internalShopId)).toEqual({ status: 'active' });
-      expect((await repository.searchListings({ limit: 20, sort: 'price_asc' })).items).toEqual([]);
+      expect(d1.database.prepare('SELECT status FROM listings WHERE id=?').get(otherSourceListing.id)).toEqual({ status: 'active' });
+      expect((await repository.searchListings({ limit: 20, sort: 'price_asc' })).items).toHaveLength(1);
     } finally { d1.database.close(); }
   });
 
@@ -248,6 +249,52 @@ describe('D1 clean-break lifecycle', () => {
       await repository.recordSnapshotSessions!('source-a', 'multi', [22], 100);
 
       expect(await repository.getSnapshotSessionIds!('source-a', 'multi')).toEqual([11, 22]);
+    } finally { d1.database.close(); }
+  });
+
+  it('waits for every accepted full part before closing omitted shops globally', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const currentA = await repository.resolveShopObservation!(await observation('source-a', 100, 'opening', 'account-a'));
+      const currentB = await repository.resolveShopObservation!(await observation('source-a', 100, 'opening', 'account-b'));
+      const omitted = await repository.resolveShopObservation!(await observation('source-b', 100, 'opening', 'account-c'));
+      await repository.insertBatch({ sourceId: 'source-a', batchId: 'multi/0', snapshotId: 'multi', partIndex: 0, partCount: 2, snapshotMode: 'full', payloadHash: 'multi-0', responseJson: null, receivedAt: 200 });
+      await repository.recordSnapshotSessions!('source-a', 'multi', [currentA.internalShopId], 200);
+      await repository.completeBatch('source-a', 'multi/0', { accepted: true, batch_id: 'multi/0', duplicate: false, processed_shops: 1, processed_listings: 0, changed_listings: 0, sold_events: 0, shops: [], next: null });
+
+      const reconciler = createSnapshotReconciler(repository);
+      expect((await reconciler.finalizeSnapshot('source-a', 'multi', 200)).complete).toBe(false);
+      expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(omitted.internalShopId)).toEqual({ status: 'active' });
+
+      await repository.insertBatch({ sourceId: 'source-a', batchId: 'multi/1', snapshotId: 'multi', partIndex: 1, partCount: 2, snapshotMode: 'full', payloadHash: 'multi-1', responseJson: null, receivedAt: 200 });
+      await repository.recordSnapshotSessions!('source-a', 'multi', [currentB.internalShopId], 200);
+      await repository.completeBatch('source-a', 'multi/1', { accepted: true, batch_id: 'multi/1', duplicate: false, processed_shops: 1, processed_listings: 0, changed_listings: 0, sold_events: 0, shops: [], next: null });
+
+      expect((await reconciler.finalizeSnapshot('source-a', 'multi', 200)).complete).toBe(true);
+      expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(currentA.internalShopId)).toEqual({ status: 'active' });
+      expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(currentB.internalShopId)).toEqual({ status: 'active' });
+      expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(omitted.internalShopId)).toEqual({ status: 'active' });
+
+      const openedAfterSnapshot = await repository.resolveShopObservation!(await observation('source-a', 300, 'opening', 'account-d'));
+      await reconciler.finalizeSnapshot('source-a', 'multi', 200);
+      expect(d1.database.prepare('SELECT status FROM shops WHERE id=?').get(openedAfterSnapshot.internalShopId)).toEqual({ status: 'active' });
+    } finally { d1.database.close(); }
+  });
+
+  it('reconciles a different snapshot with the same observed timestamp', async () => {
+    const d1 = createDatabase();
+    try {
+      const repository = createD1Repository(d1 as never);
+      const oldShop = await repository.resolveShopObservation!(await observation('source-a', 100, 'opening', 'old-account'));
+      await repository.insertBatch({ sourceId: 'source-a', batchId: 'same-time/0', snapshotId: 'same-time', partIndex: 0, partCount: 1, snapshotMode: 'full', payloadHash: 'same-time', responseJson: null, receivedAt: 100 });
+      await repository.recordSnapshotSessions!('source-a', 'same-time', [oldShop.internalShopId], 100);
+      await repository.recordSnapshotProfileHashes!('source-a', 'same-time', ['a'.repeat(64)], 100);
+      await repository.completeBatch('source-a', 'same-time/0', { accepted: true, batch_id: 'same-time/0', duplicate: false, processed_shops: 1, processed_listings: 0, changed_listings: 0, sold_events: 0, shops: [], next: null });
+      await createSnapshotReconciler(repository).finalizeSnapshot('source-a', 'same-time', 100);
+
+      await repository.reconcileSnapshot!({ sourceId: 'source-a', snapshotId: 'same-time-new', observedAt: 100, batchIds: ['same-time-new/0'], profileHashes: [] });
+      expect(d1.database.prepare('SELECT status,close_reason FROM shops WHERE id=?').get(oldShop.internalShopId)).toEqual({ status: 'closed', close_reason: 'missing_full' });
     } finally { d1.database.close(); }
   });
 });

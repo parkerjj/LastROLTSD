@@ -138,6 +138,7 @@ describe('MySQL repository upload core', () => {
 
     expect(result.inserted).toBe(false);
     expect(db.sql[0]).toContain('ON DUPLICATE KEY UPDATE batch_id = VALUES(batch_id)');
+    expect(db.sql[0]).toContain('shop_hashes_json');
     expect(db.sql[0]).not.toContain('INSERT OR IGNORE');
     expect(db.values[0]).toContain('snapshot/0');
   });
@@ -226,7 +227,7 @@ describe('MySQL repository upload core', () => {
     expect(db.sql.join('\n')).not.toContain('json_each');
   });
 
-  it('closes source shops omitted from a complete full snapshot', async () => {
+  it('closes all active shops omitted from a complete full snapshot', async () => {
     const db = new RecordingMysqlDatabase({ affectedRows: 1, insertId: 1 }, { shop_ids_json: '[1]' });
     await createMysqlRepository(db).reconcileSnapshot!({
       sourceId: 'source',
@@ -236,13 +237,15 @@ describe('MySQL repository upload core', () => {
       sessionIds: [1, 2],
     });
 
-    const sql = db.sql.join('\n');
-    expect(sql).toContain("shops.status = 'closed'");
-    expect(sql).toContain("close_reason = 'missing_full'");
-    expect(sql).toContain('JSON_TABLE');
-    expect(sql).toContain('shops.source_id = ?');
-    expect(sql).toContain('last_status_observed_at < ?');
-    expect(sql).toContain("listings.status = 'expired'");
+    const closeSql = db.sql.find((sql) => sql.includes("SET status = 'closed'"));
+    const expireSql = db.sql.find((sql) => sql.includes("SET listings.status = 'expired'"));
+    expect(closeSql).toContain("SET status = 'closed'");
+    expect(closeSql).toContain("close_reason = 'missing_full'");
+    expect(closeSql).toContain('JSON_TABLE');
+    expect(closeSql).toContain('source_id = ?');
+    expect(closeSql).not.toMatch(/WHERE[\s\S]*last_status_observed_at/iu);
+    expect(expireSql).toContain("listings.status = 'expired'");
+    expect(expireSql).toContain('shops.source_id = ?');
   });
 
   it('merges shop IDs across multipart MySQL snapshot records', async () => {
@@ -252,6 +255,15 @@ describe('MySQL repository upload core', () => {
     expect(db.transactions).toBe(1);
     expect(db.sql.some((sql) => sql.includes('FOR UPDATE'))).toBe(true);
     expect(JSON.parse(String(db.values.at(-1)?.[0]))).toEqual([11, 22]);
+  });
+
+  it('persists the complete profile hash union for multipart snapshots', async () => {
+    const db = new RecordingMysqlDatabase({ affectedRows: 1, insertId: 1 }, { shop_ids_json: '[11]' });
+    const repo = createMysqlRepository(db) as any;
+    await repo.recordSnapshotProfileHashes('source', 'snapshot', ['hash-a', 'hash-b'], 100);
+
+    expect(db.sql.some((sql) => sql.includes('shop_hashes_json'))).toBe(true);
+    expect(JSON.parse(String(db.values.at(-1)?.[0]))).toEqual(['hash-a', 'hash-b']);
   });
 
   it('keeps option definitions static and uses MySQL-safe bounded retention deletes', async () => {

@@ -267,6 +267,16 @@ function parseShopIds(value: unknown): number[] {
   }
 }
 
+function parseProfileHashes(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((hash): hash is string => typeof hash === 'string' && /^[0-9a-f]{64}$/u.test(hash)))] : [];
+  } catch {
+    return [];
+  }
+}
+
 export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_CURSOR_SECRET): MarketRepository {
   // The search implementation added in the later repository task consumes this
   // value. Keeping it part of the factory avoids a second production factory.
@@ -611,8 +621,8 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     },
     async insertBatch(input) {
       const result = await db.run(`INSERT INTO upload_batches(
-          source_id, batch_id, snapshot_id, part_index, part_count, snapshot_mode, payload_hash, status, shop_ids_json, received_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)
+          source_id, batch_id, snapshot_id, part_index, part_count, snapshot_mode, payload_hash, status, shop_ids_json, shop_hashes_json, received_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', ?)
         ON DUPLICATE KEY UPDATE batch_id = VALUES(batch_id)`, [
         input.sourceId, input.batchId, input.snapshotId, input.partIndex, input.partCount,
         input.snapshotMode, input.payloadHash, input.status ?? 'processing', input.receivedAt,
@@ -659,9 +669,22 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       });
       void observedAt;
     },
+    async recordSnapshotProfileHashes(sourceId, snapshotId, profileHashes, observedAt) {
+      if (profileHashes.length === 0) return;
+      await db.transaction(async (tx) => {
+        const row = await tx.first<Row>('SELECT shop_hashes_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1 FOR UPDATE', [sourceId, snapshotId]);
+        const merged = [...new Set([...parseProfileHashes(row?.shop_hashes_json), ...profileHashes])];
+        await tx.run('UPDATE upload_batches SET shop_hashes_json = ? WHERE source_id = ? AND snapshot_id = ?', [JSON.stringify(merged), sourceId, snapshotId]);
+      });
+      void observedAt;
+    },
     async getSnapshotSessionIds(sourceId, snapshotId) {
       const row = await db.first<Row>('SELECT shop_ids_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1', [sourceId, snapshotId]);
       return parseShopIds(row?.shop_ids_json);
+    },
+    async getSnapshotProfileHashes(sourceId, snapshotId) {
+      const row = await db.first<Row>('SELECT shop_hashes_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1', [sourceId, snapshotId]);
+      return parseProfileHashes(row?.shop_hashes_json);
     },
     async updateShopFullStateHashes(updates, observedAt) {
       if (updates.length === 0) return;
@@ -674,7 +697,10 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       void observedAt;
     },
     async finalizeSnapshot(sourceId, snapshotId, observedAt) {
-      await db.run('UPDATE market_sources SET last_full_snapshot_id = ?, last_full_snapshot_at = ?, updated_at = ? WHERE id = ?', [snapshotId, observedAt, observedAt, sourceId]);
+      const latestSnapshot = await db.first<Row>('SELECT last_full_snapshot_id, last_full_snapshot_at FROM market_sources WHERE id = ?', [sourceId]);
+      if (latestSnapshot?.last_full_snapshot_id !== snapshotId && latestSnapshot?.last_full_snapshot_at != null && Number(latestSnapshot.last_full_snapshot_at) > observedAt) return;
+      const sourceUpdate = await db.run('UPDATE market_sources SET last_full_snapshot_id = ?, last_full_snapshot_at = ?, updated_at = ? WHERE id = ? AND (last_full_snapshot_at IS NULL OR last_full_snapshot_at < ? OR (last_full_snapshot_at = ? AND (last_full_snapshot_id IS NULL OR last_full_snapshot_id <> ?)))', [snapshotId, observedAt, observedAt, sourceId, observedAt, observedAt, snapshotId]);
+      void sourceUpdate;
       const row = await db.first<Row>('SELECT shop_ids_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1', [sourceId, snapshotId]);
       const sessionIds = parseShopIds(row?.shop_ids_json);
       if (sessionIds.length === 0) return;
@@ -704,24 +730,30 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       const batches = JSON.stringify([...new Set(input.batchIds)]);
 
       return db.transaction(async (tx) => {
+        const latestSnapshot = await tx.first<Row>('SELECT last_full_snapshot_id, last_full_snapshot_at FROM market_sources WHERE id = ? FOR UPDATE', [input.sourceId]);
+        if (latestSnapshot?.last_full_snapshot_id === input.snapshotId || (latestSnapshot?.last_full_snapshot_at != null && Number(latestSnapshot.last_full_snapshot_at) > input.observedAt)) return empty(true, true);
+        const profileHashes = input.profileHashes === undefined ? null : [...new Set(input.profileHashes.filter((hash) => /^[0-9a-f]{64}$/u.test(hash)))];
+        const presenceSql = profileHashes === null
+          ? `NOT EXISTS (
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+              WHERE snapshot_shop.shop_id = shops.id
+            )`
+          : `NOT EXISTS (
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(profile_hash CHAR(64) PATH '$')) AS snapshot_shop
+              WHERE snapshot_shop.profile_hash = shops.profile_hash
+            )`;
+        const presenceValues = profileHashes === null ? scope : JSON.stringify(profileHashes);
         await tx.run(`UPDATE shops
           SET status = 'closed', full_state_hash = NULL, missing_full_count = 0,
             last_status_observed_at = ?, last_changed_at = ?, closed_at = ?, close_reason = 'missing_full'
-          WHERE source_id = ? AND status IN ('active', 'stale') AND last_status_observed_at < ?
-            AND NOT EXISTS (
-              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
-              WHERE snapshot_shop.shop_id = shops.id
-            )`, [input.observedAt, input.observedAt, input.observedAt, input.sourceId, input.observedAt, scope]);
+          WHERE shops.source_id = ? AND shops.status IN ('active', 'stale') AND ${presenceSql}`, [input.observedAt, input.observedAt, input.observedAt, input.sourceId, presenceValues]);
         await tx.run(`UPDATE listings
           JOIN shops ON shops.id = listings.shop_id
           SET listings.status = 'expired', listings.last_changed_at = ?, listings.state_version = listings.state_version + 1,
             listings.missing_full_count = 0
-          WHERE listings.status IN ('active', 'missing') AND shops.source_id = ?
+          WHERE shops.source_id = ? AND listings.status IN ('active', 'missing')
             AND shops.status = 'closed' AND shops.closed_at = ? AND shops.close_reason = 'missing_full'
-            AND NOT EXISTS (
-              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
-              WHERE snapshot_shop.shop_id = shops.id
-            )`, [input.observedAt, input.sourceId, input.observedAt, scope]);
+            `, [input.observedAt, input.sourceId, input.observedAt]);
         const baseline = await tx.first<Row>(`SELECT COUNT(*) AS count FROM shops
           JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
             ON shops.id = snapshot_shop.shop_id

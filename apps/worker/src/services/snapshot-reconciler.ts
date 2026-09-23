@@ -32,7 +32,8 @@ export function createSnapshotReconciler(repo: MarketRepository) {
       const input = completeInput(sourceId, snapshotId, observedAt, parts);
       if (!input) return emptyResult(sourceId, snapshotId);
       const sessionIds = repo.getSnapshotSessionIds ? await repo.getSnapshotSessionIds(sourceId, snapshotId) : [];
-      const result = await reconcile({ ...input, ...(sessionIds.length > 0 ? { sessionIds } : {}) });
+      const profileHashes = repo.getSnapshotProfileHashes ? await repo.getSnapshotProfileHashes(sourceId, snapshotId) : undefined;
+      const result = await reconcile({ ...input, ...(sessionIds.length > 0 ? { sessionIds } : {}), ...(profileHashes === undefined || (profileHashes.length === 0 && sessionIds.length > 0) ? {} : { profileHashes }) });
       await repo.finalizeSnapshot(sourceId, snapshotId, observedAt);
       return result;
     },
@@ -41,7 +42,8 @@ export function createSnapshotReconciler(repo: MarketRepository) {
       const input = completeInput(sourceId, snapshotId, observedAt, parts);
       if (!input) return emptyResult(sourceId, snapshotId);
       const sessionIds = repo.getSnapshotSessionIds ? await repo.getSnapshotSessionIds(sourceId, snapshotId) : [];
-      return reconcile({ ...input, ...(sessionIds.length > 0 ? { sessionIds } : {}) });
+      const profileHashes = repo.getSnapshotProfileHashes ? await repo.getSnapshotProfileHashes(sourceId, snapshotId) : undefined;
+      return reconcile({ ...input, ...(sessionIds.length > 0 ? { sessionIds } : {}), ...(profileHashes === undefined || (profileHashes.length === 0 && sessionIds.length > 0) ? {} : { profileHashes }) });
     },
   };
 }

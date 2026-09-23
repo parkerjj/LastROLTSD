@@ -98,6 +98,7 @@ CREATE TABLE upload_batches (
   payload_hash TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('processing','accepted','rejected')),
   shop_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(shop_ids_json)),
+  shop_hashes_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(shop_hashes_json)),
   response_json TEXT,
   received_at INTEGER NOT NULL,
   completed_at INTEGER,

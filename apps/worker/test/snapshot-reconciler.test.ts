@@ -50,6 +50,23 @@ describe('snapshot reconciliation', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('reconciles all shard shop IDs only after the final full part is accepted', async () => {
+    let parts = [batch(0, 2)];
+    const calls: any[] = [];
+    const repository = repo(parts);
+    repository.getSnapshotParts = async () => parts;
+    (repository as any).getSnapshotSessionIds = async () => [11, 22];
+    (repository as any).reconcileSnapshot = async (input: unknown) => { calls.push(input); return { complete: true, candidates: 0 }; };
+    const reconciler = createSnapshotReconciler(repository);
+
+    expect((await reconciler.finalizeSnapshot('s1', 'snap', 1000)).complete).toBe(false);
+    expect(calls).toHaveLength(0);
+
+    parts = [batch(0, 2), batch(1, 2)];
+    expect((await reconciler.finalizeSnapshot('s1', 'snap', 1000)).complete).toBe(true);
+    expect(calls[0]).toMatchObject({ sessionIds: [11, 22] });
+  });
+
   it('reconciles only a complete full snapshot and leaves delta omission alone', async () => {
     const calls: any[] = [];
     const repository = repo([batch(0, 1, 'full')]);

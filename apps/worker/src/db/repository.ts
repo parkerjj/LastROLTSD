@@ -33,6 +33,7 @@ export interface SnapshotReconciliationInput {
   observedAt: number;
   batchIds: string[];
   sessionIds?: number[];
+  profileHashes?: string[];
 }
 
 export interface ShopSessionContextInput {
@@ -102,6 +103,8 @@ export interface MarketRepository {
   finalizeSnapshot(sourceId: string, snapshotId: string, observedAt: number): Promise<void>;
   recordSnapshotSessions?(sourceId: string, snapshotId: string, sessionIds: number[], observedAt: number): Promise<void>;
   getSnapshotSessionIds?(sourceId: string, snapshotId: string): Promise<number[]>;
+  recordSnapshotProfileHashes?(sourceId: string, snapshotId: string, profileHashes: string[], observedAt: number): Promise<void>;
+  getSnapshotProfileHashes?(sourceId: string, snapshotId: string): Promise<string[]>;
   updateShopFullStateHashes?(updates: Array<{ shopId: number; fullStateHash: string }>, observedAt: number): Promise<void>;
   reconcileSnapshot?(input: SnapshotReconciliationInput): Promise<ReconciliationResult>;
   searchListings(filters: SearchFilters): Promise<{ items: ListingSearchRow[]; nextCursor: string | null }>;
