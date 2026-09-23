@@ -23,7 +23,7 @@
 
 1. 认证、限流、body 大小限制、JSON/schema 校验和 64-part 边界校验。
 2. 使用 `snapshot_id/part_index` 作为幂等 key，计算 payload hash，并以唯一键 CAS claim 该 part。
-3. 将原始规范化 payload 和必要的轻量 manifest 写入 MySQL。HTTP 请求不计算 item fingerprint，不解析 listing options，不执行 listing transition，不更新 missing/sold 状态。为了保持现有 OpenKore 契约，HTTP 请求仍执行轻量的 shop identity 解析并返回 `uuid -> shop_id`；这一步不读取或写入 listing 状态。
+3. 将原始规范化 payload 和必要的轻量 manifest 写入 MySQL。HTTP 请求不计算 item fingerprint，不解析 listing options，不执行 listing transition，不更新 missing/sold 状态。为了保持现有 OpenKore 契约，HTTP 请求仍执行轻量的 shop identity 解析并返回 `uuid -> shop_id`；这一步只读写 shop identity 行，不读取或写入 listing 状态，也不更新 session heartbeat。该轻量 resolver 必须以 500 shops 的 fixture 做 CPU/SQL benchmark。
 4. 创建或更新 snapshot job 元数据。分片可以乱序到达；重复相同 payload 返回缓存结果，重复不同 payload 返回 `422 idempotency_key_reused`。
 5. 只在确认 `[0, part_count)` 全部已接收时，把 snapshot 标记为 `queued` 并创建第一阶段 job。最后一个分片仍只做有界的 part-count/accepted 状态检查和 job enqueue。
 
@@ -54,7 +54,7 @@
 * `payload_json MEDIUMTEXT NOT NULL`：经过 schema 校验、可稳定重放的 JSON。
 * `received_at`、`completed_at` 保留；`status` 对 full 接收阶段使用 `received/processing/accepted/rejected`。
 * 继续使用 `(source_id,batch_id)` 与 `(source_id,snapshot_id,part_index)` 唯一键。
-* `shop_ids_json`/`shop_hashes_json` 继续保留为 HTTP 热路径的轻量 shop manifest。它们只保存当前 part 已解析的内部 shop key/稳定 hash，用于 full 完整性和客户端返回映射，不保存 listing fingerprint 全集；后台 materialize 阶段再按 cursor 写入 listing manifest。
+* `shop_ids_json`/`shop_hashes_json` 继续保留为 HTTP 热路径的轻量 shop manifest。前者保存内部 numeric shop key，后者保存稳定 identity hash；公开的 `shop_id` 仍由 response 的 `uuid -> shop_id` 映射提供。它们用于 full 完整性和后台 materialize 定位，不保存 listing fingerprint 全集；后台 materialize 阶段再按 cursor 写入 listing manifest。
 
 ### snapshot job
 
