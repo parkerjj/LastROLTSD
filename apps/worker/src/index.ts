@@ -100,7 +100,7 @@ async function loadCatalogItemIds(assets: AppEnv['ASSETS']): Promise<ReadonlySet
   let pending = itemIdsCache.get(assets as object);
   if (!pending) {
     pending = Promise.resolve().then(async () => {
-      const response = await assets.fetch(new Request('https://lastroweb.invalid/catalog/items.json'));
+      const response = await assets.fetch('https://lastroweb.invalid/catalog/items.json');
       if (!response.ok) throw new Error('catalog asset unavailable');
       const payload = await response.json() as { items?: Array<{ itemId?: unknown }> };
       if (!Array.isArray(payload.items)) throw new Error('catalog asset invalid');

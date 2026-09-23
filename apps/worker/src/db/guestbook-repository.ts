@@ -69,7 +69,7 @@ function escapeLike(value: string): string {
 
 export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: string): GuestbookRepository {
   return {
-    async create(input, rateKey, bucketStart, rateLimit) {
+    async create(input, rateKey, bucketStart, rateLimit): Promise<'created' | 'rate_limited'> {
       try {
         return await db.transaction(async (tx) => {
           await tx.run(`INSERT INTO guestbook_rate_limits(rate_key, bucket_start, request_count)
@@ -123,7 +123,7 @@ export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: strin
       const last = visible.at(-1);
       return {
         items,
-        nextCursor: hasMore && last ? encode({ createdAt: last.createdAt, id: last.id, context: filters.context }, cursorSecret) : null,
+        nextCursor: hasMore && last ? encode({ createdAt: Number(last.created_at), id: Number(last.id), context: filters.context }, cursorSecret) : null,
       };
     },
 

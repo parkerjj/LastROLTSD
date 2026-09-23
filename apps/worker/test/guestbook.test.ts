@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeGuestbookCursor, encodeGuestbookCursor, parseGuestbookFilters, parseGuestbookSubmission } from '../src/domain/guestbook';
+import { decodeGuestbookCursor, encodeGuestbookCursor, guestbookCursorContext, parseGuestbookFilters, parseGuestbookSubmission } from '../src/domain/guestbook';
 
 describe('guestbook domain', () => {
   it('accepts anonymous suggestions and normalizes content', () => {
@@ -22,8 +22,9 @@ describe('guestbook domain', () => {
   it('strictly parses bounded filters and signs cursors to their filter context', () => {
     const filters = parseGuestbookFilters(new URLSearchParams('category=buy&item_id=100&q=%25_%5C&limit=999'));
     expect(filters).toMatchObject({ category: 'buy', itemId: 100, q: '%_\\', limit: 50 });
-    const token = encodeGuestbookCursor({ createdAt: 1000, id: 5, context: filters.context }, '0123456789abcdef0123456789abcdef');
-    expect(decodeGuestbookCursor(token, filters.context, '0123456789abcdef0123456789abcdef')).toMatchObject({ createdAt: 1000, id: 5 });
+    const context = guestbookCursorContext(filters);
+    const token = encodeGuestbookCursor({ createdAt: 1000, id: 5, context }, '0123456789abcdef0123456789abcdef');
+    expect(decodeGuestbookCursor(token, context, '0123456789abcdef0123456789abcdef')).toMatchObject({ createdAt: 1000, id: 5 });
     expect(() => decodeGuestbookCursor(token, 'other', '0123456789abcdef0123456789abcdef')).toThrow(/cursor/i);
   });
 });

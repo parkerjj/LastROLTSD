@@ -116,7 +116,16 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
     event.preventDefault();
     const category = categoryInput();
     if (category !== 'suggestion' && !zeny.checked && !selectedItem) { status.textContent = '请选择目录中的道具，或勾选 Zeny。'; itemQuery.focus(); return; }
-    const input: GuestbookSubmissionInput = { category, content: content.value, ...(category === 'suggestion' ? {} : { isZeny: zeny.checked, ...(selectedItem ? { itemId: selectedItem.itemId } : {}), contact: root.querySelector<HTMLInputElement>('#guestbook-contact')!.value, duration: root.querySelector<HTMLSelectElement>('#guestbook-duration')!.value as GuestbookSubmissionInput['duration'] }) };
+    const input: GuestbookSubmissionInput = category === 'suggestion'
+      ? { category, content: content.value }
+      : {
+          category,
+          content: content.value,
+          isZeny: zeny.checked,
+          ...(selectedItem ? { itemId: selectedItem.itemId } : {}),
+          contact: root.querySelector<HTMLInputElement>('#guestbook-contact')!.value,
+          duration: root.querySelector<HTMLSelectElement>('#guestbook-duration')!.value as NonNullable<GuestbookSubmissionInput['duration']>,
+        };
     submit.disabled = true; status.textContent = '正在提交…';
     try { await api.createGuestbookEntry(input); form.reset(); selectedItem = null; contentCount.textContent = '0'; selectedHelp.textContent = '请选择目录中的道具，或勾选 Zeny。'; setKind(); status.textContent = '登记已发布。'; currentFilters = { limit: 20 }; pageIndex = 0; pageCursors = [null]; await loadPage(); }
     catch (error) { status.textContent = error instanceof Error ? error.message : '提交失败，请稍后重试。'; }
