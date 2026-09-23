@@ -71,7 +71,7 @@ export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: strin
   return {
     async create(input, rateKey, bucketStart, rateLimit): Promise<'created' | 'rate_limited'> {
       try {
-        return await db.transaction(async (tx) => {
+        return await db.transaction<'created' | 'rate_limited'>(async (tx): Promise<'created' | 'rate_limited'> => {
           await tx.run(`INSERT INTO guestbook_rate_limits(rate_key, bucket_start, request_count)
             VALUES (?, ?, 1)
             ON DUPLICATE KEY UPDATE request_count = request_count + 1`, [rateKey, bucketStart]);
@@ -79,7 +79,7 @@ export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: strin
           if (Number(rate?.request_count ?? rateLimit + 1) > rateLimit) throw new RateLimitedError();
           await tx.run(`INSERT INTO guestbook_entries(category, item_id, is_zeny, contact, content, created_at, expires_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)`, [input.category, input.itemId, input.isZeny ? 1 : 0, input.contact, input.content, input.createdAt, input.expiresAt]);
-          return 'created';
+          return 'created' as const;
         });
       } catch (error) {
         if (error instanceof RateLimitedError) return 'rate_limited';
