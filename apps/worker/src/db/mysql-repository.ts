@@ -652,7 +652,11 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     },
     async recordSnapshotSessions(sourceId, snapshotId, sessionIds, observedAt) {
       if (sessionIds.length === 0) return;
-      await db.run('UPDATE upload_batches SET shop_ids_json = ? WHERE source_id = ? AND snapshot_id = ?', [JSON.stringify([...new Set(sessionIds)]), sourceId, snapshotId]);
+      await db.transaction(async (tx) => {
+        const row = await tx.first<Row>('SELECT shop_ids_json FROM upload_batches WHERE source_id = ? AND snapshot_id = ? ORDER BY part_index LIMIT 1 FOR UPDATE', [sourceId, snapshotId]);
+        const merged = [...new Set([...parseShopIds(row?.shop_ids_json), ...sessionIds])];
+        await tx.run('UPDATE upload_batches SET shop_ids_json = ? WHERE source_id = ? AND snapshot_id = ?', [JSON.stringify(merged), sourceId, snapshotId]);
+      });
       void observedAt;
     },
     async getSnapshotSessionIds(sourceId, snapshotId) {
@@ -696,11 +700,28 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       });
       if (input.batchIds.length === 0) return empty(false, false);
       const sessionIds = [...new Set((input.sessionIds ?? []).filter((id) => Number.isSafeInteger(id) && id > 0))];
-      if (sessionIds.length === 0) return empty(true, false);
       const scope = JSON.stringify(sessionIds);
       const batches = JSON.stringify([...new Set(input.batchIds)]);
 
       return db.transaction(async (tx) => {
+        await tx.run(`UPDATE shops
+          SET status = 'closed', full_state_hash = NULL, missing_full_count = 0,
+            last_status_observed_at = ?, last_changed_at = ?, closed_at = ?, close_reason = 'missing_full'
+          WHERE source_id = ? AND status IN ('active', 'stale') AND last_status_observed_at < ?
+            AND NOT EXISTS (
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+              WHERE snapshot_shop.shop_id = shops.id
+            )`, [input.observedAt, input.observedAt, input.observedAt, input.sourceId, input.observedAt, scope]);
+        await tx.run(`UPDATE listings
+          JOIN shops ON shops.id = listings.shop_id
+          SET listings.status = 'expired', listings.last_changed_at = ?, listings.state_version = listings.state_version + 1,
+            listings.missing_full_count = 0
+          WHERE listings.status IN ('active', 'missing') AND shops.source_id = ?
+            AND shops.status = 'closed' AND shops.closed_at = ? AND shops.close_reason = 'missing_full'
+            AND NOT EXISTS (
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
+              WHERE snapshot_shop.shop_id = shops.id
+            )`, [input.observedAt, input.sourceId, input.observedAt, scope]);
         const baseline = await tx.first<Row>(`SELECT COUNT(*) AS count FROM shops
           JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
             ON shops.id = snapshot_shop.shop_id

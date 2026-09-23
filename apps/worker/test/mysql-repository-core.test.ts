@@ -18,6 +18,7 @@ class RecordingMysqlDatabase implements MysqlDatabase {
   async all<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> {
     this.sql.push(sql);
     this.values.push(values);
+    if (sql.includes('shop_ids_json')) return this.batchRow ? [this.batchRow as T] : [];
     if (sql.includes('FOR UPDATE')) return this.lockedListingIds.map((id) => ({ id }) as unknown as T);
     if (sql.includes('FROM upload_batches')) return this.batchRow ? [this.batchRow as T] : [];
     if (!sql.includes('FROM shops')) return [];
@@ -223,6 +224,34 @@ describe('MySQL repository upload core', () => {
     expect(db.transactions).toBe(1);
     expect(db.sql.some((sql) => sql.includes('missing_full_count = listings.missing_full_count + 1') && sql.includes('JSON_TABLE'))).toBe(true);
     expect(db.sql.join('\n')).not.toContain('json_each');
+  });
+
+  it('closes source shops omitted from a complete full snapshot', async () => {
+    const db = new RecordingMysqlDatabase({ affectedRows: 1, insertId: 1 }, { shop_ids_json: '[1]' });
+    await createMysqlRepository(db).reconcileSnapshot!({
+      sourceId: 'source',
+      snapshotId: 'snapshot',
+      observedAt: 100,
+      batchIds: ['snapshot/0'],
+      sessionIds: [1, 2],
+    });
+
+    const sql = db.sql.join('\n');
+    expect(sql).toContain("shops.status = 'closed'");
+    expect(sql).toContain("close_reason = 'missing_full'");
+    expect(sql).toContain('JSON_TABLE');
+    expect(sql).toContain('shops.source_id = ?');
+    expect(sql).toContain('last_status_observed_at < ?');
+    expect(sql).toContain("listings.status = 'expired'");
+  });
+
+  it('merges shop IDs across multipart MySQL snapshot records', async () => {
+    const db = new RecordingMysqlDatabase({ affectedRows: 1, insertId: 1 }, { shop_ids_json: '[11]' });
+    await createMysqlRepository(db).recordSnapshotSessions!('source', 'snapshot', [22], 100);
+
+    expect(db.transactions).toBe(1);
+    expect(db.sql.some((sql) => sql.includes('FOR UPDATE'))).toBe(true);
+    expect(JSON.parse(String(db.values.at(-1)?.[0]))).toEqual([11, 22]);
   });
 
   it('keeps option definitions static and uses MySQL-safe bounded retention deletes', async () => {

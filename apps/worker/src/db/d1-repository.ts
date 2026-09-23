@@ -315,7 +315,14 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
     },
     async recordSnapshotSessions(sourceId, snapshotId, sessionIds, observedAt) {
       if (sessionIds.length === 0) return;
-      await db.prepare("UPDATE upload_batches SET shop_ids_json=?1 WHERE source_id=?2 AND snapshot_id=?3").bind(JSON.stringify(sessionIds), sourceId, snapshotId).run();
+      const payload = JSON.stringify([...new Set(sessionIds)]);
+      await db.prepare(`UPDATE upload_batches SET shop_ids_json=(
+        SELECT json_group_array(shop_id) FROM (
+          SELECT CAST(value AS INTEGER) AS shop_id FROM json_each(upload_batches.shop_ids_json)
+          UNION
+          SELECT CAST(value AS INTEGER) AS shop_id FROM json_each(?1)
+        )
+      ) WHERE source_id=?2 AND snapshot_id=?3`).bind(payload, sourceId, snapshotId).run();
       void observedAt;
     },
     async getSnapshotSessionIds(sourceId, snapshotId) {
@@ -338,8 +345,16 @@ export function createD1Repository(inputDb: D1Database, cursorSecret = DEFAULT_C
     async reconcileSnapshot(input: SnapshotReconciliationInput): Promise<ReconciliationResult> {
       if (input.batchIds.length === 0) return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: false, baseline: false, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
       const shopIds = [...new Set((input.sessionIds ?? []).filter((id) => Number.isSafeInteger(id) && id > 0))];
-      if (shopIds.length === 0) return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: false, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
       const scope = JSON.stringify(shopIds); const batches = JSON.stringify(input.batchIds);
+      const closeMissingShops = db.prepare(`UPDATE shops SET status='closed',full_state_hash=NULL,missing_full_count=0,last_status_observed_at=?1,last_changed_at=?1,closed_at=?1,close_reason='missing_full'
+        WHERE source_id=?2 AND status IN ('active','stale') AND last_status_observed_at<?1
+          AND id NOT IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))`);
+      const expireMissingShopListings = db.prepare(`UPDATE listings SET status='expired',last_changed_at=?1,state_version=state_version+1,missing_full_count=0
+        WHERE status IN ('active','missing') AND shop_id IN (
+          SELECT id FROM shops WHERE source_id=?2 AND status='closed' AND closed_at=?1 AND close_reason='missing_full'
+            AND id NOT IN (SELECT CAST(value AS INTEGER) FROM json_each(?3))
+        )`);
+      await db.batch([closeMissingShops.bind(input.observedAt, input.sourceId, scope), expireMissingShopListings.bind(input.observedAt, input.sourceId, scope)]);
       const baselineRow = await one<Row>(db.prepare("SELECT COUNT(*) AS count FROM shops WHERE source_id=?3 AND id IN (SELECT CAST(value AS INTEGER) FROM json_each(?2)) AND full_state_hash IS NULL").bind(input.observedAt, scope, input.sourceId));
       if (Number(baselineRow?.count ?? 0) > 0) return { sourceId: input.sourceId, snapshotId: input.snapshotId, complete: true, baseline: true, shops: 0, candidates: 0, markedMissing: 0, inferredSold: 0, expired: 0 };
       const stalePredicate = "shop_id IN (SELECT CAST(value AS INTEGER) FROM json_each(?2)) AND status IN ('active','missing') AND (last_changed_snapshot_id IS NULL OR last_changed_snapshot_id NOT IN (SELECT value FROM json_each(?3)))";
