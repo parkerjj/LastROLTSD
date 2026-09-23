@@ -23,11 +23,11 @@
 
 1. 认证、限流、body 大小限制、JSON/schema 校验和 64-part 边界校验。
 2. 使用 `snapshot_id/part_index` 作为幂等 key，计算 payload hash，并以唯一键 CAS claim 该 part。
-3. 将原始规范化 payload 和必要的轻量 manifest 写入 MySQL。HTTP 请求不计算 item fingerprint，不解析 listing options，不执行 listing transition，不更新 missing/sold 状态。
+3. 将原始规范化 payload 和必要的轻量 manifest 写入 MySQL。HTTP 请求不计算 item fingerprint，不解析 listing options，不执行 listing transition，不更新 missing/sold 状态。为了保持现有 OpenKore 契约，HTTP 请求仍执行轻量的 shop identity 解析并返回 `uuid -> shop_id`；这一步不读取或写入 listing 状态。
 4. 创建或更新 snapshot job 元数据。分片可以乱序到达；重复相同 payload 返回缓存结果，重复不同 payload 返回 `422 idempotency_key_reused`。
 5. 只在确认 `[0, part_count)` 全部已接收时，把 snapshot 标记为 `queued` 并创建第一阶段 job。最后一个分片仍只做有界的 part-count/accepted 状态检查和 job enqueue。
 
-响应保持 `202`。已有字段继续存在；full part 的 `processed_listings`、`changed_listings`、`sold_events` 在后台完成前为 0，`shops` 可以为空。新增可选字段：
+响应保持 `202`。已有字段继续存在；full part 的 `processed_listings`、`changed_listings`、`sold_events` 在后台完成前为 0。`shops` 按输入顺序返回每个 shop 的 `uuid` 和稳定 `shop_id`，使客户端可以继续缓存 shop key 并在下一轮 waypoint 过滤未变化商店。新增可选字段：
 
 ```json
 {
@@ -54,7 +54,7 @@
 * `payload_json MEDIUMTEXT NOT NULL`：经过 schema 校验、可稳定重放的 JSON。
 * `received_at`、`completed_at` 保留；`status` 对 full 接收阶段使用 `received/processing/accepted/rejected`。
 * 继续使用 `(source_id,batch_id)` 与 `(source_id,snapshot_id,part_index)` 唯一键。
-* `shop_ids_json`/`shop_hashes_json` 不再作为 HTTP 热路径必须生成的完整 manifest；后台 materialize 阶段按 cursor 写入紧凑 manifest。
+* `shop_ids_json`/`shop_hashes_json` 继续保留为 HTTP 热路径的轻量 shop manifest。它们只保存当前 part 已解析的内部 shop key/稳定 hash，用于 full 完整性和客户端返回映射，不保存 listing fingerprint 全集；后台 materialize 阶段再按 cursor 写入 listing manifest。
 
 ### snapshot job
 
@@ -75,7 +75,7 @@
 
 manifest 使用当前 snapshot 的 part/shop 增量记录，不扫描历史 upload batches：
 
-* 每个 part 保存 shop identity、稳定 shop id、`full_state_hash` 和 listing fingerprint 集合的紧凑 JSON/hash。
+* 每个 part 保存 shop identity、稳定 shop id、`full_state_hash` 和 listing fingerprint 集合的紧凑 JSON/hash。shop identity/hash 由 HTTP 接收阶段产生，listing fingerprint 集合由后台 materialize 阶段产生。
 * snapshot 汇总只引用当前 snapshot 的 part manifests和上一份已完成 snapshot 的 summary。
 * unchanged shop 不读取 listing 表；只有 hash 变化的 shop 进入 listing diff。
 * JSON 接近单行大小上限时拆为 shop rows，不能把无界 payload 放入单行。
@@ -97,9 +97,31 @@ manifest 使用当前 snapshot 的 part/shop 增量记录，不扫描历史 uplo
 代码同时支持两种调度方式：
 
 * 若部署环境提供 `SNAPSHOT_QUEUE: Queue<SnapshotJobMessage>`，最后一个 part 和每个阶段完成时向 Queue 投递 `{jobId, sourceId, snapshotId, stage}`。Queue consumer 只负责 claim job、运行一个有界批次、再次投递 continuation/下一阶段；消息重复安全。
-* 若没有 Queue binding（Cloudflare Queues 当前通常需要 Workers Paid 计划），使用 MySQL job table + Cron Trigger。每个 stage 使用独立 cron expression/handler 分支，互不在同一次 invocation 中串行执行；每次 cron 只领取对应 stage 的一个或有限 jobs。现有每日 retention cron 保留独立 schedule。
+* 若没有 Queue binding，使用 MySQL job table + Cron Trigger。每个 stage 使用独立 cron expression/handler 分支，互不在同一次 invocation 中串行执行；每次 cron 只领取对应 stage 的一个或有限 jobs。现有每日 retention cron 保留独立 schedule。
 
 Queue 是加速投递和重试的可选 transport，不是正确性依赖。Cron fallback 必须始终可处理 queued/running lease-expired job，因此免费计划没有 Queue 时不会丢 snapshot。
+
+因此单个 HTTP full part 本身通常不等于 3 次 Queue 操作：前 8 个分片只写 MySQL，Queue 为 0；最后一个分片只发送一个小的 job 消息，立即产生 1 次写操作，之后由 consumer 的读取和删除各产生 1 次。3 次操作是整条 job 消息从发送到消费完成的生命周期成本。
+
+### Queue 操作估算
+
+Cloudflare Queues 按每条消息每 64KB 的写入、读取、删除分别计费；小于 64KB 且正常消费的消息为 3 次操作，重试每次额外增加 1 次读取。Queue 消息只包含 job id、snapshot id、stage 和 cursor，控制在 64KB 内；115KB 的 upload JSON 保存在 MySQL，不直接发送到 Queue。
+
+按当前数据估算：每天 `24*60/5 = 288` 轮 waypoint，其中约 `288/5 = 57.6` 轮 full、`230.4` 轮 delta。delta 在本设计中仍同步处理，因此不产生 Queue 操作。
+
+为了保持单次 CPU 有界，以下按 20 个 shop 或约 200 个 listing 为一个后台 continuation chunk 估算：
+
+| full 情况 | 每个 snapshot 的 Queue 消息 | 每个 snapshot 的操作 | 每日操作（约 58 个 full） |
+| --- | ---: | ---: | ---: |
+| unchanged：9 个 part、无 listing diff | 约 35 | 105 | 约 6,090 |
+| 中等变化：约 10% shop/listing 进入 diff | 约 39 | 117 | 约 6,786 |
+| 极端变化：500 shop/5,000 listing 都需要 diff | 约 83 | 249 | 约 14,442 |
+
+上述消息数包括 materialize、shop reconcile、listing reconcile、infer-sales 和 finalize 的 continuation；每条消息按 3 次操作计算。正常情况下 10,000 次/天足够，并保留约 3,900 次操作余量。若每条消息都发生一次重试，unchanged 情况约增加 2,030 次读取，仍在限制内；极端变化或持续失败重试会超过免费额度。
+
+因此实现必须满足三点：不把 115KB payload 放进 Queue；按 64KB chunk 计数记录 `queue_ops_estimate`；当当天预算接近 10,000 或 Queue 不可用时，停止继续投递 continuation，让 Cron fallback 从 MySQL job table 接管。若实际数据经常接近“极端变化”情形，应提高 chunk 大小（在 CPU benchmark 允许的范围内）、降低 full 频率，或使用 Paid Queue；不能假设 10,000 次在最坏情况下足够。
+
+如果未来把 delta 也迁移到后台，并且每轮 delta 只需要一条小 job 消息，按当前约 230 轮/天只增加约 `230*3 = 690` 次操作；若 delta 也拆成多个 continuation，则按实际消息数线性增加。
 
 ## 并发、幂等与失败语义
 
