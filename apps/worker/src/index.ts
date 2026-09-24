@@ -11,7 +11,7 @@ import { registerStatusRoute } from './routes/status';
 import { createListingStateService } from './services/state-transition';
 import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
-import { recordMetric } from './observability';
+import { logError, recordMetric } from './observability';
 import { registerAssetRoute } from './routes/assets';
 import { withSearchCache } from './middleware/search-cache';
 import { createGuestbookRepository } from './db/guestbook-repository';
@@ -145,7 +145,7 @@ async function fetchSearch(request: Request, url: URL, env: AppEnv, context?: Pi
       }
     }, context);
   } catch (error) {
-    console.error(error);
+    logError('lastroweb.search_error', error, { request_id: requestId, route: url.pathname });
     response = new Response('Internal Server Error', { status: 500, headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': 'no-store' } });
   }
   response.headers.set('x-request-id', requestId);

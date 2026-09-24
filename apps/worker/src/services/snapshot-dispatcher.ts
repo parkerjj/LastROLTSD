@@ -3,6 +3,7 @@ import type { AppEnv } from '../env';
 import type { SnapshotRepository } from '../db/snapshot-repository';
 import type { SnapshotMessage } from './full-upload';
 import { runSnapshotJobChunk } from './snapshot-jobs';
+import { logError, logWarn } from '../observability';
 
 export function isSnapshotMessage(value: unknown): value is SnapshotMessage {
   if (!value || typeof value !== 'object') return false;
@@ -23,7 +24,7 @@ export function createSnapshotDispatcher(env: AppEnv, repo: SnapshotRepository) 
       return 'queued';
     } catch {
       // Reservations are conservative: an ambiguous send may already be queued.
-      console.warn(JSON.stringify({ event: 'snapshot_queue_unavailable', ...body }));
+      logWarn('lastroweb.snapshot_queue_unavailable', { source_id: body.sourceId, snapshot_id: body.snapshotId, generation: body.generation });
       return 'cron_fallback';
     }
   };
@@ -44,7 +45,7 @@ export async function processSnapshotWakeup(env: AppEnv, repo: SnapshotRepositor
   // Dispatch follows the commit. A failed send leaves durable work for Cron.
   if (next) {
     try { await createSnapshotDispatcher(env, repo)(next); }
-    catch { console.warn(JSON.stringify({ event: 'snapshot_dispatch_fallback', ...next })); }
+    catch { logWarn('lastroweb.snapshot_dispatch_fallback', { source_id: next.sourceId, snapshot_id: next.snapshotId, generation: next.generation }); }
   }
 }
 
@@ -53,13 +54,13 @@ export async function consumeSnapshotBatch(messages: readonly SnapshotQueueMessa
   if (messages.length !== 1) {
     // Never combine several chunks in one invocation, even after a configuration mistake.
     for (const message of messages) message.retry({ delaySeconds: 60 });
-    console.error(JSON.stringify({ event: 'snapshot_queue_batch_size_invalid', count: messages.length }));
+    logError('lastroweb.snapshot_queue_batch_size_invalid', new Error(`Invalid snapshot queue batch size: ${messages.length}`), { count: messages.length });
     return;
   }
   const message = messages[0]!;
   if (!isSnapshotMessage(message.body)) {
     message.ack();
-    console.error(JSON.stringify({ event: 'snapshot_queue_message_invalid' }));
+    logError('lastroweb.snapshot_queue_message_invalid', new Error('Snapshot queue message failed validation'), { body: message.body });
     return;
   }
   try {

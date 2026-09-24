@@ -3,6 +3,7 @@ import { MysqlDatabaseError } from './mysql-client';
 import type { UploadResultLike } from './repository';
 import type { FullPartReceipt, FullReceiptStore, SnapshotMessage } from '../services/full-upload';
 import { IngestionError } from '../services/ingestion';
+import { logInfo } from '../observability';
 
 export type SnapshotStage = 'materialize_parts' | 'reconcile_listings' | 'reconcile_shops' | 'publish_hashes' | 'finalize';
 export interface SnapshotJob extends SnapshotMessage {
@@ -157,8 +158,8 @@ export function createSnapshotRepository(db: MysqlDatabase) {
         [progress.stage, progress.cursor, progress.complete ? 'complete' : 'queued', now, progress.complete ? now : null,
           job.sourceId, job.snapshotId, job.leaseToken, job.generation]);
         if (progress.complete) await releaseSourceSnapshot(tx, job);
-        console.log(JSON.stringify({ event: 'snapshot_chunk', sourceId: job.sourceId, snapshotId: job.snapshotId,
-          stage: job.stage, generation: job.generation, processed: progress.processed, nextStage: progress.stage }));
+        logInfo('lastroweb.snapshot_chunk', { source_id: job.sourceId, snapshot_id: job.snapshotId,
+          stage: job.stage, generation: job.generation, processed: progress.processed, next_stage: progress.stage });
         return progress.complete ? null : { sourceId: job.sourceId, snapshotId: job.snapshotId, generation: job.generation + 1 };
       });
     },

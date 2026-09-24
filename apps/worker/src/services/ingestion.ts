@@ -8,6 +8,7 @@ import type { ShopSessionRow } from '../db/types';
 import type { AuthenticatedSource } from '../middleware/auth';
 import { createSnapshotReconciler } from './snapshot-reconciler';
 import { computeFullShopStateHash, computeShopProfileHash } from '../domain/shop-state';
+import { logError } from '../observability';
 
 export interface NormalizedObservation { fingerprint: string; item: UploadItem; sessionId: number; shopId: string; }
 export interface StateBatchResult { processedListings: number; changedListings: number; soldEvents: number; observed?: Array<{ sessionId: number; fingerprint: string }>; }
@@ -210,7 +211,7 @@ export async function ingestUpload(source: AuthenticatedSource, request: UploadR
       try {
         await repo.failBatch(source.id, batch.batchId);
       } catch (cleanupError) {
-        console.error(JSON.stringify({ metric: 'lastroweb.upload_cleanup_error', source_id: source.id, error_class: cleanupError instanceof Error ? cleanupError.name : 'UnknownError' }));
+        logError('lastroweb.upload_cleanup_error', cleanupError, { source_id: source.id });
       }
     }
     throw error;

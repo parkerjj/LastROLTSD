@@ -2,6 +2,7 @@ import type { Hono } from 'hono';
 import { GUESTBOOK_MAX_BODY_BYTES, GUESTBOOK_RATE_LIMIT, GUESTBOOK_RATE_WINDOW_MS, GuestbookValidationError, guestbookCursorContext, parseGuestbookFilters, parseGuestbookSubmission } from '../domain/guestbook';
 import { guestbookRateKey, type GuestbookRepository } from '../db/guestbook-repository';
 import { jsonError, requestId } from '../middleware/errors';
+import { logError } from '../observability';
 
 export interface GuestbookRouteConfig {
   getItemIds(): Promise<ReadonlySet<number>>;
@@ -56,7 +57,7 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
     } catch (error) {
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);
-      console.error(error);
+      logError('lastroweb.guestbook_error', error, { request_id: id });
       return jsonError('internal_error', 'Internal Server Error', 500, id, { retryable: true });
     }
   });

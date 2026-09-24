@@ -3,6 +3,7 @@ import type { UploadRequest } from '@lastroweb/protocol';
 import { computeShopIdentity } from '../domain/shop-identity';
 import type { UploadResultLike } from '../db/repository';
 import { canonicalBatchId, IngestionError, isValidIdempotencyKey } from './ingestion';
+import { logWarn } from '../observability';
 
 export interface SnapshotMessage { sourceId: string; snapshotId: string; generation: number; }
 export interface FullPartReceipt {
@@ -40,7 +41,7 @@ export async function receiveFullUpload(
     reconciliation: { status: 'pending', snapshot_id: request.snapshot_id, stage: 'materialize_parts' } };
   const stored = await store.receive({ sourceId: source.id, request, payloadJson, payloadHash, identities, response });
   if (stored.wakeup && dispatch) {
-    try { await dispatch(stored.wakeup); } catch { console.warn(JSON.stringify({ event: 'snapshot_dispatch_fallback', sourceId: source.id, snapshotId: request.snapshot_id })); }
+    try { await dispatch(stored.wakeup); } catch { logWarn('lastroweb.snapshot_dispatch_fallback', { source_id: source.id, snapshot_id: request.snapshot_id }); }
   }
   return stored.response;
 }
