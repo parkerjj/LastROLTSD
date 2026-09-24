@@ -36,4 +36,14 @@ describe('MySQL Worker compatibility', () => {
     expect(`${error.stack} ${JSON.stringify(error)}`).not.toContain('secret SQL and password');
     expect(new MysqlDatabaseError(new Error('secret')).code).toBe('MYSQL_CLIENT_ERROR');
   });
+
+  it('retains safe driver diagnostics without logging the original message or SQL', () => {
+    const cause = new TypeError('private SQL\n    at secret-password');
+    cause.stack = `${cause.name}: ${cause.message}\n    at encode (index.js:10:2)`;
+    const error = new MysqlDatabaseError(cause, 'insert:market_snapshot_shops');
+    expect(error).toMatchObject({ operation: 'insert:market_snapshot_shops', causeType: 'TypeError', causeFrames: '    at encode (index.js:10:2)' });
+    expect(JSON.stringify(error)).not.toMatch(/private SQL|secret-password/u);
+    expect(new MysqlDatabaseError(new Error("Can't add new command when connection is in closed state")).clientReason).toBe('connection_closed');
+    expect(new MysqlDatabaseError(new Error('Internal error: COM_STMT_EXECUTE serialized 10 bytes, expected 12')).clientReason).toBe('packet_serialization');
+  });
 });

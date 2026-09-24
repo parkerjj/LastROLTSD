@@ -80,7 +80,9 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
       if (error instanceof LimitError) return logError(error.code, error.message, error.status, error.name, { retryable: error.status === 429, ...(error.action === undefined ? {} : { action: error.action }) }, { expected: 'configured upload limits', actual: error.message });
       if (error instanceof IngestionError) return logError(error.code, error.message, error.status, error.name, { retryable: error.retryable, ...(error.action === undefined ? {} : { action: error.action }), ...(error.retryAfterSeconds === undefined ? {} : { retryAfter: String(error.retryAfterSeconds) }) }, { expected: 'upload can be ingested', actual: error.message });
       return logError('internal_error', 'Unexpected internal error', 500, error instanceof Error ? error.name : 'UnknownError', { retryable: true }, {
-        ...(error instanceof MysqlDatabaseError ? { mysql_code: error.code, mysql_errno: error.errno, mysql_sql_state: error.sqlState } : {}),
+        ...(error instanceof MysqlDatabaseError ? { mysql_code: error.code, mysql_errno: error.errno, mysql_sql_state: error.sqlState,
+          mysql_operation: error.operation, mysql_cause_type: error.causeType,
+          mysql_client_reason: error.clientReason, mysql_cause_frames: error.causeFrames } : {}),
       });
     }
   });

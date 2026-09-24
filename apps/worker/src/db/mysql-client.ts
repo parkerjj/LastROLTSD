@@ -51,9 +51,25 @@ export class MysqlDatabaseError extends Error {
   public readonly code: string = 'MYSQL_CLIENT_ERROR';
   public readonly errno?: number;
   public readonly sqlState?: string;
-  constructor(cause?: unknown) {
+  public readonly operation?: string;
+  public readonly causeType?: string;
+  public readonly causeFrames?: string;
+  public readonly clientReason?: string;
+  constructor(cause?: unknown, operation?: string) {
     super('database operation failed');
     this.name = 'MysqlDatabaseError';
+    if (operation !== undefined) this.operation = operation;
+    if (cause instanceof Error) {
+      this.causeType = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'EvalError'].includes(cause.name) ? cause.name : 'OtherError';
+      // Strip the complete message, including multiline SQL, before keeping frames.
+      const prefix = `${cause.name}: ${cause.message}\n`;
+      if (cause.stack?.startsWith(prefix)) {
+        this.causeFrames = cause.stack.slice(prefix.length).split('\n')
+          .filter((line) => /^\s+at /u.test(line)).slice(0, 8).join('\n');
+      }
+      const reason = safeClientReason(cause.message);
+      if (reason !== undefined) this.clientReason = reason;
+    }
     if (cause instanceof Error && cause.message.includes('Code generation from strings disallowed')) {
       this.code = 'MYSQL_EVAL_DISABLED';
       this.message = 'database operation failed: mysql2 requires disableEval: true in Workers';
@@ -65,6 +81,25 @@ export class MysqlDatabaseError extends Error {
       if (typeof value.sqlState === 'string') this.sqlState = value.sqlState;
     }
   }
+}
+
+function safeClientReason(message: string): string | undefined {
+  // Only fixed categories are logged: driver messages may contain SQL or secrets.
+  if (/Code generation from strings disallowed/u.test(message)) return 'eval_disabled';
+  if (/closed state|connection is closed|Pool is closed/iu.test(message)) return 'connection_closed';
+  if (/too many subrequests|subrequest limit|outgoing requests.*limit/iu.test(message)) return 'subrequest_limit';
+  if (/Cannot perform I\/O|different request|I\/O.*context/iu.test(message)) return 'io_context';
+  if (/Bind parameters/u.test(message)) return 'invalid_bind_parameters';
+  if (/COM_STMT_EXECUTE serialized/u.test(message)) return 'packet_serialization';
+  if (/Expected MySQL rows/u.test(message)) return 'unexpected_read_result';
+  if (/Expected MySQL write result/u.test(message)) return 'unexpected_write_result';
+  return undefined;
+}
+
+function statementOperation(sql: string): string {
+  const verb = /^\s*(SELECT|INSERT|UPDATE|DELETE)\b/iu.exec(sql)?.[1]?.toLowerCase() ?? 'statement';
+  const table = /\b(?:FROM|INTO|UPDATE)\s+([a-z_][a-z0-9_]*)\b/iu.exec(sql)?.[1];
+  return table ? `${verb}:${table}` : verb;
 }
 
 export function parseMysqlUrl(value: string): MysqlConfig {
@@ -160,7 +195,7 @@ function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePo
   const databaseFor = (executor: MysqlExecutorLike, close: () => Promise<void>): MysqlDatabase => ({
     all: async <T extends MysqlRow = MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> => {
       const result = await execute<MysqlRow[]>(executor, sql, values);
-      if (!Array.isArray(result)) throw new MysqlDatabaseError();
+      if (!Array.isArray(result)) throw new MysqlDatabaseError(new TypeError('Expected MySQL rows'), statementOperation(sql));
       return result as T[];
     },
     first: async <T extends MysqlRow = MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T | null> => {
@@ -169,19 +204,19 @@ function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePo
     },
     run: async (sql: string, values: readonly unknown[] = []): Promise<MysqlWriteResult> => {
       const result = await execute<ResultSetHeader>(executor, sql, values);
-      if (Array.isArray(result)) throw new MysqlDatabaseError();
+      if (Array.isArray(result)) throw new MysqlDatabaseError(new TypeError('Expected MySQL write result'), statementOperation(sql));
       return { affectedRows: Number(result.affectedRows), insertId: Number(result.insertId) };
     },
     transaction: async <T>(work: (transactionDatabase: MysqlDatabase) => Promise<T>): Promise<T> => {
       let connection: MysqlConnectionLike | undefined;
       let began = false;
       try {
-        const transactionConnection = await protect(() => poolFor().getConnection());
+        const transactionConnection = await protect(() => poolFor().getConnection(), 'transaction:acquire');
         connection = transactionConnection;
-        await protect(() => transactionConnection.beginTransaction());
+        await protect(() => transactionConnection.beginTransaction(), 'transaction:begin');
         began = true;
         const value = await work(databaseFor(transactionConnection, async () => undefined));
-        await protect(() => transactionConnection.commit());
+        await protect(() => transactionConnection.commit(), 'transaction:commit');
         return value;
       } catch (error) {
         if (connection && began) {
@@ -208,15 +243,20 @@ function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePo
 }
 
 async function execute<T extends MysqlQueryResult>(executor: MysqlExecutorLike, sql: string, values: readonly unknown[]): Promise<T> {
-  return protect(async () => (await executor.execute<T>(sql, values))[0]);
+  try {
+    return (await executor.execute<T>(sql, values))[0];
+  } catch (error) {
+    if (error instanceof MysqlDatabaseError) throw error;
+    throw new MysqlDatabaseError(error, statementOperation(sql));
+  }
 }
 
-async function protect<T>(work: () => Promise<T>): Promise<T> {
+async function protect<T>(work: () => Promise<T>, operation?: string): Promise<T> {
   try {
     return await work();
   } catch (error) {
     if (error instanceof MysqlDatabaseError) throw error;
-    throw new MysqlDatabaseError(error);
+    throw new MysqlDatabaseError(error, operation);
   }
 }
 
