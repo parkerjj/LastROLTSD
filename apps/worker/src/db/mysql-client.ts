@@ -91,6 +91,7 @@ function safeClientReason(message: string): string | undefined {
   if (/Cannot perform I\/O|different request|I\/O.*context/iu.test(message)) return 'io_context';
   if (/Bind parameters/u.test(message)) return 'invalid_bind_parameters';
   if (/COM_STMT_EXECUTE serialized/u.test(message)) return 'packet_serialization';
+  if (/network connection lost|connection reset|socket.*closed|connection.*terminated/iu.test(message)) return 'connection_lost';
   if (/Expected MySQL rows/u.test(message)) return 'unexpected_read_result';
   if (/Expected MySQL write result/u.test(message)) return 'unexpected_write_result';
   return undefined;

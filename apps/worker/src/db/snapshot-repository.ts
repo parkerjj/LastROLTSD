@@ -64,31 +64,35 @@ export function createSnapshotRepository(db: MysqlDatabase) {
       || Number(snapshot.observed_at) !== Date.parse(request.observed_at) || Number(snapshot.part_count) !== request.part_count
       || snapshot.status !== 'receiving') throw mismatch('Snapshot metadata does not match the accepted parts');
 
+    // Store the payload once. Staging reads its JSON column in this same
+    // transaction instead of binding a second copy through a derived JSON cast.
+    await tx.run(`INSERT INTO upload_batches(source_id, batch_id, snapshot_id, part_index, part_count, snapshot_mode,
+        payload_hash, status, shop_ids_json, shop_hashes_json, payload_json, response_json, received_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, 'full', ?, 'accepted', '[]', ?, ?, ?, ?, ?)`,
+    [input.sourceId, input.response.batch_id, request.snapshot_id, request.part_index, request.part_count, input.payloadHash,
+      JSON.stringify(input.identities.map((identity) => identity.identityHash)), input.payloadJson, JSON.stringify(input.response), now, now]);
+
     try {
       // MySQL extracts shop rows and computes conservative content hashes. No item
       // objects/fingerprints are materialized in the Worker on this path.
       await tx.run(`INSERT INTO market_snapshot_shops(source_id, snapshot_id, ordinal, identity_hash, public_shop_id,
           shop_json, items_json, content_hash, item_count)
-        SELECT ?, ?, ? * 300 + identities.position, identities.identity_hash, identities.public_shop_id,
-          JSON_REMOVE(JSON_EXTRACT(payload.body, CONCAT('$.shops[', identities.position - 1, ']')), '$.items'),
-          JSON_EXTRACT(payload.body, CONCAT('$.shops[', identities.position - 1, '].items')),
-          SHA2(CAST(JSON_EXTRACT(payload.body, CONCAT('$.shops[', identities.position - 1, '].items')) AS CHAR CHARACTER SET utf8mb4), 256),
-          JSON_LENGTH(JSON_EXTRACT(payload.body, CONCAT('$.shops[', identities.position - 1, '].items')))
-        FROM (SELECT CAST(? AS JSON) AS body) AS payload
+        SELECT payload.source_id, payload.snapshot_id, payload.part_index * 300 + identities.position, identities.identity_hash, identities.public_shop_id,
+          JSON_REMOVE(JSON_EXTRACT(payload.payload_json, CONCAT('$.shops[', identities.position - 1, ']')), '$.items'),
+          JSON_EXTRACT(payload.payload_json, CONCAT('$.shops[', identities.position - 1, '].items')),
+          SHA2(CAST(JSON_EXTRACT(payload.payload_json, CONCAT('$.shops[', identities.position - 1, '].items')) AS CHAR CHARACTER SET utf8mb4), 256),
+          JSON_LENGTH(JSON_EXTRACT(payload.payload_json, CONCAT('$.shops[', identities.position - 1, '].items')))
+        FROM upload_batches AS payload
         JOIN JSON_TABLE(?, '$[*]' COLUMNS(position FOR ORDINALITY, identity_hash CHAR(64) PATH '$.identityHash',
-          public_shop_id VARCHAR(191) PATH '$.shopId')) AS identities`,
-      [...key, request.part_index, input.payloadJson, JSON.stringify(input.identities)]);
+          public_shop_id VARCHAR(191) PATH '$.shopId')) AS identities
+        WHERE payload.source_id = ? AND payload.batch_id = ?`,
+      [JSON.stringify(input.identities), input.sourceId, input.response.batch_id]);
     } catch (error) {
       if (error instanceof MysqlDatabaseError && error.code === 'ER_DUP_ENTRY') {
         throw new IngestionError(422, 'duplicate_shop_identity', 'Shop identity occurs in more than one snapshot part', { action: 'new_snapshot' });
       }
       throw error;
     }
-    await tx.run(`INSERT INTO upload_batches(source_id, batch_id, snapshot_id, part_index, part_count, snapshot_mode,
-        payload_hash, status, shop_ids_json, shop_hashes_json, payload_json, response_json, received_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, 'full', ?, 'accepted', '[]', ?, ?, ?, ?, ?)`,
-    [input.sourceId, input.response.batch_id, request.snapshot_id, request.part_index, request.part_count, input.payloadHash,
-      JSON.stringify(input.identities.map((identity) => identity.identityHash)), input.payloadJson, JSON.stringify(input.response), now, now]);
     const ready = Number(snapshot.accepted_parts) + 1 === request.part_count;
     await tx.run('UPDATE market_snapshots SET accepted_parts = accepted_parts + 1, status = ?, available_at = ? WHERE source_id = ? AND snapshot_id = ?',
       [ready ? 'queued' : 'receiving', now, ...key]);
