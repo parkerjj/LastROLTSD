@@ -128,7 +128,14 @@ The new tables store accepted snapshots, per-shop staging, exact listing presenc
 and Queue budget reservations. Only MySQL is used; historical D1 migration/export
 tools are retained but the D1 TypeScript runtime has been removed.
 
-Create the Queue matching the deployment environment before deploying a consumer:
+Production pushes to `main` automatically check for the snapshot Queue and create
+it if absent, then apply pending MySQL migrations before deploying the Worker.
+The GitHub production `CLOUDFLARE_API_TOKEN` must include account-level
+`Queues: Edit` permission. Queue lookup or creation failures stop the workflow
+before schema migrations. No manual SQL or Queue creation is needed for this path.
+
+For deployments outside GitHub Actions, create the Queue matching the deployment
+environment before deploying a consumer:
 
 ```powershell
 pnpm exec wrangler queues create lastroweb-production-snapshot-jobs
