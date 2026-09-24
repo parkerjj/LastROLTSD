@@ -18,6 +18,39 @@ export interface ReleaseNote {
  */
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: '0.5.0',
+    date: '2026-09-24',
+    title: '搜索命中范围与词条展示优化',
+    summary: '新增搜索命中范围开关，优化词条展示方式，无结果时提供图鉴兜底查询，让搜索更精准、展示更清晰。',
+    changes: [
+      {
+        category: '搜索',
+        title: '命中范围开关',
+        description: '高级搜索新增「命中范围」控制，可分别开启/关闭道具名称、商店名称、商人名称三个维度，精准定位想要的结果。',
+      },
+      {
+        category: '展示',
+        title: '词条芯片换行展示',
+        description: '搜索结果中的词条改为独立的可换行芯片标签，告别文本截断，长词条也能完整显示。',
+      },
+      {
+        category: '详情',
+        title: '悬停词条属性',
+        description: '鼠标悬停物品详情时，底部新增「词条属性」分区，每个词条以独立小卡片展示，属性一目了然。',
+      },
+      {
+        category: '兜底',
+        title: '图鉴历史价格查询',
+        description: '搜索无结果时，自动展示物品图鉴中匹配的相关道具，可直接查询历史价格。',
+      },
+      {
+        category: '交互',
+        title: '抽屉体验优化',
+        description: '地图定位与价格历史抽屉新增底部关闭按钮，打开时主界面显示半透明遮罩，点击即可关闭，两个抽屉互斥显示。',
+      },
+    ],
+  },
+  {
     version: '0.4.0',
     date: '2026-09-23',
     title: '浅色界面焕新与 GPT 一键带路',
