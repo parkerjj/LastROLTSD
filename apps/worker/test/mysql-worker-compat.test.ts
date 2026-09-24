@@ -17,6 +17,7 @@ describe('MySQL Worker compatibility', () => {
     try {
       await database.healthcheck();
       expect(createPool.mock.results[0]?.value.pool.config.connectionConfig.disableEval).toBe(true);
+      expect(createPool.mock.results[0]?.value.pool.config.connectionConfig.trace).toBe(false);
     } finally {
       await database.close();
     }

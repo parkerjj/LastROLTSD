@@ -171,6 +171,9 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
       charset: 'utf8mb4_0900_ai_ci',
       // Workers disallow the dynamic Function constructor used by mysql2 parsers.
       disableEval: true,
+      // Preserve the driver/runtime throw site instead of replacing it with the
+      // caller stack; avoid capturing a stack for every successful statement.
+      trace: false,
       waitForConnections: true,
       connectionLimit: MYSQL_POOL_CONNECTION_LIMIT,
       maxIdle: MYSQL_POOL_CONNECTION_LIMIT,
