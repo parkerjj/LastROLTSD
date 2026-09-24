@@ -510,7 +510,7 @@ function mountSearchPage(): void {
       if (requestId !== historyRequestId || historyDrawer.hidden) return;
       renderHistoryError(
         historyDrawer,
-        friendlyError(error, "价格历史接口暂不可用，请确认本地服务已启动。"),
+        friendlyError(error, "暂无可供查询的价格历史。"),
       );
     }
   }

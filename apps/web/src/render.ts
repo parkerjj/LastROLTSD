@@ -844,7 +844,7 @@ export function renderHistoryError(drawer: HTMLElement, message: string): void {
   drawer.innerHTML = drawerFrame(
     "close-history",
     "关闭价格历史",
-    `<p class="drawer-error" role="alert">${escape(friendlyError(message, "价格历史接口暂不可用，请确认本地服务已启动。"))}</p>`,
+    `<p class="drawer-error" role="alert">${escape(friendlyError(message, "暂无可供查询的价格历史。"))}</p>`,
   );
   drawer.hidden = false;
 }
