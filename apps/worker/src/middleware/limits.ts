@@ -1,7 +1,7 @@
 import type { UploadRequest } from '@lastroweb/protocol';
 
 export const MAX_UPLOAD_BYTES = 512 * 1024;
-export const MAX_PARTS = 16;
+export const MAX_PARTS = 64;
 export const MAX_SHOPS = 300;
 export const MAX_ITEMS_PER_SHOP = 256;
 export const MAX_OPTIONS_PER_ITEM = 32;

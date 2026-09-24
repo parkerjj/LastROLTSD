@@ -32,13 +32,15 @@ function ingestionInvariantFailed(message: string): IngestionError {
 
 async function makePlan(listing: ListingRow, item: UploadItem, observedAt: number, batchId: string, baselineComplete: boolean): Promise<TransitionPlan> {
   const transition = calculateQuantityTransition(listing.quantity, item.quantity);
-  const changed = transition.kind !== 'unchanged' || listing.price !== item.price;
+  const reappeared = listing.status === 'missing' || listing.status === 'expired' || listing.missingStreak > 0;
+  const changed = observedAt >= listing.lastChangedAt && (transition.kind !== 'unchanged' || listing.price !== item.price || reappeared);
   const soldReason = transition.kind === 'sold_out'
     ? 'sold_out'
     : transition.kind === 'decreased'
       ? 'quantity_decrease'
       : null;
-  const soldEvent = soldReason === null
+  const resetSaleBaseline = listing.status === 'missing' || listing.status === 'expired';
+  const soldEvent = soldReason === null || !changed || resetSaleBaseline
     ? null
     : await buildSoldEvent(listing, transition, soldReason, observedAt, baselineComplete);
   return {
@@ -55,7 +57,7 @@ async function makePlan(listing: ListingRow, item: UploadItem, observedAt: numbe
       status: item.quantity === 0 ? 'sold_out' : 'active',
       observedAt,
       batchId,
-      ...(changed ? { history: { eventType: transition.kind === 'unchanged' ? 'price_changed' : 'quantity_changed' } } : {}),
+      ...(changed ? { history: { eventType: reappeared ? 'reappeared' : transition.kind === 'unchanged' ? 'price_changed' : 'quantity_changed' } } : {}),
       ...(soldEvent ? { soldEvent: { soldQuantity: soldEvent.soldQuantity, fromQuantity: soldEvent.fromQuantity, toQuantity: soldEvent.toQuantity, reason: soldEvent.reason, transitionKey: soldEvent.transitionKey } } : {}),
     },
   };

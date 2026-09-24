@@ -83,7 +83,7 @@ const LISTING_TRANSITION_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
 
 const shopResolutionKey = (sourceId: string, identityHash: string): string => JSON.stringify([sourceId, identityHash]);
 const SHOP_RESOLUTION_COLUMNS = `shops.id, shops.source_id, shops.identity_hash, shops.public_shop_id,
-  shops.status, shops.last_status_observed_at, shops.last_changed_at, shops.full_state_hash, shops.closed_at`;
+  shops.status, shops.last_status_observed_at, shops.last_changed_at, shops.full_state_hash, shops.full_snapshot_at, shops.closed_at`;
 
 function normalizeCatalogQuery(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase();
@@ -126,7 +126,7 @@ function sessionFromShopRow(row: Row, clientRunId: string, observedAt: number): 
     startedAt: Number(row.last_changed_at ?? observedAt),
     lastSeenAt,
     endedAt: row.status === 'closed' && row.closed_at != null ? Number(row.closed_at) : null,
-    initialSyncComplete: row.full_state_hash != null,
+    initialSyncComplete: row.full_snapshot_at != null || row.full_state_hash != null,
     lastCompleteSnapshotId: row.full_state_hash == null ? null : String(row.full_state_hash),
   };
 }
@@ -277,7 +277,7 @@ function parseProfileHashes(value: unknown): string[] {
   }
 }
 
-export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_CURSOR_SECRET): MarketRepository {
+export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_CURSOR_SECRET, options: { deferListingExpiry?: boolean } = {}): MarketRepository {
   // The search implementation added in the later repository task consumes this
   // value. Keeping it part of the factory avoids a second production factory.
   void cursorSecret;
@@ -329,6 +329,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
           y = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(y), shops.y),
           profile_hash = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(profile_hash), shops.profile_hash),
           full_state_hash = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), IF(shops.status = 'closed', NULL, shops.full_state_hash), shops.full_state_hash),
+          full_snapshot_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), IF(shops.status = 'closed', NULL, shops.full_snapshot_at), shops.full_snapshot_at),
           missing_full_count = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), IF(shops.status = 'closed', 0, shops.missing_full_count), shops.missing_full_count),
           last_changed_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), VALUES(last_changed_at), shops.last_changed_at),
           closed_at = IF(VALUES(last_status_observed_at) > shops.last_status_observed_at OR (VALUES(last_status_observed_at) = shops.last_status_observed_at AND shops.status <> 'closed'), NULL, shops.closed_at),
@@ -340,6 +341,9 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         JOIN ${SHOP_JSON_TABLE}
           ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
         SET shops.status = 'closed',
+          shops.full_state_hash = NULL,
+          shops.full_snapshot_at = NULL,
+          shops.inventory_epoch_at = observation.observed_at,
           shops.last_status_observed_at = observation.observed_at,
           shops.last_changed_at = observation.observed_at,
           shops.closed_at = observation.observed_at,
@@ -347,7 +351,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         WHERE observation.shop_status = 'dismissed'
           AND shops.last_status_observed_at <= observation.observed_at`, [payload]);
 
-      if (hasDismissals) await tx.run(`UPDATE listings
+      if (hasDismissals && !options.deferListingExpiry) await tx.run(`UPDATE listings
         JOIN shops ON shops.id = listings.shop_id
         JOIN ${SHOP_JSON_TABLE}
           ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
@@ -485,9 +489,11 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
             sold_quantity, reason, transition_key
           ) SELECT
             listings.id, transition_input.batch_id, transition_input.observed_at,
-            CASE WHEN transition_input.history_event_type = 'first_seen' THEN 'first_seen' ELSE 'state_changed' END,
+            CASE WHEN transition_input.history_event_type = 'first_seen' THEN 'first_seen'
+              WHEN transition_input.history_event_type = 'reappeared' THEN 'reappeared' ELSE 'state_changed' END,
             NULL, transition_input.price, NULL, transition_input.quantity, 0,
-            CASE WHEN transition_input.history_event_type = 'price_changed' THEN 'price' ELSE NULL END,
+            CASE WHEN transition_input.history_event_type = 'price_changed' THEN 'price'
+              WHEN transition_input.history_event_type = 'reappeared' THEN 'reappeared' ELSE NULL END,
             CONCAT(transition_input.batch_id, ':', listings.id, ':', transition_input.history_event_type)
           FROM ${LISTING_TRANSITION_JSON_TABLE}
           JOIN listings ON listings.id = transition_input.listing_id
@@ -693,8 +699,8 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
           shop_id BIGINT UNSIGNED PATH '$.shopId',
           full_state_hash CHAR(64) PATH '$.fullStateHash'
         )) AS state_update ON shops.id = state_update.shop_id
-        SET shops.full_state_hash = state_update.full_state_hash`, [JSON.stringify(updates)]);
-      void observedAt;
+        SET shops.full_state_hash = state_update.full_state_hash
+        WHERE shops.last_status_observed_at <= ?`, [JSON.stringify(updates), observedAt]);
     },
     async finalizeSnapshot(sourceId, snapshotId, observedAt) {
       const latestSnapshot = await db.first<Row>('SELECT last_full_snapshot_id, last_full_snapshot_at FROM market_sources WHERE id = ?', [sourceId]);
@@ -707,10 +713,10 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       await db.run(`UPDATE shops
         JOIN JSON_TABLE(?, '$[*]' COLUMNS(shop_id BIGINT UNSIGNED PATH '$')) AS snapshot_shop
           ON shops.id = snapshot_shop.shop_id
-        SET shops.full_state_hash = ?,
+        SET shops.full_snapshot_at = ?,
           shops.status = CASE WHEN shops.status = 'closed' THEN shops.status ELSE 'active' END,
           shops.last_changed_at = ?
-        WHERE shops.source_id = ?`, [JSON.stringify(sessionIds), snapshotId, observedAt, sourceId]);
+        WHERE shops.source_id = ? AND shops.last_status_observed_at <= ?`, [JSON.stringify(sessionIds), observedAt, observedAt, sourceId, observedAt]);
     },
     async reconcileSnapshot(input) {
       const empty = (complete: boolean, baseline: boolean) => ({

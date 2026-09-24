@@ -1,68 +1,100 @@
-# Upload CPU optimization
+# Upload CPU and async full snapshots
 
-## Behavior
+## Processing boundaries
 
-Successful uploads emit only the existing compact `lastroweb.request` metric.
-The upload route no longer parses or serializes request bodies for logging.
-Failures emit `lastroweb.upload_error` with a request ID, status, error class,
-processing stage, body byte count, retryability, and available MySQL error codes.
-Validation diagnostics contain at most ten issue paths and codes plus the total
-issue count. Bodies, field values, unknown field names, idempotency keys, token
-hash prefixes, and arbitrary exception messages are not logged by the route.
-Batch cleanup failures likewise log metadata without the exception payload.
+Full HTTP receipt validates one client part, hashes the validated payload and shop
+identities, and persists it in MySQL. It returns ordered `uuid -> shop_id` mappings
+with `reconciliation.status: pending`. It does not normalize/fingerprint items,
+read listings, infer sales, or reconcile the snapshot. MySQL extracts per-shop
+staging rows and computes conservative hashes of the stored item JSON. The last
+part increments the accepted count and sends one small wakeup after commit.
 
-Body size is measured once in UTF-8 bytes and reused for both upload limit checks.
-Items are normalized once per upload. Fingerprint canonicalization avoids sorting
-already sorted options; digest hex encoding uses Buffer. The persisted payload,
-item, and full-shop hash formats are unchanged, including their distinct identity
-scopes. These changes do not change upload responses or snapshot semantics.
+One materialize invocation handles exactly one client part. There is no extra
+20-shop/200-item server split: client shard size controls this work. A full with
+9 parts therefore requires 9 materialization invocations. Item fingerprints keep
+the existing source/numeric-shop identity, and normalization happens in this stage.
 
-Shop resolution skips the three dismissal statements for opening-only requests,
-and skips the opening upsert for dismissal-only requests. Mixed requests keep both
-paths in the same transaction. Its two reads fetch only the nine required columns.
+After materialization, server-owned work is separate:
 
-## Reproduce the local comparison
+| Stage | Work per invocation |
+| --- | --- |
+| `reconcile_shops` | At most `SNAPSHOT_RECONCILE_BATCH_SIZE` absent shops |
+| `reconcile_listings` | At most that many missing/expired candidates; state and inferred event commit together |
+| `publish_hashes` | At most that many shop hashes and baseline markers |
+| `finalize` | One source row and one snapshot state row |
 
-```powershell
-pnpm exec vite-node --config vitest.config.ts scripts/benchmark-upload-cpu.mjs
-```
+The server batch setting defaults to 200 and is deployment-configurable. Each
+stage has an empty-page transition invocation, so no final request drains a loop.
+SQL runs on MySQL; the Worker only receives the current part or candidate page.
+Content hashes are never overwritten by snapshot IDs. Shops awaiting their second
+missing observation keep their content hash invalidated until that check finishes.
 
-The benchmark uses synthetic data, the real upload route and state service, and
-in-memory repository methods. Each scenario has 30 warmup requests followed by
-three samples of 80 requests. Each sample reports mean Node process CPU per
-request; the table reports the median of those three means. Logging output is
-discarded, but serialization and the resulting log byte count are measured.
+Delta and heartbeat retain synchronous behavior, serialized with each full chunk
+by a source row lock. Newer listing observations take precedence over an older full,
+while old full items absent from a newer partial delta still initialize correctly.
+Heartbeats do not invalidate inventory. Close/reopen epochs and newer completed
+inventories prevent obsolete full contents from returning.
+Each chunk's market mutations and cursor commit atomically. Expired leases can be
+reclaimed; generation/token checks reject duplicate or superseded work.
+The source retains `active_full_snapshot_id` across chunks, so two full pipelines
+cannot interleave even when an older snapshot arrives late or is repaired.
 
-Observed on Node v24.21.0, 2026-09-23:
+## Queue operation estimate
 
-| Scenario | Before CPU ms | After CPU ms | Reduction |
-| --- | ---: | ---: | ---: |
-| Heartbeat, 20 shops | 0.975 | 0.775 | 21% |
-| Full new, 20 shops / 400 items | 14.262 | 11.137 | 22% |
-| Full unchanged, 20 shops / 400 items | 8.975 | 7.025 | 22% |
-| Delta new items, 20 shops / 400 items | 8.588 | 7.425 | 14% |
+Messages contain only `sourceId`, `snapshotId`, and `generation`, not 115KB payloads.
+A successful small message costs approximately three Queue operations: write,
+read, delete. Retries, ambiguous sends, and other applications on the account add
+cost. Batching does not reduce billable operations. Daily reservations default to
+9,000 operations (`SNAPSHOT_QUEUE_DAILY_BUDGET`); this is a conservative local
+admission estimate, not Cloudflare's account-wide meter or a hard quota guarantee.
 
-The item payloads are about 76 KB. Their per-request upload log volume fell from
-about 76 KB to zero. The existing application request metric is outside this
-route-only benchmark and remains enabled in the deployed application.
+For P client parts, S present shops, L missing/expired listing candidates, A absent
+shops, and server reconciliation page size B, the current implementation uses:
 
-These are noisy local measurements, not Cloudflare CPU measurements. They exclude
-MySQL driver/network work, database execution, and Cloudflare log transport. In
-particular, the benchmark does not quantify savings from fewer SQL statements.
-The unchanged-full case simulates the database reporting an unchanged shop.
+`messages = P + ceil(L/B) + ceil(A/B) + ceil(S/B) + 5`
 
-## Deployment acceptance
+The five fixed invocations are four empty-page stage transitions and finalization.
+Receipts other than the final part enqueue nothing. Cleanup uses Cron, not Queue.
+At P=9, S=500, B=200 and approximately 58 full snapshots/day:
 
-After deploying, compare Workers invocation `cpuTimeMs` and `exceededCpu` outcomes
-for similar payloads. Separate heartbeat, unchanged full, changed full, new items,
-duplicate replay, and final-part reconciliation; the final part can do more work.
-Check cold invocations as well as sustained traffic. Application `elapsed_ms`
-includes network waits and is not a CPU measurement.
+| Scenario | Messages/full | Operations/day |
+| --- | ---: | ---: |
+| New or unchanged shops; no absent candidates | 17 | 2,958 |
+| 500 missing listing candidates | 20 | 3,480 |
+| 5,000 missing listing candidates | 42 | 7,308 |
+| 500 old shops disappear, 500 new shops replace them, 5,000 old listings expire | 45 | 7,830 |
 
-Aim for p99 at or below 7 ms to leave headroom under a 10 ms limit. This is a target,
-not a result established by local tests. Preserve full-snapshot boundaries and the
-16-part protocol limit if payload sizes are adjusted later.
+Changed items already supplied in the part are handled by materialization, and
+do not each create reconciliation messages. Larger historical listing populations
+can increase L beyond 5,000. Reducing client parts to 20 shops means approximately
+P=25 and adds 16 messages/full: the unchanged case becomes 5,742 operations/day;
+the 5,000-missing case becomes 10,092 operations/day. The limit of 64 parts is not a
+promise that every workload at 64 parts fits the free daily Queue allowance.
 
-This change does not move processing to Cron/VPS, alter database schema, or add
-recovery leases for batches interrupted by platform termination. Existing stuck
-`processing` batch recovery remains a separate reliability concern.
+Without Queue or after budget exhaustion, the once-per-minute recovery Cron
+processes one chunk. It can process at most 1,440 chunks/day and is a recovery
+mechanism with finite capacity: a sustained backlog above that rate cannot catch
+up using Cron alone. Queue remains the normal transport for this workload.
+
+## CPU verification
+
+No runtime benchmark or MySQL integration run was performed for the async change,
+per the requested static-only verification scope. Type checking and static review
+cannot establish a 10ms production CPU bound. In particular, moving a 115KB part
+to Queue does not make its parsing, fingerprinting, or mysql2 serialization free.
+
+After deployment, compare Workers invocation CPU and `exceededCpu` for HTTP
+receipt, each materialize part, each reconciliation stage, and finalization. Log
+events `snapshot_chunk` include stage, generation, and processed count. Network
+waiting time is not CPU time; application elapsed time cannot substitute for it.
+Targets remain p95 below 6ms and p99 below 8ms, not measured results. Reduce client
+part size for materialization and `SNAPSHOT_RECONCILE_BATCH_SIZE` for reconciliation
+when necessary, then recalculate Queue operations.
+
+The existing `scripts/benchmark-upload-cpu.mjs` exercises the legacy synchronous
+service with an in-memory repository. Its historical measurements are not evidence
+for the production async pipeline; do not use it as an async acceptance benchmark.
+
+References: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
+[Queue pricing](https://developers.cloudflare.com/queues/platform/pricing/),
+[Queue limits](https://developers.cloudflare.com/queues/platform/limits/).

@@ -227,7 +227,7 @@ describe('upload route', () => {
     expect(invalid.status).toBe(422);
     expect((await invalid.json() as { error: { code: string } }).error.code).toBe('invalid_upload');
 
-    const tooManyParts = await request(repo(hash), { ...heartbeatPayload, part_count: 17 });
+    const tooManyParts = await request(repo(hash), { ...heartbeatPayload, part_count: 65 });
     expect(tooManyParts.status).toBe(413);
     expect((await tooManyParts.json() as { error: { code: string; action: string } }).error).toMatchObject({ code: 'upload_limit_exceeded', action: 'reshard_upload' });
 

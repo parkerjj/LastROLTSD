@@ -1,5 +1,7 @@
 # Async Market Upload Implementation Plan
 
+> Implementation note (2026-09-24): User-approved changes supersede the original checklist below: materialize exactly one client part per invocation; only server-owned reconciliation is subdivided. Verification is static only, without local MySQL or runtime tests. Use the updated design and `2026-09-24-async-market-upload-progress.md` for actual interfaces, migration filenames, combined missing/inference transactions, and the three-Cron schedule.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move full market snapshots to a MySQL-backed, chunked background pipeline with 64-part uploads while keeping the existing shop-id response contract and the delta/heartbeat behavior.

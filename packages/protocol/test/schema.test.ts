@@ -18,6 +18,11 @@ const valid = {
 };
 
 describe('upload schema', () => {
+  it('accepts all 64 parts and rejects indexes outside the snapshot', () => {
+    expect(parseUploadRequest({ ...valid, part_index: 63, part_count: 64 }).part_index).toBe(63);
+    expect(() => parseUploadRequest({ ...valid, part_index: 64, part_count: 64 })).toThrow();
+    expect(() => parseUploadRequest({ ...valid, part_count: 65 })).toThrow();
+  });
   it('parses a valid full request without trusting a source id', () => {
     const parsed = parseUploadRequest({ ...valid, source_id: 'attacker' });
     expect(parsed.snapshot_mode).toBe('full');

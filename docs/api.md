@@ -4,7 +4,7 @@ This document is the external contract for the OpenKore market adapter. The uplo
 
 ## Upload
 
-`POST /api/v1/market/upload` requires `Authorization: Bearer <source-api-key>`, `Content-Type: application/json`, and `Idempotency-Key: <snapshot_id/part_index>`. The authenticated API key determines `source_id`; a JSON `source_id` is never trusted. The body is limited to 512 KiB and each snapshot has at most 16 parts.
+`POST /api/v1/market/upload` requires `Authorization: Bearer <source-api-key>`, `Content-Type: application/json`, and `Idempotency-Key: <snapshot_id/part_index>`. The authenticated API key determines `source_id`; a JSON `source_id` is never trusted. The body is limited to 512 KiB and each snapshot has at most 64 parts (indexes 0 through 63).
 
 ```json
 {
@@ -44,11 +44,11 @@ An item contains only live observation data: `item_id`, optional `item_key`, pri
 
 Each shop has a required per-transfer `uuid`, `shop_status` (`opening` or `dismissed`), stable `vendor_account_id`, vendor/shop observation fields, and an `items` array. `shop_id` is optional client cache input and is never identity authority. The server computes a source-scoped canonical identity and returns the canonical `shop_id`.
 
-`dismissed` must contain `items: []`. It atomically closes the current shop session, expires active and missing listings, and writes no sold event. A stale `opening` cannot reopen a newer dismissal; a newer opening creates a new session. Missing shops, incomplete uploads, stop events, and delta omissions are not dismissal.
+`dismissed` must contain `items: []`. In delta mode it closes the current shop and expires active and missing listings synchronously, without a sold event. In full mode this happens in background processing after all parts arrive. A stale `opening` cannot reopen a newer dismissal. Missing shops, incomplete uploads, stop events, and delta omissions are not explicit dismissal; absence from a complete full snapshot closes a shop with reason `missing_full`.
 
 `full` contains the complete visible state for the shops included in the snapshot and reconciles missing listings only after every part is accepted. The first complete full snapshot establishes a baseline and creates no sold events. After two consecutive complete full snapshots omit an initialized listing, it becomes `missing` and may produce a low-confidence `missing_streak` event. `delta` updates only the supplied shops/items; an omitted delta item is not sold. `heartbeat` uses lightweight opening shop objects and updates liveness without changing the listing collection.
 
-The canonical idempotency key is `snapshot_id/part_index`. A repeated batch with the same normalized v2 payload returns the stored response with `duplicate: true`. Retry uses the same payload bytes, UUIDs, observed time, and idempotency key unless the error action explicitly requires a new snapshot. Reusing a key with a different normalized payload returns `422 idempotency_key_reused` and requires a new snapshot ID and key.
+The canonical idempotency key is `snapshot_id/part_index`. A repeated batch with the same validated v2 payload returns the stored response with `duplicate: true`. Retry uses the same payload bytes, UUIDs, observed time, and idempotency key unless the error action explicitly requires a new snapshot. Reusing a key with a different payload returns `422 idempotency_key_reused` and requires a new snapshot ID and key. All parts of a full must share `part_count`, `client_run_id`, and `observed_at`; indexes must be unique and cover `[0, part_count)`. A canonical shop identity may occur only once across the entire full snapshot.
 
 Upload errors use this envelope and never echo bearer tokens or complete payloads:
 
@@ -78,7 +78,7 @@ Upload errors use this envelope and never echo bearer tokens or complete payload
 | 413 | `payload_too_large` | The encoded request body exceeds the configured byte limit. | Create a new snapshot and split it into smaller parts (`action: reshard_upload`). |
 | 413 | `upload_limit_exceeded` | A part exceeds the configured part, shop, item, or option limits. | Create a new snapshot and split it into smaller parts (`action: reshard_upload`). |
 | 422 | `invalid_upload` | JSON is valid but does not satisfy protocol v2. | Fix the payload; do not retry unchanged. |
-| 422 | `duplicate_shop_identity` | Two shops in one part resolve to the same canonical identity. | Fix or merge the duplicate shop observations. |
+| 422 | `duplicate_shop_identity` | Two shops in a batch or across full snapshot parts resolve to the same canonical identity. | Fix duplicates and send a new snapshot. |
 | 422 | `idempotency_key_reused` | A completed, processing, or rejected key has a different payload hash. | Create a new snapshot and key (`action: new_snapshot`). |
 | 423 | `batch_in_progress` | Another request owns the same batch claim. | Retry the identical request with the same key after `Retry-After`. |
 | 429 | `rate_limited` | The source upload rate limit was reached. | Retry the identical request with the same key after `Retry-After`. |
@@ -89,27 +89,38 @@ Upload errors use this envelope and never echo bearer tokens or complete payload
 
 Cloudflare may reject or terminate a request before the Worker can create this JSON envelope. OpenKore must therefore also handle non-JSON responses and no-response/network timeouts. Treat HTTP `500`, `502`, `503`, `504`, `520` through `526`, and `530` without a recognized JSON `error.code` as retryable infrastructure failures. Use bounded exponential backoff and the same payload and idempotency key. A later `423 batch_in_progress` means the interrupted invocation may still own the claim; continue honoring `Retry-After` rather than creating another key.
 
-Successful responses use snake_case and contain `accepted`, `batch_id`, `duplicate`, `processed_shops`, `processed_listings`, `changed_listings`, `sold_events`, ordered `shops` results, and `next`:
+Successful responses use snake_case and contain `accepted`, `batch_id`, `duplicate`, `processed_shops`, `processed_listings`, `changed_listings`, `sold_events`, ordered `shops` results, and `next`. Delta/heartbeat retain synchronous counters. A full returns HTTP 202 once its part is durably stored, with this pending response:
 
 ```json
 {
   "accepted": true,
   "batch_id": "redacted-snapshot/0",
   "duplicate": false,
-  "processed_shops": 1,
-  "processed_listings": 1,
+  "processed_shops": 0,
+  "processed_listings": 0,
   "changed_listings": 0,
   "sold_events": 0,
   "shops": [{
     "uuid": "5f2e7d65-0b98-4ff4-a6c3-3b0b92e7d2f1",
     "shop_id": "shop_v1_redacted",
     "shop_status": "opening",
-    "applied": true,
-    "resolution": "created"
+    "applied": false,
+    "resolution": "pending"
   }],
-  "next": null
+  "next": null,
+  "reconciliation": {
+    "status": "pending",
+    "snapshot_id": "redacted-snapshot",
+    "stage": "materialize_parts"
+  }
 }
 ```
+
+For full responses, `shops[].shop_id` is already the stable canonical identity and can be cached using `uuid` even while `applied` is false. `resolution: pending` means the observation has been stored but live listing state has not been applied. The client must accept this new resolution and must not treat `applied: false` as an upload failure when `accepted: true` and `reconciliation.status: pending`. Adapters that only cache mappings when `applied` is true need a corresponding adjustment. OpenKore source code is external to this repository; client compatibility is not claimed as verified.
+
+The cached duplicate response stays pending even after the background job completes; replaying an upload is not a status query. Admin status is available at `GET /api/admin/snapshots/:sourceId/:snapshotId` using `x-admin-secret`. Failed complete snapshots can be retried with `POST /api/admin/snapshots/:sourceId/:snapshotId/requeue`. An incomplete snapshot expires after 24 hours and needs a new full snapshot.
+
+One client part is processed by one materialization Queue invocation. The server does not subdivide that part into fixed groups of 20 shops. Choose smaller client shards to reduce both receipt and materialization CPU. Once all parts are materialized, server-owned reconciliation scans use persistent cursors and `SNAPSHOT_RECONCILE_BATCH_SIZE` (default 200), one chunk per invocation. The last HTTP part never performs these scans. Search may show progressively applied parts; `last_full_snapshot_at` advances only after finalization.
 
 ## Search and history
 
