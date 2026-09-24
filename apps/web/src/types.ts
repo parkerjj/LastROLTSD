@@ -55,6 +55,9 @@ export interface SearchOptionFilter {
   param?: number;
 }
 
+export type SearchScopeKey = 'name' | 'shop' | 'vendor';
+export type SearchScopes = Record<SearchScopeKey, boolean>;
+
 export interface SearchFilters {
   q?: string;
   item_id?: number;

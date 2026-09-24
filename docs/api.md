@@ -155,7 +155,7 @@ Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/opt
 
 ```json
 {
-  "version": "options-lastro-70.83",
+  "version": "options-lastro-70.84",
   "options": [{
     "type": 12,
     "handle": "VAR_SPACCELERATION",

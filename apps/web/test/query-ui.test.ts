@@ -131,6 +131,42 @@ describe('query UI rendering', () => {
     expect(element.textContent).toContain('未知词条 type=777 value=3 param=4');
   });
 
+  it('renders each listing option as a wrapping chip instead of truncating text', () => {
+    const element = getResults();
+    const manyOptions = listing({
+      options: [
+        { type: 1, value: 1, param: 0, display: '在武器赋予风属性' },
+        { type: 2, value: 3, param: 0, display: '风属性魔法伤害+3%' },
+        { type: 3, value: 3, param: 1, display: '对圣属性敌人的物理伤害+3%' },
+      ],
+    });
+    renderSearchResults(element, { items: [manyOptions], nextCursor: null }, state);
+    const chips = Array.from(element.querySelectorAll('.mc-options .opt-chip'));
+    expect(chips).toHaveLength(3);
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      '在武器赋予风属性',
+      '风属性魔法伤害+3%',
+      '对圣属性敌人的物理伤害+3%',
+    ]);
+    // 词条不再是省略号截断的单段文本
+    expect(element.querySelector('.mc-options .opt-none')).toBeNull();
+
+    // 紧凑商品行（商店/商人命中组）同样按独立词条换行展示
+    renderSearchResults(element, {
+      items: [
+        listing({ id: 1, itemName: '普通短剑', title: '风属性专卖店', vendorName: '普通商人' }),
+      ],
+      nextCursor: null,
+    }, { ...state, filters: { q: '风属性专卖', limit: 20, sort: 'price_asc' } });
+    expect(element.querySelectorAll('.line-options .opt-chip')).toHaveLength(1);
+    expect(element.querySelector('.line-options .opt-chip')?.textContent).toBe('SP恢复速度增加50%');
+
+    // 无词条时不渲染词条容器，也不显示占位文案
+    renderSearchResults(element, { items: [listing({ options: [] })], nextCursor: null }, state);
+    expect(element.querySelector('.mc-options')).toBeNull();
+    expect(element.textContent).not.toContain('暂无词条');
+  });
+
   it('escapes API text before inserting HTML', () => {
     const element = getResults();
     renderSearchResults(element, { items: [listing({ itemName: '<img src=x onerror=alert(1)>', vendorName: '<b>恶意</b>' })], nextCursor: null }, state);
@@ -164,6 +200,43 @@ describe('query UI rendering', () => {
     expect(Array.from(element.querySelectorAll<HTMLOptionElement>('#result-sort option')).map((option) => option.value)).toEqual(['price_asc', 'price_desc', 'changed_desc']);
   });
 
+  it('hits only enabled match scopes and falls through disabled earlier groups', () => {
+    const page = {
+      items: [
+        listing({ id: 1, itemName: '利卡短剑', title: '普通商店', vendorName: '普通商人' }),
+        listing({ id: 2, itemName: '普通短剑', title: '利卡特价店', vendorName: '普通商人' }),
+        listing({ id: 3, itemName: '普通长剑', title: '普通商店', vendorName: '杰利卡' }),
+        listing({ id: 4, itemName: '利卡宝剑', title: '利卡收藏店', vendorName: '普通商人' }),
+      ],
+      nextCursor: null,
+    };
+    const scopedState = { ...state, filters: { q: '利卡', limit: 20, sort: 'price_asc' as const }, scopes: { name: false, shop: true, vendor: true } };
+    const element = getResults();
+    renderSearchResults(element, page, scopedState);
+
+    // 关闭道具名称后：仅名称命中的条目被隐藏；同时命中名称与商店的条目落入商店组。
+    expect(Array.from(element.querySelectorAll<HTMLElement>('.result-group')).map((group) => group.dataset.group)).toEqual(['shop', 'vendor']);
+    expect(element.querySelector('[data-group="shop"]')?.textContent).toContain('利卡收藏店');
+    expect(element.querySelector('[data-group="shop"]')?.textContent).toContain('利卡特价店');
+    expect(element.textContent).not.toContain('利卡短剑');
+
+    // 只保留道具名称：恢复原有名称组
+    renderSearchResults(element, page, { ...scopedState, scopes: { name: true, shop: false, vendor: false } });
+    expect(Array.from(element.querySelectorAll<HTMLElement>('.result-group')).map((group) => group.dataset.group)).toEqual(['name']);
+    expect(element.querySelectorAll('.market-card')).toHaveLength(2);
+
+    // 全部关闭：显示引导提示，不显示分组，也不触发图鉴兜底
+    renderSearchResults(element, page, { ...scopedState, scopes: { name: false, shop: false, vendor: false } });
+    expect(element.querySelector('.scope-empty')?.textContent).toContain('命中范围');
+    expect(element.querySelector('.result-group')).toBeNull();
+    expect(element.querySelector('.catalog-history')).toBeNull();
+
+    // 无关键词浏览时忽略范围开关，全部进入名称组
+    renderSearchResults(element, { items: [listing()], nextCursor: null }, { ...state, scopes: { name: false, shop: false, vendor: false } });
+    expect(element.querySelector('.result-group')?.getAttribute('data-group')).toBe('name');
+    expect(element.querySelector('.scope-empty')).toBeNull();
+  });
+
   it('formats timestamps as Chinese relative time', () => {
     const now = 1_000_000_000_000;
     expect(formatRelativeTime(now - 10_000, now)).toBe('刚刚');
@@ -179,7 +252,9 @@ describe('query UI rendering', () => {
     expect(drawer.textContent).toContain('价格历史');
     expect(drawer.textContent).toContain('售出：1（2 → 1）');
     expect(drawer.querySelector('#next-history')).not.toBeNull();
-    expect(drawer.querySelector('#close-history')).not.toBeNull();
+    expect(drawer.querySelector('.drawer-head #close-history.drawer-close')).not.toBeNull();
+    expect(drawer.querySelector('.drawer-close-footer[data-close-drawer]')).not.toBeNull();
+    expect(drawer.querySelectorAll('[data-close-drawer]')).toHaveLength(2);
   });
 
   it('renders the item brief, chart explanation, current listings, and sales in an item-wide history drawer', () => {
@@ -201,5 +276,8 @@ describe('query UI rendering', () => {
     expect(drawer.querySelector('.current-listings')?.textContent).toContain('长发特卖');
     expect(drawer.textContent).toContain('售出记录');
     expect(drawer.querySelector('.history-sales')?.textContent).toContain('以 1,100 Zeny 售出 1 个');
+    expect(drawer.querySelector('.drawer-inner.history-drawer-inner')).not.toBeNull();
+    expect(drawer.querySelector('.drawer-head .drawer-close#close-history')).not.toBeNull();
+    expect(drawer.querySelector('.drawer-close-footer')?.textContent).toContain('关闭');
   });
 });

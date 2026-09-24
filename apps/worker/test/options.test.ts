@@ -8,11 +8,11 @@ const definition: OptionDefinition = { type: 12, handle: 'VAR_SPACCELERATION', l
 describe('options route', () => {
   it('returns stable type-level option definitions with version and cache metadata', async () => {
     const app = new Hono();
-    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version: 'options-lastro-70.83', items: [definition] }) } as never);
+    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version: 'options-lastro-70.84', items: [definition] }) } as never);
     const response = await app.request('/api/v1/options');
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      version: 'options-lastro-70.83',
+      version: 'options-lastro-70.84',
       options: [{
         type: 12,
         handle: 'VAR_SPACCELERATION',

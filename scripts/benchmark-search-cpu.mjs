@@ -59,7 +59,7 @@ try {
   };
   const page = JSON.parse(await run(baseUrl, true));
   const nextUrl = `${baseUrl}&cursor=${encodeURIComponent(page.nextCursor)}`;
-  const filters = { limit: 20, sort: 'changed_desc', catalogVersion: 'static', optionVersion: 'options-lastro-70.83', searchIndexVersion: 'active-shop-bounded-v1' };
+  const filters = { limit: 20, sort: 'changed_desc', catalogVersion: 'static', optionVersion: 'options-lastro-70.84', searchIndexVersion: 'active-shop-bounded-v1' };
   const cursorWork = () => {
     const context = search.searchCursorContext(filters);
     const cursor = search.encodeCursor({ sort: 'changed_desc', sortValue: 1000, id: 42, context });

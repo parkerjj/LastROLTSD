@@ -3,7 +3,7 @@ import { MarketApi } from '../src/api';
 
 describe('market API', () => {
   it('loads the options endpoint and maps its Chinese metadata', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: 'options-lastro-70.83', options: [{ type: 12, handle: 'VAR_SPACCELERATION', label_zh: 'SP恢复速度增加数值%', description_template: 'SP恢复速度增加{value}%', value_kind: 'integer', unit: '', scale: 1, allowed_operators: ['gte'], param_policy: { mode: 'ignored', filterable: false }, repeat_policy: 'same', display_template: 'SP恢复速度增加{value}%', search_tokens: [] }] }), { status: 200, headers: { etag: '"options"' } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ version: 'options-lastro-70.84', options: [{ type: 12, handle: 'VAR_SPACCELERATION', label_zh: 'SP恢复速度增加数值%', description_template: 'SP恢复速度增加{value}%', value_kind: 'integer', unit: '', scale: 1, allowed_operators: ['gte'], param_policy: { mode: 'ignored', filterable: false }, repeat_policy: 'same', display_template: 'SP恢复速度增加{value}%', search_tokens: [] }] }), { status: 200, headers: { etag: '"options"' } }));
     vi.stubGlobal('fetch', fetchMock);
     const result = await new MarketApi().getOptions();
     expect(result.options[0]).toMatchObject({ type: 12, labelZh: 'SP恢复速度增加数值%', allowedOperators: ['gte'] });
