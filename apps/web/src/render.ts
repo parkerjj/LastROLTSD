@@ -840,12 +840,38 @@ function formatEdgeTickLabel(value: number, spec: TimeTickSpec): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-export function renderHistoryError(drawer: HTMLElement, message: string): void {
-  drawer.innerHTML = drawerFrame(
-    "close-history",
-    "关闭价格历史",
-    `<p class="drawer-error" role="alert">${escape(friendlyError(message, "暂无可供查询的价格历史。"))}</p>`,
+export function renderHistoryError(
+  drawer: HTMLElement,
+  message: unknown,
+  item?: HistoryItemBrief,
+): void {
+  // 服务端返回的中文错误作为补充明细展示；非中文（网络层错误等）则只展示通用说明。
+  const detail = friendlyError(message, "");
+  const hasCustomDetail = detail !== "" && detail !== "暂无可供查询的价格历史。";
+  const itemName = item?.itemName?.trim() || "未知物品";
+  const icon = proxyRmsAsset(
+    item?.itemIcon ||
+      rmsAssetUrl(
+        `items/large/${encodeURIComponent(String(item?.itemId ?? 0))}.gif`,
+      ),
   );
+  const body = `<p class="drawer-kicker">价格历史 / PRICE HISTORY</p>
+  <div class="history-state-item">
+    <span class="history-state-item-icon"><img src="${escape(icon)}" alt="" loading="lazy" /></span>
+    <div class="history-state-item-copy">
+      <strong>${escape(itemName)}</strong>
+      <small>物品 #${escape(String(item?.itemId ?? ""))}</small>
+    </div>
+  </div>
+  <div class="history-state" role="alert">
+    <span class="history-state-medal" aria-hidden="true"><i class="ph ph-chart-line-down"></i></span>
+    <h2>暂无可供查询的价格历史</h2>
+    <p>「${escape(itemName)}」近期还没有采集到摆摊或成交记录。价格历史来自全服商人摆摊采集，新上架或冷门物品可能暂未收录；网络波动或服务重启时也会出现此提示。</p>
+    <button type="button" class="history-state-retry" data-retry-history><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>重新查询</button>
+    <p class="history-state-hint"><i class="ph ph-info" aria-hidden="true"></i>点击重试不会关闭当前抽屉</p>
+    ${hasCustomDetail ? `<p class="history-state-detail">${escape(detail)}</p>` : ""}
+  </div>`;
+  drawer.innerHTML = drawerFrame("close-history", "关闭价格历史", body);
   drawer.hidden = false;
 }
 

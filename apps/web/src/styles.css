@@ -619,7 +619,25 @@ mark { padding: 0 4px; border-radius: 2px; background: rgba(198, 148, 69, .32); 
 .drawer-close-footer:active { transform: translateY(0); }
 .drawer-loading { display: flex; align-items: center; gap: 9px; margin: 16px 2px 0; color: #a9b4aa; font-size: .8rem; }
 .drawer-loading i { font-size: 1rem; }
-.drawer-error { margin: 16px 2px 0; color: #e2b6ad; font-size: .8rem; line-height: 1.7; }
+/* 价格历史空状态：物品档案卡 + 告示面板（深色基础，浅色覆写在后段） */
+.history-state-item { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 11px 13px; background: rgba(255,255,255,.05); border: 1px solid #2f403b; border-radius: 10px; }
+.history-state-item-icon { display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; padding: 3px; background: #241d14; border: 1px solid #4d5f55; border-radius: 8px; }
+.history-state-item-icon img { display: block; max-width: 100%; max-height: 100%; }
+.history-state-item-copy { display: grid; gap: 3px; min-width: 0; }
+.history-state-item-copy strong { overflow-wrap: anywhere; color: #f4ecd9; font-size: .88rem; }
+.history-state-item-copy small { color: #8d9d92; font-size: .66rem; letter-spacing: .06em; }
+.history-state { display: flex; flex-direction: column; align-items: center; margin-top: 26px; text-align: center; }
+.history-state-medal { display: grid; place-items: center; width: 78px; height: 78px; margin-bottom: 17px; color: var(--gold); background: rgba(198,148,69,.1); border: 1.5px dashed rgba(198,148,69,.55); border-radius: 50%; }
+.history-state-medal i { font-size: 2rem; }
+.history-state h2 { margin: 0 0 9px; color: #f4ecd9; font-size: 1.04rem; }
+.history-state > p { margin: 0; color: #a9b4aa; font-size: .76rem; line-height: 1.8; }
+.history-state-retry { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 46px; margin-top: 22px; padding: 0 18px; color: #fff8ef; background: var(--red); border: 1px solid var(--red); border-radius: 999px; font-size: .84rem; font-weight: 800; letter-spacing: .1em; box-shadow: 0 12px 24px rgba(0,0,0,.3); transition: background-color .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.history-state-retry i { font-size: 1.05rem; }
+.history-state-retry:hover:not(:disabled) { background: #ce5847; border-color: #ce5847; transform: translateY(-2px); box-shadow: 0 16px 28px rgba(0,0,0,.36); }
+.history-state-retry:active { transform: translateY(0); }
+.history-state > .history-state-hint { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 13px; color: #809087; font-size: .68rem; }
+.history-state > .history-state-hint i { font-size: .82rem; }
+.history-state > .history-state-detail { margin-top: 13px; padding-top: 11px; border-top: 1px dashed #2f403b; color: #8d9d92; font-size: .66rem; }
 @keyframes drawer-slide-in { from { transform: translateX(48px); opacity: .55; } to { transform: translateX(0); opacity: 1; } }
 @keyframes drawer-slide-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(56px); opacity: 0; } }
 @keyframes drawer-overlay-in { from { opacity: 0; } to { opacity: 1; } }
@@ -873,7 +891,15 @@ label { color: #4c5a50; }
 .drawer-close-footer { color: #fff8ef; background: var(--forest); border-color: var(--forest); box-shadow: 0 14px 26px rgba(23,42,35,.24); }
 .drawer-close-footer:hover { color: #fff8ef; background: var(--red); border-color: var(--red); }
 .drawer-loading { color: #768177; }
-.drawer-error { color: #9b4138; }
+.history-state-item { background: #fffdf8; border-color: #d8cdbd; }
+.history-state-item-icon { background: #fff8ee; border-color: #cdbfa8; }
+.history-state-item-copy strong { color: var(--forest); }
+.history-state-item-copy small { color: #8a9189; }
+.history-state-medal { color: #a97b24; background: rgba(198,148,69,.12); border-color: rgba(169,123,36,.5); }
+.history-state h2 { color: var(--forest); }
+.history-state > p { color: #6d776f; }
+.history-state > .history-state-hint { color: #7b857d; }
+.history-state > .history-state-detail { border-top-color: #d8cdbd; color: #7b857d; }
 .drawer h2 { color: var(--forest); }
 .drawer li { border-bottom-color: #d8cdbd; }
 .drawer li time, .drawer li span, .map-note { color: #7b857d; }

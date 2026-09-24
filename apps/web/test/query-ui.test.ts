@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { formatRelativeTime, renderHistory, renderSearchResults, renderSearchResultsWithCatalog } from '../src/render';
+import { formatRelativeTime, renderHistory, renderHistoryError, renderSearchResults, renderSearchResultsWithCatalog } from '../src/render';
 import type { ItemAutocomplete, ListingSearchResult } from '../src/types';
 
 const listing = (overrides: Partial<ListingSearchResult> = {}): ListingSearchResult => ({
@@ -279,5 +279,28 @@ describe('query UI rendering', () => {
     expect(drawer.querySelector('.drawer-inner.history-drawer-inner')).not.toBeNull();
     expect(drawer.querySelector('.drawer-head .drawer-close#close-history')).not.toBeNull();
     expect(drawer.querySelector('.drawer-close-footer')?.textContent).toContain('关闭');
+  });
+
+  it('renders a friendly history error panel with item brief and retry action', () => {
+    const dom = new JSDOM('<aside></aside>');
+    const drawer = dom.window.document.querySelector('aside') as HTMLElement;
+    // 网络层错误（非中文）：只展示通用说明，无服务端明细行
+    renderHistoryError(drawer, new Error('network fail'), listing({ itemId: 5001, itemName: '波利卡片' }));
+    expect(drawer.querySelector('.history-state[role="alert"]')).not.toBeNull();
+    expect(drawer.querySelector('.history-state h2')?.textContent).toBe('暂无可供查询的价格历史');
+    expect(drawer.querySelector('.history-state-item-copy strong')?.textContent).toContain('波利卡片');
+    expect(drawer.querySelector('.history-state-item-copy small')?.textContent).toContain('5001');
+    expect(drawer.querySelector('.history-state-item-icon img')?.getAttribute('src')).toContain('/api/v1/assets/');
+    expect(drawer.querySelector('.history-state > p')?.textContent).toContain('波利卡片');
+    expect(drawer.querySelector('[data-retry-history]')?.textContent).toContain('重新查询');
+    expect(drawer.querySelector('.history-state-detail')).toBeNull();
+    expect(drawer.querySelectorAll('[data-close-drawer]')).toHaveLength(2);
+
+    // 服务端中文错误：作为补充明细展示
+    renderHistoryError(drawer, '服务暂时不可用，请稍后再试。', listing({ itemId: 5001 }));
+    expect(drawer.querySelector('.history-state-detail')?.textContent).toContain('服务暂时不可用');
+    // 兜底文案本身不重复展示为明细
+    renderHistoryError(drawer, '暂无可供查询的价格历史。', listing({ itemId: 5001 }));
+    expect(drawer.querySelector('.history-state-detail')).toBeNull();
   });
 });

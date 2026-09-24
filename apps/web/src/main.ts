@@ -487,9 +487,14 @@ function mountSearchPage(): void {
     );
   }
 
+  let lastHistoryItem:
+    | Pick<ListingSearchResult, "itemId" | "itemName" | "itemIcon">
+    | undefined;
+
   async function openHistory(
     item: Pick<ListingSearchResult, "itemId" | "itemName" | "itemIcon">,
   ): Promise<void> {
+    lastHistoryItem = item;
     const requestId = ++historyRequestId;
     track(AnalyticsEvent.ItemHistory, {
       item_id: item.itemId,
@@ -508,10 +513,7 @@ function mountSearchPage(): void {
       renderHistory(historyDrawer, history, item);
     } catch (error) {
       if (requestId !== historyRequestId || historyDrawer.hidden) return;
-      renderHistoryError(
-        historyDrawer,
-        friendlyError(error, "暂无可供查询的价格历史。"),
-      );
+      renderHistoryError(historyDrawer, error, item);
     }
   }
 
@@ -930,8 +932,15 @@ function mountSearchPage(): void {
   window.addEventListener("scroll", () => hideItemPopover(), true);
 
   historyDrawer.addEventListener("click", (event) => {
-    if ((event.target as Element).closest("[data-close-drawer]"))
+    const target = event.target as Element;
+    if (target.closest("[data-close-drawer]")) {
       closeHistory();
+      return;
+    }
+    // 空状态/加载失败面板里的「重新查询」：用最近一次请求的物品重试。
+    if (target.closest("[data-retry-history]") && lastHistoryItem) {
+      void openHistory(lastHistoryItem);
+    }
   });
   drawerOverlay.addEventListener("click", () => {
     closeHistory();
