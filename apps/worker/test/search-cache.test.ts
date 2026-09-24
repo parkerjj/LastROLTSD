@@ -32,6 +32,7 @@ describe('search edge cache', () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(mysql, 'createPool').mockImplementation(() => ({
+      on: vi.fn(),
       async execute() {
         databaseReads++;
         if (failDatabase) throw new Error('database unavailable');

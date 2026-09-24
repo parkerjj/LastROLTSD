@@ -1,5 +1,22 @@
 # Upload CPU and async full snapshots
 
+## TCP write compatibility
+
+Cloudflare's production socket runtime can disconnect when one TCP write exceeds
+64 KiB, surfacing `Network connection lost` on the next read. Local Wrangler does
+not reproduce this behavior. See [workerd #7074](https://github.com/cloudflare/workerd/issues/7074).
+
+The MySQL pool now limits socket writes to 32 KiB after each connection's handshake,
+including TLS connections. Both individual and buffered vector writes are split
+sequentially, preserving byte order, backpressure, and errors. SQL statements,
+transactions, and client upload parts are unchanged; this is not a shop batch limit.
+
+Read-only remote-preview verification against the configured MySQL instance on
+2026-09-24 reproduced the original disconnect with a 65,535-byte bound parameter
+(plus protocol overhead). With the transport fix, parameters of 65,535, 89,630,
+115,000, and 524,288 bytes all succeeded. The server's `max_allowed_packet` was
+64 MiB. These checks establish transport compatibility, not the upload CPU budget.
+
 ## Processing boundaries
 
 Full HTTP receipt validates one client part, hashes the validated payload and shop

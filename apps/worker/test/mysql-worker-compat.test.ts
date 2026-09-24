@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Duplex } from 'node:stream';
 import { createMysqlDatabase, MysqlDatabaseError } from '../src/db/mysql-client';
 
 afterEach(() => vi.restoreAllMocks());
@@ -18,6 +19,12 @@ describe('MySQL Worker compatibility', () => {
       await database.healthcheck();
       expect(createPool.mock.results[0]?.value.pool.config.connectionConfig.disableEval).toBe(true);
       expect(createPool.mock.results[0]?.value.pool.config.connectionConfig.trace).toBe(false);
+      const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) { callback(); } });
+      const originalWrite = socket._write;
+      createPool.mock.results[0]?.value.pool.emit('connection', { stream: socket });
+      expect(socket._write).not.toBe(originalWrite);
+      expect(socket._writev).toBeTypeOf('function');
+      socket.destroy();
     } finally {
       await database.close();
     }

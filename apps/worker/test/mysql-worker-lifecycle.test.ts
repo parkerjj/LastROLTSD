@@ -12,6 +12,7 @@ function trackPools(fail = false) {
   vi.spyOn(mysql, 'createPool').mockImplementation(() => {
     const pool = {
       closed: false,
+      on: vi.fn(),
       async execute(sql: string) {
         if (pool.closed) throw new Error('connection belongs to a completed request');
         if (fail) throw new Error('database unavailable');

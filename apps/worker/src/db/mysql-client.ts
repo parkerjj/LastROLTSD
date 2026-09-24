@@ -1,4 +1,6 @@
 import mysql, { type ResultSetHeader } from 'mysql2/promise';
+import type { Duplex } from 'node:stream';
+import { limitMysqlSocketWrites } from './mysql-socket';
 
 export const MYSQL_POOL_CONNECTION_LIMIT = 2;
 
@@ -162,7 +164,8 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
   const config = parseMysqlUrl(mysqlUrl);
   let pool: MysqlPoolLike | undefined;
   return createMysqlDatabaseForPoolFactory(() => {
-    pool ??= mysql.createPool({
+    if (pool) return pool;
+    const created = mysql.createPool({
       host: config.host,
       port: config.port,
       user: config.user,
@@ -181,7 +184,13 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
       idleTimeout: 10_000,
       enableKeepAlive: true,
       ...(config.ssl ? { ssl: { rejectUnauthorized: true } } : {}),
-    }) as unknown as MysqlPoolLike;
+    });
+    // The pool event runs after the handshake, so TLS connections expose their
+    // final secure socket here too, before the connection is handed to a query.
+    created.on('connection', (connection) => {
+      limitMysqlSocketWrites((connection as unknown as { stream: Duplex }).stream);
+    });
+    pool = created as unknown as MysqlPoolLike;
     return pool;
   }, async () => {
     const poolToClose = pool;
