@@ -132,11 +132,6 @@ export interface ItemMarketHistory {
 export interface UploadShopResult { uuid: string; shop_id: string; shop_status: 'opening' | 'dismissed'; applied: boolean; resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored'; }
 export interface UploadResultLike { accepted: boolean; batch_id: string; duplicate: boolean; processed_shops: number; processed_listings: number; changed_listings: number; sold_events: number; shops: UploadShopResult[]; next: string | null; }
 
-export function assertBatchBounds(statementCount: number, boundValues: number): void {
-  if (statementCount > 45) throw new Error('D1 batch statement limit exceeded');
-  if (boundValues > 100) throw new Error('D1 bound parameter limit exceeded');
-}
-
 export function normalizeEpoch(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === 'number' ? value : Number(value);

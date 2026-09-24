@@ -17,7 +17,7 @@ const shop = z.object({
 }).strict();
 export const uploadRequestSchema = z.object({
   protocol_version: z.literal(2), client_run_id: z.string().trim().min(1).max(120), snapshot_id: z.string().trim().min(1).max(160),
-  snapshot_mode: z.enum(['full', 'delta', 'heartbeat']), part_index: integer.min(0).max(15), part_count: integer.min(1).max(16),
+  snapshot_mode: z.enum(['full', 'delta', 'heartbeat']), part_index: integer.min(0).max(63), part_count: integer.min(1).max(64),
   observed_at: z.string().datetime({ offset: true }), shops: z.array(shop).max(300),
 }).strict().superRefine((value, ctx) => {
   if (value.part_index >= value.part_count) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['part_index'], message: 'part_index must be less than part_count' });
