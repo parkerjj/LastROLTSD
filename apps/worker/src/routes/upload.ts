@@ -1,12 +1,12 @@
 import type { Hono } from 'hono';
 import { Buffer } from 'node:buffer';
-import { parseUploadRequest, UploadValidationError } from '@lastroweb/protocol';
+import { parseUploadRequest, UploadValidationError, type UploadRequest } from '@lastroweb/protocol';
 import { AuthError, requireSource } from '../middleware/auth';
 import { enforceUploadLimits, LimitError } from '../middleware/limits';
 import { jsonError, requestId } from '../middleware/errors';
 import { canonicalBatchId, ingestUpload, IngestionError, isValidIdempotencyKey, type ListingStateService } from '../services/ingestion';
 import type { AppEnv } from '../env';
-import type { MarketRepository } from '../db/repository';
+import type { MarketRepository, UploadResultLike } from '../db/repository';
 import { recordUploadError } from '../observability';
 import type { AuthenticatedSource } from '../middleware/auth';
 import { MysqlDatabaseError } from '../db/mysql-client';
@@ -22,7 +22,8 @@ function isUploadLimitValidationError(error: UploadValidationError): boolean {
   return error.issues.some((issue) => issue.code === 'too_big' && limitedFields.has(issue.path[issue.path.length - 1]!));
 }
 
-export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRepository, state: ListingStateService): void {
+export type UploadHandler = (source: AuthenticatedSource, request: UploadRequest, key: string) => Promise<UploadResultLike>;
+export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRepository, state: ListingStateService, handler?: UploadHandler): void {
   app.post('/api/v1/market/upload', async (c) => {
     const id = requestId(c.req.raw);
     let source: AuthenticatedSource | undefined;
@@ -58,7 +59,9 @@ export function registerUploadRoute(app: Hono<any>, env: AppEnv, repo: MarketRep
       const request = parseUploadRequest(parsed);
       if (idempotencyKey !== canonicalBatchId(request)) return logError('idempotency_key_mismatch', 'Idempotency-Key must match the canonical snapshot part', 400, 'UploadValidationError', { retryable: false }, { expected: 'canonical snapshot part', actual: 'mismatch' });
       enforceUploadLimits(c.req.raw, request, bodyBytes);
-      const result = await ingestUpload(source, request, idempotencyKey, repo, state, (nextStage) => { stage = nextStage; });
+      stage = request.snapshot_mode === 'full' ? 'receive_full_part' : 'ingest';
+      const result = handler ? await handler(source, request, idempotencyKey)
+        : await ingestUpload(source, request, idempotencyKey, repo, state, (nextStage) => { stage = nextStage; });
       stage = 'respond';
       return c.json(result, 202, { 'cache-control': 'no-store' });
     } catch (error) {

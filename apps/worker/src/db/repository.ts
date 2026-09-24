@@ -129,8 +129,8 @@ export interface ItemMarketHistory {
   events: Array<{ listingId: number; observedAt: number; price: number; quantity: number; eventType: string }>;
 }
 
-export interface UploadShopResult { uuid: string; shop_id: string; shop_status: 'opening' | 'dismissed'; applied: boolean; resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored'; }
-export interface UploadResultLike { accepted: boolean; batch_id: string; duplicate: boolean; processed_shops: number; processed_listings: number; changed_listings: number; sold_events: number; shops: UploadShopResult[]; next: string | null; }
+export interface UploadShopResult { uuid: string; shop_id: string; shop_status: 'opening' | 'dismissed'; applied: boolean; resolution: 'created' | 'matched' | 'dismissed' | 'stale_event_ignored' | 'pending'; }
+export interface UploadResultLike { accepted: boolean; batch_id: string; duplicate: boolean; processed_shops: number; processed_listings: number; changed_listings: number; sold_events: number; shops: UploadShopResult[]; next: string | null; reconciliation?: { status: 'pending' | 'complete' | 'failed'; snapshot_id: string; stage?: string }; }
 
 export function normalizeEpoch(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) return null;

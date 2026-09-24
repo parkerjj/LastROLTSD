@@ -6,6 +6,24 @@ const listing: ListingRow = { id: 1, shopSessionId: 1, itemFingerprint: 'fp', it
 const repo = () => ({ applyListingChanges: async () => ({ updated: 1, conflicts: 0 }), insertHistory: async () => {}, insertSoldEvent: async () => true }) as any;
 
 describe('listing state transition', () => {
+  it.each(['missing', 'expired'])('starts a new sale baseline when a %s listing reappears', async (status) => {
+    const result = await applyListingObservation({ listing: { ...listing, status, quantity: 10, missingStreak: 2 },
+      item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 10, quantity: 5, options: [] },
+      observedAt: 2, batchId: 'reappeared', baselineComplete: true }, repo());
+    expect(result.updated).toBe(true);
+    expect(result.soldEvent).toBeNull();
+    expect(result.listing.status).toBe('active');
+  });
+
+  it('ignores older listing contents while materializing a delayed full', async () => {
+    const result = await applyListingObservation({ listing: { ...listing, lastChangedAt: 3 },
+      item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 20, quantity: 1, options: [] },
+      observedAt: 2, batchId: 'older-full', baselineComplete: true }, repo());
+    expect(result.updated).toBe(false);
+    expect(result.historyWritten).toBe(false);
+    expect(result.soldEvent).toBeNull();
+  });
+
   it('writes price-only and quantity changes with one version update', async () => {
     const result = await applyListingObservation({ listing, item: { item_id: 1, upgrade: 0, slots: 0, cards: [], price: 12, quantity: 5, options: [] }, observedAt: 2, batchId: 'b', baselineComplete: true }, repo());
     expect(result.updated).toBe(true); expect(result.historyWritten).toBe(true); expect(result.soldEvent).toBeNull();

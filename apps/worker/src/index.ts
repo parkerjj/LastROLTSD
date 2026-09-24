@@ -16,6 +16,9 @@ import { registerAssetRoute } from './routes/assets';
 import { withSearchCache } from './middleware/search-cache';
 import { createGuestbookRepository } from './db/guestbook-repository';
 import { registerGuestbookRoutes } from './routes/guestbook';
+import { createUploadHandler } from './services/upload-handler';
+import { createSnapshotRepository } from './db/snapshot-repository';
+import { consumeSnapshotBatch, processSnapshotWakeup, type SnapshotQueueMessage } from './services/snapshot-dispatcher';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -50,8 +53,8 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
     registerStatusRoute(app, repository);
-    registerUploadRoute(app, env, repository, createListingStateService(repository));
-    registerAdminRoutes(app, env, repository);
+    registerUploadRoute(app, env, repository, createListingStateService(repository), createUploadHandler(database, env));
+    registerAdminRoutes(app, env, repository, createSnapshotRepository(database));
   }
 
   (app as any).get('*', async (c: any) => {
@@ -77,12 +80,24 @@ export default {
       await database?.close();
     }
   },
-  async scheduled(_event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
+  async queue(batch: { messages: readonly SnapshotQueueMessage[] }, bindings: Record<string, unknown>): Promise<void> {
+    const env = resolveAppEnv(bindings);
+    if (!env.MYSQL_URL) throw new Error('MYSQL_URL is required for snapshot jobs');
+    const database = createMysqlDatabase(env.MYSQL_URL);
+    try {
+      await consumeSnapshotBatch(batch.messages, env, createSnapshotRepository(database));
+    } finally {
+      await database.close();
+    }
+  },
+  async scheduled(event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
     if (!env.MYSQL_URL) return;
     const database = createMysqlDatabase(env.MYSQL_URL);
     try {
-      await runRetention(Date.now(), {}, createMysqlRepository(database));
+      if (event.cron === '* * * * *') await processSnapshotWakeup(env, createSnapshotRepository(database));
+      else if (event.cron === '*/5 * * * *') await createSnapshotRepository(database).cleanup(Date.now());
+      else await runRetention(Date.now(), {}, createMysqlRepository(database));
     } finally {
       await database.close();
     }

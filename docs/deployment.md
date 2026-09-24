@@ -116,6 +116,56 @@ try {
 
 Use a dedicated test database only; the test creates then removes an isolated source row. Never point `MYSQL_TEST_URL` at production.
 
-## Rollback
+## Async full upload rollout
+
+This change was implemented with static verification only, as requested. No local
+MySQL installation, database migration, Queue creation, or deployment was performed.
+Runtime SQL, end-to-end recovery, and edge CPU measurements remain deployment checks.
+
+Apply forward migrations `004_upload_part_limit.sql` and `005_async_snapshots.sql`
+before deploying the new Worker. Do not edit the checksums of earlier migrations.
+The new tables store accepted snapshots, per-shop staging, exact listing presence,
+and Queue budget reservations. Only MySQL is used; historical D1 migration/export
+tools are retained but the D1 TypeScript runtime has been removed.
+
+Create the Queue matching the deployment environment before deploying a consumer:
+
+```powershell
+pnpm exec wrangler queues create lastroweb-production-snapshot-jobs
+```
+
+The default environment uses `lastroweb-snapshot-jobs`; staging uses
+`lastroweb-staging-snapshot-jobs`. Consumer settings must retain
+`max_batch_size = 1`. Set `SNAPSHOT_QUEUE_DAILY_BUDGET` (default 9000 reserved
+operations/day) and `SNAPSHOT_RECONCILE_BATCH_SIZE` (default 200 rows) in the target
+environment's vars. Client upload part size independently controls materialization.
+With no Queue binding, jobs remain durable and the recovery Cron processes them.
+
+Three Cron expressions are configured: `* * * * *` runs one recovery chunk,
+`*/5 * * * *` runs one staging cleanup chunk, and `0 3 * * *` retains the existing
+history cleanup. Workers Free allows five Cron triggers per account, so enabling
+all three in multiple deployed environments can exceed the account limit. Staging
+and production should not both inherit these schedules on the same free account.
+Cron recovery has a maximum throughput of 1440 chunks/day and is not an unlimited
+substitute for Queue capacity.
+
+Use `GET /api/admin/snapshots/:sourceId/:snapshotId` with `x-admin-secret` to inspect
+status, stage, cursor, generation, attempts, lease and failure code. Use
+`POST /api/admin/snapshots/:sourceId/:snapshotId/requeue` for a failed snapshot whose
+parts are complete. Requeue retains its committed cursor and invalidates previous
+messages; the next recovery Cron picks it up. Incomplete snapshots require a new
+snapshot after their 24-hour receive timeout. Do not manually reset a cursor on
+partially applied data.
+
+Completed and permanently incomplete staging payloads are reclaimed incrementally after seven days; accepted
+part hashes and responses remain as idempotency tombstones. Review failed jobs
+before deciding to discard their debugging data. Search changes progressively as
+parts are materialized; source `last_full_snapshot_at` is a completion marker.
+
+Check the OpenKore adapter accepts `resolution: pending` and caches the stable
+`uuid -> shop_id` mapping with `applied: false`. This repository does not contain
+that adapter. See [API contract](api.md) and [CPU and Queue estimates](upload-performance.md).
+
+## Rollback Considerations
 
 Worker deployment rollback changes Worker code only. It does not roll back MySQL schema or imported data. Preserve the D1 dump and the converter output, take a VPS MySQL backup before importing, and use reviewed forward MySQL migrations to repair schema. Do not reset a production database, delete a migration record, or run `DROP DATABASE`.

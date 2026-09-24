@@ -1,5 +1,6 @@
 import type { Fetcher } from '@cloudflare/workers-types';
 import { DEFAULT_CURSOR_SECRET } from './domain/search';
+import type { SnapshotMessage } from './services/full-upload';
 
 export interface AppEnv {
   MYSQL_URL?: string | undefined;
@@ -11,6 +12,9 @@ export interface AppEnv {
   GUESTBOOK_RATE_SECRET?: string | undefined;
   UPLOAD_LIMITER?: Fetcher | undefined;
   ADMIN_SECRET?: string | undefined;
+  SNAPSHOT_QUEUE?: { send(message: SnapshotMessage): Promise<void> } | undefined;
+  SNAPSHOT_QUEUE_DAILY_BUDGET?: number | undefined;
+  SNAPSHOT_RECONCILE_BATCH_SIZE?: number | undefined;
 }
 
 export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
@@ -32,5 +36,20 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     GUESTBOOK_RATE_SECRET: guestbookRateSecret.length >= 32 ? guestbookRateSecret : 'lastroweb-local-guestbook-rate-secret-v1',
     UPLOAD_LIMITER: bindings.UPLOAD_LIMITER as Fetcher | undefined,
     ADMIN_SECRET: bindings.ADMIN_SECRET as string | undefined,
+    SNAPSHOT_QUEUE: bindings.SNAPSHOT_QUEUE as AppEnv['SNAPSHOT_QUEUE'],
+    SNAPSHOT_QUEUE_DAILY_BUDGET: nonnegativeInteger(bindings.SNAPSHOT_QUEUE_DAILY_BUDGET, 9000),
+    SNAPSHOT_RECONCILE_BATCH_SIZE: positiveInteger(bindings.SNAPSHOT_RECONCILE_BATCH_SIZE, 200),
   };
+}
+
+function nonnegativeInteger(value: unknown, fallback: number): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('Snapshot configuration must be a nonnegative integer');
+  return parsed;
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  const parsed = nonnegativeInteger(value, fallback);
+  if (parsed === 0) throw new Error('Snapshot batch size must be positive');
+  return parsed;
 }
