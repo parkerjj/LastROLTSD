@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { formatRelativeTime, renderHistory, renderSearchResults } from '../src/render';
-import type { ListingSearchResult } from '../src/types';
+import { formatRelativeTime, renderHistory, renderSearchResults, renderSearchResultsWithCatalog } from '../src/render';
+import type { ItemAutocomplete, ListingSearchResult } from '../src/types';
 
 const listing = (overrides: Partial<ListingSearchResult> = {}): ListingSearchResult => ({
   id: 1,
@@ -60,6 +60,60 @@ describe('query UI rendering', () => {
     // 相对时间位于操作列内、价格历史按钮下方
     expect(element.querySelector('.mc-actions .mc-time')).not.toBeNull();
     expect(element.querySelector('.market-card > .mc-time')).toBeNull();
+  });
+
+  it('appends catalog history suggestions below the empty panel', () => {
+    const element = getResults();
+    const suggestions: ItemAutocomplete[] = [
+      { itemId: 4001, name: '波利卡片', aliases: [] },
+      { itemId: 741, name: '波利娃娃', aliases: [] },
+    ];
+    renderSearchResults(element, { items: [], nextCursor: null }, {
+      ...state,
+      empty: true,
+      filters: { q: '波利', limit: 20, sort: 'price_asc' },
+      catalogSuggestions: suggestions,
+      catalogDescriptions: new Map([[4001, 'LUK+2\n^777777系列: 卡片^000000']]),
+    });
+    // 空结果提示仍然保留，兜底区块紧随其后
+    expect(element.querySelector('.state-panel--empty')).not.toBeNull();
+    expect(element.querySelector('.catalog-history')?.textContent).toContain('历史价格查询');
+    expect(element.querySelector('.catalog-history')?.textContent).toContain('波利');
+    // 道具描述来自静态 descriptions，颜色标记被清理
+    expect(element.querySelector('.chc-desc')?.textContent).toBe('LUK+2');
+    const buttons = element.querySelectorAll<HTMLButtonElement>('.catalog-history-card .history-button');
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.getAttribute('data-item-id')).toBe('4001');
+    expect(buttons[0]?.getAttribute('data-item-name')).toBe('波利卡片');
+    expect(buttons[0]?.querySelector('.hb-label')?.textContent).toBe('历史价格');
+    // 卡片名称命中词高亮
+    expect(element.querySelectorAll('.catalog-history-card mark')).toHaveLength(2);
+  });
+
+  it('builds the catalog history fallback from the item catalog only for empty query searches', () => {
+    const catalog: ItemAutocomplete[] = [
+      { itemId: 4001, name: '波利卡片', aliases: [] },
+      { itemId: 741, name: '波利娃娃', aliases: [] },
+      { itemId: 501, name: '红色药水', aliases: [] },
+    ];
+    const withQuery = { ...state, empty: true, filters: { q: '波利', limit: 20, sort: 'price_asc' as const } };
+
+    const element = getResults();
+    renderSearchResultsWithCatalog(element, { items: [], nextCursor: null }, withQuery, catalog);
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.catalog-history-card .history-button'));
+    expect(buttons.map((button) => button.getAttribute('data-item-id'))).toEqual(['741', '4001']);
+
+    // 有在售结果时不展示兜底区块
+    renderSearchResultsWithCatalog(element, { items: [listing()], nextCursor: null }, { ...withQuery, empty: false }, catalog);
+    expect(element.querySelector('.catalog-history')).toBeNull();
+
+    // 无关键词的空结果不展示兜底区块
+    renderSearchResultsWithCatalog(element, { items: [], nextCursor: null }, { ...state, empty: true }, catalog);
+    expect(element.querySelector('.catalog-history')).toBeNull();
+
+    // 查询出错时不展示兜底区块
+    renderSearchResultsWithCatalog(element, { items: [], nextCursor: null }, { ...withQuery, error: '查询失败' }, catalog);
+    expect(element.querySelector('.catalog-history')).toBeNull();
   });
 
   it('translates map codes and supplies the map marker position from listing coordinates', () => {

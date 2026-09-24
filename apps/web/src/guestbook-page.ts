@@ -7,10 +7,20 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
-const categoryLabels: Record<GuestbookCategory, string> = { buy: '收购', sell: '出售', suggestion: '网站建议' };
+interface KindStyle {
+  readonly label: string;
+  readonly icon: string;
+}
+
+const kindStyles: Record<GuestbookCategory, KindStyle> = {
+  buy: { label: '我要收购', icon: 'ph-hand-coins' },
+  sell: { label: '我要出售', icon: 'ph-storefront' },
+  suggestion: { label: '网站建议', icon: 'ph-chat-centered-text' },
+};
 
 type EntryCatalog = ReadonlyMap<number, ItemAutocomplete>;
 type EntryDescriptions = ReadonlyMap<number, ItemDescription>;
+type GuestbookTab = '' | GuestbookCategory;
 
 function itemIconUrl(itemId: number, itemName: string): string {
   const file = itemName.endsWith('卡片') ? 'card' : String(itemId);
@@ -21,14 +31,17 @@ function entryMarkup(entry: GuestbookEntry, catalog: EntryCatalog, descriptions:
   const catalogItem = entry.itemId === null ? undefined : catalog.get(entry.itemId);
   const itemName = entry.isZeny ? 'Zeny 游戏币' : catalogItem?.name ?? '目录道具';
   const itemDescription = entry.itemId === null ? '' : cleanItemDescription(descriptions.get(entry.itemId)?.description ?? '');
-  const expiry = entry.expiresAt === null ? '永久' : `截止 ${new Date(entry.expiresAt).toLocaleString('zh-CN')}`;
-  return `<article class="guestbook-entry${entry.isExpired ? ' is-expired' : ''}" data-entry-id="${entry.id}">
-    <header class="guestbook-entry-head"><div class="guestbook-entry-tags"><span class="guestbook-kind guestbook-kind--${entry.category}">${categoryLabels[entry.category]}</span><time datetime="${new Date(entry.createdAt).toISOString()}">${new Date(entry.createdAt).toLocaleString('zh-CN')}</time></div>${entry.isExpired ? '<span class="guestbook-expired-stamp" aria-label="此留言已过期">已过期</span>' : ''}</header>
-    ${entry.category === 'suggestion' ? `<div class="guestbook-suggestion-mark"><i class="ph ph-chat-centered-text" aria-hidden="true"></i><span>匿名建议</span></div>` : `<section class="guestbook-item-detail" aria-label="交易道具信息">
-      <div class="guestbook-item-art">${entry.isZeny ? '<span class="guestbook-zeny-glyph" aria-hidden="true">Z</span>' : `<img src="${escapeHtml(itemIconUrl(entry.itemId ?? 0, itemName))}" alt="" loading="lazy" data-item-image>`}</div>
-      <div class="guestbook-item-copy"><span class="guestbook-item-kicker">${entry.category === 'buy' ? '正在收购' : '正在出售'}</span><strong class="guestbook-item-name">${escapeHtml(itemName)}</strong><span class="guestbook-item-id">${entry.isZeny ? '游戏货币' : `ItemID ${entry.itemId}`}</span>${itemDescription ? `<p class="guestbook-item-description">${escapeHtml(itemDescription)}</p>` : '<p class="guestbook-item-description is-muted">目录暂无详细描述</p>'}</div>
-    </section>`}
-    <div class="guestbook-entry-body"><div class="guestbook-entry-meta">${entry.contact ? `<span class="guestbook-contact"><i class="ph ph-identification-card" aria-hidden="true"></i>${escapeHtml(entry.contact)}</span>` : ''}<span class="guestbook-entry-expiry"><i class="ph ph-clock" aria-hidden="true"></i>${escapeHtml(entry.category === 'suggestion' ? '匿名发布' : expiry)}</span></div><p class="guestbook-content">${escapeHtml(entry.content)}</p></div>
+  const expiry = entry.expiresAt === null ? '永久有效' : `截止 ${new Date(entry.expiresAt).toLocaleString('zh-CN')}`;
+  const kind = kindStyles[entry.category];
+  const itemCells = entry.category === 'suggestion' ? '' : `
+      <span class="guestbook-item-thumb">${entry.isZeny ? '<span class="guestbook-zeny-glyph" aria-hidden="true">Z</span>' : `<img src="${escapeHtml(itemIconUrl(entry.itemId ?? 0, itemName))}" alt="" loading="lazy" data-item-image>`}</span>
+      <span class="guestbook-item-meta"><span class="guestbook-item-idline"><strong class="guestbook-item-name">${escapeHtml(itemName)}</strong></span><span class="guestbook-item-id">${entry.isZeny ? '游戏货币' : `ItemID ${entry.itemId}`}</span>${itemDescription ? `<span class="guestbook-item-description">${escapeHtml(itemDescription)}</span>` : '<span class="guestbook-item-description is-muted">目录暂无详细描述</span>'}</span>`;
+  return `<article class="guestbook-entry guestbook-entry--${entry.category}${entry.isExpired ? ' is-expired' : ''}" data-entry-id="${entry.id}">
+    <div class="guestbook-entry-bar"><span class="guestbook-entry-kind"><i class="ph ${kind.icon}" aria-hidden="true"></i>${kind.label}</span><span class="guestbook-entry-bar-meta"><time datetime="${new Date(entry.createdAt).toISOString()}">${new Date(entry.createdAt).toLocaleString('zh-CN')}</time>${entry.isExpired ? '<span class="guestbook-expired-stamp" aria-label="此留言已过期">已过期</span>' : ''}</span></div>
+    <div class="guestbook-entry-row${entry.category === 'suggestion' ? ' guestbook-entry-row--suggestion' : ''}">${itemCells}
+      <p class="guestbook-content">${escapeHtml(entry.content)}</p>
+    </div>
+    <footer class="guestbook-entry-footer">${entry.contact ? `<span class="guestbook-contact"><i class="ph ph-identification-card" aria-hidden="true"></i>${escapeHtml(entry.contact)}</span>` : '<span class="guestbook-footer-spacer"></span>'}<span class="guestbook-entry-expiry"><i class="ph ph-clock" aria-hidden="true"></i>${escapeHtml(entry.category === 'suggestion' ? '匿名发布' : expiry)}</span></footer>
   </article>`;
 }
 
@@ -55,7 +68,8 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
         </form>
       </section>
       <section class="guestbook-list-section" aria-labelledby="guestbook-list-title"><div class="section-heading"><div><p class="eyebrow">公开登记</p><h2 id="guestbook-list-title">玩家留言</h2></div><p>收购与出售记录到期后仍会保留，并标注过期状态。</p></div>
-        <form id="guestbook-search" class="guestbook-search"><label for="guestbook-search-q">关键词<input id="guestbook-search-q" placeholder="搜索正文或联系方式"></label><label for="guestbook-search-category">类别<select id="guestbook-search-category"><option value="">全部类别</option><option value="buy">收购</option><option value="sell">出售</option><option value="suggestion">网站建议</option></select></label><div class="autocomplete"><label for="guestbook-filter-item">道具筛选<input id="guestbook-filter-item" role="combobox" aria-autocomplete="list" aria-controls="guestbook-filter-suggestions" aria-expanded="false" autocomplete="off" placeholder="全部道具"></label><ul id="guestbook-filter-suggestions" class="suggestions" role="listbox" hidden></ul></div><button type="submit"><i class="ph ph-magnifying-glass" aria-hidden="true"></i> 搜索</button><button id="guestbook-clear-filter" class="secondary-button" type="button" aria-label="清除筛选"><i class="ph ph-x" aria-hidden="true"></i></button></form>
+        <div id="guestbook-tabs" class="guestbook-tabs" role="tablist" aria-label="按类别筛选登记"><button class="guestbook-tab guestbook-tab--all is-active" role="tab" aria-selected="true" aria-controls="guestbook-results" data-tab=""><i class="ph ph-rows" aria-hidden="true"></i><span>全部</span></button><button class="guestbook-tab guestbook-tab--buy" role="tab" aria-selected="false" aria-controls="guestbook-results" data-tab="buy"><i class="ph ph-hand-coins" aria-hidden="true"></i><span>收购</span></button><button class="guestbook-tab guestbook-tab--sell" role="tab" aria-selected="false" aria-controls="guestbook-results" data-tab="sell"><i class="ph ph-storefront" aria-hidden="true"></i><span>出售</span></button><button class="guestbook-tab guestbook-tab--other" role="tab" aria-selected="false" aria-controls="guestbook-results" data-tab="suggestion"><i class="ph ph-chat-centered-text" aria-hidden="true"></i><span>其他</span></button></div>
+        <form id="guestbook-search" class="guestbook-search"><label for="guestbook-search-q">关键词<input id="guestbook-search-q" placeholder="搜索正文或联系方式"></label><div class="autocomplete"><label for="guestbook-filter-item">道具筛选<input id="guestbook-filter-item" role="combobox" aria-autocomplete="list" aria-controls="guestbook-filter-suggestions" aria-expanded="false" autocomplete="off" placeholder="全部道具"></label><ul id="guestbook-filter-suggestions" class="suggestions" role="listbox" hidden></ul></div><button type="submit"><i class="ph ph-magnifying-glass" aria-hidden="true"></i> 搜索</button><button id="guestbook-clear-filter" class="secondary-button" type="button" aria-label="清除筛选"><i class="ph ph-x" aria-hidden="true"></i></button></form>
         <div id="guestbook-results" class="guestbook-results" aria-live="polite" aria-busy="false"></div><div class="guestbook-pager"><button id="guestbook-prev" class="secondary-button" type="button" disabled><i class="ph ph-arrow-left" aria-hidden="true"></i> 上一页</button><span id="guestbook-page-status">第 1 页</span><button id="guestbook-next" class="secondary-button" type="button" disabled>下一页 <i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
       </section>
     </main>
@@ -71,6 +85,7 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   const itemSuggestions = root.querySelector<HTMLUListElement>('#guestbook-item-suggestions')!;
   const selectedHelp = root.querySelector<HTMLElement>('#guestbook-item-selected')!;
   const searchForm = root.querySelector<HTMLFormElement>('#guestbook-search')!;
+  const tabButtons = () => [...root.querySelectorAll<HTMLButtonElement>('.guestbook-tab')];
   const results = root.querySelector<HTMLElement>('#guestbook-results')!;
   const prev = root.querySelector<HTMLButtonElement>('#guestbook-prev')!;
   const next = root.querySelector<HTMLButtonElement>('#guestbook-next')!;
@@ -87,6 +102,14 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   let pageCursors: Array<string | null> = [null];
   let nextCursor: string | null = null;
   let currentFilters: GuestbookFilters = { limit: 20 };
+
+  const syncTabs = (tab: GuestbookTab): void => {
+    tabButtons().forEach((button) => {
+      const active = (button.dataset.tab ?? '') === tab;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+  };
 
   const categoryInput = (): GuestbookCategory => form.querySelector<HTMLInputElement>('input[name="category"]:checked')!.value as GuestbookCategory;
   const setKind = (): void => { const suggestion = categoryInput() === 'suggestion'; tradeFields.hidden = suggestion; tradeFields.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input,select').forEach((field) => { field.disabled = suggestion; field.required = !suggestion && field.id !== 'guestbook-item-query'; }); if (suggestion) { selectedItem = null; itemQuery.value = ''; } };
@@ -160,20 +183,32 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
           duration: root.querySelector<HTMLSelectElement>('#guestbook-duration')!.value as NonNullable<GuestbookSubmissionInput['duration']>,
         };
     submit.disabled = true; status.textContent = '正在提交…';
-    try { await api.createGuestbookEntry(input); form.reset(); selectedItem = null; contentCount.textContent = '0'; selectedHelp.textContent = '请选择道具或 Zeny。'; setKind(); status.textContent = '登记已发布。'; currentFilters = { limit: 20 }; pageIndex = 0; pageCursors = [null]; await loadPage(); }
+    try { await api.createGuestbookEntry(input); form.reset(); selectedItem = null; contentCount.textContent = '0'; selectedHelp.textContent = '请选择道具或 Zeny。'; setKind(); status.textContent = '登记已发布。'; currentFilters = { limit: 20 }; syncTabs(''); pageIndex = 0; pageCursors = [null]; await loadPage(); }
     catch (error) { status.textContent = error instanceof Error ? error.message : '提交失败，请稍后重试。'; }
     finally { submit.disabled = false; }
   });
 
+  root.querySelector<HTMLElement>('#guestbook-tabs')!.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.guestbook-tab');
+    if (!button || button.classList.contains('is-active')) return;
+    const tab = (button.dataset.tab ?? '') as GuestbookTab;
+    const q = root.querySelector<HTMLInputElement>('#guestbook-search-q')!.value.trim();
+    const selectedId = Number(searchForm.dataset.itemId);
+    currentFilters = { limit: 20, ...(tab ? { category: tab } : {}), ...(q ? { q } : {}), ...(Number.isSafeInteger(selectedId) && selectedId > 0 ? { itemId: selectedId } : {}) };
+    syncTabs(tab);
+    pageIndex = 0; pageCursors = [null]; void loadPage();
+  });
+
   searchForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    const category = root.querySelector<HTMLSelectElement>('#guestbook-search-category')!.value as GuestbookCategory | '';
+    const category = currentFilters.category ?? '';
     const q = root.querySelector<HTMLInputElement>('#guestbook-search-q')!.value.trim();
     const selectedId = Number(searchForm.dataset.itemId);
     currentFilters = { limit: 20, ...(category ? { category } : {}), ...(q ? { q } : {}), ...(Number.isSafeInteger(selectedId) && selectedId > 0 ? { itemId: selectedId } : {}) };
+    syncTabs(category);
     pageIndex = 0; pageCursors = [null]; void loadPage();
   });
-  root.querySelector<HTMLButtonElement>('#guestbook-clear-filter')!.addEventListener('click', () => { searchForm.reset(); delete searchForm.dataset.itemId; currentFilters = { limit: 20 }; pageIndex = 0; pageCursors = [null]; void loadPage(); });
+  root.querySelector<HTMLButtonElement>('#guestbook-clear-filter')!.addEventListener('click', () => { searchForm.reset(); delete searchForm.dataset.itemId; currentFilters = { limit: 20 }; syncTabs(''); pageIndex = 0; pageCursors = [null]; void loadPage(); });
   next.addEventListener('click', () => { if (!nextCursor) return; pageCursors[pageIndex + 1] = nextCursor; pageIndex += 1; void loadPage(nextCursor); });
   prev.addEventListener('click', () => { if (pageIndex === 0) return; pageIndex -= 1; void loadPage(pageCursors[pageIndex] ?? undefined); });
 

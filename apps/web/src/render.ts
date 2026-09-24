@@ -1,6 +1,6 @@
 import type { HistoryPage, ItemMarketHistory, ListingSearchResult, SearchFilters, SearchPage } from './types';
 import type { SearchControllerState } from './search-controller';
-import { hydrateSearchPage } from './catalog';
+import { findCatalogMatches, hydrateSearchPage, SEARCH_ITEM_ID_LIMIT } from './catalog';
 import type { ItemAutocomplete, ItemDescription } from './types';
 import { mapDetails, mapMarkerPosition } from './maps';
 
@@ -11,6 +11,8 @@ type RenderState = Pick<SearchControllerState, 'loading' | 'error' | 'empty' | '
   filters?: SearchFilters;
   descriptionError?: string | null;
   initialBrowse?: boolean;
+  catalogSuggestions?: readonly ItemAutocomplete[];
+  catalogDescriptions?: ReadonlyMap<number, string>;
 };
 
 export function friendlyError(value: unknown, fallback = '本地接口暂不可用，请确认服务已启动。'): string {
@@ -81,7 +83,7 @@ export function renderSearchResults(container: HTMLElement, page: SearchPage<Lis
     return;
   }
   if (state.empty || safeItems.length === 0) {
-    container.innerHTML = statePanelMarkup('empty', '没有找到匹配的在售商品', '换一个关键词，或放宽价格、地图与商店类型等筛选条件后再试试。');
+    container.innerHTML = `${statePanelMarkup('empty', '没有找到匹配的在售商品', '换一个关键词，或放宽价格、地图与商店类型等筛选条件后再试试。')}${catalogHistoryMarkup(state)}`;
     return;
   }
 
@@ -140,7 +142,20 @@ export function renderSearchResultsWithCatalog(
   catalog: readonly ItemAutocomplete[],
   descriptions: readonly ItemDescription[] = [],
 ): void {
-  renderSearchResults(container, hydrateSearchPage(page, catalog, descriptions), state);
+  const query = String(state.filters?.q ?? '').trim();
+  const safeItems = page.items ?? [];
+  // 市场无在售结果时，用静态物品图鉴兜底，给出可查历史价格的相关道具。
+  const fallbackActive = !state.loading && !state.error && (state.empty || safeItems.length === 0) && query.length > 0;
+  const catalogSuggestions = fallbackActive ? findCatalogMatches(catalog, query, SEARCH_ITEM_ID_LIMIT) : [];
+  const matchedIds = new Set(catalogSuggestions.map((item) => item.itemId));
+  const catalogDescriptions = catalogSuggestions.length
+    ? new Map(descriptions.filter((description) => matchedIds.has(description.itemId)).map((description) => [description.itemId, description.description] as const))
+    : null;
+  renderSearchResults(
+    container,
+    hydrateSearchPage(page, catalog, descriptions),
+    catalogDescriptions ? { ...state, catalogSuggestions, catalogDescriptions } : { ...state, catalogSuggestions },
+  );
 }
 
 type HistoryItemBrief = Pick<ListingSearchResult, 'itemId' | 'itemName' | 'itemIcon'>;
@@ -612,10 +627,14 @@ function optionText(item: ListingSearchResult): string {
   return text || '暂无词条';
 }
 
-function itemIconUrl(item: Pick<ListingSearchResult, 'itemId' | 'itemName'>): string {
+function catalogItemIconUrl(itemId: number, name?: string): string {
   // 数据库不区分道具类型，采用硬规则：名称以「卡片」结尾时统一使用 card.gif。
-  const file = String(item.itemName ?? '').endsWith('卡片') ? 'card' : String(item.itemId);
+  const file = String(name ?? '').endsWith('卡片') ? 'card' : String(itemId);
   return rmsAssetUrl(`items/small/${encodeURIComponent(file)}.gif`);
+}
+
+function itemIconUrl(item: Pick<ListingSearchResult, 'itemId' | 'itemName'>): string {
+  return catalogItemIconUrl(item.itemId, item.itemName);
 }
 
 function itemIconMarkup(item: ListingSearchResult): string {
@@ -628,6 +647,54 @@ function itemIconMarkup(item: ListingSearchResult): string {
 
 function historyButtonMarkup(item: ListingSearchResult, itemName: string, icon: string): string {
   return `<button class="history-button" data-listing-id="${escape(item.id)}" data-item-id="${escape(item.itemId)}" data-item-name="${escape(itemName)}" data-item-icon="${escape(icon)}" type="button" aria-label="查看${escape(itemName)}价格历史"><i class="ph ph-chart-bar" aria-hidden="true"></i><span class="hb-label">价格历史</span></button>`;
+}
+
+/* ---- 无在售结果：物品图鉴兜底 · 历史价格查询 ---- */
+
+const CATALOG_HISTORY_DISPLAY = 8;
+
+function catalogHistoryMarkup(state: RenderState): string {
+  const matches = state.catalogSuggestions;
+  if (!matches || matches.length === 0) return '';
+  const term = String(state.filters?.q ?? '').trim();
+  const visible = matches.slice(0, CATALOG_HISTORY_DISPLAY);
+  const totalLabel = matches.length >= SEARCH_ITEM_ID_LIMIT ? `${SEARCH_ITEM_ID_LIMIT}+` : String(matches.length);
+  const cards = visible.map((item) => renderCatalogHistoryCard(item, term, state.catalogDescriptions?.get(item.itemId))).join('');
+  const foot = matches.length > visible.length
+    ? `<p class="catalog-history-foot"><i class="ph ph-info" aria-hidden="true"></i>仅展示前 ${visible.length} 个相关道具（共 ${totalLabel} 个匹配），输入更完整的道具名可以缩小范围。</p>`
+    : '';
+  return `<section class="catalog-history" aria-labelledby="catalog-history-title">
+    <header class="catalog-history-head">
+      <div class="catalog-history-copy">
+        <p class="catalog-history-kicker">物品图鉴 · 兜底查询</p>
+        <h2 id="catalog-history-title">历史价格查询</h2>
+        <p>市场上暂时没有在售记录，物品图鉴中找到了与「<strong>${escape(term)}</strong>」相关的道具，可直接查看它们的历史成交与价格走势。</p>
+      </div>
+      <span class="catalog-history-count"><i class="ph ph-archive" aria-hidden="true"></i>${totalLabel} 个相关道具</span>
+    </header>
+    <div class="catalog-history-stack">${cards}</div>
+    ${foot}
+  </section>`;
+}
+
+function renderCatalogHistoryCard(item: ItemAutocomplete, query: string, rawDescription?: string): string {
+  const name = item.name || `未知物品 #${item.itemId}`;
+  const icon = catalogItemIconUrl(item.itemId, name);
+  const excerpt = rawDescription ? catalogDescriptionExcerpt(rawDescription) : '';
+  const meta = excerpt
+    ? `<span class="chc-id">物品 ID ${item.itemId}</span><span class="chc-dot" aria-hidden="true">·</span><span class="chc-desc">${escape(excerpt)}</span>`
+    : `<span class="chc-id">物品 ID ${item.itemId}</span>`;
+  return `<article class="catalog-history-card">
+    <span class="chc-icon"><img src="${escape(icon)}" alt="" loading="lazy" data-image-fallback /><span class="item-icon-fallback" aria-hidden="true" hidden>${item.itemId}</span></span>
+    <span class="chc-main"><strong>${highlight(name, query)}</strong><small>${meta}</small></span>
+    <button class="history-button chc-history" type="button" data-item-id="${item.itemId}" data-item-name="${escape(name)}" data-item-icon="${escape(icon)}" aria-label="查看${escape(name)}历史价格"><i class="ph ph-chart-bar" aria-hidden="true"></i><span class="hb-label">历史价格</span></button>
+  </article>`;
+}
+
+function catalogDescriptionExcerpt(raw: string): string {
+  const firstLine = cleanItemDescription(raw).split('\n')[0]?.trim() ?? '';
+  if (!firstLine) return '';
+  return firstLine.length > 42 ? `${firstLine.slice(0, 42)}…` : firstLine;
 }
 
 /* ---- 物品名称命中：独立卡片 ---- */
