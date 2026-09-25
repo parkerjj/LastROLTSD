@@ -272,18 +272,25 @@ function mountSearchPage(): void {
   async function performSearch(
     filters: SearchFilters,
     shouldScroll = false,
+    trackEvent = false,
   ): Promise<void> {
     const pending = searchController.search(filters);
     renderSearchState();
     await pending;
     const state = searchController.getState();
     renderSearchState();
-    if (state.page) {
-      track(AnalyticsEvent.SearchResult, {
+    // 仅在用户主动提交搜索时上报（初始浏览/排序/重试不上报），控制事件量。
+    if (trackEvent && state.page) {
+      track(AnalyticsEvent.Search, {
         q: filters.q ?? "",
-        result_count: state.page.items.length,
         has_results: state.page.items.length > 0,
-        is_empty: state.empty,
+        has_advanced: !!(
+          filters.map ||
+          filters.shop_type ||
+          filters.price_min !== undefined ||
+          filters.price_max !== undefined ||
+          (filters.options && filters.options.length > 0)
+        ),
       });
     }
     if (shouldScroll) scrollToResults();
@@ -406,10 +413,7 @@ function mountSearchPage(): void {
   function chooseSuggestion(index: number): void {
     const item = autocompleteItems[index];
     if (!item) return;
-    track(AnalyticsEvent.AutocompleteSelect, {
-      item_id: item.itemId,
-      item_name: item.name,
-    });
+    track(AnalyticsEvent.AutocompleteSelect);
     queryInput.value = item.name;
     hideSuggestions();
     queryInput.focus();
@@ -503,10 +507,7 @@ function mountSearchPage(): void {
   ): Promise<void> {
     lastHistoryItem = item;
     const requestId = ++historyRequestId;
-    track(AnalyticsEvent.ItemHistory, {
-      item_id: item.itemId,
-      item_name: item.itemName ?? "",
-    });
+    track(AnalyticsEvent.ItemHistory, { item_id: item.itemId });
     openDrawer(historyDrawer);
     historyDrawer.innerHTML = drawerFrame(
       "close-history",
@@ -549,7 +550,7 @@ function mountSearchPage(): void {
     const y = Number.isFinite(rawY) ? rawY : 50;
     const left = Number.isFinite(rawLeft) ? rawLeft : 50;
     const top = Number.isFinite(rawTop) ? rawTop : 50;
-    track(AnalyticsEvent.MapOpen, { map_code: code, map_name: name, x, y });
+    track(AnalyticsEvent.MapOpen, { map_code: code });
     const command = `请带我去 ${code} ${x} ${y} 这个坐标`;
     const safeName = escapeHtml(name);
     const body = `<p class="drawer-kicker">地图定位 / ${escapeHtml(code)}</p><h2>${safeName}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${safeName}地图" /><span class="map-star" style="left:${left}%;top:${top}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p>
@@ -649,27 +650,10 @@ function mountSearchPage(): void {
           dictionary.getState().definitions,
           catalog.items,
         );
-        track(AnalyticsEvent.Search, {
-          q: filters.q ?? "",
-          map: filters.map,
-          shop_type: filters.shop_type,
-          price_min: filters.price_min,
-          price_max: filters.price_max,
-          option_count: filters.options?.length ?? 0,
-          option_mode: filters.option_mode,
-          sort: filters.sort,
-          has_advanced: !!(
-            filters.map ||
-            filters.shop_type ||
-            filters.price_min !== undefined ||
-            filters.price_max !== undefined ||
-            (filters.options && filters.options.length > 0)
-          ),
-        });
         initialBrowse = false;
         setFormError(null);
         hideSuggestions();
-        void performSearch(filters, true);
+        void performSearch(filters, true, true);
       } catch (error) {
         setFormError(error instanceof Error ? error.message : "请检查搜索条件");
       }
@@ -970,8 +954,6 @@ function mountSearchPage(): void {
       if (ok) {
         track(AnalyticsEvent.CopyCommand, {
           map_code: copyButton.dataset.mapCode ?? "",
-          x: Number(copyButton.dataset.mapX),
-          y: Number(copyButton.dataset.mapY),
         });
         copyButton.classList.add("is-copied");
         if (label) label.textContent = "已复制";

@@ -1,6 +1,12 @@
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
 import { mountAccountsPage } from "../src/accounts-page";
+import { track } from "../src/analytics";
+
+vi.mock("../src/analytics", () => ({
+  AnalyticsEvent: { AccountsUsage: "accounts_usage" },
+  track: vi.fn(),
+}));
 
 const ONLINE_PAYLOAD = {
   state: "online" as const,
@@ -507,6 +513,40 @@ describe("accounts page", () => {
       expect(card.querySelector(".acc-note--warn")?.textContent).toContain(
         "无法连接 LastRO 官方服务器",
       );
+    } finally {
+      restore();
+    }
+  });
+
+  it("reports only the monitored account count to analytics on mount", () => {
+    const trackMock = vi.mocked(track);
+    trackMock.mockClear();
+    const api = {
+      getAccountStatus: vi.fn().mockResolvedValue({ state: "offline" }),
+    };
+    const { restore } = mount(api, [
+      { id: "acc1", password: "p1", addedAt: 1 },
+      { id: "acc2", password: "p2", addedAt: 2 },
+      { id: "acc3", password: "p3", addedAt: 3 },
+    ]);
+    try {
+      expect(trackMock).toHaveBeenCalledExactlyOnceWith("accounts_usage", {
+        account_count: 3,
+      });
+      // 断言上报参数里不含任何账号标识信息
+      const params = trackMock.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(Object.keys(params)).toEqual(["account_count"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not report analytics when no account is stored", () => {
+    const trackMock = vi.mocked(track);
+    trackMock.mockClear();
+    const { restore } = mount({ getAccountStatus: vi.fn() });
+    try {
+      expect(trackMock).not.toHaveBeenCalled();
     } finally {
       restore();
     }

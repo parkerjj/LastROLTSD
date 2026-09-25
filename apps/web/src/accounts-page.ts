@@ -2,6 +2,7 @@ import { MarketApi, type MarketApiClient } from "./api";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import type { LastroAccountData } from "./types";
 import { openGamePopup, startPopupHandshake } from "./game-launch";
+import { AnalyticsEvent, track } from "./analytics";
 
 const STORAGE_KEY = "lastro.accounts.v1";
 const LAUNCH_POPUP_KEY = "lastro.launch.popup.v1";
@@ -617,5 +618,9 @@ export function mountAccountsPage(
   });
 
   renderAll();
-  if (accounts.length > 0) void refreshAll();
+  if (accounts.length > 0) {
+    // 仅上报监控账号数量用于统计功能使用情况，绝不包含账号、密码、名称等任何信息。
+    track(AnalyticsEvent.AccountsUsage, { account_count: accounts.length });
+    void refreshAll();
+  }
 }

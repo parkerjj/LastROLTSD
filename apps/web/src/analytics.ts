@@ -7,11 +7,10 @@ const LA_SDK_URL = 'https://sdk.51.la/js-sdk-pro.min.js';
 const LA_SITE_ID = '3RHkJ5YdSFYSeVHk';
 
 // 自定义事件标识。上报前需先在 51.la 控制台「事件管理」中创建同名事件。
+// 注意保持精简：51.la 对事件数/参数数/上报量有额度限制，参数只保留有分析价值的字段。
 export const AnalyticsEvent = {
-  /** 提交搜索表单 */
+  /** 提交搜索表单（结果返回后上报一次，含是否有结果） */
   Search: 'search',
-  /** 搜索结果返回 */
-  SearchResult: 'search_result',
   /** 打开物品价格历史 */
   ItemHistory: 'item_history',
   /** 打开地图定位浮层 */
@@ -20,8 +19,10 @@ export const AnalyticsEvent = {
   CopyCommand: 'copy_command',
   /** 复制 QQ 群号 */
   QqGroupCopy: 'qq_group_copy',
-  /** 从搜索联想中选择物品 */
+  /** 从搜索联想中选择物品（仅计数，不带参数） */
   AutocompleteSelect: 'autocomplete_select',
+  /** 菜农监控台使用情况（仅上报监控账号数量，绝不上报账号/密码等任何信息） */
+  AccountsUsage: 'accounts_usage',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];
@@ -66,7 +67,8 @@ export function initAnalytics(): void {
       ck: LA_SITE_ID,
       autoTrack: true,
       hashMode: false,
-      screenRecord: true,
+      // 关闭会话回放：监控台页面含密码输入框，且回放数据量大，容易触额。
+      screenRecord: false,
     });
     scheduleFlush();
   });
