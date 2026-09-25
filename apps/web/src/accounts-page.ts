@@ -162,7 +162,7 @@ export function mountAccountsPage(
   api: MarketApiClient = new MarketApi(),
   options: AccountsPageOptions = {},
 ): void {
-  document.title = "账号监控台 · 露天商店.Ro";
+  document.title = "菜农监控台 · 露天商店.Ro";
   const storage = options.storage ?? window.localStorage;
   const now = options.now ?? Date.now;
 
@@ -175,7 +175,7 @@ export function mountAccountsPage(
       <section class="accounts-hero">
         <div class="accounts-hero-copy">
           <p class="eyebrow">LastRO 角色监控</p>
-          <h1>账号监控台</h1>
+          <h1>菜农监控台</h1>
           <p>把游戏账号添加到这里，随时查看角色等级、经验进度、所在地图和在线状态。</p>
         </div>
         <div class="accounts-launchers" aria-label="游戏客户端入口">
@@ -194,9 +194,9 @@ export function mountAccountsPage(
           <h2 id="accounts-privacy-title">开始之前，请先了解你的密码会如何被处理</h2>
           <ul>
             <li><strong>密码只保存在你自己的浏览器里。</strong>添加的账号和密码存放在这台设备的浏览器存储中，不会保存到我们的服务器上；换一台设备、或清理浏览器数据后，需要重新添加。</li>
-            <li><strong>查询时需要本站帮你「转发」一次。</strong>由于 LastRO 官方网站的设置限制，浏览器无法直接连接LRO服务器(技术名词CORS跨域限制)。每次查询时，本站服务器会替你把账号密码转发到LRO服务器，拿到结果后直接返回，整个过程不会做任何记录。如果对此有顾虑，可以不使用本功能。</li>
+            <li><strong>查询时需要本站帮你「转发」一次。</strong>由于 LastRO 官方网站的设置限制，浏览器无法直接连接LRO服务器(技术名词CORS跨域限制)。每次查询时，本站服务器会替你把账号密码转发到LRO服务器，拿到结果后直接返回，整个过程不会做任何记录。如果对此有顾虑，可以不使用本功能或安装油猴脚本。</li>
             <li><strong>不想经过本站中转？可以装油猴脚本。</strong>安装 Tampermonkey（油猴）浏览器扩展和直连脚本后，查询会由你的浏览器直接发给 LastRO 官方服务器，不再经过本站。<a class="accounts-script-link" href="/lastro-direct.user.js" target="_blank" rel="noreferrer">安装直连脚本<i class="ph ph-arrow-square-out" aria-hidden="true"></i></a>（需先安装 Tampermonkey 扩展）</li>
-            <li><strong>网站代码完全公开。</strong>本站所有源代码都在 GitHub 上开放，欢迎随时查看我们是如何处理你的数据的。</li>
+            <li><strong>网站代码完全公开。</strong>本站所有源代码都在 GitHub 上开放，欢迎随时监督、查看我们是如何处理你的数据的。</li>
           </ul>
           <a class="accounts-github" href="https://github.com/parkerjj/LastROLTSD" target="_blank" rel="noreferrer"><i class="ph ph-github-logo" aria-hidden="true"></i>在 GitHub 查看源代码</a>
         </div>
@@ -221,7 +221,7 @@ export function mountAccountsPage(
         <p id="accounts-status" class="accounts-status" role="status" aria-live="polite"></p>
       </section>
     </main>
-    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">账号监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
 
     <div class="account-modal-overlay" id="account-modal" hidden>
       <div class="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">

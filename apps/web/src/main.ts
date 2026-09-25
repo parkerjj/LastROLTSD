@@ -88,7 +88,7 @@ function mountSearchPage(): void {
       </div>
     </form>
   </main>
-  <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="#top"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="#search">搜索市场</a><a href="/accounts">账号监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+  <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="#top"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
   <aside id="history-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="价格历史" hidden></aside>
   <aside id="map-drawer" class="drawer map-drawer" role="dialog" aria-modal="true" aria-label="地图定位" hidden></aside>
   <div id="drawer-overlay" class="drawer-overlay" aria-hidden="true" hidden></div>

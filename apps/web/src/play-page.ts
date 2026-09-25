@@ -10,7 +10,7 @@ export function mountPlayPage(root: HTMLElement): void {
   root.innerHTML = `
     <div class="play-page">
       <iframe class="game-frame" src="${GAME_CLIENT_URL}" title="LastRO 游戏客户端" allowfullscreen></iframe>
-      <a class="play-back" href="/accounts"><i class="ph ph-caret-left" aria-hidden="true"></i>返回账号监控台</a>
+      <a class="play-back" href="/accounts"><i class="ph ph-caret-left" aria-hidden="true"></i>返回菜农监控台</a>
     </div>`;
 
   const frame = root.querySelector<HTMLIFrameElement>(".game-frame")!;

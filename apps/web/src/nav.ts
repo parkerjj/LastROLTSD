@@ -9,15 +9,43 @@ interface NavEntry {
 }
 
 const NAV_ENTRIES: readonly NavEntry[] = [
-  { page: "search", href: "/#search", label: "搜索市场", icon: "ph-magnifying-glass" },
-  { page: "accounts", href: "/accounts", label: "账号监控台", icon: "ph-monitor", isNew: true },
-  { page: "guestbook", href: "/guestbook", label: "玩家登记簿", icon: "ph-address-book" },
+  {
+    page: "search",
+    href: "/#search",
+    label: "搜索市场",
+    icon: "ph-magnifying-glass",
+  },
+  {
+    page: "accounts",
+    href: "/accounts",
+    label: "菜农监控台",
+    icon: "ph-monitor",
+    isNew: true,
+  },
+  {
+    page: "guestbook",
+    href: "/guestbook",
+    label: "玩家登记簿",
+    icon: "ph-address-book",
+  },
   { page: "updates", href: "/updates", label: "更新说明", icon: "ph-scroll" },
 ];
 
-const EXTERNAL_ENTRIES: ReadonlyArray<{ readonly href: string; readonly label: string; readonly icon: string }> = [
-  { href: "https://github.com/parkerjj/LastROLTSD", label: "代码仓库", icon: "ph-github-logo" },
-  { href: "https://game.lastro.cn/?r=pc/news&nid=5", label: "LastRO 官网", icon: "ph-arrow-square-out" },
+const EXTERNAL_ENTRIES: ReadonlyArray<{
+  readonly href: string;
+  readonly label: string;
+  readonly icon: string;
+}> = [
+  {
+    href: "https://github.com/parkerjj/LastROLTSD",
+    label: "代码仓库",
+    icon: "ph-github-logo",
+  },
+  {
+    href: "https://game.lastro.cn/?r=pc/news&nid=5",
+    label: "LastRO 官网",
+    icon: "ph-arrow-square-out",
+  },
 ];
 
 /**
@@ -26,9 +54,11 @@ const EXTERNAL_ENTRIES: ReadonlyArray<{ readonly href: string; readonly label: s
  */
 export function siteNavMarkup(active: SitePage): string {
   const items = NAV_ENTRIES.map((entry) => {
-    const href = entry.page === "search" && active === "search" ? "#search" : entry.href;
+    const href =
+      entry.page === "search" && active === "search" ? "#search" : entry.href;
     const isActive = entry.page === active;
-    const current = isActive && active !== "search" ? ' aria-current="page"' : "";
+    const current =
+      isActive && active !== "search" ? ' aria-current="page"' : "";
     const badge = entry.isNew ? '<span class="new-badge">NEW</span>' : "";
     return `<a class="nav-item${isActive ? " active" : ""}"${current} href="${href}"><i class="ph ${entry.icon}" aria-hidden="true"></i><span>${entry.label}</span>${badge}</a>`;
   }).join("");
@@ -71,7 +101,8 @@ export function mountSiteNav(root: ParentNode = document): void {
     setOpen(!nav.classList.contains("is-open"));
   });
   nav.addEventListener("click", (event) => {
-    if (event.target instanceof Element && event.target.closest("a")) setOpen(false);
+    if (event.target instanceof Element && event.target.closest("a"))
+      setOpen(false);
   });
 
   const matchMedia =
