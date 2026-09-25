@@ -85,9 +85,41 @@ describe('MySQL repository upload core', () => {
     expect(result.map((entry) => entry.status)).toEqual(inputs.map((input) => input.shopStatus));
     expect(db.transactions).toBe(1);
     const writes = db.sql.filter((sql) => /^(INSERT|UPDATE)/.test(sql));
-    expect(writes.filter((sql) => sql.includes("'dismissed'"))).toHaveLength(mode === 'opening' ? 0 : 3);
+    expect(writes.filter((sql) => sql.includes("'dismissed'"))).toHaveLength(mode === 'opening' ? 0 : 4);
     expect(writes.filter((sql) => sql.includes("WHERE shop_status = 'opening'"))).toHaveLength(mode === 'dismissed' ? 0 : 1);
     expect(db.sql.filter((sql) => sql.startsWith('SELECT')).every((sql) => !sql.includes('shops.*'))).toBe(true);
+  });
+
+  it('issues a set-based idempotent expired-event insert for delta dismissals', async () => {
+    const db = new RecordingMysqlDatabase();
+    const input = { ...observations(1)[0]!, shopStatus: 'dismissed' as const, batchId: 'delta/0' };
+
+    await createMysqlRepository(db).resolveShopObservations!([input]);
+    await createMysqlRepository(db).resolveShopObservations!([input]);
+
+    const eventInserts = db.sql
+      .map((sql, index) => ({ sql, values: db.values[index] }))
+      .filter(({ sql }) => sql.startsWith('INSERT INTO listing_events'));
+    expect(eventInserts).toHaveLength(2);
+    expect(eventInserts[0]?.sql).toContain("'expired'");
+    expect(eventInserts[0]?.sql).toContain("'shop_closed'");
+    expect(eventInserts[0]?.sql).toContain('listings.quantity, listings.quantity, 0');
+    expect(eventInserts[0]?.sql).toContain("LOWER(SHA2(CONCAT(listings.id, ':', listings.state_version, ':', listings.quantity, ':', listings.quantity, ':shop_closed'), 256))");
+    expect(eventInserts[0]?.sql).toContain("listings.status IN ('active', 'missing')");
+    expect(eventInserts[0]?.sql).toContain('ON DUPLICATE KEY UPDATE transition_key = listing_events.transition_key');
+    expect(eventInserts[1]?.sql).toBe(eventInserts[0]?.sql);
+    const payload = JSON.parse(String(eventInserts[0]?.values?.[0])) as Array<Record<string, unknown>>;
+    expect(payload).toMatchObject([{ batchId: 'delta/0', observedAt: 100, shopStatus: 'dismissed' }]);
+  });
+
+  it('does not expire listings or write expired events when listing expiry is deferred', async () => {
+    const db = new RecordingMysqlDatabase();
+    const input = { ...observations(1)[0]!, shopStatus: 'dismissed' as const };
+
+    await createMysqlRepository(db, undefined, { deferListingExpiry: true }).resolveShopObservations!([input]);
+
+    expect(db.sql.some((sql) => sql.includes('FROM listings'))).toBe(false);
+    expect(db.sql.some((sql) => sql.startsWith('INSERT INTO listing_events'))).toBe(false);
   });
 
   it('resolves 1000 shops with bounded tuple reads and a single transaction', async () => {

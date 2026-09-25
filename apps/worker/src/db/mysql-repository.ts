@@ -27,6 +27,7 @@ const SHOP_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   y INT UNSIGNED PATH '$.y',
   profile_hash CHAR(64) PATH '$.profileHash',
   full_state_hash CHAR(64) PATH '$.fullStateHash' NULL ON EMPTY,
+  batch_id VARCHAR(191) PATH '$.batchId',
   observed_at BIGINT UNSIGNED PATH '$.observedAt'
 )) AS observation`;
 
@@ -106,6 +107,7 @@ function shopResolutionPayload(inputs: readonly ShopSessionContextInput[]): stri
     y: input.y,
     profileHash: input.profileHash ?? input.identityHash,
     fullStateHash: input.fullStateHash ?? null,
+    batchId: input.batchId,
     observedAt: input.observedAt,
   })));
 }
@@ -351,18 +353,37 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         WHERE observation.shop_status = 'dismissed'
           AND shops.last_status_observed_at <= observation.observed_at`, [payload]);
 
-      if (hasDismissals && !options.deferListingExpiry) await tx.run(`UPDATE listings
-        JOIN shops ON shops.id = listings.shop_id
-        JOIN ${SHOP_JSON_TABLE}
-          ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
-        SET listings.status = 'expired',
-          listings.last_changed_at = observation.observed_at,
-          listings.state_version = listings.state_version + 1,
-          listings.missing_full_count = 0
-        WHERE observation.shop_status = 'dismissed'
-          AND shops.status = 'closed'
-          AND shops.last_status_observed_at <= observation.observed_at
-          AND listings.status IN ('active', 'missing')`, [payload]);
+      if (hasDismissals && !options.deferListingExpiry) {
+        // Match makeTransitionKey's input without reading every listing into the Worker.
+        await tx.run(`INSERT INTO listing_events(
+            listing_id, snapshot_id, observed_at, event_type, from_price, to_price, from_quantity, to_quantity,
+            sold_quantity, reason, transition_key
+          ) SELECT listings.id, observation.batch_id, observation.observed_at, 'expired',
+            listings.price, listings.price, listings.quantity, listings.quantity, 0, 'shop_closed',
+            LOWER(SHA2(CONCAT(listings.id, ':', listings.state_version, ':', listings.quantity, ':', listings.quantity, ':shop_closed'), 256))
+          FROM listings
+          JOIN shops ON shops.id = listings.shop_id
+          JOIN ${SHOP_JSON_TABLE}
+            ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
+          WHERE observation.shop_status = 'dismissed'
+            AND shops.status = 'closed'
+            AND shops.last_status_observed_at <= observation.observed_at
+            AND listings.status IN ('active', 'missing')
+          ON DUPLICATE KEY UPDATE transition_key = listing_events.transition_key`, [payload]);
+
+        await tx.run(`UPDATE listings
+          JOIN shops ON shops.id = listings.shop_id
+          JOIN ${SHOP_JSON_TABLE}
+            ON shops.source_id = observation.source_id AND shops.identity_hash = observation.identity_hash
+          SET listings.status = 'expired',
+            listings.last_changed_at = observation.observed_at,
+            listings.state_version = listings.state_version + 1,
+            listings.missing_full_count = 0
+          WHERE observation.shop_status = 'dismissed'
+            AND shops.status = 'closed'
+            AND shops.last_status_observed_at <= observation.observed_at
+            AND listings.status IN ('active', 'missing')`, [payload]);
+      }
 
       const resolvedRows = await tx.all<Row>(`SELECT ${SHOP_RESOLUTION_COLUMNS} FROM shops
         JOIN ${SHOP_JSON_TABLE}
