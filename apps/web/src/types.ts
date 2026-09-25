@@ -152,3 +152,34 @@ export interface GuestbookPage {
   items: GuestbookEntry[];
   nextCursor: string | null;
 }
+
+export type LastroAccountState = 'online' | 'offline' | 'auth_failed';
+export interface LastroAccountData {
+  updatetime?: string;
+  inminute?: string;
+  name?: string;
+  class?: number | string;
+  base_level?: number | string;
+  job_level?: number | string;
+  hp?: number | string;
+  max_hp?: number | string;
+  sp?: number | string;
+  max_sp?: number | string;
+  last_map?: string;
+  autoattack?: number | string;
+  autoloot?: number | string;
+  base_exp?: number | string;
+  nextbaseexp?: number | string;
+  weight?: number | string;
+  maxweight?: number | string;
+  job_exp?: number | string;
+  nextjobexp?: number | string;
+  changebexp?: number | string;
+  changejexp?: number | string;
+  changelv?: number | string;
+  changejoblv?: number | string;
+}
+export interface LastroAccountStatusResponse {
+  state: LastroAccountState;
+  data?: LastroAccountData;
+}

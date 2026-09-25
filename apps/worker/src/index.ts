@@ -19,6 +19,7 @@ import { registerGuestbookRoutes } from './routes/guestbook';
 import { createUploadHandler } from './services/upload-handler';
 import { createSnapshotRepository } from './db/snapshot-repository';
 import { consumeSnapshotBatch, processSnapshotWakeup, type SnapshotQueueMessage } from './services/snapshot-dispatcher';
+import { registerLastroAccountRoute } from './routes/lastro-accounts';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -38,8 +39,9 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
     }
   });
 
-  app.get('/api/health', async (c) => c.json(await healthPayload(env, database)));
+  app.get('/api/health', async (c) => c.json(await healthPayload(env, database), 200, { 'cache-control': 'no-store' }));
   registerAssetRoute(app);
+  registerLastroAccountRoute(app);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);

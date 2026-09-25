@@ -1,6 +1,7 @@
 import { MarketApi, type MarketApiClient } from './api';
 import { createCatalogLoader, createDescriptionLoader, findCatalogMatches } from './catalog';
 import { cleanItemDescription, rmsAssetUrl } from './render';
+import { siteNavMarkup, mountSiteNav } from './nav';
 import type { GuestbookCategory, GuestbookEntry, GuestbookFilters, GuestbookSubmissionInput, ItemAutocomplete, ItemDescription } from './types';
 
 function escapeHtml(value: string): string {
@@ -50,7 +51,7 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
   root.innerHTML = `
     <header class="site-header"><div class="topbar page-width">
       <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
-      <nav class="site-nav" aria-label="主导航"><a href="/#search">搜索市场</a><a class="active" href="/guestbook" aria-current="page">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://github.com/parkerjj/LastROLTSD" target="_blank" rel="noreferrer">代码仓库</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></nav>
+      ${siteNavMarkup('guestbook')}
     </div></header>
     <main class="guestbook-main page-width">
       <section class="guestbook-intro"><div><p class="eyebrow">露天市场 / 玩家交流</p><h1>玩家登记簿</h1><p>发布收购、出售或给网站的建议，让市场里的每一份需求都能被看见。</p></div><span class="guestbook-ledger-mark" aria-hidden="true">No. 01<br><strong>公开登记</strong></span></section>
@@ -73,7 +74,9 @@ export function mountGuestbookPage(root: HTMLElement, api: MarketApiClient = new
         <div id="guestbook-results" class="guestbook-results" aria-live="polite" aria-busy="false"></div><div class="guestbook-pager"><button id="guestbook-prev" class="secondary-button" type="button" disabled><i class="ph ph-arrow-left" aria-hidden="true"></i> 上一页</button><span id="guestbook-page-status">第 1 页</span><button id="guestbook-next" class="secondary-button" type="button" disabled>下一页 <i class="ph ph-arrow-right" aria-hidden="true"></i></button></div>
       </section>
     </main>
-    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>`;
+    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">账号监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>`;
+
+  mountSiteNav(root);
 
   const form = root.querySelector<HTMLFormElement>('#guestbook-form')!;
   const tradeFields = root.querySelector<HTMLElement>('#guestbook-trade-fields')!;

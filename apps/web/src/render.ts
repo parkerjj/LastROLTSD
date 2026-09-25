@@ -359,7 +359,7 @@ function renderItemMarketHistory(
 
 const TREND_SAMPLE_COUNT = 60;
 const TREND_VIEW = { width: 420, height: 210 };
-const TREND_FRAME = { left: 46, top: 16, width: 314, height: 156 };
+const TREND_FRAME = { left: 52, top: 16, width: 314, height: 156 };
 
 type TrendSample = {
   time: number;
@@ -717,8 +717,8 @@ function attachHistoryChart(drawer: HTMLElement): void {
 }
 
 function formatAxisNumber(value: number): string {
-  if (value >= 1e8) return `${Number((value / 1e8).toFixed(1))}亿`;
-  if (value >= 1e4) return `${Number((value / 1e4).toFixed(1))}万`;
+  if (value >= 1e8) return `${Math.round(value / 1e8)}亿`;
+  if (value >= 1e4) return `${Math.round(value / 1e4)}万`;
   return String(Math.round(value));
 }
 function formatTipDate(value: number): string {

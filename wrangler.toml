@@ -8,6 +8,10 @@ directory = "apps/web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 
+# Workers Cache is off by default; production enables it per-environment below.
+[cache]
+enabled = true
+
 [vars]
 ENVIRONMENT = "local"
 BUILD_VERSION = "dev"
@@ -48,6 +52,11 @@ max_retries = 3
 name = "lastroweb-production"
 vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000" }
 assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application" }
+
+# Cacheable responses (RMS GIF assets, search/history JSON) are served from
+# Cloudflare's tiered edge cache without invoking this Worker.
+[env.production.cache]
+enabled = true
 
 [[env.production.queues.producers]]
 binding = "SNAPSHOT_QUEUE"

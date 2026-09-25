@@ -1,4 +1,4 @@
-import type { GuestbookFilters, GuestbookPage, GuestbookSubmissionInput, HistoryPage, ItemMarketHistory, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
+import type { GuestbookFilters, GuestbookPage, GuestbookSubmissionInput, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -20,6 +20,7 @@ export interface MarketApiClient {
   getStatus(signal?: AbortSignal): Promise<MarketStatus>;
   searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage>;
   createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }>;
+  getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse>;
 }
 
 export class MarketApi implements MarketApiClient {
@@ -67,6 +68,16 @@ export class MarketApi implements MarketApiClient {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
+      ...(signal ? { signal } : {}),
+    });
+    return this.readResponse(response);
+  }
+
+  async getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse> {
+    const response = await fetch('/api/v1/lastro/account-status', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ userid, user_pass: userPass }),
       ...(signal ? { signal } : {}),
     });
     return this.readResponse(response);
