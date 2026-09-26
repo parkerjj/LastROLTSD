@@ -7,7 +7,8 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const UPSTREAM_TIMEOUT_MS = 10_000;
 const MAX_REDIRECTS = 5;
 const CACHE_CONTROL = 'public, max-age=3600, s-maxage=3600';
-const NO_STORE_HEADERS = { 'cache-control': 'no-store' } as const;
+const CORS_HEADERS = { 'access-control-allow-origin': '*' } as const;
+const NO_STORE_HEADERS = { 'cache-control': 'no-store', ...CORS_HEADERS } as const;
 
 function collectSetCookies(headers: Headers, jar: Map<string, string>): void {
   const getSetCookie = (headers as { getSetCookie?: () => string[] }).getSetCookie;
@@ -61,6 +62,17 @@ async function fetchCsrfToken(): Promise<string | null> {
 }
 
 export function registerMakingCookieRoute(app: Hono<any>): void {
+  // Cross-origin scripts may add custom headers; answer their preflight.
+  app.options('/making-cookie', () => new Response(null, {
+    status: 204,
+    headers: {
+      ...CORS_HEADERS,
+      'access-control-allow-methods': 'GET, OPTIONS',
+      'access-control-allow-headers': '*',
+      'access-control-max-age': '86400',
+      'cache-control': CACHE_CONTROL,
+    },
+  }));
   app.get('/making-cookie', async (c) => {
     const id = requestId(c.req.raw);
     try {
@@ -71,7 +83,7 @@ export function registerMakingCookieRoute(app: Hono<any>): void {
       }
       return new Response(token, {
         status: 200,
-        headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': CACHE_CONTROL },
+        headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': CACHE_CONTROL, ...CORS_HEADERS },
       });
     } catch (error) {
       logError('lastroweb.making_cookie_error', error, { request_id: id });
