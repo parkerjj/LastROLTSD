@@ -21,6 +21,7 @@ import { createSnapshotRepository } from './db/snapshot-repository';
 import { consumeSnapshotBatch, processSnapshotWakeup, type SnapshotQueueMessage } from './services/snapshot-dispatcher';
 import { registerLastroAccountRoute } from './routes/lastro-accounts';
 import { registerMakingCookieRoute } from './routes/making-cookie';
+import { registerPresenceRoute } from './routes/presence';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -44,6 +45,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerAssetRoute(app);
   registerLastroAccountRoute(app);
   registerMakingCookieRoute(app);
+  registerPresenceRoute(app);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);

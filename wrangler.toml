@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 directory = "apps/web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/making-cookie"]
+run_worker_first = ["/making-cookie", "/lastro/presence"]
 
 # Workers Cache is off by default; production enables it per-environment below.
 [cache]
@@ -37,7 +37,7 @@ max_retries = 3
 [env.staging]
 name = "lastroweb-staging"
 vars = { ENVIRONMENT = "staging", BUILD_VERSION = "staging", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000" }
-assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie"] }
+assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence"] }
 
 [[env.staging.queues.producers]]
 binding = "SNAPSHOT_QUEUE"
@@ -52,7 +52,7 @@ max_retries = 3
 [env.production]
 name = "lastroweb-production"
 vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000" }
-assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie"] }
+assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence"] }
 
 # Cacheable responses (RMS GIF assets, search/history JSON) are served from
 # Cloudflare's tiered edge cache without invoking this Worker.
