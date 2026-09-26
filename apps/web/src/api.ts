@@ -127,6 +127,8 @@ function mapOptionDefinitions(payload: OptionDefinitionsResponse & { options: Ar
         labelZh: String(data.label_zh ?? ''),
         descriptionTemplate: String(data.description_template ?? ''),
         valueKind: data.value_kind === 'scaled_integer' ? 'scaled_integer' : 'integer',
+        valuePolicy: data.value_policy === 'flag' ? 'flag' : 'numeric',
+        selectable: data.selectable !== false,
         unit: String(data.unit ?? ''),
         scale: Number(data.scale ?? 1),
         allowedOperators: Array.isArray(data.allowed_operators) ? data.allowed_operators.map(String) as OptionDefinition['allowedOperators'] : [],

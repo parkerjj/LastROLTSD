@@ -1679,6 +1679,33 @@ label {
   min-width: 76px;
 }
 
+.option-row-flag {
+  grid-template-areas: "type type type" "hint hint remove";
+}
+
+.option-row-flag label:nth-child(2),
+.option-row-flag .option-value-label {
+  display: none;
+}
+
+.option-row .option-flag-hint {
+  grid-area: hint;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  color: #8a7d68;
+  font-size: .76rem;
+  background: #f3ede1;
+  border: 1px dashed #b7aa95;
+  border-radius: 999px;
+}
+
+.option-row .option-flag-hint[hidden] {
+  display: none;
+}
+
 .option-row input,
 .option-row select {
   min-height: 38px;
@@ -3567,9 +3594,127 @@ body.drawer-open {
   font-size: .75rem;
 }
 
-.map-coordinates {
-  color: #b2beb2;
-  font-size: .78rem;
+/* 地图定位：位置信息卡（地图 / 坐标 / 店名 三栏，沿用纸面浅色主题） */
+.map-waypoint {
+  margin-top: 18px;
+  padding: 14px 18px 16px;
+  background: #fffdf8;
+  border: 1px solid #d8cdbd;
+  border-radius: 2px;
+}
+
+.map-wp-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  color: #8a9189;
+  font-size: .75rem;
+  font-weight: 800;
+  letter-spacing: .18em;
+}
+
+.map-wp-kicker i {
+  color: var(--red);
+  font-size: .95rem;
+}
+
+.map-wp-grid {
+  display: grid;
+  grid-template-columns: 1.12fr auto 1.3fr;
+  align-items: stretch;
+}
+
+.map-wp-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 14px;
+}
+
+.map-wp-cell:first-child {
+  padding-left: 0;
+}
+
+.map-wp-cell:last-child {
+  padding-right: 0;
+}
+
+.map-wp-cell + .map-wp-cell {
+  border-left: 1px dashed #d8cdbd;
+}
+
+.map-wp-label {
+  color: #8a9189;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.map-wp-map {
+  color: var(--forest);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.map-wp-code {
+  padding: 1px 7px;
+  color: #6f7b71;
+  background: #eee7da;
+  border: 1px solid #d8cdbd;
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.map-wp-coord {
+  display: inline-flex;
+  align-items: baseline;
+  color: var(--red-dark);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-wp-sep {
+  margin: 0 3px;
+  color: #c8a49b;
+}
+
+.map-wp-shop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 4px 9px;
+  color: #2b2b26;
+  background: #fff;
+  border: 1px solid #6f6a5c;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(60, 45, 20, .18);
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.map-wp-shop i {
+  flex: 0 0 auto;
+  color: var(--red-dark);
+  font-size: .85rem;
+}
+
+.map-wp-shop-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .map-frame {
@@ -3587,23 +3732,101 @@ body.drawer-open {
   image-rendering: auto;
 }
 
-.map-star {
+/* RO 露天商店招牌气泡 + 星标：气泡整体可横移收进边界（--bubble-shift），小尾巴始终锚定星标 */
+.map-marker {
   position: absolute;
   z-index: 1;
-  display: grid;
-  place-items: center;
   width: 34px;
   height: 34px;
+  transform: translate(-50%, -50%);
+}
+
+.map-star {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   border: 3px solid #fff;
   border-radius: 50%;
-  background: #bd2f28;
+  background: var(--red);
   color: #fff;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 2px rgba(45, 10, 6, .9);
   box-shadow: 0 0 0 2px rgba(45, 20, 14, .72), 0 2px 7px rgba(0, 0, 0, .6);
-  transform: translate(-50%, -50%);
+}
+
+.map-pulse {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(184, 77, 63, .6);
+  border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .map-pulse {
+    animation: map-pulse 2.4s ease-out infinite;
+  }
+}
+
+@keyframes map-pulse {
+  0% {
+    transform: scale(.75);
+    opacity: .8;
+  }
+
+  70%,
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+
+.map-bubble {
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  padding: 5px 10px;
+  color: #2b2b26;
+  background: #fff;
+  border: 1px solid #6f6a5c;
+  border-radius: 4px;
+  box-shadow: 0 3px 8px rgba(40, 30, 10, .3);
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  transform: translateX(calc(-50% + var(--bubble-shift, 0px)));
+}
+
+.map-bubble i {
+  flex: 0 0 auto;
+  color: var(--red-dark);
+  font-size: .85rem;
+}
+
+.map-bubble-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: calc(50% - var(--bubble-shift, 0px));
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-right: 1px solid #6f6a5c;
+  border-bottom: 1px solid #6f6a5c;
+  transform: translateX(-50%) rotate(45deg);
 }
 
 .map-note {

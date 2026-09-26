@@ -9,6 +9,8 @@ const spRecovery: OptionDefinition = {
   labelZh: 'SP恢复速度增加数值%',
   descriptionTemplate: 'SP恢复速度增加{value}%',
   valueKind: 'integer',
+  valuePolicy: 'numeric',
+  selectable: true,
   unit: '',
   scale: 1,
   allowedOperators: ['eq', 'gte', 'lte'],
@@ -24,12 +26,48 @@ const rate: OptionDefinition = {
   labelZh: '倍率',
   descriptionTemplate: '倍率 {value}',
   valueKind: 'scaled_integer',
+  valuePolicy: 'numeric',
+  selectable: true,
   unit: '%',
   scale: 100,
   allowedOperators: ['gte', 'lt'],
   paramPolicy: { mode: 'required_exact', filterable: true },
   repeatPolicy: 'distinct',
   displayTemplate: '倍率 {value}',
+  searchTokens: [],
+};
+
+const weaponFire: OptionDefinition = {
+  type: 178,
+  handle: 'WEAPON_ATTR_FIRE',
+  labelZh: '赋予武器火属性',
+  descriptionTemplate: '赋予武器火属性',
+  valueKind: 'integer',
+  valuePolicy: 'flag',
+  selectable: true,
+  unit: '',
+  scale: 1,
+  allowedOperators: ['eq'],
+  paramPolicy: { mode: 'ignored', filterable: false },
+  repeatPolicy: 'same',
+  displayTemplate: '赋予武器火属性',
+  searchTokens: [],
+};
+
+const emptySlot: OptionDefinition = {
+  type: 204,
+  handle: 'NOTHING',
+  labelZh: '空',
+  descriptionTemplate: '空',
+  valueKind: 'integer',
+  valuePolicy: 'numeric',
+  selectable: false,
+  unit: '',
+  scale: 1,
+  allowedOperators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'],
+  paramPolicy: { mode: 'ignored', filterable: false },
+  repeatPolicy: 'same',
+  displayTemplate: '空',
   searchTokens: [],
 };
 
@@ -186,5 +224,64 @@ describe('metadata-driven option controls', () => {
     row.querySelector<HTMLInputElement>('[data-option-param]')!.value = '7';
 
     expect(() => serializeSearchForm(form, [rate])).toThrow('词条数值格式无效');
+  });
+
+  it('hides non-selectable sentinel slots from the term picker', () => {
+    const { rows } = createForm();
+    const row = appendOptionRow(rows, [spRecovery, weaponFire, emptySlot]);
+    const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
+
+    expect(type.textContent).toContain('赋予武器火属性');
+    expect(type.textContent).not.toContain('空');
+    expect(Array.from(type.options).map((option) => option.value)).not.toContain('204');
+  });
+
+  it('hides operator and value controls and marks the row once a flag term is chosen', () => {
+    const { rows } = createForm();
+    const row = appendOptionRow(rows, [weaponFire]);
+    const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
+    const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
+    const hint = row.querySelector<HTMLElement>('[data-option-flag-hint]')!;
+
+    expect(hint.hidden).toBe(true);
+    type.value = '178';
+    type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
+
+    expect(row.classList.contains('option-row-flag')).toBe(true);
+    expect(hint.hidden).toBe(false);
+    expect(operator.disabled).toBe(true);
+    expect(row.querySelector('[data-option-value]')).toHaveProperty('value', '');
+  });
+
+  it('serializes a flag term as eq:0 without operator or value input', () => {
+    const { form, rows } = createForm();
+    const row = appendOptionRow(rows, [weaponFire]);
+    const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
+    type.value = '178';
+    type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
+
+    expect(serializeSearchForm(form, [weaponFire])).toMatchObject({
+      options: [{ type: 178, operator: 'eq', value: '0' }],
+      option_mode: 'any',
+    });
+  });
+
+  it('restores operator and value controls when switching from a flag back to a numeric term', () => {
+    const { rows } = createForm();
+    const row = appendOptionRow(rows, [spRecovery, weaponFire]);
+    const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
+    const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
+    const hint = row.querySelector<HTMLElement>('[data-option-flag-hint]')!;
+
+    type.value = '178';
+    type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
+    expect(row.classList.contains('option-row-flag')).toBe(true);
+
+    type.value = '12';
+    type.dispatchEvent(new row.ownerDocument.defaultView!.Event('change', { bubbles: true }));
+    expect(row.classList.contains('option-row-flag')).toBe(false);
+    expect(hint.hidden).toBe(true);
+    expect(operator.disabled).toBe(false);
+    expect(Array.from(operator.options).map((option) => option.value)).toEqual(['eq', 'gte', 'lte']);
   });
 });

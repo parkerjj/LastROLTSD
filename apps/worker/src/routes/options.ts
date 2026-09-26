@@ -15,6 +15,8 @@ export function registerOptionsRoute(app: Hono<any>, repo: MarketRepository): vo
           label_zh: definition.labelZh,
           description_template: definition.descriptionTemplate,
           value_kind: definition.valueType,
+          value_policy: definition.valuePolicy ?? 'numeric',
+          selectable: definition.selectable ?? true,
           unit: definition.unit,
           scale: definition.scale,
           allowed_operators: definition.allowedOperators,

@@ -4,6 +4,8 @@ import { compileOptionPredicates, formatOptionDisplay, parseOptionCondition, typ
 const definitions: OptionDefinitionMap = new Map<number, OptionDefinition>([
   [12, { type: 12, handle: 'VAR_SPACCELERATION', labelZh: 'SP恢复速度增加数值%', descriptionTemplate: 'SP恢复速度增加{value}%', valueType: 'integer', unit: '', scale: 1, allowedOperators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: 'SP恢复速度增加{value}%' }],
   [198, { type: 198, handle: 'test_rate', labelZh: '倍率', descriptionTemplate: '倍率 {value}', valueType: 'scaled_integer', unit: '%', scale: 100, allowedOperators: ['eq', 'gte'], paramPolicy: { mode: 'required_exact', value: 7, filterable: true }, repeatPolicy: 'distinct', displayTemplate: '倍率 {value}' }],
+  [176, { type: 176, handle: 'WEAPON_ATTR_WATER', labelZh: '赋予武器水属性', descriptionTemplate: '赋予武器水属性', valueType: 'integer', valuePolicy: 'flag', selectable: true, unit: '', scale: 1, allowedOperators: ['eq'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: '赋予武器水属性' }],
+  [204, { type: 204, handle: 'NOTHING', labelZh: '空', descriptionTemplate: '空', valueType: 'integer', selectable: false, unit: '', scale: 1, allowedOperators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: '空' }],
 ]);
 
 describe('option conditions', () => {
@@ -55,6 +57,18 @@ describe('option conditions', () => {
     expect(same.sql.match(/EXISTS/g)?.length).toBe(1);
     expect(distinct.sql).toContain('JOIN listing_options');
     expect(distinct.sql).toContain('option_index<>');
+  });
+
+  it('accepts flag options only as eq:0 and hides sentinel slots from filtering', () => {
+    const flag = parseOptionCondition('176:=:0', definitions);
+    expect(flag).toMatchObject({ type: 176, operator: 'eq', rawValue: 0 });
+    expect(flag).not.toHaveProperty('param');
+    const compiled = compileOptionPredicates([flag], 'all', definitions);
+    expect(compiled.sql).toContain('option_value = ?');
+    expect(compiled.values).toEqual([176, 0]);
+    expect(() => parseOptionCondition('176:eq:1', definitions)).toThrow('Invalid option value');
+    expect(() => parseOptionCondition('176:gte:0', definitions)).toThrow('operator is not allowed');
+    expect(() => parseOptionCondition('204:eq:0', definitions)).toThrow('not filterable');
   });
 
   it('renders display text from definitions and raw tuples only', () => {

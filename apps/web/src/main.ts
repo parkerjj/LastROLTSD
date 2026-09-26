@@ -539,6 +539,7 @@ function mountSearchPage(): void {
 
   function openMap(button: HTMLButtonElement): void {
     const name = button.dataset.mapName || "未知地图";
+    const shop = button.dataset.mapShop || "未命名商店";
     const image =
       button.dataset.mapImage || rmsAssetUrl("maps_xl/morocc_re.gif");
     const code = button.dataset.mapCode || "morocc";
@@ -553,7 +554,15 @@ function mountSearchPage(): void {
     track(AnalyticsEvent.MapOpen, { map_code: code });
     const command = `请带我去 ${code} ${x} ${y} 这个坐标`;
     const safeName = escapeHtml(name);
-    const body = `<p class="drawer-kicker">地图定位 / ${escapeHtml(code)}</p><h2>${safeName}</h2><p class="map-coordinates">商人坐标：${x}，${y}</p><div class="map-frame"><img src="${image}" alt="${safeName}地图" /><span class="map-star" style="left:${left}%;top:${top}%" aria-label="商人位置">★</span></div><p class="map-note">星标为当前商人位置，坐标来自市场记录。</p>
+    const safeShop = escapeHtml(shop);
+    const body = `<section class="map-waypoint" aria-label="目标位置">
+    <p class="map-wp-kicker"><i class="ph ph-map-pin" aria-hidden="true"></i>目标位置</p>
+    <div class="map-wp-grid">
+      <div class="map-wp-cell"><span class="map-wp-label">地图</span><strong class="map-wp-map">${safeName}</strong><code class="map-wp-code">${escapeHtml(code)}</code></div>
+      <div class="map-wp-cell"><span class="map-wp-label">商人坐标</span><strong class="map-wp-coord">${x}<span class="map-wp-sep">,</span>${y}</strong></div>
+      <div class="map-wp-cell"><span class="map-wp-label">露天商店</span><span class="map-wp-shop"><i class="ph ph-storefront" aria-hidden="true"></i><span class="map-wp-shop-name">${safeShop}</span></span></div>
+    </div>
+  </section><div class="map-frame"><img src="${image}" alt="${safeName}地图" /><span class="map-marker" style="left:${left}%;top:${top}%" role="img" aria-label="商人位置：${safeShop}"><span class="map-bubble"><i class="ph ph-storefront" aria-hidden="true"></i><span class="map-bubble-name">${safeShop}</span></span><span class="map-star" aria-hidden="true">★</span><span class="map-pulse" aria-hidden="true"></span></span></div><p class="map-note">白色气泡为露天商店招牌，红色星标为商人坐标（来自市场记录）。</p>
   <section class="quick-go" aria-labelledby="quick-go-title">
     <div class="quick-go-heading"><span class="quick-go-icon" aria-hidden="true"><i class="ph ph-navigation-arrow"></i></span><div><p class="quick-go-kicker">GPT 带路</p><h3 id="quick-go-title">快捷前往</h3></div></div>
     <ol class="quick-go-steps">
@@ -562,7 +571,7 @@ function mountSearchPage(): void {
     </ol>
     <figure class="quick-go-figure"><img src="/tutorial/gpt-guide.png" alt="图示：先点击右下角蓝色小点按钮，再选择GPT频道" loading="lazy" width="1800" height="588" /></figure>
     <button type="button" class="copy-command" data-command="${escapeHtml(command)}" data-map-code="${escapeHtml(code)}" data-map-x="${x}" data-map-y="${y}" aria-label="点击复制前往指令">
-      <span class="copy-command-text">请带我去 <em>${escapeHtml(code)}</em> <em>${x}</em> <em>${y}</em> 这个坐标</span>
+      <span class="copy-command-text"><em>${escapeHtml(code)}</em> <em>${x}</em> <em>${y}</em> 请带我去这个坐标</span>
       <span class="copy-command-action" aria-hidden="true"><i class="ph ph-copy-simple"></i><span class="copy-command-label">点击复制</span></span>
     </button>
     <p class="quick-go-hint"><i class="ph ph-info" aria-hidden="true"></i> 地图名为英文代码（如 prontera），坐标与上方星标一致。</p>
@@ -574,6 +583,29 @@ function mountSearchPage(): void {
       "map-inner",
     );
     openDrawer(mapDrawer);
+    clampMapBubble(left);
+  }
+
+  /** 店名气泡靠近地图左右边缘时整体收进边界内，小尾巴仍锚定在星标正上方。 */
+  function clampMapBubble(left: number): void {
+    const frame = mapDrawer.querySelector<HTMLElement>(".map-frame");
+    const marker = mapDrawer.querySelector<HTMLElement>(".map-marker");
+    const bubble = mapDrawer.querySelector<HTMLElement>(".map-bubble");
+    if (!frame || !marker || !bubble) return;
+    const frameWidth = frame.clientWidth;
+    const bubbleWidth = bubble.offsetWidth;
+    if (frameWidth <= 0 || bubbleWidth <= 0) return;
+    const pad = 8;
+    const center = (left / 100) * frameWidth;
+    let shift = 0;
+    if (center - bubbleWidth / 2 < pad) {
+      shift = pad - (center - bubbleWidth / 2);
+    } else if (center + bubbleWidth / 2 > frameWidth - pad) {
+      shift = frameWidth - pad - (center + bubbleWidth / 2);
+    }
+    if (shift !== 0) {
+      marker.style.setProperty("--bubble-shift", `${Math.round(shift)}px`);
+    }
   }
 
   async function copyText(text: string): Promise<boolean> {

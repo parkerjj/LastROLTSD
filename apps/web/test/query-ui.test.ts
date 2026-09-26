@@ -57,6 +57,8 @@ describe('query UI rendering', () => {
     expect(element.querySelector('.js-next-page')?.hasAttribute('disabled')).toBe(true);
     expect(element.querySelector('.mc-icon img')?.getAttribute('src')).toBe('/api/v1/assets/items/small/card.gif?lastroweb=v3');
     expect(element.querySelector('.map-button')?.getAttribute('data-map-image')).toBe('/api/v1/assets/maps_xl/prontera_re.gif?lastroweb=v3');
+    // 店名随地图定位按钮传入抽屉（RO 招牌气泡与信息卡使用）
+    expect(element.querySelector('.map-button')?.getAttribute('data-map-shop')).toBe('收购店');
     // 相对时间位于操作列内、价格历史按钮下方
     expect(element.querySelector('.mc-actions .mc-time')).not.toBeNull();
     expect(element.querySelector('.market-card > .mc-time')).toBeNull();
@@ -122,6 +124,13 @@ describe('query UI rendering', () => {
     expect(element.querySelector('.loc-pin')?.textContent).toContain('斐扬');
     expect(element.querySelector('.map-button')?.getAttribute('data-map-marker-left')).toBe('100');
     expect(element.querySelector('.map-button')?.getAttribute('data-map-marker-top')).toBe('0');
+  });
+
+  it('falls back to an empty shop name on the map button when the listing has no title', () => {
+    const element = getResults();
+    renderSearchResults(element, { items: [listing({ title: '' })], nextCursor: null }, state);
+    // 空店名传空串，抽屉侧回退为「未命名商店」
+    expect(element.querySelector('.map-button')?.getAttribute('data-map-shop')).toBe('');
   });
 
   it('renders deterministic fallbacks for unknown items and unknown option types', () => {

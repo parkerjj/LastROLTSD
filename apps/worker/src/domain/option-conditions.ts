@@ -2,6 +2,7 @@ export const OPTION_OPERATORS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'] as const
 
 export type OptionOperator = typeof OPTION_OPERATORS[number];
 export type OptionValueKind = 'integer' | 'scaled_integer';
+export type OptionValuePolicy = 'numeric' | 'flag';
 export type OptionRepeatPolicy = 'same' | 'distinct';
 export type OptionParamPolicy =
   | { mode: 'ignored'; filterable: false }
@@ -14,6 +15,10 @@ export interface OptionDefinition {
   labelZh: string;
   descriptionTemplate: string;
   valueType: OptionValueKind;
+  /** 'flag' options are predicate-free: value must be 0 and operator eq. */
+  valuePolicy?: OptionValuePolicy;
+  /** False for sentinel slots that must never appear in user filters. */
+  selectable?: boolean;
   unit: string;
   scale: number;
   allowedOperators: OptionOperator[];
@@ -81,11 +86,13 @@ export function parseStructuredOptionCondition(raw: StructuredOptionCondition, d
   }
   const definition = definitions.get(raw.type);
   if (!definition) throw new OptionConditionValidationError(`Unknown option type: ${raw.type}`);
+  if (definition.selectable === false) throw new OptionConditionValidationError('Option type is not filterable');
   const operator = normalizeOperator(raw.operator);
   if (!operator) throw new OptionConditionValidationError('Invalid option operator');
   if (!definition.allowedOperators.includes(operator)) throw new OptionConditionValidationError('Option operator is not allowed');
   const displayValue = raw.value;
   const rawValue = parseDefinitionValue(displayValue, definition);
+  if (definition.valuePolicy === 'flag' && rawValue !== 0) throw new OptionConditionValidationError('Invalid option value');
   const param = parseParam(raw.param, definition.paramPolicy);
   return { type: raw.type, operator, rawValue, displayValue, ...(param === undefined ? {} : { param }) };
 }

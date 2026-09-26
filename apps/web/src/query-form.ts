@@ -54,10 +54,13 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
   const options = Array.from(form.querySelectorAll<HTMLElement>('[data-option-row]')).flatMap((row): SearchOptionFilter[] => {
     const type = Number(row.querySelector<HTMLSelectElement>('[data-option-type]')?.value);
     const definition = definitionMap.get(type);
+    if (!definition || !Number.isSafeInteger(type) || definition.selectable === false) return [];
+    // Flag options carry no magnitude: existence is the whole predicate.
+    if (definition.valuePolicy === 'flag') return [{ type, operator: 'eq', value: '0' }];
     const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')?.value as OptionOperator | undefined;
     const value = row.querySelector<HTMLInputElement>('[data-option-value]')?.value.trim() ?? '';
     const paramInput = row.querySelector<HTMLInputElement>('[data-option-param]');
-    if (!definition || !Number.isSafeInteger(type) || !operator || !definition.allowedOperators.includes(operator) || !value) return [];
+    if (!operator || !definition.allowedOperators.includes(operator) || !value) return [];
     if (!isValidOptionValue(value, definition)) throw new Error('词条数值格式无效');
     if (definition.paramPolicy.mode === 'required_exact' && !paramInput?.value.trim()) return [];
     const param = paramInput?.value.trim();
@@ -90,29 +93,38 @@ export function appendOptionRow(container: HTMLElement, definitions: readonly Op
   const typeId = `${rowId}-type`;
   const operatorId = `${rowId}-operator`;
   const valueId = `${rowId}-value`;
+  const selectableDefinitions = definitions.filter((definition) => definition.selectable !== false);
   row.dataset.optionRow = 'true';
   row.className = 'option-row';
   row.innerHTML = `
-    <label for="${typeId}"><span>词条</span><select id="${typeId}" data-option-type aria-label="词条"><option value="">请先选择词条</option>${definitions.map((definition) => `<option value="${definition.type}">${escapeAttribute(definition.labelZh)}</option>`).join('')}</select></label>
+    <label for="${typeId}"><span>词条</span><select id="${typeId}" data-option-type aria-label="词条"><option value="">请先选择词条</option>${selectableDefinitions.map((definition) => `<option value="${definition.type}">${escapeAttribute(definition.labelZh)}</option>`).join('')}</select></label>
     <label for="${operatorId}"><span>比较符</span><select id="${operatorId}" data-option-operator aria-label="比较符"></select></label>
     <label class="option-value-label" for="${valueId}"><span>数值</span><input id="${valueId}" data-option-value aria-label="词条数值" inputmode="decimal" type="number" step="any" /></label>
+    <span class="option-flag-hint" data-option-flag-hint hidden>无需数值</span>
     <button type="button" data-remove-option aria-label="删除词条">删除</button>`;
   const type = row.querySelector<HTMLSelectElement>('[data-option-type]')!;
   const operator = row.querySelector<HTMLSelectElement>('[data-option-operator]')!;
   const valueInput = row.querySelector<HTMLInputElement>('[data-option-value]')!;
   const valueLabel = row.querySelector<HTMLElement>('.option-value-label > span')!;
+  const flagHint = row.querySelector<HTMLElement>('[data-option-flag-hint]')!;
   const update = (): void => {
-    const definition = definitions.find((candidate) => candidate.type === Number(type.value));
+    const definition = selectableDefinitions.find((candidate) => candidate.type === Number(type.value));
+    const isFlag = definition?.valuePolicy === 'flag';
+    row.classList.toggle('option-row-flag', isFlag);
+    flagHint.hidden = !isFlag;
     const allowedOperators = definition?.allowedOperators.filter(isOptionOperator) ?? [];
-    operator.disabled = !definition || allowedOperators.length === 0;
+    operator.disabled = !definition || allowedOperators.length === 0 || isFlag;
     operator.title = definition ? '选择比较符' : '请先选择词条';
     operator.setAttribute('aria-label', definition ? '比较符' : '比较符，请先选择词条');
-    operator.innerHTML = allowedOperators.length > 0
-      ? allowedOperators.map((value) => `<option value="${value}">${OPERATOR_LABELS[value]}</option>`).join('')
-      : '<option value=""></option>';
+    operator.innerHTML = isFlag
+      ? '<option value=""></option>'
+      : allowedOperators.length > 0
+        ? allowedOperators.map((value) => `<option value="${value}">${OPERATOR_LABELS[value]}</option>`).join('')
+        : '<option value=""></option>';
+    if (isFlag) valueInput.value = '';
     const prompt = definition?.descriptionTemplate.replace('{value}', '数值') ?? '';
     valueLabel.textContent = definition?.unit ? `数值（${definition.unit}）` : '数值';
-    valueInput.title = prompt;
+    valueInput.title = isFlag ? '' : prompt;
     row.querySelector('[data-option-param-wrap]')?.remove();
     if (definition?.paramPolicy.filterable) {
       const paramWrap = document.createElement('label');

@@ -147,6 +147,8 @@ For example, `GET /api/v1/market/search?option=12:gte:50` finds listings whose d
 
 `option_mode=all` requires all conditions and `option_mode=any` requires at least one. Repeated conditions for one type follow its server `repeat_policy`: `same` requires one option occurrence to satisfy all same-type conditions, while `distinct` requires different occurrences. Decimal values for `scaled_integer` definitions are converted exactly using the definition scale; exponent notation and excess precision are rejected. A param is accepted only when the definition's `param_policy` permits it, and `required_exact` requires it.
 
+Definitions with `value_policy: "flag"` (for example `赋予武器火属性` or `武器不会被破坏`) carry no magnitude: the stored value is always `0`, only `eq` is allowed, and clients must not render operator/value inputs. Definitions with `selectable: false` (for example type 204, the empty-slot sentinel) are omitted from pickers and structured queries for them return the standard `bad_request` envelope.
+
 The legacy exact raw tuple query remains available through 2026-10-31 only when all three parameters are supplied together: `option_type=12&option_value=50&option_param=0`. It has exact equality semantics. Mixing legacy parameters with `option=` returns `400`; incomplete legacy tuples return `400`. New integrations must use structured `option=`. Unknown option types remain stored and displayed, but structured queries for an unknown type return the standard `bad_request` error envelope.
 
 Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/option/search-index versions, every scalar filter, normalized option conditions and mode, sort, last sort value, and last listing ID. Reusing a cursor with a different q, option condition, definition/catalog version, or sort returns `400`.
@@ -155,13 +157,15 @@ Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/opt
 
 ```json
 {
-  "version": "options-lastro-70.84",
+  "version": "options-lastro-71.0",
   "options": [{
     "type": 12,
     "handle": "VAR_SPACCELERATION",
     "label_zh": "SP恢复速度增加数值%",
     "description_template": "SP恢复速度增加{value}%",
     "value_kind": "integer",
+    "value_policy": "numeric",
+    "selectable": true,
     "unit": "",
     "scale": 1,
     "allowed_operators": ["eq", "neq", "gt", "gte", "lt", "lte"],

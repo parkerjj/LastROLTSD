@@ -1,5 +1,6 @@
 export type OptionOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte';
 export type OptionValueKind = 'integer' | 'scaled_integer';
+export type OptionValuePolicy = 'numeric' | 'flag';
 export type OptionRepeatPolicy = 'same' | 'distinct';
 
 export type OptionParamPolicy =
@@ -13,6 +14,10 @@ export interface OptionDefinition {
   labelZh: string;
   descriptionTemplate: string;
   valueKind: OptionValueKind;
+  /** 'flag' options need no operator/value input (stored value is always 0). */
+  valuePolicy: OptionValuePolicy;
+  /** Sentinel slots are hidden from the picker and rejected as filters. */
+  selectable: boolean;
   unit: string;
   scale: number;
   allowedOperators: OptionOperator[];

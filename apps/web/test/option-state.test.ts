@@ -16,7 +16,7 @@ describe('option dictionary state', () => {
   });
 
   it('exposes an error and retries successfully', async () => {
-    const getOptions = vi.fn().mockRejectedValueOnce(new Error('网络不可用')).mockResolvedValueOnce({ ...payload, options: [{ type: 12, handle: 'VAR_SPACCELERATION', labelZh: 'SP恢复速度增加数值%', descriptionTemplate: 'SP恢复速度增加{value}%', valueKind: 'integer', unit: '', scale: 1, allowedOperators: ['gte'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: 'SP恢复速度增加{value}%', searchTokens: [] }] });
+    const getOptions = vi.fn().mockRejectedValueOnce(new Error('网络不可用')).mockResolvedValueOnce({ ...payload, options: [{ type: 12, handle: 'VAR_SPACCELERATION', labelZh: 'SP恢复速度增加数值%', descriptionTemplate: 'SP恢复速度增加{value}%', valueKind: 'integer', valuePolicy: 'numeric', selectable: true, unit: '', scale: 1, allowedOperators: ['gte'], paramPolicy: { mode: 'ignored', filterable: false }, repeatPolicy: 'same', displayTemplate: 'SP恢复速度增加{value}%', searchTokens: [] }] });
     const store = new OptionDictionaryStore({ getOptions });
     await store.load();
     expect(store.getState()).toMatchObject({ status: 'error', error: '网络不可用' });

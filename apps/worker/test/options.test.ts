@@ -8,17 +8,19 @@ const definition: OptionDefinition = { type: 12, handle: 'VAR_SPACCELERATION', l
 describe('options route', () => {
   it('returns stable type-level option definitions with version and cache metadata', async () => {
     const app = new Hono();
-    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version: 'options-lastro-70.84', items: [definition] }) } as never);
+    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version: 'options-lastro-71.0', items: [definition] }) } as never);
     const response = await app.request('/api/v1/options');
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      version: 'options-lastro-70.84',
+      version: 'options-lastro-71.0',
       options: [{
         type: 12,
         handle: 'VAR_SPACCELERATION',
         label_zh: 'SP恢复速度增加数值%',
         description_template: 'SP恢复速度增加{value}%',
         value_kind: 'integer',
+        value_policy: 'numeric',
+        selectable: true,
         unit: '',
         scale: 1,
         allowed_operators: ['eq', 'neq', 'gt', 'gte', 'lt', 'lte'],

@@ -1096,7 +1096,7 @@ function renderMarketCard(item: ListingSearchResult, query?: string): string {
     </div>
     <div class="mc-loc">
       <span class="loc-pin"><i class="ph ph-map-pin" aria-hidden="true"></i>${escape(map.name)} <span>${coordinates.x}，${coordinates.y}</span></span>
-      <button type="button" class="map-button" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" aria-label="查看${escape(map.name)}地图">地图定位</button>
+      <button type="button" class="map-button" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" data-map-shop="${escape(item.title || "")}" aria-label="查看${escape(map.name)}地图">地图定位</button>
     </div>
     <div class="mc-shop">
       <span>商店 / 玩家</span>
@@ -1152,7 +1152,7 @@ function renderShopCard(shop: Aggregate, query?: string): string {
       <div class="shop-meta">
         <div class="shop-meta-row">
           <span class="loc-chip"><i class="ph ph-map-pin" aria-hidden="true"></i>${escape(map.name)} ${coordinates.x}，${coordinates.y}</span>
-          <button type="button" class="map-button map-button--tiny" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" aria-label="查看${escape(map.name)}地图">地图定位</button>
+          <button type="button" class="map-button map-button--tiny" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" data-map-shop="${escape(first.title || "")}" aria-label="查看${escape(map.name)}地图">地图定位</button>
         </div>
         <div class="shop-stat-line">
           <i class="ph ph-clock" aria-hidden="true"></i>本页 ${shop.items.length} 件在售商品<span class="dot">·</span>最近变动 ${relativeTimeMarkup(latest)}
@@ -1205,7 +1205,7 @@ function renderVendorShop(store: Aggregate): string {
       <button type="button" class="vshop-chevron" aria-expanded="true" aria-label="收起摊位"><i class="ph ph-caret-down" aria-hidden="true"></i></button>
       <span class="vshop-name"><i class="ph ph-storefront" aria-hidden="true"></i>${escape(first.title || "未命名商店")}</span>
       <span class="vshop-loc">${escape(map.name)} ${coordinates.x}，${coordinates.y}</span>
-      <button type="button" class="map-button map-button--tiny" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" aria-label="查看${escape(map.name)}地图">地图定位</button>
+      <button type="button" class="map-button map-button--tiny" data-map-name="${escape(map.name)}" data-map-image="${escape(map.image)}" data-map-code="${escape(map.code)}" data-map-x="${coordinates.x}" data-map-y="${coordinates.y}" data-map-marker-left="${marker.left}" data-map-marker-top="${marker.top}" data-map-shop="${escape(first.title || "")}" aria-label="查看${escape(map.name)}地图">地图定位</button>
     </div>
     <ul class="line-list vshop-body">${store.items.map(renderCompactLine).join("")}</ul>
   </div>`;
