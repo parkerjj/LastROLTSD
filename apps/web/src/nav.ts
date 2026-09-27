@@ -1,4 +1,4 @@
-export type SitePage = "search" | "accounts" | "guestbook" | "updates";
+export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client";
 
 interface NavEntry {
   readonly page: SitePage;

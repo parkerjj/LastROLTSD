@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LRO 进阶客户端页 · 效果图</title>
+<link rel="stylesheet" href="../../node_modules/@phosphor-icons/web/src/regular/style.css" />
+<style>
+  /* ===== 站点设计令牌（与 src/styles.css 保持一致） ===== */
+  :root {
+    --forest: #1d332b;
+    --forest-deep: #172a23;
+    --paper: #21362d;
+    --ink: #29362f;
+    --muted: #6d776f;
+    --line: #d1c7b6;
+    --line-light: #aa9d88;
+    --red: #b84d3f;
+    --red-dark: #8d3f35;
+    --gold: #c69445;
+    --cream: #fff8ee;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; min-width: 320px;
+    background: #eee8dc;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #27352e;
+  }
+  body::before {
+    position: fixed; z-index: -1; inset: 0;
+    pointer-events: none; content: ""; opacity: .34;
+    background-image: linear-gradient(rgba(93,74,48,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(93,74,48,.025) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; cursor: pointer; }
+  .page-width { width: min(1240px, calc(100% - 64px)); margin: 0 auto; }
+
+  /* ===== 预览说明条（仅效果图有，正式实现时删除） ===== */
+  .preview-note {
+    padding: 10px 20px; text-align: center;
+    background: var(--forest-deep); color: #d9cfba;
+    font-size: .74rem; letter-spacing: .06em;
+  }
+  .preview-note strong { color: var(--gold); }
+
+  /* ===== 站点头部（复用现有结构） ===== */
+  .site-header {
+    position: sticky; z-index: 8; top: 0;
+    border-bottom: 1px solid rgba(203,191,170,.9);
+    background: rgba(248,245,238,.94);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 5px 18px rgba(72,54,32,.06);
+  }
+  .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 74px; gap: 28px; }
+  .brand { display: inline-flex; align-items: center; gap: 11px; white-space: nowrap; }
+  .brand-mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px;
+    color: var(--cream); background: var(--red); border-radius: 3px;
+    font-family: Georgia, serif; font-size: 1.05rem; font-weight: 800; letter-spacing: .02em;
+    box-shadow: 0 8px 16px rgba(184,77,63,.28);
+  }
+  .brand strong { display: block; color: var(--forest); font-size: .96rem; }
+  .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: .62rem; letter-spacing: .16em; }
+  .nav-menu { display: flex; align-items: center; gap: 4px; }
+  .nav-item {
+    position: relative; display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 13px; border-radius: 3px;
+    color: #52615a; font-size: .8rem; font-weight: 700;
+  }
+  .nav-item:hover { color: var(--forest); background: rgba(184,77,63,.07); }
+  .nav-item.active { color: var(--red-dark); background: rgba(184,77,63,.1); }
+  .new-badge {
+    margin-left: 2px; padding: 1px 5px;
+    color: var(--cream); background: var(--red); border-radius: 2px;
+    font-size: .55rem; font-weight: 900; letter-spacing: .08em;
+  }
+  .nav-sep { width: 1px; height: 20px; margin: 0 8px; background: var(--line); }
+  .nav-external { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; color: #8a9189; font-size: .74rem; }
+  .nav-external:hover { color: var(--forest); }
+
+  /* ===== Hero（复用 release-hero 的双栏 + 红色左边线语言） ===== */
+  .client-hero {
+    display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: end; gap: 48px;
+    padding: 64px 0 60px;
+    border-bottom: 1px solid var(--line);
+  }
+  .client-hero-copy { padding: 15px 0 14px 26px; border-left: 3px solid var(--red); }
+  .eyebrow { margin: 0 0 13px; color: var(--gold); font-size: .67rem; font-weight: 900; letter-spacing: .2em; }
+  h1 {
+    margin: 0 0 16px; color: var(--forest);
+    font-family: Georgia, "Microsoft YaHei", serif;
+    font-size: clamp(3rem, 6vw, 5rem); font-weight: 700;
+    letter-spacing: -.05em; line-height: .95;
+  }
+  h1 span { color: var(--red); }
+  .client-hero-subtitle { max-width: 560px; margin: 0 0 22px; color: #46574c; font-size: .98rem; line-height: 1.8; }
+  .client-hero-meta { display: flex; flex-wrap: wrap; gap: 10px; }
+  .meta-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px;
+    background: rgba(255,250,240,.72); border: 1px solid var(--line); border-radius: 999px;
+    color: #5f6d62; font-size: .72rem; font-weight: 700;
+  }
+  .meta-chip .ph { color: var(--red); font-size: .85rem; }
+
+  /* 右侧下载卡：森林绿深底，压米色纸面的唯一深色块 */
+  .client-download-card {
+    display: grid; gap: 12px;
+    padding: 26px 24px 24px;
+    background: var(--forest); border: 1px solid #0f1f19; border-radius: 4px;
+    box-shadow: 0 22px 46px rgba(23,42,35,.28);
+    color: #cfd8ce;
+  }
+  .download-kicker { color: var(--gold); font-size: .63rem; font-weight: 900; letter-spacing: .22em; }
+  .download-version { display: flex; align-items: baseline; gap: 10px; }
+  .download-version strong {
+    color: #f4efe2;
+    font-family: Georgia, serif; font-size: 1.9rem; font-weight: 700; line-height: 1;
+  }
+  .beta-tag {
+    padding: 3px 8px;
+    color: #1c1508; background: var(--gold); border-radius: 2px;
+    font-size: .6rem; font-weight: 900; letter-spacing: .12em;
+  }
+  .download-desc { margin: 0; font-size: .76rem; line-height: 1.75; color: #9fb0a4; }
+  .download-button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+    min-height: 46px; margin-top: 4px;
+    color: var(--cream); background: var(--red); border: 1px solid var(--red); border-radius: 2px;
+    font-size: .88rem; font-weight: 800; letter-spacing: .04em;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .download-button:hover { background: #ce5847; border-color: #ce5847; }
+  .download-file-info { display: flex; justify-content: space-between; font-size: .66rem; color: #8a9a8f; letter-spacing: .04em; }
+
+  /* ===== 环境要求提示条（复用 site-notice 语言） ===== */
+  .client-requirements {
+    display: flex; align-items: center; gap: 15px;
+    margin-top: 34px; padding: 15px 17px;
+    background: linear-gradient(90deg, rgba(255,250,240,.88), rgba(255,250,240,.58) 60%, rgba(255,250,240,.2));
+    border: 1px solid #c6b99f; border-left: 3px solid var(--gold);
+    box-shadow: 0 12px 28px rgba(74,57,35,.1);
+  }
+  .notice-badge {
+    flex: 0 0 auto; padding: 4px 9px;
+    color: #1c1508; background: var(--gold);
+    font-size: .68rem; font-weight: 900; letter-spacing: .18em;
+  }
+  .client-requirements p { margin: 0; color: #35453b; font-size: .82rem; line-height: 1.7; }
+  .client-requirements strong { color: var(--red-dark); }
+
+  /* ===== 章节标题（复用 section-heading 语言） ===== */
+  .client-section { padding-top: 72px; }
+  .section-heading {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
+    margin-bottom: 34px; padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .section-heading h2 {
+    margin: 0; color: var(--paper);
+    font-family: Georgia, "Microsoft YaHei", serif; font-size: 2rem; line-height: 1.15;
+  }
+  .section-heading > p { max-width: 340px; margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.7; text-align: right; }
+
+  /* ===== 安装步骤卡 ===== */
+  .install-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .install-step {
+    position: relative;
+    padding: 24px 20px 22px;
+    background: #f7f3ea; border: 1px solid var(--line); border-radius: 3px;
+    box-shadow: 0 12px 26px rgba(74,57,35,.08);
+    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  }
+  .install-step:hover { transform: translateY(-3px); border-color: var(--line-light); box-shadow: 0 18px 34px rgba(74,57,35,.13); }
+  .install-step::before {
+    content: ""; position: absolute; top: -1px; left: -1px; right: -1px; height: 3px;
+    background: var(--red); opacity: 0; transition: opacity .25s ease;
+  }
+  .install-step:hover::before { opacity: 1; }
+  .step-number {
+    display: block; margin-bottom: 14px;
+    color: var(--gold); font-family: Georgia, serif; font-size: 2.1rem; font-weight: 700; line-height: 1;
+  }
+  .install-step h3 { margin: 0 0 9px; color: var(--paper); font-size: .95rem; font-weight: 800; }
+  .install-step p { margin: 0; color: #66746b; font-size: .78rem; line-height: 1.75; }
+  .install-step code {
+    padding: 1px 5px;
+    background: rgba(198,148,69,.12); border: 1px solid #ddcda8; border-radius: 2px;
+    color: #7b4c22; font-size: .72rem;
+  }
+  .install-note {
+    display: flex; align-items: center; gap: 9px;
+    margin-top: 22px; padding: 12px 16px;
+    border: 1px dashed var(--line-light); border-radius: 3px;
+    color: #7a7261; font-size: .76rem; line-height: 1.7;
+  }
+  .install-note .ph { flex: 0 0 auto; color: var(--red); font-size: 1rem; }
+  .copy-chip {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    margin: 1px 2px; padding: 2px 8px 3px;
+    color: #7b4c22; background: rgba(198,148,69,.12);
+    border: 1px dashed #b98a4a; border-radius: 3px;
+    font-size: .72rem; line-height: 1.5; vertical-align: baseline;
+    cursor: pointer; transition: background .2s ease, border-color .2s ease;
+  }
+  .copy-chip:hover { color: #5f3719; background: rgba(198,148,69,.24); border-color: #a97938; }
+  .copy-chip code { padding: 0; color: inherit; background: none; border: 0; overflow-wrap: anywhere; }
+  .copy-chip .copy-hint { flex: 0 0 auto; color: #a97938; font-size: .62rem; font-weight: 700; }
+
+  /* ===== 新旧对比表 ===== */
+  .compare-wrap {
+    overflow-x: auto;
+    background: #f7f3ea; border: 1px solid var(--line); border-radius: 3px;
+    box-shadow: 0 14px 30px rgba(74,57,35,.09);
+  }
+  .compare-table { width: 100%; min-width: 720px; border-collapse: collapse; }
+  .compare-table th, .compare-table td { padding: 13px 18px; text-align: left; font-size: .8rem; line-height: 1.65; }
+  .compare-table thead th {
+    background: var(--forest); color: #b9c6ba;
+    font-size: .7rem; font-weight: 900; letter-spacing: .12em;
+    border-bottom: 2px solid var(--gold);
+  }
+  .compare-table thead th.col-new { color: #f4efe2; }
+  .compare-table thead th.col-new .ph { color: var(--gold); margin-right: 6px; }
+  .compare-table tbody tr + tr td { border-top: 1px solid #e2d9c8; }
+  .compare-table tbody tr { transition: background .15s ease; }
+  .compare-table tbody tr:hover { background: rgba(198,148,69,.05); }
+  .compare-table td.col-feature { color: var(--paper); font-weight: 800; white-space: nowrap; }
+  .compare-table td.col-old { color: #8a9189; }
+  .compare-table td.col-new { background: rgba(198,148,69,.07); color: var(--ink); font-weight: 700; }
+  .compare-table tbody tr:hover td.col-new { background: rgba(198,148,69,.11); }
+  .feature-new-tag {
+    display: inline-block; margin-left: 7px; padding: 1px 6px;
+    color: #7b4c22; background: rgba(198,148,69,.16); border: 1px solid #ddcda8; border-radius: 2px;
+    font-size: .58rem; font-weight: 900; letter-spacing: .08em; vertical-align: 1px;
+  }
+  .compare-footnote { margin: 14px 2px 0; color: #8a9189; font-size: .72rem; line-height: 1.7; }
+
+  /* ===== 已知问题 ===== */
+  .issue-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; counter-reset: issue; }
+  .issue-item {
+    display: flex; align-items: flex-start; gap: 16px;
+    padding: 17px 20px;
+    background: #f7f3ea; border: 1px solid var(--line); border-left: 3px solid var(--red); border-radius: 3px;
+    box-shadow: 0 10px 22px rgba(74,57,35,.07);
+  }
+  .issue-index {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; margin-top: 1px;
+    color: var(--cream); background: var(--red); border-radius: 50%;
+    font-family: Georgia, serif; font-size: .8rem; font-weight: 800;
+  }
+  .issue-item h3 { margin: 0 0 5px; color: var(--paper); font-size: .86rem; font-weight: 800; }
+  .issue-item p { margin: 0; color: #66746b; font-size: .78rem; line-height: 1.75; }
+  .issue-status {
+    flex: 0 0 auto; margin-left: auto; margin-top: 3px; padding: 3px 9px;
+    color: #835f18; background: #f5ead0; border: 1px solid #e1cb94; border-radius: 999px;
+    font-size: .62rem; font-weight: 800; letter-spacing: .08em; white-space: nowrap;
+  }
+
+  /* ===== 反馈条 ===== */
+  .client-feedback {
+    display: flex; align-items: center; gap: 15px;
+    margin: 72px 0 0; padding: 18px 20px;
+    background: var(--forest); border-radius: 3px;
+    box-shadow: 0 18px 38px rgba(23,42,35,.24);
+  }
+  .feedback-badge { flex: 0 0 auto; padding: 4px 9px; color: #1c1508; background: var(--gold); font-size: .68rem; font-weight: 900; letter-spacing: .18em; }
+  .client-feedback p { margin: 0; color: #cfd8ce; font-size: .82rem; line-height: 1.7; }
+  .qq-copy {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 0 2px; padding: 2px 9px 3px;
+    color: #f0d9a8; background: rgba(198,148,69,.16); border: 1px solid #8a6d3a; border-radius: 2px;
+    font-family: Georgia, serif; font-weight: 800; letter-spacing: .07em;
+    vertical-align: baseline; transition: background .2s ease;
+  }
+  .qq-copy:hover { background: rgba(198,148,69,.3); }
+  .qq-copy .copy-hint { font-family: "Microsoft YaHei", sans-serif; font-size: .62rem; font-weight: 400; color: #c9b57e; }
+  .feedback-link { color: #f0d9a8; border-bottom: 1px solid rgba(240,217,168,.5); }
+  .feedback-link:hover { color: var(--gold); border-bottom-color: var(--gold); }
+
+  /* ===== 页脚（复用） ===== */
+  .site-footer { margin-top: 96px; border-top: 1px solid var(--line); background: rgba(247,243,234,.6); }
+  .footer-inner { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 28px; padding: 44px 0 38px; }
+  .footer-inner p { margin: 12px 0 0; color: var(--muted); font-size: .76rem; }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+  .footer-links a { color: #66746b; font-size: .78rem; }
+  .footer-links a:hover { color: var(--red-dark); }
+  .footer-inner > small { display: block; width: 100%; color: #9aa398; font-size: .68rem; letter-spacing: .04em; }
+
+  /* ===== 入场动效（遵守 reduced-motion） ===== */
+  @keyframes client-enter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .client-hero-copy { animation: client-enter .45s ease both; }
+  .client-download-card { animation: client-enter .45s .08s ease both; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 1020px) {
+    .client-hero { grid-template-columns: 1fr; align-items: start; gap: 36px; }
+    .client-download-card { max-width: 420px; }
+    .install-steps { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 760px) {
+    .page-width { width: calc(100% - 36px); }
+    .nav-menu { display: none; } /* 效果图省略移动端菜单交互 */
+    .client-hero { padding: 44px 0 40px; }
+    .section-heading { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .section-heading > p { text-align: left; }
+    .install-steps { grid-template-columns: 1fr; }
+    .client-requirements, .client-feedback { flex-direction: column; align-items: flex-start; }
+    .issue-status { margin-left: 0; }
+    .issue-item { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-note">设计效果图 · 导航「进阶客户端」为新增项 · 下载按钮的 SWBN 地址为占位符，部署后替换 · 配色/字体/组件均沿用现有站点语言</div>
+
+<header class="site-header">
+  <div class="topbar page-width">
+    <a class="brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+    <nav class="site-nav" aria-label="主导航">
+      <div class="nav-menu">
+        <a class="nav-item" href="/#search"><i class="ph ph-magnifying-glass"></i><span>搜索市场</span></a>
+        <a class="nav-item" href="/accounts"><i class="ph ph-monitor"></i><span>菜农监控台</span></a>
+        <a class="nav-item" href="/guestbook"><i class="ph ph-address-book"></i><span>玩家登记簿</span></a>
+        <a class="nav-item" href="/updates"><i class="ph ph-scroll"></i><span>更新说明</span></a>
+        <a class="nav-item active" href="/client" aria-current="page"><i class="ph ph-rocket-launch"></i><span>进阶客户端</span><span class="new-badge">NEW</span></a>
+        <span class="nav-sep"></span>
+        <a class="nav-external" href="https://github.com/parkerjj/LastROLTSD" target="_blank" rel="noreferrer"><i class="ph ph-github-logo"></i><span>代码仓库</span></a>
+        <a class="nav-external" href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer"><i class="ph ph-arrow-square-out"></i><span>LastRO 官网</span></a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main class="page-width">
+
+  <!-- Hero -->
+  <section class="client-hero" aria-labelledby="client-page-title">
+    <div class="client-hero-copy">
+      <p class="eyebrow">LRO 进阶客户端 / ISOLATED WEB APP</p>
+      <h1 id="client-page-title">进阶<span>客户端</span></h1>
+      <p class="client-hero-subtitle">基于 Chrome IWA（Isolated Web App）技术打造的下一代 LastRO 客户端。以网页形态分发安装，以接近原生应用的体验运行——无限帧率、离线挂机、装备免鉴定，一切从这套全新的开源架构开始。</p>
+      <div class="client-hero-meta">
+        <span class="meta-chip"><i class="ph ph-desktop"></i>仅限电脑端</span>
+        <span class="meta-chip"><i class="ph ph-google-chrome-logo"></i>Chrome 浏览器</span>
+        <span class="meta-chip"><i class="ph ph-browser"></i>预计兼容 Edge</span>
+        <span class="meta-chip"><i class="ph ph-git-fork"></i>完全开源</span>
+      </div>
+    </div>
+    <aside class="client-download-card" aria-label="下载客户端">
+      <span class="download-kicker">当前版本</span>
+      <div class="download-version"><strong>v0.1.0</strong><span class="beta-tag">测试版</span></div>
+      <p class="download-desc">签名 Release 安装包（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。</p>
+      <a class="download-button" href="#" onclick="return false;"><i class="ph ph-download-simple"></i>下载安装包（.swbn）</a>
+      <div class="download-file-info"><span>lro-advanced-client.swbn</span><span>签名 Release 版</span></div>
+    </aside>
+  </section>
+
+  <!-- 环境要求 -->
+  <section class="client-requirements" aria-label="环境要求">
+    <span class="notice-badge">环境要求</span>
+    <p>本客户端<strong>仅支持电脑端</strong>：请使用桌面版 <strong>Google Chrome</strong> 浏览器安装（Microsoft Edge 预计可用，未完整验证）。暂不支持手机与平板。</p>
+  </section>
+
+  <!-- 安装指南 -->
+  <section class="client-section" aria-labelledby="install-title">
+    <div class="section-heading">
+      <div><p class="eyebrow">INSTALL GUIDE</p><h2 id="install-title">四步完成安装</h2></div>
+      <p>按步骤操作即可，全程无需命令行。安装后客户端将独立于浏览器运行，拥有自己的窗口与图标。</p>
+    </div>
+    <div class="install-steps">
+      <article class="install-step">
+        <span class="step-number">01</span>
+        <h3>下载安装包</h3>
+        <p>点击本页顶部「下载安装包」按钮，得到 <code>.swbn</code> 安装包文件。注意：<code>.swbn</code> 无法双击安装，也不能直接拖入浏览器窗口。</p>
+      </article>
+      <article class="install-step">
+        <span class="step-number">02</span>
+        <h3>开启 IWA 开发者模式</h3>
+        <p>在地址栏打开 <button type="button" class="copy-chip"><code>chrome://flags/#enable-isolated-web-app-dev-mode</code><span class="copy-hint">复制</span></button>，设为 <strong>Enabled</strong> 后重启 Chrome。此开关只需开启一次。</p>
+      </article>
+      <article class="install-step">
+        <span class="step-number">03</span>
+        <h3>在 chrome://iwa-dev 中安装</h3>
+        <p>地址栏打开 <button type="button" class="copy-chip"><code>chrome://iwa-dev</code><span class="copy-hint">复制</span></button>，点击 <strong>Install</strong> 按钮，在「Signed Bundle」标签页中选择下载好的 <code>.swbn</code> 文件。Chrome 153 及更早版本请改用 <button type="button" class="copy-chip"><code>chrome://web-app-internals</code><span class="copy-hint">复制</span></button>。</p>
+      </article>
+      <article class="install-step">
+        <span class="step-number">04</span>
+        <h3>确认并启动</h3>
+        <p>在安装向导中确认应用名称与版本后点击安装。完成后从开始菜单或应用列表打开「LRO 进阶客户端」，像原生程序一样独立窗口运行。</p>
+      </article>
+    </div>
+    <p class="install-note"><i class="ph ph-info"></i><span>为什么需要开发者模式？Chrome 目前仅允许进入官方应用列表的 IWA 免开关直接安装；未入列的签名 Release 包（如本客户端）必须开启 Developer Mode 后才能安装。该开关为浏览器级设置，开启一次即可，不影响浏览器其他功能。</span></p>
+  </section>
+
+  <!-- 新旧对比 -->
+  <section class="client-section" aria-labelledby="compare-title">
+    <div class="section-heading">
+      <div><p class="eyebrow">COMPARE</p><h2 id="compare-title">与旧客户端有什么不同</h2></div>
+      <p>进阶客户端不是旧客户端的补丁，而是一套重写的新架构。以下为主要差异一览。</p>
+    </div>
+    <div class="compare-wrap">
+      <table class="compare-table">
+        <thead>
+          <tr><th scope="col">特性</th><th scope="col">旧客户端</th><th scope="col" class="col-new"><i class="ph ph-rocket-launch"></i>LRO 进阶客户端</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="col-feature">底层引擎</td><td class="col-old">RO 官方客户端</td><td class="col-new">RoBrowser 最新版本</td></tr>
+          <tr><td class="col-feature">整体架构</td><td class="col-old">传统客户端架构</td><td class="col-new">复兴后现代客户端架构（Chrome IWA）</td></tr>
+          <tr><td class="col-feature">源代码</td><td class="col-old">闭源</td><td class="col-new">完全开源，可审计、可共建</td></tr>
+          <tr><td class="col-feature">画面帧率</td><td class="col-old">锁定 30 帧</td><td class="col-new">无限帧率，不再锁定 30 帧</td></tr>
+          <tr><td class="col-feature">装备鉴定</td><td class="col-old">使用放大镜后才能看到装备信息</td><td class="col-new">免鉴定即可预览装备（词条仍会在使用放大镜时生成，鉴定后才能装备）</td></tr>
+          <tr><td class="col-feature">多开限制</td><td class="col-old">登录客户端数量有限制</td><td class="col-new">已去除登录客户端数量限制</td></tr>
+          <tr><td class="col-feature">离线挂机</td><td class="col-old">不支持</td><td class="col-new">支持离线挂机与设定<span class="feature-new-tag">新增</span></td></tr>
+          <tr><td class="col-feature">快捷功能</td><td class="col-old">无</td><td class="col-new">内置 LRO 特有的快捷功能<span class="feature-new-tag">新增</span></td></tr>
+          <tr><td class="col-feature">功能体验</td><td class="col-old">原版体验</td><td class="col-new">多项功能优化与改良</td></tr>
+          <tr><td class="col-feature">「十全大补」补丁</td><td class="col-old">需手动安装补丁</td><td class="col-new">补丁功能将陆续内置到客户端中</td></tr>
+          <tr><td class="col-feature">后续路线</td><td class="col-old">停止演进</td><td class="col-new">更多「真·黑科技」持续加入（当前为测试版框架，是一切之基础）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="compare-footnote">注：装备免鉴定指「使用放大镜前即可查看这是什么装备」；随机词条的生成时机仍然是使用放大镜时，因此仍需鉴定后才能装备该物品。</p>
+  </section>
+
+  <!-- 已知问题 -->
+  <section class="client-section" aria-labelledby="issues-title">
+    <div class="section-heading">
+      <div><p class="eyebrow">KNOWN ISSUES</p><h2 id="issues-title">已知问题</h2></div>
+      <p>当前为测试版框架，以下问题已确认存在，将在后续版本中修复。</p>
+    </div>
+    <ol class="issue-list">
+      <li class="issue-item">
+        <span class="issue-index">1</span>
+        <div><h3>NPC 对话选择空条目会掉线</h3><p>与 NPC 对话时，如果选中了空条目再点击确定，会导致与服务器断开连接。请避免点击空白选项。</p></div>
+        <span class="issue-status">待修复</span>
+      </li>
+      <li class="issue-item">
+        <span class="issue-index">2</span>
+        <div><h3>活动公告未实现快速传送</h3><p>服务器公告发送的活动信息目前以原文形式显示，暂未实现「点我快速传送」功能。</p></div>
+        <span class="issue-status">待实现</span>
+      </li>
+      <li class="issue-item">
+        <span class="issue-index">3</span>
+        <div><h3>NPC 商店输入数字时容易失焦</h3><p>与 NPC 交易购买输入数量时，输入框容易失去焦点，需要重新点击输入框。</p></div>
+        <span class="issue-status">待修复</span>
+      </li>
+      <li class="issue-item">
+        <span class="issue-index">4</span>
+        <div><h3>铁匠精炼界面闪烁</h3><p>铁匠精炼时 UI 会出现闪烁现象，但不影响精炼功能的正常使用。</p></div>
+        <span class="issue-status">不影响使用</span>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 反馈 -->
+  <section class="client-feedback" aria-label="问题反馈">
+    <span class="feedback-badge">问题反馈</span>
+    <p>遇到未列出的问题？加入 QQ 交流群
+      <button type="button" class="qq-copy" data-copy="725955796"><span>725955796</span><span class="copy-hint">复制</span></button>
+      或前往<a class="feedback-link" href="/guestbook">玩家登记簿（露天商店留言簿）</a>留言反馈。
+    </p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="page-width footer-inner">
+    <div>
+      <a class="brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <p>让每一次摆摊，都更容易被找到。</p>
+    </div>
+    <div class="footer-links">
+      <a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="/client">进阶客户端</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a>
+    </div>
+    <small>资料来源于公开市场记录 · 仅供游戏内交易参考</small>
+  </div>
+</footer>
+
+<script>
+  // 效果图专用：QQ 群号复制演示
+  document.querySelectorAll('.qq-copy').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const hint = btn.querySelector('.copy-hint');
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        hint.textContent = '已复制';
+      } catch {
+        hint.textContent = btn.dataset.copy;
+      }
+      setTimeout(() => { hint.textContent = '复制'; }, 1600);
+    });
+  });
+</script>
+</body>
+</html>

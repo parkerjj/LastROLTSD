@@ -33,6 +33,7 @@ import { mountReleasePage } from "./release-page";
 import { mountGuestbookPage } from "./guestbook-page";
 import { mountAccountsPage } from "./accounts-page";
 import { mountPlayPage } from "./play-page";
+import { mountClientPage } from "./client-page";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 
 initAnalytics();
@@ -44,6 +45,7 @@ const isReleasePage = /^\/updates\/?$/u.test(window.location.pathname);
 const isGuestbookPage = /^\/guestbook\/?$/u.test(window.location.pathname);
 const isAccountsPage = /^\/accounts\/?$/u.test(window.location.pathname);
 const isPlayPage = /^\/play\/?$/u.test(window.location.pathname);
+const isClientPage = /^\/client\/?$/u.test(window.location.pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -1038,6 +1040,7 @@ function mountSearchPage(): void {
 }
 
 if (isPlayPage) mountPlayPage(root);
+else if (isClientPage) mountClientPage(root);
 else if (isReleasePage) mountReleasePage(root);
 else if (isGuestbookPage) mountGuestbookPage(root);
 else if (isAccountsPage) mountAccountsPage(root);

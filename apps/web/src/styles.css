@@ -3168,6 +3168,591 @@ mark {
   }
 }
 
+/* ==================== LRO 进阶客户端（/client） ==================== */
+
+.client-main {
+  padding: 0 0 86px;
+}
+
+.client-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-items: end;
+  gap: 48px;
+  padding: 64px 0 60px;
+  border-bottom: 1px solid var(--line);
+}
+
+.client-hero-copy {
+  padding: 15px 0 14px 26px;
+  border-left: 3px solid var(--red);
+  animation: client-enter .45s ease both;
+}
+
+.client-hero h1 {
+  margin-bottom: 16px;
+  font-size: clamp(3.2rem, 7vw, 5.8rem);
+}
+
+.client-hero-subtitle {
+  max-width: 560px;
+  margin-bottom: 22px;
+  color: #46574c;
+  font-size: .98rem;
+  line-height: 1.8;
+}
+
+.client-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  color: #5f6d62;
+  background: rgba(255, 250, 240, .72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.meta-chip .ph {
+  color: var(--red);
+  font-size: .85rem;
+}
+
+.client-download-card {
+  display: grid;
+  gap: 12px;
+  padding: 26px 24px 24px;
+  color: #cfd8ce;
+  background: var(--forest);
+  border: 1px solid #0f1f19;
+  border-radius: 4px;
+  box-shadow: 0 22px 46px rgba(23, 42, 35, .28);
+  animation: client-enter .45s .08s ease both;
+}
+
+.download-kicker {
+  color: var(--gold);
+  font-size: .63rem;
+  font-weight: 900;
+  letter-spacing: .22em;
+}
+
+.download-version {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.download-version strong {
+  color: #f4efe2;
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.beta-tag {
+  padding: 3px 8px;
+  color: #1c1508;
+  background: var(--gold);
+  border-radius: 2px;
+  font-size: .6rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.download-desc {
+  margin: 0;
+  color: #9fb0a4;
+  font-size: .76rem;
+  line-height: 1.75;
+}
+
+.download-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  margin-top: 4px;
+  padding: 10px 16px;
+  color: var(--cream);
+  background: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 2px;
+  font-size: .88rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  transition: background .2s ease, border-color .2s ease;
+}
+
+.download-button:hover {
+  background: #ce5847;
+  border-color: #ce5847;
+}
+
+.download-button.is-pending {
+  color: #d8cfae;
+  background: rgba(198, 148, 69, .14);
+  border: 1px dashed #8a6d3a;
+  cursor: default;
+}
+
+.download-button.is-pending:hover {
+  background: rgba(198, 148, 69, .14);
+  border-color: #8a6d3a;
+}
+
+.download-file-info {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8a9a8f;
+  font-size: .66rem;
+  letter-spacing: .04em;
+}
+
+.client-requirements strong {
+  color: var(--red-dark);
+}
+
+.client-section {
+  padding-top: 72px;
+}
+
+.install-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.install-step {
+  position: relative;
+  padding: 24px 20px 22px;
+  background: #f7f3ea;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: 0 12px 26px rgba(74, 57, 35, .08);
+  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+}
+
+.install-step:hover {
+  border-color: var(--line-light);
+  box-shadow: 0 18px 34px rgba(74, 57, 35, .13);
+  transform: translateY(-3px);
+}
+
+.install-step::before {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  left: -1px;
+  height: 3px;
+  content: "";
+  background: var(--red);
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+
+.install-step:hover::before {
+  opacity: 1;
+}
+
+.step-number {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--gold);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.install-step h3 {
+  margin: 0 0 9px;
+  color: var(--paper);
+  font-size: .95rem;
+  font-weight: 800;
+}
+
+.install-step p {
+  margin: 0;
+  color: #66746b;
+  font-size: .78rem;
+  line-height: 1.75;
+}
+
+.install-step code {
+  padding: 1px 5px;
+  color: #7b4c22;
+  background: rgba(198, 148, 69, .12);
+  border: 1px solid #ddcda8;
+  border-radius: 2px;
+  font-size: .72rem;
+}
+
+.install-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 22px 0 0;
+  padding: 12px 16px;
+  color: #7a7261;
+  border: 1px dashed var(--line-light);
+  border-radius: 3px;
+  font-size: .76rem;
+  line-height: 1.7;
+}
+
+.install-note .ph {
+  flex: 0 0 auto;
+  color: var(--red);
+  font-size: 1rem;
+}
+
+/* 点击复制的 chrome:// 地址芯片：chrome:// 协议禁止网页超链接跳转，只能复制 */
+.copy-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: auto;
+  margin: 1px 2px;
+  padding: 2px 8px 3px;
+  color: #7b4c22;
+  background: rgba(198, 148, 69, .12);
+  border: 1px dashed #b98a4a;
+  border-radius: 3px;
+  font-size: .72rem;
+  line-height: 1.5;
+  vertical-align: baseline;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+
+.copy-chip:hover:not(:disabled) {
+  color: #5f3719;
+  background: rgba(198, 148, 69, .24);
+  border-color: #a97938;
+}
+
+.copy-chip code {
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 0;
+  overflow-wrap: anywhere;
+}
+
+.copy-chip .copy-hint {
+  flex: 0 0 auto;
+  color: #a97938;
+  font-size: .62rem;
+  font-weight: 700;
+}
+
+.compare-wrap {
+  overflow-x: auto;
+  background: #f7f3ea;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: 0 14px 30px rgba(74, 57, 35, .09);
+}
+
+.compare-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 13px 18px;
+  font-size: .8rem;
+  line-height: 1.65;
+  text-align: left;
+}
+
+.compare-table thead th {
+  color: #b9c6ba;
+  background: var(--forest);
+  border-bottom: 2px solid var(--gold);
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.compare-table thead th.col-new {
+  color: #f4efe2;
+}
+
+.compare-table thead th.col-new .ph {
+  margin-right: 6px;
+  color: var(--gold);
+}
+
+.compare-table tbody tr {
+  transition: background .15s ease;
+}
+
+.compare-table tbody tr+tr td {
+  border-top: 1px solid #e2d9c8;
+}
+
+.compare-table tbody tr:hover {
+  background: rgba(198, 148, 69, .05);
+}
+
+.compare-table td.col-feature {
+  color: var(--paper);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.compare-table td.col-old {
+  color: #8a9189;
+}
+
+.compare-table td.col-new {
+  color: var(--ink);
+  background: rgba(198, 148, 69, .07);
+  font-weight: 700;
+}
+
+.compare-table tbody tr:hover td.col-new {
+  background: rgba(198, 148, 69, .11);
+}
+
+.feature-new-tag {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 6px;
+  color: #7b4c22;
+  background: rgba(198, 148, 69, .16);
+  border: 1px solid #ddcda8;
+  border-radius: 2px;
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  vertical-align: 1px;
+}
+
+.compare-footnote {
+  margin: 14px 2px 0;
+  color: #8a9189;
+  font-size: .72rem;
+  line-height: 1.7;
+}
+
+.issue-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.issue-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 17px 20px;
+  background: #f7f3ea;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--red);
+  border-radius: 3px;
+  box-shadow: 0 10px 22px rgba(74, 57, 35, .07);
+}
+
+.issue-index {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
+  color: var(--cream);
+  background: var(--red);
+  border-radius: 50%;
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.issue-item h3 {
+  margin: 0 0 5px;
+  color: var(--paper);
+  font-size: .86rem;
+  font-weight: 800;
+}
+
+.issue-item p {
+  margin: 0;
+  color: #66746b;
+  font-size: .78rem;
+  line-height: 1.75;
+}
+
+.issue-status {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  margin-left: auto;
+  padding: 3px 9px;
+  color: #835f18;
+  background: #f5ead0;
+  border: 1px solid #e1cb94;
+  border-radius: 999px;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+
+.client-feedback {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 72px;
+  padding: 18px 20px;
+  background: var(--forest);
+  border-radius: 3px;
+  box-shadow: 0 18px 38px rgba(23, 42, 35, .24);
+}
+
+.feedback-badge {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  color: #1c1508;
+  background: var(--gold);
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+
+.client-feedback p {
+  margin: 0;
+  color: #cfd8ce;
+  font-size: .82rem;
+  line-height: 1.7;
+}
+
+.qq-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: auto;
+  margin: 0 2px;
+  padding: 2px 9px 3px;
+  color: #f0d9a8;
+  background: rgba(198, 148, 69, .16);
+  border: 1px solid #8a6d3a;
+  border-radius: 2px;
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-weight: 800;
+  letter-spacing: .07em;
+  vertical-align: baseline;
+  transition: background .2s ease;
+}
+
+.qq-copy:hover:not(:disabled) {
+  color: #f0d9a8;
+  background: rgba(198, 148, 69, .3);
+  border-color: #8a6d3a;
+}
+
+.qq-copy .copy-hint {
+  color: #c9b57e;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-size: .62rem;
+  font-weight: 400;
+}
+
+.feedback-link {
+  color: #f0d9a8;
+  border-bottom: 1px solid rgba(240, 217, 168, .5);
+}
+
+.feedback-link:hover {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+@keyframes client-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .client-hero-copy,
+  .client-download-card {
+    animation: none;
+  }
+
+  .install-step,
+  .download-button,
+  .compare-table tbody tr,
+  .copy-chip,
+  .qq-copy {
+    transition: none;
+  }
+}
+
+@media (max-width: 1020px) {
+  .client-hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 36px;
+  }
+
+  .client-download-card {
+    max-width: 420px;
+  }
+
+  .install-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .client-hero {
+    padding: 44px 0 40px;
+  }
+
+  .install-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .client-requirements,
+  .client-feedback {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .issue-item {
+    flex-wrap: wrap;
+  }
+
+  .issue-status {
+    margin-left: 0;
+  }
+}
+
 .site-footer {
   padding: 40px 0 44px;
   border-top: 1px solid #263734;
