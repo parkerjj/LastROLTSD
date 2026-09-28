@@ -61,8 +61,8 @@ describe('client page', () => {
         'chrome://flags/#enable-isolated-web-app-dev-mode',
         'https://www.google.cn/chrome/',
         'chrome://iwa-dev',
-        'https://client.ltsd.ro/updates.json',
         'chrome://web-app-internals',
+        'https://client.ltsd.ro/updates.json',
       ]);
     } finally {
       restore();
