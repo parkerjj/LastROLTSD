@@ -4616,6 +4616,57 @@ body.drawer-open {
   font-size: .95rem;
 }
 
+.navi-go {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px dashed #cdbfa8;
+}
+
+.navi-go-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 4px 12px;
+  color: var(--forest);
+  background: #efe8d8;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+}
+
+.navi-go-kicker i {
+  color: var(--gold);
+  font-size: .95rem;
+}
+
+.copy-command--navi {
+  border-color: var(--forest);
+}
+
+.copy-command--navi:hover {
+  background: #f3f5ee;
+  box-shadow: 0 10px 22px rgba(30, 55, 45, .16);
+}
+
+.copy-command--navi .copy-command-text em {
+  color: var(--forest);
+}
+
+.copy-command--navi .copy-command-action {
+  background: var(--forest);
+}
+
+.copy-command--navi.is-copied .copy-command-action {
+  background: var(--gold);
+}
+
+.quick-go-hint--navi {
+  color: var(--forest);
+  opacity: .75;
+}
+
 @media (max-width: 460px) {
   .copy-command {
     flex-wrap: wrap;

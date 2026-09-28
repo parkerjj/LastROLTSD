@@ -555,6 +555,7 @@ function mountSearchPage(): void {
     const top = Number.isFinite(rawTop) ? rawTop : 50;
     track(AnalyticsEvent.MapOpen, { map_code: code });
     const command = `请带我去 ${code} ${x} ${y} 这个坐标`;
+    const naviCommand = `/navi ${code} ${x} ${y}`;
     const safeName = escapeHtml(name);
     const safeShop = escapeHtml(shop);
     const body = `<section class="map-waypoint" aria-label="目标位置">
@@ -572,11 +573,19 @@ function mountSearchPage(): void {
       <li><span class="quick-go-step-num" aria-hidden="true">2</span><p>点击下方指令框<strong>一键复制</strong>，粘贴到 GPT 频道发送，即可自动前往商人位置。</p></li>
     </ol>
     <figure class="quick-go-figure"><img src="/tutorial/gpt-guide.png" alt="图示：先点击右下角蓝色小点按钮，再选择GPT频道" loading="lazy" width="1800" height="588" /></figure>
-    <button type="button" class="copy-command" data-command="${escapeHtml(command)}" data-map-code="${escapeHtml(code)}" data-map-x="${x}" data-map-y="${y}" aria-label="点击复制前往指令">
+    <button type="button" class="copy-command" data-command-type="gpt" data-command="${escapeHtml(command)}" data-map-code="${escapeHtml(code)}" data-map-x="${x}" data-map-y="${y}" aria-label="点击复制前往指令">
       <span class="copy-command-text"><em>${escapeHtml(code)}</em> <em>${x}</em> <em>${y}</em> 请带我去这个坐标</span>
       <span class="copy-command-action" aria-hidden="true"><i class="ph ph-copy-simple"></i><span class="copy-command-label">点击复制</span></span>
     </button>
     <p class="quick-go-hint"><i class="ph ph-info" aria-hidden="true"></i> 地图名为英文代码（如 prontera），坐标与上方星标一致。</p>
+    <div class="navi-go" aria-labelledby="navi-go-title">
+      <p class="navi-go-kicker" id="navi-go-title"><i class="ph ph-rocket-launch" aria-hidden="true"></i>进阶版 LRO 客户端</p>
+      <button type="button" class="copy-command copy-command--navi" data-command-type="navi" data-command="${escapeHtml(naviCommand)}" data-map-code="${escapeHtml(code)}" data-map-x="${x}" data-map-y="${y}" aria-label="复制进阶版客户端导航指令">
+        <span class="copy-command-text"><em>/navi</em> <em>${escapeHtml(code)}</em> <em>${x}</em> <em>${y}</em></span>
+        <span class="copy-command-action" aria-hidden="true"><i class="ph ph-copy-simple"></i><span class="copy-command-label">复制导航</span></span>
+      </button>
+      <p class="quick-go-hint quick-go-hint--navi"><i class="ph ph-lightbulb" aria-hidden="true"></i> 进阶版客户端用户：复制后直接粘贴到聊天框发送即可自动寻路，无需走 GPT 频道。</p>
+    </div>
   </section>`;
     mapDrawer.innerHTML = drawerFrame(
       "close-map",
@@ -982,12 +991,15 @@ function mountSearchPage(): void {
     if (!copyButton) return;
     void (async () => {
       const command = copyButton.dataset.command ?? "";
+      const commandType = copyButton.dataset.commandType ?? "gpt";
+      const originalLabel = commandType === "navi" ? "复制导航" : "点击复制";
       const ok = await copyText(command);
       const label = copyButton.querySelector(".copy-command-label");
       const icon = copyButton.querySelector(".copy-command-action i");
       if (ok) {
         track(AnalyticsEvent.CopyCommand, {
           map_code: copyButton.dataset.mapCode ?? "",
+          command_type: commandType,
         });
         copyButton.classList.add("is-copied");
         if (label) label.textContent = "已复制";
@@ -995,7 +1007,7 @@ function mountSearchPage(): void {
         window.clearTimeout(mapCopyTimer);
         mapCopyTimer = window.setTimeout(() => {
           copyButton.classList.remove("is-copied");
-          if (label) label.textContent = "点击复制";
+          if (label) label.textContent = originalLabel;
           if (icon) icon.className = "ph ph-copy-simple";
         }, 1800);
       } else {
