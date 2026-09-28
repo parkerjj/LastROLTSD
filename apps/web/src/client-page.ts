@@ -7,10 +7,10 @@ import { siteNavMarkup, mountSiteNav } from "./nav";
  */
 
 /**
- * 下载地址固定指向 Worker 的 latest 端点（302 重定向到 updates.json 中最新版本的 .swbn）。
- * 发布新 client 时无需回来改这里——Worker 会自动读取最新的 updates.json。
+ * IWA Update Manifest 的固定 URL——Chrome 会自动从中拉取最新 .swbn 并安装。
+ * 发布新 client 时无需回来改这里——Chrome 直接读 updates.json 获取最新版本。
  */
-const CLIENT_BUNDLE_URL = "/api/v1/iwa/latest";
+const IWA_UPDATE_MANIFEST_URL = "https://client.ltsd.ro/updates.json";
 /** 版本号加载前的占位显示；实际版本由 /api/v1/iwa/info 动态填入。 */
 const CLIENT_VERSION = "v0.1.0";
 /** 获取最新 Release 信息的端点，返回 { version, src }。 */
@@ -18,16 +18,12 @@ const IWA_INFO_URL = "/api/v1/iwa/info";
 
 const INSTALL_STEPS = [
   {
-    title: "下载安装包",
-    body: "点击本页顶部「下载安装包」按钮，得到 <code>.swbn</code> 安装包文件。注意：<code>.swbn</code> 无法双击安装，也不能直接拖入浏览器窗口。",
-  },
-  {
     title: "开启 IWA 开发者模式",
     body: `在地址栏打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")}，设为 <strong>Enabled</strong> 后重启 Chrome。此开关只需开启一次。`,
   },
   {
     title: "在 chrome://iwa-dev 中安装",
-    body: `地址栏打开 ${copyChipMarkup("chrome://iwa-dev")}，点击 <strong>Install</strong> 按钮，在「Signed Bundle」标签页中选择下载好的 <code>.swbn</code> 文件。Chrome 153 及更早版本请改用 ${copyChipMarkup("chrome://web-app-internals")}。`,
+    body: `地址栏打开 ${copyChipMarkup("chrome://iwa-dev")}，点击 <strong>Install</strong> 按钮，选择「<strong>Update Manifest</strong>」标签页，粘贴更新地址 ${copyChipMarkup(IWA_UPDATE_MANIFEST_URL)} 后点击安装。Chrome 会自动拉取最新安装包并完成安装，无需手动下载。Chrome 153 及更早版本请改用 ${copyChipMarkup("chrome://web-app-internals")}。`,
   },
   {
     title: "确认并启动",
@@ -156,14 +152,6 @@ const KNOWN_ISSUES = [
   },
 ] as const;
 
-function downloadButtonMarkup(): string {
-  return `<a class="download-button" href="${CLIENT_BUNDLE_URL}" download><i class="ph ph-download-simple" aria-hidden="true"></i>下载安装包（.swbn）</a>`;
-}
-
-function pendingButtonMarkup(): string {
-  return `<span class="download-button is-pending" aria-disabled="true"><i class="ph ph-clock-countdown" aria-hidden="true"></i>安装包即将发布</span>`;
-}
-
 function installStepsMarkup(): string {
   return INSTALL_STEPS.map(
     (step, index) => `
@@ -219,11 +207,10 @@ export function mountClientPage(root: HTMLElement): void {
             <span class="meta-chip"><i class="ph ph-git-fork" aria-hidden="true"></i>完全开源</span>
           </div>
         </div>
-        <aside class="client-download-card" aria-label="下载客户端">
+        <aside class="client-download-card" aria-label="客户端版本信息">
           <span class="download-kicker">当前版本</span>
           <div class="download-version"><strong data-latest-version>${CLIENT_VERSION}</strong><span class="beta-tag">测试版</span></div>
-          <p class="download-desc">签名 Release 安装包（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。</p>
-          <div class="download-action" data-download-action>${downloadButtonMarkup()}</div>
+          <p class="download-desc">签名 Release（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。安装无需手动下载——Chrome 会自动拉取最新安装包。</p>
           <div class="download-file-info"><span>签名 Release 版</span><span>Chrome IWA（.swbn）</span></div>
         </aside>
       </section>
@@ -235,8 +222,8 @@ export function mountClientPage(root: HTMLElement): void {
 
       <section class="client-section" aria-labelledby="install-title">
         <div class="section-heading">
-          <div><p class="eyebrow">INSTALL GUIDE</p><h2 id="install-title">四步完成安装</h2></div>
-          <p>按步骤操作即可，全程无需命令行。安装后客户端将独立于浏览器运行，拥有自己的窗口与图标。</p>
+          <div><p class="eyebrow">INSTALL GUIDE</p><h2 id="install-title">三步完成安装</h2></div>
+          <p>按步骤操作即可，全程无需下载文件、无需命令行。Chrome 会通过更新地址自动拉取最新安装包。</p>
         </div>
         <div class="install-steps">${installStepsMarkup()}</div>
         <p class="install-note"><i class="ph ph-info" aria-hidden="true"></i><span>为什么需要开发者模式？Chrome 目前仅允许进入官方应用列表的 IWA 免开关直接安装；未入列的签名 Release 包（如本客户端）必须开启 Developer Mode 后才能安装。该开关为浏览器级设置，开启一次即可，不影响浏览器其他功能。</span></p>
@@ -326,27 +313,22 @@ export function mountClientPage(root: HTMLElement): void {
   refreshLatestRelease(root);
 }
 
-/** 拉取最新 Release 版本号；无 Release 时把下载按钮替换为「即将发布」占位。 */
+/** 拉取最新 Release 版本号，更新页面上的版本显示。 */
 function refreshLatestRelease(root: HTMLElement): void {
   const versionEl = root.querySelector<HTMLElement>("[data-latest-version]");
-  const actionEl = root.querySelector<HTMLElement>("[data-download-action]");
+  if (!versionEl) return;
   void (async () => {
     try {
       const response = await fetch(IWA_INFO_URL, {
         headers: { accept: "application/json" },
       });
-      if (!response.ok) throw new Error(`info ${response.status}`);
+      if (!response.ok) return;
       const payload = (await response.json()) as { version?: string };
-      if (
-        versionEl &&
-        typeof payload.version === "string" &&
-        payload.version.length > 0
-      ) {
+      if (typeof payload.version === "string" && payload.version.length > 0) {
         versionEl.textContent = `v${payload.version}`;
       }
     } catch {
-      // 无可用 Release（404）或 manifest 暂不可达：保留占位版本号，下载按钮改为「即将发布」。
-      if (actionEl) actionEl.innerHTML = pendingButtonMarkup();
+      // 拉取失败时保留占位版本号。
     }
   })();
 }

@@ -168,7 +168,7 @@
   .section-heading > p { max-width: 340px; margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.7; text-align: right; }
 
   /* ===== 安装步骤卡 ===== */
-  .install-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .install-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
   .install-step {
     position: relative;
     padding: 24px 20px 22px;
@@ -359,12 +359,11 @@
         <span class="meta-chip"><i class="ph ph-git-fork"></i>完全开源</span>
       </div>
     </div>
-    <aside class="client-download-card" aria-label="下载客户端">
+    <aside class="client-download-card" aria-label="客户端版本信息">
       <span class="download-kicker">当前版本</span>
       <div class="download-version"><strong>v0.1.0</strong><span class="beta-tag">测试版</span></div>
-      <p class="download-desc">签名 Release 安装包（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。</p>
-      <a class="download-button" href="#" onclick="return false;"><i class="ph ph-download-simple"></i>下载安装包（.swbn）</a>
-      <div class="download-file-info"><span>lro-advanced-client.swbn</span><span>签名 Release 版</span></div>
+      <p class="download-desc">签名 Release（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。安装无需手动下载——Chrome 会自动拉取最新安装包。</p>
+      <div class="download-file-info"><span>签名 Release 版</span><span>Chrome IWA（.swbn）</span></div>
     </aside>
   </section>
 
@@ -377,27 +376,22 @@
   <!-- 安装指南 -->
   <section class="client-section" aria-labelledby="install-title">
     <div class="section-heading">
-      <div><p class="eyebrow">INSTALL GUIDE</p><h2 id="install-title">四步完成安装</h2></div>
-      <p>按步骤操作即可，全程无需命令行。安装后客户端将独立于浏览器运行，拥有自己的窗口与图标。</p>
+      <div><p class="eyebrow">INSTALL GUIDE</p><h2 id="install-title">三步完成安装</h2></div>
+      <p>按步骤操作即可，全程无需下载文件、无需命令行。Chrome 会通过更新地址自动拉取最新安装包。</p>
     </div>
     <div class="install-steps">
       <article class="install-step">
         <span class="step-number">01</span>
-        <h3>下载安装包</h3>
-        <p>点击本页顶部「下载安装包」按钮，得到 <code>.swbn</code> 安装包文件。注意：<code>.swbn</code> 无法双击安装，也不能直接拖入浏览器窗口。</p>
-      </article>
-      <article class="install-step">
-        <span class="step-number">02</span>
         <h3>开启 IWA 开发者模式</h3>
         <p>在地址栏打开 <button type="button" class="copy-chip"><code>chrome://flags/#enable-isolated-web-app-dev-mode</code><span class="copy-hint">复制</span></button>，设为 <strong>Enabled</strong> 后重启 Chrome。此开关只需开启一次。</p>
       </article>
       <article class="install-step">
-        <span class="step-number">03</span>
+        <span class="step-number">02</span>
         <h3>在 chrome://iwa-dev 中安装</h3>
-        <p>地址栏打开 <button type="button" class="copy-chip"><code>chrome://iwa-dev</code><span class="copy-hint">复制</span></button>，点击 <strong>Install</strong> 按钮，在「Signed Bundle」标签页中选择下载好的 <code>.swbn</code> 文件。Chrome 153 及更早版本请改用 <button type="button" class="copy-chip"><code>chrome://web-app-internals</code><span class="copy-hint">复制</span></button>。</p>
+        <p>地址栏打开 <button type="button" class="copy-chip"><code>chrome://iwa-dev</code><span class="copy-hint">复制</span></button>，点击 <strong>Install</strong> 按钮，选择「<strong>Update Manifest</strong>」标签页，粘贴更新地址 <button type="button" class="copy-chip"><code>https://client.ltsd.ro/updates.json</code><span class="copy-hint">复制</span></button> 后点击安装。Chrome 会自动拉取最新安装包并完成安装，无需手动下载。Chrome 153 及更早版本请改用 <button type="button" class="copy-chip"><code>chrome://web-app-internals</code><span class="copy-hint">复制</span></button>。</p>
       </article>
       <article class="install-step">
-        <span class="step-number">04</span>
+        <span class="step-number">03</span>
         <h3>确认并启动</h3>
         <p>在安装向导中确认应用名称与版本后点击安装。完成后从开始菜单或应用列表打开「LRO 进阶客户端」，像原生程序一样独立窗口运行。</p>
       </article>
