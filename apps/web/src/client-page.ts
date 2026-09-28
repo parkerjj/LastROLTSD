@@ -16,20 +16,28 @@ const CLIENT_VERSION = "v0.1.0";
 /** 获取最新 Release 信息的端点，返回 { version, src }。 */
 const IWA_INFO_URL = "/api/v1/iwa/info";
 
-const INSTALL_STEPS = [
+interface InstallStep {
+  title: string;
+  body: string;
+  image?: string;
+}
+
+const INSTALL_STEPS: InstallStep[] = [
   {
     title: "开启 IWA 开发者模式",
     body: `在地址栏依次打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-apps")}、${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")} ，将这两个开关都设为 <strong>Enabled</strong>，然后点击 <strong>Relaunch</strong> 重启 Chrome。只需设置一次。若找不到开关，或无法打开下方的安装设置页，请先通过 <strong>⋮ → 帮助 → 关于 Google Chrome</strong> 检查更新；也可前往 <a href="https://www.google.cn/chrome/" target="_blank" rel="noopener noreferrer">Chrome 中国官网</a>（${copyChipMarkup("https://www.google.cn/chrome/")}）下载并安装最新版（Chrome 154 或更新版本），重启浏览器后再试。`,
+    image: "/tutorial/iwa-step1-flags.png",
   },
   {
     title: "打开 IWA 开发者页面安装",
     body: `点击复制 ${copyChipMarkup("chrome://iwa-dev")} 或低版本Chrome入口 ${copyChipMarkup("chrome://web-app-internals")}，粘贴到 Chrome 地址栏后按回车，找到 <strong>Install IWA from Update Manifest</strong>，粘贴更新地址 ${copyChipMarkup(IWA_UPDATE_MANIFEST_URL)} 后点击安装。Chrome 会自动拉取最新安装包，无需手动下载。若该页面仍无法打开，请先按第一步更新 Chrome、确认开关已开启并重启。`,
+    image: "/tutorial/iwa-step2-iwadev.png",
   },
   {
     title: "确认并启动",
     body: "在安装向导中确认应用名称与版本后点击安装。完成后从开始菜单或应用列表打开「LRO 进阶客户端」，像原生程序一样独立窗口运行。",
   },
-] as const;
+];
 
 /** chrome:// 地址无法作为超链接打开（浏览器安全策略），渲染为点击即复制的芯片按钮。 */
 function copyChipMarkup(text: string): string {
@@ -159,6 +167,15 @@ function installStepsMarkup(): string {
         <span class="step-number" aria-hidden="true">0${index + 1}</span>
         <h3>${step.title}</h3>
         <p>${step.body}</p>
+        ${
+          step.image
+            ? `
+        <button type="button" class="step-thumb" data-zoom="${step.image}" aria-label="点击放大查看 ${step.title} 操作示意图">
+          <img src="${step.image}" alt="${step.title}操作示意图" loading="lazy" />
+          <span class="step-zoom-hint" aria-hidden="true"><i class="ph ph-magnifying-glass-plus"></i></span>
+        </button>`
+            : ""
+        }
       </article>`,
   ).join("");
 }
@@ -310,7 +327,60 @@ export function mountClientPage(root: HTMLElement): void {
     });
   });
 
+  bindStepLightbox(root);
+
   refreshLatestRelease(root);
+}
+
+/** 点击步骤卡内的缩略图时，弹出全屏 lightbox 查看原图。 */
+function bindStepLightbox(root: HTMLElement): void {
+  const thumbs = root.querySelectorAll<HTMLButtonElement>(
+    ".step-thumb[data-zoom]",
+  );
+  if (thumbs.length === 0) return;
+
+  let overlay: HTMLDivElement | null = null;
+  let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
+
+  const close = () => {
+    if (!overlay) return;
+    overlay.remove();
+    overlay = null;
+    document.body.style.overflow = "";
+    if (onKeyDown) {
+      window.removeEventListener("keydown", onKeyDown);
+      onKeyDown = null;
+    }
+  };
+
+  thumbs.forEach((thumb) => {
+    thumb.addEventListener("click", () => {
+      const src = thumb.dataset.zoom;
+      if (!src) return;
+      close();
+      overlay = document.createElement("div");
+      overlay.className = "step-lightbox";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.innerHTML = `
+        <button type="button" class="step-lightbox-close" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
+        <img src="${src}" alt="操作示意图原图" />
+      `;
+      overlay.addEventListener("click", (e) => {
+        if (
+          e.target === overlay ||
+          (e.target as HTMLElement).closest(".step-lightbox-close")
+        )
+          close();
+      });
+      onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") close();
+      };
+      window.addEventListener("keydown", onKeyDown);
+      document.body.appendChild(overlay);
+      document.body.style.overflow = "hidden";
+    });
+  });
 }
 
 /** 拉取最新 Release 版本号，更新页面上的版本显示。 */

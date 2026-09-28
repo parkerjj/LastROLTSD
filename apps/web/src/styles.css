@@ -3390,6 +3390,82 @@ mark {
   line-height: 1.75;
 }
 
+/* 步骤卡内的截图缩略图 */
+.step-thumb {
+  display: block;
+  width: 100%;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+  background: #fff;
+  cursor: zoom-in;
+  box-shadow: 0 6px 14px rgba(74, 57, 35, .1);
+  transition: box-shadow .2s ease;
+}
+
+.step-thumb:hover {
+  box-shadow: 0 10px 22px rgba(74, 57, 35, .18);
+}
+
+.step-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.step-zoom-hint {
+  display: none;
+}
+
+/* 点击缩略图后的全屏 lightbox */
+.step-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  background: rgba(20, 15, 8, .88);
+  backdrop-filter: blur(4px);
+  animation: step-fade-in .18s ease-out;
+}
+
+.step-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+}
+
+.step-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 50%;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background .2s ease;
+}
+
+.step-lightbox-close:hover {
+  background: rgba(255, 255, 255, .22);
+}
+
+@keyframes step-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .install-step code {
   padding: 1px 5px;
   color: #7b4c22;
@@ -3708,8 +3784,12 @@ mark {
   .download-button,
   .compare-table tbody tr,
   .copy-chip,
-  .qq-copy {
+  .qq-copy,
+  .step-thumb,
+  .step-lightbox,
+  .step-lightbox-close {
     transition: none;
+    animation: none;
   }
 }
 
