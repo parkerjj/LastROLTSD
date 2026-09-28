@@ -19,7 +19,7 @@ const IWA_INFO_URL = "/api/v1/iwa/info";
 const INSTALL_STEPS = [
   {
     title: "开启 IWA 开发者模式",
-    body: `在地址栏依次打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")} 和 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-unmanaged-install")}，都设为 <strong>Enabled</strong>，然后点击 <strong>Relaunch</strong> 重启 Chrome。这两个开关只需开启一次。`,
+    body: `在地址栏依次打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-apps")}、${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")} 和 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-unmanaged-install")}，将这三个开关都设为 <strong>Enabled</strong>，然后点击 <strong>Relaunch</strong> 重启 Chrome。只需设置一次。若找不到开关，或无法打开下方的安装设置页，请先通过 <strong>⋮ → 帮助 → 关于 Google Chrome</strong> 检查更新；也可前往 <a href="https://www.google.cn/chrome/" target="_blank" rel="noopener noreferrer">Chrome 中国官网</a>下载并安装最新版（Chrome 154 或更新版本），重启浏览器后再试。`,
   },
   {
     title: "在 chrome://web-app-internals 中安装",
