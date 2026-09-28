@@ -34,6 +34,7 @@ import { mountGuestbookPage } from "./guestbook-page";
 import { mountAccountsPage } from "./accounts-page";
 import { mountPlayPage } from "./play-page";
 import { mountClientPage } from "./client-page";
+import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 
 initAnalytics();
@@ -64,7 +65,16 @@ function mountSearchPage(): void {
   </header>
   <main id="top" class="page-width">
     <section class="hero" aria-labelledby="page-title">
-      <div class="hero-copy"><p class="eyebrow">露天市场 / 交易索引</p><h1 id="page-title">露天商店<span>.Ro</span></h1><p class="hero-subtitle">在城市之间，快速找到你要的装备与词条。</p><div class="hero-meta"><span aria-live="polite"><i id="market-status-dot" class="status-dot"></i><span id="market-status-label">市场数据调查员在线</span></span><span id="market-updated-at" aria-live="polite">正在获取更新时间</span><span>支持地图定位</span></div></div>
+      <div class="hero-inner">
+        <div class="hero-copy"><p class="eyebrow">露天市场 / 交易索引</p><h1 id="page-title">露天商店<span>.Ro</span></h1><p class="hero-subtitle">在城市之间，快速找到你要的装备与词条。</p><div class="hero-meta"><span aria-live="polite"><i id="market-status-dot" class="status-dot"></i><span id="market-status-label">市场数据调查员在线</span></span><span id="market-updated-at" aria-live="polite">正在获取更新时间</span><span>支持地图定位</span></div></div>
+        <div class="hero-launch" aria-label="游戏客户端入口">
+          <p class="eyebrow">进入游戏</p>
+          <button type="button" class="accounts-launch accounts-launch--primary" id="hero-launch-v1"><i class="ph ph-play" aria-hidden="true"></i>老旧客户端</button>
+          <button type="button" class="accounts-launch accounts-launch--v2" id="hero-launch-v2"><i class="ph ph-play" aria-hidden="true"></i>进阶客户端</button>
+          <a class="hero-install-link" href="/client">如何安装进阶客户端？<i class="ph ph-arrow-right" aria-hidden="true"></i></a>
+          <p class="hero-launch-status" id="hero-launch-status" role="status" aria-live="polite"></p>
+        </div>
+      </div>
     </section>
     <section id="site-notice" class="site-notice" aria-label="站点公告">
       <span class="notice-badge">公告</span>
@@ -123,6 +133,28 @@ function mountSearchPage(): void {
     root.querySelector<HTMLElement>("#market-updated-at")!;
 
   mountSiteNav(root);
+
+  const heroLaunchV1 = root.querySelector<HTMLButtonElement>("#hero-launch-v1")!;
+  const heroLaunchV2 = root.querySelector<HTMLButtonElement>("#hero-launch-v2")!;
+  const heroLaunchStatus =
+    root.querySelector<HTMLElement>("#hero-launch-status")!;
+
+  heroLaunchV1.addEventListener("click", () => {
+    if (!launchLegacyClient()) {
+      heroLaunchStatus.textContent =
+        "浏览器拦截了游戏窗口，请允许本站弹出窗口后重试。";
+    }
+  });
+
+  heroLaunchV2.addEventListener("click", () => {
+    if (heroLaunchV2.disabled) return;
+    heroLaunchV2.disabled = true;
+    heroLaunchStatus.textContent =
+      "正在尝试启动进阶客户端；如果当前设备尚未安装，将自动打开安装教程…";
+    launchIwaClient(() => {
+      heroLaunchV2.disabled = false;
+    });
+  });
 
   type MarketInvestigatorState = "online" | "resting" | "offline";
 

@@ -296,11 +296,84 @@ main {
   background-size: cover;
 }
 
-.hero-copy {
+.hero-inner {
+  display: flex;
+  align-items: center;
+  gap: 48px;
   width: min(1240px, calc(100% - 64px));
   margin: 0 auto;
+}
+
+.hero-copy {
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 16px 0 12px 26px;
   border-left: 3px solid var(--red);
+}
+
+.hero-launch {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 10px;
+  width: 248px;
+  padding: 20px 22px;
+  background: rgba(247, 243, 234, .94);
+  border: 1px solid #b9ab94;
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(80, 62, 38, .16);
+}
+
+.hero-launch .eyebrow {
+  margin-bottom: 2px;
+}
+
+.hero-launch .accounts-launch {
+  justify-content: center;
+  width: 100%;
+}
+
+.hero-install-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--red-dark);
+  font-size: .76rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.hero-install-link:hover {
+  text-decoration: underline;
+}
+
+.hero-install-link i {
+  font-size: .85rem;
+}
+
+.hero-launch-status {
+  margin: 0;
+  color: #7a7061;
+  font-size: .72rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.hero-launch-status:empty {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .hero-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 26px;
+  }
+
+  .hero-launch {
+    width: auto;
+  }
 }
 
 .eyebrow {
@@ -6550,23 +6623,20 @@ label {
   border-color: var(--forest-deep);
 }
 
-.accounts-launch--disabled {
-  color: #9b9286;
-  background: #e5ddd0;
-  border-color: #d4cbb9;
-  cursor: not-allowed;
-  opacity: .9;
+.accounts-launch--v2 {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
 }
 
-.accounts-launch-tag {
-  margin-left: 4px;
-  padding: 2px 8px;
-  color: #8a8070;
-  background: #ddd5c6;
-  border-radius: 4px;
-  font-size: .65rem;
-  font-weight: 700;
-  letter-spacing: .04em;
+.accounts-launch--v2:hover:not(:disabled) {
+  background: var(--red-dark);
+  border-color: var(--red-dark);
+}
+
+.accounts-launch--v2:disabled {
+  opacity: .65;
+  cursor: wait;
 }
 
 .accounts-launch-option {

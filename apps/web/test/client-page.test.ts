@@ -33,7 +33,7 @@ function mountInJsdom() {
 }
 
 describe('client page', () => {
-  it('renders the IWA client guide as an unlisted page', () => {
+  it('renders the IWA client guide page', () => {
     const { root, restore } = mountInJsdom();
 
     try {
@@ -41,9 +41,16 @@ describe('client page', () => {
       expect(root.querySelectorAll('.install-step')).toHaveLength(3);
       expect(root.querySelectorAll('.compare-table tbody tr')).toHaveLength(15);
       expect(root.querySelectorAll('.issue-item')).toHaveLength(5);
-      // 半开放测试页：主导航不包含 /client 入口，也没有任何 active 高亮。
-      expect(root.querySelector('.site-nav a[href="/client"]')).toBeNull();
-      expect(root.querySelector('.site-nav a[aria-current="page"]')).toBeNull();
+      // 正式页面：主导航包含 /client 入口并带 NEW 徽章，当前页高亮。
+      const navLink = root.querySelector('.site-nav a[href="/client"]');
+      expect(navLink).not.toBeNull();
+      expect(navLink?.getAttribute('aria-current')).toBe('page');
+      expect(navLink?.textContent).toContain('进阶客户端');
+      expect(navLink?.querySelector('.new-badge')).not.toBeNull();
+      // 菜农监控台的 NEW 徽章已移除，全站只有进阶客户端携带 NEW。
+      const accountsNav = root.querySelector('.site-nav a[href="/accounts"]');
+      expect(accountsNav).not.toBeNull();
+      expect(accountsNav?.querySelector('.new-badge')).toBeNull();
       // 无下载按钮——安装通过 Update Manifest URL 优先在 chrome://iwa-dev 中完成。
       expect(root.querySelector('a.download-button')).toBeNull();
       expect(root.querySelector('.qq-copy')?.getAttribute('data-copy')).toBe('725955796');

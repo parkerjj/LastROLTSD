@@ -20,6 +20,12 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     href: "/accounts",
     label: "菜农监控台",
     icon: "ph-monitor",
+  },
+  {
+    page: "client",
+    href: "/client",
+    label: "进阶客户端",
+    icon: "ph-rocket-launch",
     isNew: true,
   },
   {

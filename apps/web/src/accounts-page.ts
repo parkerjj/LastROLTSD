@@ -1,12 +1,14 @@
 import { MarketApi, type MarketApiClient } from "./api";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import type { LastroAccountData } from "./types";
-import { openGamePopup, startPopupHandshake } from "./game-launch";
+import {
+  launchIwaClient,
+  launchLegacyClient,
+  LAUNCH_POPUP_KEY,
+} from "./game-launch";
 import { AnalyticsEvent, track } from "./analytics";
 
 const STORAGE_KEY = "lastro.accounts.v1";
-const LAUNCH_POPUP_KEY = "lastro.launch.popup.v1";
-const PLAY_PAGE_URL = "/play";
 const STALE_AFTER_MS = 5 * 60 * 1000;
 const DELETE_ARM_MS = 3000;
 
@@ -180,8 +182,8 @@ export function mountAccountsPage(
           <p>把游戏账号添加到这里，随时查看角色等级、经验进度、所在地图和在线状态。</p>
         </div>
         <div class="accounts-launchers" aria-label="游戏客户端入口">
-          <button class="accounts-launch accounts-launch--primary" type="button" id="accounts-launch-v1"><i class="ph ph-play" aria-hidden="true"></i>启动稳定版 V1</button>
-          <button class="accounts-launch accounts-launch--disabled" type="button" disabled><i class="ph ph-play" aria-hidden="true"></i>测试版 V2<span class="accounts-launch-tag">尚未开放</span></button>
+          <button class="accounts-launch accounts-launch--primary" type="button" id="accounts-launch-v1"><i class="ph ph-play" aria-hidden="true"></i>老旧客户端</button>
+          <button class="accounts-launch accounts-launch--v2" type="button" id="accounts-launch-v2"><i class="ph ph-play" aria-hidden="true"></i>进阶客户端</button>
           <label class="accounts-launch-option" title="勾选后以独立全屏窗口启动；默认在新标签页内启动，兼容性更好">
             <input type="checkbox" id="accounts-launch-popup" />
             <span>以全屏新窗口打开</span>
@@ -255,6 +257,9 @@ export function mountAccountsPage(
   const addButton = root.querySelector<HTMLButtonElement>("#accounts-add")!;
   const launchV1Button = root.querySelector<HTMLButtonElement>(
     "#accounts-launch-v1",
+  )!;
+  const launchV2Button = root.querySelector<HTMLButtonElement>(
+    "#accounts-launch-v2",
   )!;
   const launchPopupToggle = root.querySelector<HTMLInputElement>(
     "#accounts-launch-popup",
@@ -562,24 +567,20 @@ export function mountAccountsPage(
   });
 
   launchV1Button.addEventListener("click", () => {
-    if (launchPopupToggle.checked) {
-      // 全屏独立窗口（官方 POPUP 模式）：带特性弹窗与 opener 同窗口组，握手可靠。
-      const popup = openGamePopup();
-      if (!popup) {
-        statusLine.textContent =
-          "浏览器拦截了游戏窗口，请允许本站弹出窗口后重试。";
-        return;
-      }
-      startPopupHandshake(popup);
-      return;
-    }
-    // 默认：新标签打开同源 /play 页，由该前台标签内的 iframe 完成握手，
-    // 避开跨域新标签 opener 失活导致 postMessage 丢失的问题。
-    const tab = window.open(PLAY_PAGE_URL, "_blank");
-    if (!tab) {
+    if (!launchLegacyClient(storage)) {
       statusLine.textContent =
-        "浏览器拦截了游戏标签页，请允许本站弹出窗口后重试。";
+        "浏览器拦截了游戏窗口，请允许本站弹出窗口后重试。";
     }
+  });
+
+  launchV2Button.addEventListener("click", () => {
+    if (launchV2Button.disabled) return;
+    launchV2Button.disabled = true;
+    statusLine.textContent =
+      "正在尝试启动进阶客户端；如果当前设备尚未安装，将自动打开安装教程…";
+    launchIwaClient(() => {
+      launchV2Button.disabled = false;
+    });
   });
 
   grid.addEventListener("click", (event) => {

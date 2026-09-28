@@ -84,19 +84,20 @@ function wait(ms: number): Promise<void> {
 }
 
 describe("accounts page", () => {
-  it("renders V1 launcher, disabled V2, and the privacy notice with GitHub link", () => {
+  it("renders V1 launcher, enabled V2 IWA launcher, and the privacy notice with GitHub link", () => {
     const { root, restore } = mount({ getAccountStatus: vi.fn() });
     try {
       const v1 = root.querySelector<HTMLButtonElement>(
         ".accounts-launch--primary",
       )!;
       expect(v1.id).toBe("accounts-launch-v1");
-      expect(v1.textContent).toContain("启动稳定版 V1");
+      expect(v1.textContent).toContain("老旧客户端");
       const v2 = root.querySelector<HTMLButtonElement>(
-        ".accounts-launch--disabled",
+        ".accounts-launch--v2",
       )!;
-      expect(v2.disabled).toBe(true);
-      expect(v2.textContent).toContain("尚未开放");
+      expect(v2.id).toBe("accounts-launch-v2");
+      expect(v2.disabled).toBe(false);
+      expect(v2.textContent).toContain("进阶客户端");
       expect(root.querySelector(".accounts-privacy")?.textContent).toContain(
         "转发",
       );
@@ -146,6 +147,59 @@ describe("accounts page", () => {
       expect(playTab.postMessage).not.toHaveBeenCalled();
     } finally {
       restore();
+    }
+  });
+
+  it("opens the V2 IWA entry URL and falls back to /client when the page keeps focus", () => {
+    vi.useFakeTimers();
+    try {
+      const { dom, root, restore } = mount({ getAccountStatus: vi.fn() });
+      try {
+        const probe = { closed: false, close: vi.fn() };
+        dom.window.open = vi.fn(() => probe as unknown as Window);
+        root
+          .querySelector<HTMLButtonElement>("#accounts-launch-v2")!
+          .click();
+        const openMock = dom.window.open as ReturnType<typeof vi.fn>;
+        expect(openMock).toHaveBeenCalledTimes(1);
+        expect(openMock).toHaveBeenLastCalledWith(
+          "isolated-app://nuqzolbnqymznffqhrx7ylosbqvbzekt4eybubmopsmsbjz5z2uqaaic/",
+          "_blank",
+        );
+        // 未安装：本页保持焦点，超时后关闭探测标签并跳安装教程页。
+        vi.advanceTimersByTime(2000);
+        expect(probe.close).toHaveBeenCalledTimes(1);
+        expect(openMock).toHaveBeenCalledTimes(2);
+        expect(openMock).toHaveBeenLastCalledWith("/client", "_self");
+      } finally {
+        restore();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the page put when the IWA window takes focus (client installed)", () => {
+    vi.useFakeTimers();
+    try {
+      const { dom, root, restore } = mount({ getAccountStatus: vi.fn() });
+      try {
+        const probe = { closed: true, close: vi.fn() };
+        dom.window.open = vi.fn(() => probe as unknown as Window);
+        root
+          .querySelector<HTMLButtonElement>("#accounts-launch-v2")!
+          .click();
+        // 已安装：客户端新窗口夺走焦点，本页触发 blur。
+        dom.window.dispatchEvent(new dom.window.Event("blur"));
+        vi.advanceTimersByTime(2000);
+        const openMock = dom.window.open as ReturnType<typeof vi.fn>;
+        expect(openMock).toHaveBeenCalledTimes(1);
+        expect(probe.close).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -201,8 +255,12 @@ describe("accounts page", () => {
     const postMessage = vi.fn();
     const popup = { postMessage, closed: false };
     dom.window.open = vi.fn(() => popup as unknown as Window);
-    root.querySelector<HTMLInputElement>("#accounts-launch-popup")!.checked =
-      true;
+    const toggle = root.querySelector<HTMLInputElement>(
+      "#accounts-launch-popup",
+    )!;
+    toggle.checked = true;
+    // 启动逻辑读取 localStorage 中的偏好，勾选需派发 change 才会写入。
+    toggle.dispatchEvent(new dom.window.Event("change"));
     try {
       root.querySelector<HTMLButtonElement>("#accounts-launch-v1")!.click();
       expect(dom.window.open).toHaveBeenCalledTimes(1);
@@ -249,8 +307,11 @@ describe("accounts page", () => {
     const postMessage = vi.fn();
     const popup = { postMessage, closed: false };
     dom.window.open = vi.fn(() => popup as unknown as Window);
-    root.querySelector<HTMLInputElement>("#accounts-launch-popup")!.checked =
-      true;
+    const toggle = root.querySelector<HTMLInputElement>(
+      "#accounts-launch-popup",
+    )!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new dom.window.Event("change"));
     try {
       root.querySelector<HTMLButtonElement>("#accounts-launch-v1")!.click();
       await wait(250);

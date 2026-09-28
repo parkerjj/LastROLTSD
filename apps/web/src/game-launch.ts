@@ -14,6 +14,27 @@ export const GAME_ORIGIN = "https://game.lastro.cn";
 export const GAME_CLIENT_VERSION = 70.84;
 export const GAME_CLIENT_URL = `${GAME_ORIGIN}/ro/api.html?${GAME_CLIENT_VERSION}`;
 
+/** 同源 /play 启动页（FRAME 模式宿主，默认启动方式）。 */
+export const PLAY_PAGE_URL = "/play";
+/** 「以全屏新窗口打开」偏好的本地存储键（在菜农监控台勾选，首页启动同样遵循）。 */
+export const LAUNCH_POPUP_KEY = "lastro.launch.popup.v1";
+
+/**
+ * V2 进阶客户端（IWA）入口：isolated-app://<Web Bundle ID>/ 即 manifest 的 start_url，
+ * 是 Chrome 允许外部网站打开 IWA 的入口点之一。Bundle ID 由签名公钥派生，
+ * 只有更换签名密钥才会变化。
+ */
+export const IWA_APP_URL =
+  "isolated-app://nuqzolbnqymznffqhrx7ylosbqvbzekt4eybubmopsmsbjz5z2uqaaic/";
+/** 未安装 V2 客户端时回退的安装引导页。 */
+export const CLIENT_INSTALL_URL = "/client";
+/**
+ * 网页无法查询 IWA 是否已安装（浏览器出于隐私不提供此类 API）。折中方案：
+ * 发起入口导航后观察本页是否失焦——已安装时客户端新窗口会夺走焦点；
+ * 超过此时长本页仍聚焦则判定未安装，跳转安装引导页。
+ */
+export const IWA_DETECT_MS = 2000;
+
 // 与官方 pc-api.js 的 WaitForInitialization 逐项一致（application 经
 // start() 由枚举 ROBrowser.APP.ONLINE(=1) 转成字符串 "Online"）。
 export const GAME_INIT_CONFIG = {
@@ -142,4 +163,56 @@ export function openGamePopup(): Window | null {
     "toolbar=yes",
   ].join(",");
   return window.open(GAME_CLIENT_URL, "_blank", features);
+}
+
+/**
+ * 启动老旧客户端（V1）：默认新标签打开同源 /play 页（FRAME 握手）；
+ * 用户在监控台勾选过「以全屏新窗口打开」时退回官方 POPUP 模式。
+ * 返回 false 表示窗口被浏览器拦截。
+ */
+export function launchLegacyClient(
+  storage: Pick<Storage, "getItem"> = window.localStorage,
+): boolean {
+  let preferPopup = false;
+  try {
+    preferPopup = storage.getItem(LAUNCH_POPUP_KEY) === "1";
+  } catch {
+    // 隐私模式等场景读取失败时按默认（新标签页）处理。
+  }
+  if (preferPopup) {
+    // 全屏独立窗口（官方 POPUP 模式）：带特性弹窗与 opener 同窗口组，握手可靠。
+    const popup = openGamePopup();
+    if (!popup) return false;
+    startPopupHandshake(popup);
+    return true;
+  }
+  // 默认：新标签打开同源 /play 页，由该前台标签内的 iframe 完成握手，
+  // 避开跨域新标签 opener 失活导致 postMessage 丢失的问题。
+  return window.open(PLAY_PAGE_URL, "_blank") !== null;
+}
+
+/**
+ * 尝试拉起 IWA 进阶客户端。已安装：Chrome 拦截 isolated-app 入口导航并打开
+ * 客户端窗口，本页随之失焦；未安装：探测标签落在浏览器错误页，本页保持焦点，
+ * 超时后关闭探测标签并跳 CLIENT_INSTALL_URL 安装引导页。
+ * onSettled 在判定结束时回调（参数为是否成功拉起），无论结果如何都会调用。
+ */
+export function launchIwaClient(
+  onSettled?: (launched: boolean) => void,
+): void {
+  let launched = false;
+  window.addEventListener(
+    "blur",
+    () => {
+      launched = true;
+    },
+    { once: true },
+  );
+  const probe = window.open(IWA_APP_URL, "_blank");
+  window.setTimeout(() => {
+    onSettled?.(launched);
+    if (launched) return;
+    if (probe && !probe.closed) probe.close();
+    window.open(CLIENT_INSTALL_URL, "_self");
+  }, IWA_DETECT_MS);
 }
