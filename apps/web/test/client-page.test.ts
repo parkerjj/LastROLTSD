@@ -47,14 +47,18 @@ describe('client page', () => {
       // 无下载按钮——安装通过 Update Manifest URL 在 chrome://web-app-internals 中完成。
       expect(root.querySelector('a.download-button')).toBeNull();
       expect(root.querySelector('.qq-copy')?.getAttribute('data-copy')).toBe('725955796');
-      // 安装教程包含两个开关、可用的安装入口与 Update Manifest URL。
+      // 安装教程包含三个开关、更新指引、可用的安装入口与 Update Manifest URL。
       expect(root.textContent).toContain('chrome://web-app-internals');
+      expect(root.textContent).toContain('enable-isolated-web-apps');
       expect(root.textContent).toContain('enable-isolated-web-app-dev-mode');
       expect(root.textContent).toContain('enable-isolated-web-app-unmanaged-install');
       expect(root.textContent).toContain('Update Manifest');
+      expect(root.textContent).toContain('Chrome 154');
+      expect(root.querySelector('.install-step a[href="https://www.google.cn/chrome/"]')).not.toBeNull();
       // chrome:// 和 https:// 地址渲染为点击复制芯片。
       const copyChips = [...root.querySelectorAll('.install-steps .copy-chip')].map((el) => el.getAttribute('data-copy'));
       expect(copyChips).toEqual([
+        'chrome://flags/#enable-isolated-web-apps',
         'chrome://flags/#enable-isolated-web-app-dev-mode',
         'chrome://flags/#enable-isolated-web-app-unmanaged-install',
         'chrome://web-app-internals',
