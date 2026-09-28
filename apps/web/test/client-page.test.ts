@@ -51,7 +51,6 @@ describe('client page', () => {
       expect(root.textContent).toContain('chrome://web-app-internals');
       expect(root.textContent).toContain('enable-isolated-web-apps');
       expect(root.textContent).toContain('enable-isolated-web-app-dev-mode');
-      expect(root.textContent).toContain('enable-isolated-web-app-unmanaged-install');
       expect(root.textContent).toContain('Update Manifest');
       expect(root.textContent).toContain('Chrome 154');
       expect(root.querySelector('.install-step a[href="https://www.google.cn/chrome/"]')).not.toBeNull();
@@ -60,7 +59,6 @@ describe('client page', () => {
       expect(copyChips).toEqual([
         'chrome://flags/#enable-isolated-web-apps',
         'chrome://flags/#enable-isolated-web-app-dev-mode',
-        'chrome://flags/#enable-isolated-web-app-unmanaged-install',
         'https://www.google.cn/chrome/',
         'chrome://iwa-dev',
         'https://client.ltsd.ro/updates.json',
