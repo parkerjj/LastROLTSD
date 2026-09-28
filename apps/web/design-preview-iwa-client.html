@@ -383,12 +383,12 @@
       <article class="install-step">
         <span class="step-number">01</span>
         <h3>开启 IWA 开发者模式</h3>
-        <p>在地址栏打开 <button type="button" class="copy-chip"><code>chrome://flags/#enable-isolated-web-app-dev-mode</code><span class="copy-hint">复制</span></button>，设为 <strong>Enabled</strong> 后重启 Chrome。此开关只需开启一次。</p>
+        <p>在地址栏依次打开 <button type="button" class="copy-chip"><code>chrome://flags/#enable-isolated-web-app-dev-mode</code><span class="copy-hint">复制</span></button> 和 <button type="button" class="copy-chip"><code>chrome://flags/#enable-isolated-web-app-unmanaged-install</code><span class="copy-hint">复制</span></button>，都设为 <strong>Enabled</strong>，然后点击 <strong>Relaunch</strong> 重启 Chrome。这两个开关只需开启一次。</p>
       </article>
       <article class="install-step">
         <span class="step-number">02</span>
-        <h3>在 chrome://iwa-dev 中安装</h3>
-        <p>地址栏打开 <button type="button" class="copy-chip"><code>chrome://iwa-dev</code><span class="copy-hint">复制</span></button>，点击 <strong>Install</strong> 按钮，选择「<strong>Update Manifest</strong>」标签页，粘贴更新地址 <button type="button" class="copy-chip"><code>https://client.ltsd.ro/updates.json</code><span class="copy-hint">复制</span></button> 后点击安装。Chrome 会自动拉取最新安装包并完成安装，无需手动下载。Chrome 153 及更早版本请改用 <button type="button" class="copy-chip"><code>chrome://web-app-internals</code><span class="copy-hint">复制</span></button>。</p>
+        <h3>在 chrome://web-app-internals 中安装</h3>
+        <p>地址栏打开 <button type="button" class="copy-chip"><code>chrome://web-app-internals</code><span class="copy-hint">复制</span></button>，找到 <strong>Install IWA from Update Manifest</strong>，粘贴更新地址 <button type="button" class="copy-chip"><code>https://client.ltsd.ro/updates.json</code><span class="copy-hint">复制</span></button> 后点击安装。Chrome 会自动拉取最新安装包，无需手动下载。若其他教程提到的 chrome://iwa-dev 显示 ERR_INVALID_URL，请使用此入口。</p>
       </article>
       <article class="install-step">
         <span class="step-number">03</span>
