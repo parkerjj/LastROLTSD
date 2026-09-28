@@ -19,11 +19,11 @@ const IWA_INFO_URL = "/api/v1/iwa/info";
 const INSTALL_STEPS = [
   {
     title: "开启 IWA 开发者模式",
-    body: `在地址栏打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")}，设为 <strong>Enabled</strong> 后重启 Chrome。此开关只需开启一次。`,
+    body: `在地址栏依次打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")} 和 ${copyChipMarkup("chrome://flags/#enable-isolated-web-app-unmanaged-install")}，都设为 <strong>Enabled</strong>，然后点击 <strong>Relaunch</strong> 重启 Chrome。这两个开关只需开启一次。`,
   },
   {
-    title: "在 chrome://iwa-dev 中安装",
-    body: `地址栏打开 ${copyChipMarkup("chrome://iwa-dev")}，点击 <strong>Install</strong> 按钮，选择「<strong>Update Manifest</strong>」标签页，粘贴更新地址 ${copyChipMarkup(IWA_UPDATE_MANIFEST_URL)} 后点击安装。Chrome 会自动拉取最新安装包并完成安装，无需手动下载。Chrome 153 及更早版本请改用 ${copyChipMarkup("chrome://web-app-internals")}。`,
+    title: "在 chrome://web-app-internals 中安装",
+    body: `地址栏打开 ${copyChipMarkup("chrome://web-app-internals")}，找到 <strong>Install IWA from Update Manifest</strong>，粘贴更新地址 ${copyChipMarkup(IWA_UPDATE_MANIFEST_URL)} 后点击安装。Chrome 会自动拉取最新安装包，无需手动下载。若其他教程提到的 chrome://iwa-dev 显示 ERR_INVALID_URL，请使用此入口。`,
   },
   {
     title: "确认并启动",
