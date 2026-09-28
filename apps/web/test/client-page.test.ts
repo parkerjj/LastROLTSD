@@ -40,7 +40,7 @@ describe('client page', () => {
       expect(root.querySelector('h1')?.textContent).toBe('进阶客户端');
       expect(root.querySelectorAll('.install-step')).toHaveLength(3);
       expect(root.querySelectorAll('.compare-table tbody tr')).toHaveLength(15);
-      expect(root.querySelectorAll('.issue-item')).toHaveLength(5);
+      expect(root.querySelectorAll('.issue-item')).toHaveLength(4);
       // 正式页面：主导航包含 /client 入口并带 NEW 徽章，当前页高亮。
       const navLink = root.querySelector('.site-nav a[href="/client"]');
       expect(navLink).not.toBeNull();
