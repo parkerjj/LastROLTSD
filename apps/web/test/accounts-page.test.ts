@@ -150,25 +150,23 @@ describe("accounts page", () => {
     }
   });
 
-  it("opens the V2 IWA entry URL and falls back to /client when the page keeps focus", () => {
+  it("navigates to the V2 protocol URL and falls back to /client when the page keeps focus", () => {
     vi.useFakeTimers();
     try {
       const { dom, root, restore } = mount({ getAccountStatus: vi.fn() });
       try {
-        const probe = { closed: false, close: vi.fn() };
-        dom.window.open = vi.fn(() => probe as unknown as Window);
+        dom.window.open = vi.fn();
         root
           .querySelector<HTMLButtonElement>("#accounts-launch-v2")!
           .click();
         const openMock = dom.window.open as ReturnType<typeof vi.fn>;
         expect(openMock).toHaveBeenCalledTimes(1);
         expect(openMock).toHaveBeenLastCalledWith(
-          "isolated-app://nuqzolbnqymznffqhrx7ylosbqvbzekt4eybubmopsmsbjz5z2uqaaic/",
-          "_blank",
+          "web+lastro://launch",
+          "_self",
         );
-        // 未安装：本页保持焦点，超时后关闭探测标签并跳安装教程页。
+        // 未安装：协议无响应，本页保持焦点，超时后跳安装教程页。
         vi.advanceTimersByTime(2000);
-        expect(probe.close).toHaveBeenCalledTimes(1);
         expect(openMock).toHaveBeenCalledTimes(2);
         expect(openMock).toHaveBeenLastCalledWith("/client", "_self");
       } finally {
@@ -184,17 +182,15 @@ describe("accounts page", () => {
     try {
       const { dom, root, restore } = mount({ getAccountStatus: vi.fn() });
       try {
-        const probe = { closed: true, close: vi.fn() };
-        dom.window.open = vi.fn(() => probe as unknown as Window);
+        dom.window.open = vi.fn();
         root
           .querySelector<HTMLButtonElement>("#accounts-launch-v2")!
           .click();
-        // 已安装：客户端新窗口夺走焦点，本页触发 blur。
+        // 已安装：客户端窗口夺走焦点，本页触发 blur。
         dom.window.dispatchEvent(new dom.window.Event("blur"));
         vi.advanceTimersByTime(2000);
         const openMock = dom.window.open as ReturnType<typeof vi.fn>;
         expect(openMock).toHaveBeenCalledTimes(1);
-        expect(probe.close).not.toHaveBeenCalled();
       } finally {
         restore();
       }

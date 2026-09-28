@@ -20,18 +20,19 @@ export const PLAY_PAGE_URL = "/play";
 export const LAUNCH_POPUP_KEY = "lastro.launch.popup.v1";
 
 /**
- * V2 进阶客户端（IWA）入口：isolated-app://<Web Bundle ID>/ 即 manifest 的 start_url，
- * 是 Chrome 允许外部网站打开 IWA 的入口点之一。Bundle ID 由签名公钥派生，
- * 只有更换签名密钥才会变化。
+ * V2 进阶客户端（IWA）拉起地址：客户端 manifest 通过 protocol_handlers
+ * 注册的自定义协议。Chrome 禁止网页脚本直接导航 isolated-app:// 地址
+ *（window.open 会被拦成 about:blank#blocked，仅地址栏手输等浏览器 UI
+ * 入口可行），协议处理程序是官方允许网站拉起 IWA 的入口点：已安装时
+ * Chrome 弹「打开应用」确认框，确认后启动客户端；未安装则静默无响应。
  */
-export const IWA_APP_URL =
-  "isolated-app://nuqzolbnqymznffqhrx7ylosbqvbzekt4eybubmopsmsbjz5z2uqaaic/";
+export const IWA_LAUNCH_URL = "web+lastro://launch";
 /** 未安装 V2 客户端时回退的安装引导页。 */
 export const CLIENT_INSTALL_URL = "/client";
 /**
  * 网页无法查询 IWA 是否已安装（浏览器出于隐私不提供此类 API）。折中方案：
- * 发起入口导航后观察本页是否失焦——已安装时客户端新窗口会夺走焦点；
- * 超过此时长本页仍聚焦则判定未安装，跳转安装引导页。
+ * 发起协议导航后观察本页是否失焦——已安装并确认后客户端窗口会夺走焦点；
+ * 超过此时长本页仍聚焦则判定未安装（或用户取消了确认框），跳转安装引导页。
  */
 export const IWA_DETECT_MS = 2000;
 
@@ -192,14 +193,13 @@ export function launchLegacyClient(
 }
 
 /**
- * 尝试拉起 IWA 进阶客户端。已安装：Chrome 拦截 isolated-app 入口导航并打开
- * 客户端窗口，本页随之失焦；未安装：探测标签落在浏览器错误页，本页保持焦点，
- * 超时后关闭探测标签并跳 CLIENT_INSTALL_URL 安装引导页。
+ * 尝试拉起 IWA 进阶客户端：在当前标签发起自定义协议导航（不会产生多余
+ * 标签页）。已安装：Chrome 弹「打开应用」确认框，确认后客户端窗口夺走
+ * 焦点，本页触发 blur；未安装：协议无响应，本页保持焦点，超时后跳
+ * CLIENT_INSTALL_URL 安装引导页。
  * onSettled 在判定结束时回调（参数为是否成功拉起），无论结果如何都会调用。
  */
-export function launchIwaClient(
-  onSettled?: (launched: boolean) => void,
-): void {
+export function launchIwaClient(onSettled?: (launched: boolean) => void): void {
   let launched = false;
   window.addEventListener(
     "blur",
@@ -208,11 +208,10 @@ export function launchIwaClient(
     },
     { once: true },
   );
-  const probe = window.open(IWA_APP_URL, "_blank");
+  window.open(IWA_LAUNCH_URL, "_self");
   window.setTimeout(() => {
     onSettled?.(launched);
     if (launched) return;
-    if (probe && !probe.closed) probe.close();
     window.open(CLIENT_INSTALL_URL, "_self");
   }, IWA_DETECT_MS);
 }
