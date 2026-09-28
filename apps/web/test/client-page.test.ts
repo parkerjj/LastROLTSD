@@ -44,7 +44,7 @@ describe('client page', () => {
       // 半开放测试页：主导航不包含 /client 入口，也没有任何 active 高亮。
       expect(root.querySelector('.site-nav a[href="/client"]')).toBeNull();
       expect(root.querySelector('.site-nav a[aria-current="page"]')).toBeNull();
-      // 无下载按钮——安装通过 Update Manifest URL 在 chrome://web-app-internals 中完成。
+      // 无下载按钮——安装通过 Update Manifest URL 优先在 chrome://iwa-dev 中完成。
       expect(root.querySelector('a.download-button')).toBeNull();
       expect(root.querySelector('.qq-copy')?.getAttribute('data-copy')).toBe('725955796');
       // 安装教程包含三个开关、更新指引、可用的安装入口与 Update Manifest URL。
@@ -61,8 +61,10 @@ describe('client page', () => {
         'chrome://flags/#enable-isolated-web-apps',
         'chrome://flags/#enable-isolated-web-app-dev-mode',
         'chrome://flags/#enable-isolated-web-app-unmanaged-install',
-        'chrome://web-app-internals',
+        'https://www.google.cn/chrome/',
+        'chrome://iwa-dev',
         'https://client.ltsd.ro/updates.json',
+        'chrome://web-app-internals',
       ]);
     } finally {
       restore();
@@ -73,13 +75,13 @@ describe('client page', () => {
     const { root, written, restore } = mountInJsdom();
 
     try {
-      const chip = root.querySelector<HTMLButtonElement>('.install-steps .copy-chip[data-copy="chrome://web-app-internals"]');
-      if (!chip) throw new Error('Missing web-app-internals copy chip');
+      const chip = root.querySelector<HTMLButtonElement>('.install-steps .copy-chip[data-copy="chrome://iwa-dev"]');
+      if (!chip) throw new Error('Missing iwa-dev copy chip');
 
       chip.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(written).toEqual(['chrome://web-app-internals']);
+      expect(written).toEqual(['chrome://iwa-dev']);
       expect(chip.querySelector('.copy-hint')?.textContent).toBe('已复制');
     } finally {
       restore();
