@@ -15,6 +15,8 @@ export interface AppEnv {
   SNAPSHOT_QUEUE?: { send(message: SnapshotMessage): Promise<void> } | undefined;
   SNAPSHOT_QUEUE_DAILY_BUDGET?: number | undefined;
   SNAPSHOT_RECONCILE_BATCH_SIZE?: number | undefined;
+  /** Chrome IWA Update Manifest（updates.json）的公开 URL；用于解析最新 Release 安装包地址。 */
+  IWA_UPDATES_MANIFEST_URL?: string | undefined;
 }
 
 export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
@@ -39,6 +41,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     SNAPSHOT_QUEUE: bindings.SNAPSHOT_QUEUE as AppEnv['SNAPSHOT_QUEUE'],
     SNAPSHOT_QUEUE_DAILY_BUDGET: nonnegativeInteger(bindings.SNAPSHOT_QUEUE_DAILY_BUDGET, 9000),
     SNAPSHOT_RECONCILE_BATCH_SIZE: positiveInteger(bindings.SNAPSHOT_RECONCILE_BATCH_SIZE, 200),
+    IWA_UPDATES_MANIFEST_URL: typeof bindings.IWA_UPDATES_MANIFEST_URL === 'string' && bindings.IWA_UPDATES_MANIFEST_URL.trim() !== '' ? bindings.IWA_UPDATES_MANIFEST_URL.trim() : undefined,
   };
 }
 

@@ -6,9 +6,15 @@ import { siteNavMarkup, mountSiteNav } from "./nav";
  * 半开放测试页：不进入主导航与页脚链接，仅通过直接访问 URL 到达。
  */
 
-/** 签名 Release 安装包（.swbn）下载地址；部署 IWA Release 后填入，留空则显示「即将发布」。 */
-const CLIENT_BUNDLE_URL = "";
+/**
+ * 下载地址固定指向 Worker 的 latest 端点（302 重定向到 updates.json 中最新版本的 .swbn）。
+ * 发布新 client 时无需回来改这里——Worker 会自动读取最新的 updates.json。
+ */
+const CLIENT_BUNDLE_URL = "/api/v1/iwa/latest";
+/** 版本号加载前的占位显示；实际版本由 /api/v1/iwa/info 动态填入。 */
 const CLIENT_VERSION = "v0.1.0";
+/** 获取最新 Release 信息的端点，返回 { version, src }。 */
+const IWA_INFO_URL = "/api/v1/iwa/info";
 
 const INSTALL_STEPS = [
   {
@@ -106,6 +112,11 @@ const COMPARE_ROWS = [
     newClient: "多项功能优化与改良",
   },
   {
+    feature: "手柄支持",
+    oldClient: "无",
+    newClient: "支持手柄操作RO，用手柄玩过FF14吗？",
+  },
+  {
     feature: "「十全大补」补丁",
     oldClient: "无",
     newClient: "补丁功能部分已加入（例如装备免鉴定），剩余将陆续内置到客户端中",
@@ -146,10 +157,11 @@ const KNOWN_ISSUES = [
 ] as const;
 
 function downloadButtonMarkup(): string {
-  if (!CLIENT_BUNDLE_URL) {
-    return `<span class="download-button is-pending" aria-disabled="true"><i class="ph ph-clock-countdown" aria-hidden="true"></i>安装包即将发布</span>`;
-  }
   return `<a class="download-button" href="${CLIENT_BUNDLE_URL}" download><i class="ph ph-download-simple" aria-hidden="true"></i>下载安装包（.swbn）</a>`;
+}
+
+function pendingButtonMarkup(): string {
+  return `<span class="download-button is-pending" aria-disabled="true"><i class="ph ph-clock-countdown" aria-hidden="true"></i>安装包即将发布</span>`;
 }
 
 function installStepsMarkup(): string {
@@ -203,22 +215,22 @@ export function mountClientPage(root: HTMLElement): void {
           <div class="client-hero-meta">
             <span class="meta-chip"><i class="ph ph-desktop" aria-hidden="true"></i>仅限电脑端</span>
             <span class="meta-chip"><i class="ph ph-google-chrome-logo" aria-hidden="true"></i>Chrome 浏览器</span>
-            <span class="meta-chip"><i class="ph ph-browser" aria-hidden="true"></i>预计兼容 Edge</span>
+            <span class="meta-chip"><i class="ph ph-browser" aria-hidden="true"></i>兼容 Edge</span>
             <span class="meta-chip"><i class="ph ph-git-fork" aria-hidden="true"></i>完全开源</span>
           </div>
         </div>
         <aside class="client-download-card" aria-label="下载客户端">
           <span class="download-kicker">当前版本</span>
-          <div class="download-version"><strong>${CLIENT_VERSION}</strong><span class="beta-tag">测试版</span></div>
+          <div class="download-version"><strong data-latest-version>${CLIENT_VERSION}</strong><span class="beta-tag">测试版</span></div>
           <p class="download-desc">签名 Release 安装包（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。</p>
-          ${downloadButtonMarkup()}
+          <div class="download-action" data-download-action>${downloadButtonMarkup()}</div>
           <div class="download-file-info"><span>签名 Release 版</span><span>Chrome IWA（.swbn）</span></div>
         </aside>
       </section>
 
       <section class="site-notice client-requirements" aria-label="环境要求">
         <span class="notice-badge">环境要求</span>
-        <div class="notice-body"><p>本客户端<strong>仅支持电脑端</strong>：请使用桌面版 <strong>Google Chrome</strong> 浏览器安装（Microsoft Edge 预计可用，未完整验证），暂不支持手机与平板（未来会加入）。</p></div>
+        <div class="notice-body"><p>本客户端<strong>仅支持电脑端</strong>：请使用桌面版 <strong>Google Chrome</strong> 浏览器安装（Microsoft Edge 也许可用，但我不用Windows，所以未完成Edge验证），暂不支持手机与平板（未来会加入，十一假期以后）。</p></div>
       </section>
 
       <section class="client-section" aria-labelledby="install-title">
@@ -310,4 +322,31 @@ export function mountClientPage(root: HTMLElement): void {
       }
     });
   });
+
+  refreshLatestRelease(root);
+}
+
+/** 拉取最新 Release 版本号；无 Release 时把下载按钮替换为「即将发布」占位。 */
+function refreshLatestRelease(root: HTMLElement): void {
+  const versionEl = root.querySelector<HTMLElement>("[data-latest-version]");
+  const actionEl = root.querySelector<HTMLElement>("[data-download-action]");
+  void (async () => {
+    try {
+      const response = await fetch(IWA_INFO_URL, {
+        headers: { accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`info ${response.status}`);
+      const payload = (await response.json()) as { version?: string };
+      if (
+        versionEl &&
+        typeof payload.version === "string" &&
+        payload.version.length > 0
+      ) {
+        versionEl.textContent = `v${payload.version}`;
+      }
+    } catch {
+      // 无可用 Release（404）或 manifest 暂不可达：保留占位版本号，下载按钮改为「即将发布」。
+      if (actionEl) actionEl.innerHTML = pendingButtonMarkup();
+    }
+  })();
 }

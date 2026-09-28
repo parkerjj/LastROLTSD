@@ -51,7 +51,7 @@ max_retries = 3
 
 [env.production]
 name = "lastroweb-production"
-vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000" }
+vars = { ENVIRONMENT = "production", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000", IWA_UPDATES_MANIFEST_URL = "https://client.ltsd.ro/updates.json" }
 assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence", "/api/*"] }
 
 # Cacheable responses (RMS GIF assets, search/history JSON) are served from
