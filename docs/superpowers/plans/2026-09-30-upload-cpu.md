@@ -61,7 +61,7 @@
 - [x] Remove redundant post-schema structural traversals while keeping effective body limits, and omit unused identity canonical strings from stored metadata.
 - [x] Run all tests and benchmark validation/current HTTP paths. Inspect the remaining costs before choosing database changes; record any deferred architecture work with its missing evidence.
 - [x] Update CPU verification documentation, run lint/typecheck/build/docs and Worker dry-run checks, request an independent whole-branch review, and fix important findings.
-- [ ] Commit and push the new branch, create the PR, and inspect its CI result.
+- [x] Commit and push the new branch, create the PR, and inspect its CI result.
 
 ## Execution notes
 
@@ -71,3 +71,5 @@
 
 - Independent whole-branch review found no critical or important issue. Three minor findings were reproduced with failing tests and fixed: unusual accessor/iterator fallback, fixed body-limit error precedence, and declared-size request metrics. Final benchmark rerun includes these compatibility guards.
 - Full checks before review: 361 tests passed, 8 MySQL integration tests skipped; lint, typecheck, web build, 58 documentation assertions, and production Worker dry-run passed. Final checks after review are recorded in the PR.
+
+- Published as [PR #1](https://github.com/parkerjj/LastROLTSD/pull/1) on `codex/market-upload-cpu`. GitHub CI verify passed on the final implementation commit; deployment was skipped for the PR. Final local suite: 363 passed, 8 integration tests skipped.
