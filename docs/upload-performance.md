@@ -96,7 +96,8 @@ up using Cron alone. Queue remains the normal transport for this workload.
 ## CPU verification
 
 The 2026-09-30 optimization keeps protocol v2, canonical payload/identity hashes,
-ordered acknowledgements, and transaction boundaries unchanged. Successful JSON
+ordered acknowledgements, and transaction boundaries unchanged. Accessor objects
+and arrays with custom iterators use the reference parser. Successful JSON
 uploads use a specialized linear parser; unsupported or invalid inputs still use
 the retained Zod schema for the same validation issues. The POST upload entry skips
 Hono route registration and unrelated services. Full receipt binds only identity
@@ -120,15 +121,15 @@ Measured requests contain 10–50 shops, 100–2,000 items, and 200–10,000 opt
 
 | Body bytes / shape | Validation before → after | New receipt, warm before → after | New receipt, miss before → after |
 | --- | ---: | ---: | ---: |
-| 20,036 / 10 shops, 100 items, 200 options | 0.367 → 0.080 ms | 1.900 → 0.564 ms | 1.657 → 0.762 ms |
-| 75,316 / 20 shops, 400 items, 800 options | 1.228 → 0.098 ms | 3.361 → 1.178 ms | 3.366 → 1.651 ms |
-| 365,056 / 50 shops, 2,000 items, 4,000 options | 6.381 → 0.505 ms | 15.196 → 4.937 ms | 15.688 → 6.323 ms |
-| 381,336 / 10 shops, 500 items, 10,000 options | 5.948 → 0.477 ms | 14.515 → 4.928 ms | 13.725 → 5.194 ms |
+| 20,036 / 10 shops, 100 items, 200 options | 0.367 → 0.080 ms | 1.900 → 0.620 ms | 1.657 → 0.796 ms |
+| 75,316 / 20 shops, 400 items, 800 options | 1.228 → 0.293 ms | 3.361 → 1.417 ms | 3.366 → 1.827 ms |
+| 365,056 / 50 shops, 2,000 items, 4,000 options | 6.381 → 1.289 ms | 15.196 → 6.291 ms | 15.688 → 7.224 ms |
+| 381,336 / 10 shops, 500 items, 10,000 options | 5.948 → 1.464 ms | 14.515 → 5.837 ms | 13.725 → 6.150 ms |
 
 `full-new` reuses the same authenticated source and shop identities. `full-new-cold`
 changes the authenticated source every invocation to force cache misses; it is
 not a cold-isolate/startup measurement. Duplicate receipt seeding is outside the
-timed region. Duplicate and last-part CPU improved by 65–74% and 68–69%, respectively,
+timed region. Duplicate and last-part CPU improved by 53–67% and 56–65%, respectively,
 in these workloads. Full receipt SQL statement counts remain unchanged: nine for a
 new part, three for a duplicate, and eleven for the synthetic last-part dispatch
 case. Compact identity metadata saves approximately 220 bytes per shop in new-part

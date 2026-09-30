@@ -38,6 +38,26 @@ function repo(hash: string, status: 'active' | 'disabled' = 'active'): MarketRep
 }
 
 describe('upload route', () => {
+  it('retains validation precedence and fixed byte-limit errors above a higher configured cap', async () => {
+    const key = 'route-secret';
+    const app = new Hono();
+    registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 1024 * 1024 }, repo(await hashApiKey(key)),
+      { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
+    const padding = ' '.repeat(512 * 1024);
+    for (const [raw, batch, status, code] of [
+      ['{', 'snap/0', 400, 'malformed_json'],
+      [JSON.stringify({ ...heartbeatPayload, protocol_version: 1 }), 'snap/0', 422, 'invalid_upload'],
+      [JSON.stringify(heartbeatPayload), 'wrong/0', 400, 'idempotency_key_mismatch'],
+      [JSON.stringify(heartbeatPayload), 'snap/0', 413, 'payload_too_large'],
+    ] as const) {
+      const response = await app.request('/api/v1/market/upload', { method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'idempotency-key': batch }, body: raw + padding });
+      expect(response.status).toBe(status);
+      const error = (await response.json() as { error: { code: string; message: string; action?: string } }).error;
+      expect(error.code).toBe(code);
+      if (status === 413) expect(error).toMatchObject({ message: 'Upload body exceeds 512 KiB', action: 'reshard_upload' });
+    }
+  });
   it('authenticates before accepting a valid upload', async () => {
     const key = 'route-secret'; const app = new Hono(); const repository = repo(await hashApiKey(key));
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repository, { applyBatchObservations: async (_source, _session, observations) => ({ processedListings: observations.length, changedListings: observations.length, soldEvents: 0 }) });

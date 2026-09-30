@@ -32,14 +32,16 @@ function trackPools(fail = false) {
 
 describe('Worker MySQL connection ownership', () => {
   it('uses the same generated request ID in upload error bodies and headers', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await worker.fetch(new Request('https://example.test/api/v1/market/upload', {
-      method: 'POST', headers: { 'idempotency-key': 'snapshot/0' }, body: '{}',
+      method: 'POST', headers: { 'idempotency-key': 'snapshot/0', 'content-length': '2' }, body: '{}',
     }), bindings);
     expect(response.status).toBe(401);
     const body = await response.json() as { error: { request_id: string } };
     expect(body.error.request_id).toBe(response.headers.get('x-request-id'));
     expect(response.headers.get('cache-control')).toBe('no-store');
+    const metric = errors.mock.calls.map(([line]) => JSON.parse(String(line))).find((entry) => entry.metric === 'lastroweb.request');
+    expect(metric).toMatchObject({ body_bytes: 2 });
   });
 
   it('isolates concurrent direct uploads by source and per-request limits', async () => {

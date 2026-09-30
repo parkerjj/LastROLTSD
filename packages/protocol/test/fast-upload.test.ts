@@ -86,6 +86,23 @@ describe('specialized upload parser', () => {
     expect(parseUploadRequest(request)).toStrictEqual(uploadRequestSchema.parse(request));
   });
 
+  it('uses the reference parser for accessor fields and custom array iterators', () => {
+    const accessor = () => {
+      const request = valid();
+      let reads = 0;
+      Object.defineProperty(request.shops[0]!.items[0]!, 'price', { enumerable: true, get: () => ++reads === 1 ? 10 : NaN });
+      return request;
+    };
+    expect(tryParseUploadRequest(accessor())).toBeUndefined();
+    expect(parseUploadRequest(accessor())).toStrictEqual(uploadRequestSchema.parse(accessor()));
+    const request = valid();
+    const cards = [1];
+    cards[Symbol.iterator] = () => [2][Symbol.iterator]();
+    Object.assign(request.shops[0]!.items[0]!, { cards });
+    expect(tryParseUploadRequest(request)).toBeUndefined();
+    expect(parseUploadRequest(request)).toStrictEqual(uploadRequestSchema.parse(request));
+  });
+
   it('agrees with the schema across deterministically generated field mutations', () => {
     const values: unknown[] = [undefined, null, false, true, '', ' ', '123', -1, -0, 0, 1, 0.5, 20, 32, 64,
       256, 1000, 65535, 2147483647, 2147483648, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, [], {}, new Date(0)];

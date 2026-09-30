@@ -124,7 +124,9 @@ export async function fetchUpload(request: Request, env: AppEnv, database: Mysql
   const repository = createMysqlRepository(database, env.CURSOR_SECRET);
   const response = await uploadResponse(request, env, repository, undefined, createUploadHandler(database, env), requestId);
   response.headers.set('x-request-id', requestId);
-  recordMetric({ requestId, route: '/api/v1/market/upload', status: response.status, elapsedMs: Date.now() - started });
+  const declaredBytes = Number(request.headers.get('content-length') ?? 0);
+  recordMetric({ requestId, route: '/api/v1/market/upload', status: response.status, elapsedMs: Date.now() - started,
+    ...(Number.isFinite(declaredBytes) && declaredBytes > 0 ? { bodyBytes: declaredBytes } : {}) });
   return response;
 }
 

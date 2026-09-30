@@ -59,11 +59,12 @@ export async function uploadResponse(
     stage = 'validate';
     const idempotencyKey = rawRequest.headers.get('idempotency-key') ?? undefined;
     if (!isValidIdempotencyKey(idempotencyKey)) return logError('invalid_idempotency_key', 'Idempotency-Key header is required and must be printable ASCII', 400, 'UploadRequestError', { retryable: false }, { expected: 'a printable Idempotency-Key header', actual: idempotencyKey === undefined ? 'missing' : 'invalid' });
-    if (bodyBytes > Math.min(env.MAX_BODY_BYTES, MAX_UPLOAD_BYTES)) return logError('payload_too_large', 'Upload body exceeds configured limit', 413, 'LimitError', { retryable: false, action: 'reshard_upload' }, { expected: Math.min(env.MAX_BODY_BYTES, MAX_UPLOAD_BYTES), actual: bodyBytes });
+    if (bodyBytes > env.MAX_BODY_BYTES) return logError('payload_too_large', 'Upload body exceeds configured limit', 413, 'LimitError', { retryable: false, action: 'reshard_upload' }, { expected: env.MAX_BODY_BYTES, actual: bodyBytes });
     let parsed: unknown;
     try { parsed = JSON.parse(raw); } catch { return logError('malformed_json', 'Malformed JSON', 400, 'UploadValidationError', { retryable: false }, { expected: 'valid JSON', actual: 'JSON parse failed' }); }
     const request = parseUploadRequest(parsed);
     if (idempotencyKey !== canonicalBatchId(request)) return logError('idempotency_key_mismatch', 'Idempotency-Key must match the canonical snapshot part', 400, 'UploadValidationError', { retryable: false }, { expected: 'canonical snapshot part', actual: 'mismatch' });
+    if (bodyBytes > MAX_UPLOAD_BYTES) throw new LimitError(413, 'payload_too_large', 'Upload body exceeds 512 KiB', 'reshard_upload');
     stage = request.snapshot_mode === 'full' ? 'receive_full_part' : 'ingest';
     const result = handler ? await handler(source, request, idempotencyKey)
       : await ingestUpload(source, request, idempotencyKey, repo, state ?? createListingStateService(repo), (nextStage) => { stage = nextStage; });

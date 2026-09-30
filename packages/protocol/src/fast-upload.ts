@@ -15,8 +15,16 @@ function record(value: unknown, keys: ReadonlySet<string>): value is Record<stri
   const prototype = Object.getPrototypeOf(value);
   // Exotic JS objects use the reference parser; network JSON is always plain.
   if (prototype !== Object.prototype && prototype !== null) return false;
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (!keys.has(key) || !('value' in Object.getOwnPropertyDescriptor(value, key)!)) return false;
+  }
   for (const key in value) if (!keys.has(key)) return false;
   return true;
+}
+
+function array(value: unknown): value is unknown[] {
+  return Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype
+    && value[Symbol.iterator] === Array.prototype[Symbol.iterator];
 }
 
 function integer(value: unknown, min: number, max: number): value is number {
@@ -45,7 +53,7 @@ function parseItem(input: unknown): UploadItem | undefined {
     || !integer(input.price, 0, Number.MAX_SAFE_INTEGER) || !integer(input.quantity, 0, Number.MAX_SAFE_INTEGER)) return undefined;
   const rawCards = input.cards === undefined ? [] : input.cards;
   const rawOptions = input.options === undefined ? [] : input.options;
-  if (!Array.isArray(rawCards) || rawCards.length > 4 || !Array.isArray(rawOptions) || rawOptions.length > 32) return undefined;
+  if (!array(rawCards) || rawCards.length > 4 || !array(rawOptions) || rawOptions.length > 32) return undefined;
   const cards: number[] = [];
   for (let index = 0; index < rawCards.length; index++) {
     const card = rawCards[index];
@@ -77,7 +85,7 @@ function parseShop(input: unknown): UploadShop | undefined {
     || (input.shop_status !== 'opening' && input.shop_status !== 'dismissed')
     || (input.shop_type !== 'buy' && input.shop_type !== 'sell')
     || !integer(input.x, 0, 1000) || !integer(input.y, 0, 1000)
-    || !Array.isArray(input.items) || input.items.length > 256
+    || !array(input.items) || input.items.length > 256
     || (input.shop_status === 'dismissed' && input.items.length !== 0)) return undefined;
   const items: UploadItem[] = [];
   for (let index = 0; index < input.items.length; index++) {
@@ -99,7 +107,7 @@ export function tryParseUploadRequest(input: unknown): UploadRequest | undefined
     || (input.snapshot_mode !== 'full' && input.snapshot_mode !== 'delta' && input.snapshot_mode !== 'heartbeat')
     || !integer(input.part_index, 0, 63) || !integer(input.part_count, 1, 64) || input.part_index >= input.part_count
     || typeof input.observed_at !== 'string' || !uploadObservedAtSchema.safeParse(input.observed_at).success
-    || !Array.isArray(input.shops) || input.shops.length > 300) return undefined;
+    || !array(input.shops) || input.shops.length > 300) return undefined;
   const shops: UploadShop[] = [];
   const uuids = new Set<string>();
   for (let index = 0; index < input.shops.length; index++) {

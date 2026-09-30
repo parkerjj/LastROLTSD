@@ -48,7 +48,7 @@
 - [x] Write tests for defaults, output field order, strict nested fields, dates, numeric ranges, non-mutation, and duplicate UUID/dismissed behavior. Run RED before implementing the parser.
 - [x] Implement static linear validation and direct output construction. Reuse the schema's single root timestamp validator instead of independently redefining date acceptance.
 - [x] Run differential valid/invalid cases, the protocol suite, and the benchmark. Expected: equivalent payload bytes/errors and lower validation CPU.
-- [ ] Commit the parser and its tests with the complete optimization branch.
+- [x] Commit the parser and its tests with the complete optimization branch.
 
 ### Task 3: Direct upload entry and compact receipt metadata
 
@@ -60,7 +60,7 @@
 - [x] Extract the route handler with unchanged response behavior. Bypass application/router/service setup for POST upload; create the synchronous listing service only when needed.
 - [x] Remove redundant post-schema structural traversals while keeping effective body limits, and omit unused identity canonical strings from stored metadata.
 - [x] Run all tests and benchmark validation/current HTTP paths. Inspect the remaining costs before choosing database changes; record any deferred architecture work with its missing evidence.
-- [ ] Update CPU verification documentation, run lint/typecheck/build/docs and Worker dry-run checks, request an independent whole-branch review, and fix important findings.
+- [x] Update CPU verification documentation, run lint/typecheck/build/docs and Worker dry-run checks, request an independent whole-branch review, and fix important findings.
 - [ ] Commit and push the new branch, create the PR, and inspect its CI result.
 
 ## Execution notes
@@ -68,3 +68,6 @@
 - Added a bounded source-scoped pure identity cache after measuring repeated identity costs. Cache hits, mutations, source changes, FIFO eviction, and missed-cache CPU are covered.
 - Database stored procedures and client sharding are deferred: the harness excludes real mysql2/TLS cost, no test MySQL is configured, and OpenKore is outside this repository. No database/schema or upload contract changes are justified by the available evidence.
 - See `docs/upload-performance.md` and its raw comparison data for measured scope and production verification requirements.
+
+- Independent whole-branch review found no critical or important issue. Three minor findings were reproduced with failing tests and fixed: unusual accessor/iterator fallback, fixed body-limit error precedence, and declared-size request metrics. Final benchmark rerun includes these compatibility guards.
+- Full checks before review: 361 tests passed, 8 MySQL integration tests skipped; lint, typecheck, web build, 58 documentation assertions, and production Worker dry-run passed. Final checks after review are recorded in the PR.
