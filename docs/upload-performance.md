@@ -95,22 +95,66 @@ up using Cron alone. Queue remains the normal transport for this workload.
 
 ## CPU verification
 
-No runtime benchmark or MySQL integration run was performed for the async change,
-per the requested static-only verification scope. Type checking and static review
-cannot establish a 10ms production CPU bound. In particular, moving a 115KB part
-to Queue does not make its parsing, fingerprinting, or mysql2 serialization free.
+The 2026-09-30 optimization keeps protocol v2, canonical payload/identity hashes,
+ordered acknowledgements, and transaction boundaries unchanged. Successful JSON
+uploads use a specialized linear parser; unsupported or invalid inputs still use
+the retained Zod schema for the same validation issues. The POST upload entry skips
+Hono route registration and unrelated services. Full receipt binds only identity
+hashes and shop IDs, excluding unused canonical strings. A 1,024-entry FIFO cache
+reuses pure identity calculations, includes every raw identity field and source ID,
+and stores no sockets, database handles, authentication state, or market state.
+Cold/missed/evicted cache entries calculate the same identity as before.
+
+The benchmark now exercises validation and the **current async HTTP receipt**,
+including duplicates and last-part dispatch. Run:
+
+```sh
+pnpm exec vite-node --config vitest.config.ts scripts/benchmark-upload-cpu.mjs
+# Optional: BENCHMARK_ITERATIONS=100 BENCHMARK_ROUNDS=5
+```
+
+The same harness was run serially on baseline `ff17fa0` and the optimized branch,
+with Node v24.19.0, 30 warm-up invocations, five rounds of 100 requests, and median
+per-request process CPU (user + system). Bodies stay within the 512 KiB limit.
+Measured requests contain 10–50 shops, 100–2,000 items, and 200–10,000 options.
+
+| Body bytes / shape | Validation before → after | New receipt, warm before → after | New receipt, miss before → after |
+| --- | ---: | ---: | ---: |
+| 20,036 / 10 shops, 100 items, 200 options | 0.367 → 0.080 ms | 1.900 → 0.564 ms | 1.657 → 0.762 ms |
+| 75,316 / 20 shops, 400 items, 800 options | 1.228 → 0.098 ms | 3.361 → 1.178 ms | 3.366 → 1.651 ms |
+| 365,056 / 50 shops, 2,000 items, 4,000 options | 6.381 → 0.505 ms | 15.196 → 4.937 ms | 15.688 → 6.323 ms |
+| 381,336 / 10 shops, 500 items, 10,000 options | 5.948 → 0.477 ms | 14.515 → 4.928 ms | 13.725 → 5.194 ms |
+
+`full-new` reuses the same authenticated source and shop identities. `full-new-cold`
+changes the authenticated source every invocation to force cache misses; it is
+not a cold-isolate/startup measurement. Duplicate receipt seeding is outside the
+timed region. Duplicate and last-part CPU improved by 65–74% and 68–69%, respectively,
+in these workloads. Full receipt SQL statement counts remain unchanged: nine for a
+new part, three for a duplicate, and eleven for the synthetic last-part dispatch
+case. Compact identity metadata saves approximately 220 bytes per shop in new-part
+SQL bindings. Raw samples are in [the comparison data](benchmarks/2026-09-30-upload-cpu.json).
+
+These are **comparative local Node measurements with synthetic storage**, excluding
+mysql2 packet serialization, real MySQL execution, connection/TLS setup, production
+tracing, and Cloudflare scheduling/accounting. They do not establish a 10 ms Worker
+CPU bound. No MySQL integration run or production deployment was performed for
+this optimization; MySQL integration tests require a configured test database.
+The earlier async pipeline change was verified statically at the time it landed.
 
 After deployment, compare Workers invocation CPU and `exceededCpu` for HTTP
 receipt, each materialize part, each reconciliation stage, and finalization. Log
 events `snapshot_chunk` include stage, generation, and processed count. Network
 waiting time is not CPU time; application elapsed time cannot substitute for it.
-Targets remain p95 below 6ms and p99 below 8ms, not measured results. Reduce client
-part size for materialization and `SNAPSHOT_RECONCILE_BATCH_SIZE` for reconciliation
-when necessary, then recalculate Queue operations.
+Targets remain p95 below 6 ms and p99 below 8 ms, not measured production results.
 
-The existing `scripts/benchmark-upload-cpu.mjs` exercises the legacy synchronous
-service with an in-memory repository. Its historical measurements are not evidence
-for the production async pipeline; do not use it as an async acceptance benchmark.
+If the remaining CPU is dominated by mysql2/TLS, measure statement/parameter costs
+with a test MySQL instance before considering a transactional stored procedure.
+The current PR deliberately adds no migration or connection reuse across Worker
+invocations. If CPU scales with client body size, reduce client part size (external
+OpenKore implementation) and separately tune `SNAPSHOT_RECONCILE_BATCH_SIZE` for
+reconciliation, then recalculate Queue operations. Splitting one full part after
+HTTP parsing cannot remove that invocation's parsing cost; the current protocol
+also forbids duplicate canonical shops across parts.
 
 References: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Queue pricing](https://developers.cloudflare.com/queues/platform/pricing/),

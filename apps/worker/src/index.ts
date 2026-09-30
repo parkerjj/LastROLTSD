@@ -3,7 +3,7 @@ import { resolveAppEnv, type AppEnv } from './env';
 import { healthPayload } from './routes/health';
 import { createMysqlDatabase, type MysqlDatabase } from './db/mysql-client';
 import { createMysqlRepository } from './db/mysql-repository';
-import { registerUploadRoute } from './routes/upload';
+import { registerUploadRoute, uploadResponse } from './routes/upload';
 import { registerSearchRoute, searchResponse } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
 import { registerHistoryRoute } from './routes/history';
@@ -33,6 +33,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   app.use('*', async (c, next) => {
     const started = Date.now();
     const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
+    c.set('requestId', requestId);
     c.header('x-request-id', requestId);
     try {
       await next();
@@ -83,6 +84,9 @@ export default {
     // A Worker socket belongs to the invocation that opened it.
     const database = env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined;
     try {
+      if (request.method === 'POST' && url.pathname === '/api/v1/market/upload' && database) {
+        return await fetchUpload(request, env, database);
+      }
       return await createApp(env, database).fetch(request);
     } finally {
       await database?.close();
@@ -111,6 +115,18 @@ export default {
     }
   },
 };
+
+// Upload needs no router or unrelated services. The caller owns this invocation's
+// database and closes it after receipt, including on every error path.
+export async function fetchUpload(request: Request, env: AppEnv, database: MysqlDatabase): Promise<Response> {
+  const started = Date.now();
+  const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
+  const repository = createMysqlRepository(database, env.CURSOR_SECRET);
+  const response = await uploadResponse(request, env, repository, undefined, createUploadHandler(database, env), requestId);
+  response.headers.set('x-request-id', requestId);
+  recordMetric({ requestId, route: '/api/v1/market/upload', status: response.status, elapsedMs: Date.now() - started });
+  return response;
+}
 
 const itemIdsCache = new WeakMap<object, Promise<ReadonlySet<number>>>();
 let catalogItemIdsFallback: Promise<ReadonlySet<number>> | undefined;
