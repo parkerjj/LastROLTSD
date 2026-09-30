@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { computeShopIdentity, normalizeShopIdentity } from '../src/domain/shop-identity';
 
 const base = {
@@ -12,6 +12,33 @@ const base = {
 };
 
 describe('source-scoped shop identity', () => {
+  it('reuses immutable calculations while keeping sources and returned objects isolated', async () => {
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+    const input = { sourceId: 'cache-test-source', vendorAccountId: 'cache-vendor', shopType: 'sell' as const,
+      mapName: 'prontera', x: 1, y: 2, title: 'Cache shop' };
+    try {
+      const first = await computeShopIdentity(input);
+      const expected = { ...first };
+      first.identityHash = 'caller mutation';
+      expect(await computeShopIdentity(input)).toEqual(expected);
+      expect(digest).toHaveBeenCalledTimes(1);
+      const other = await computeShopIdentity({ ...input, sourceId: 'other-cache-test-source' });
+      expect(other.identityHash).not.toBe(expected.identityHash);
+      expect(digest).toHaveBeenCalledTimes(2);
+    } finally { digest.mockRestore(); }
+  });
+
+  it('bounds the identity cache and recalculates an evicted entry', async () => {
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+    const input = { sourceId: 'cache-eviction-source', vendorAccountId: 'first', shopType: 'sell' as const,
+      mapName: 'prontera', x: 1, y: 2, title: 'Shop' };
+    try {
+      const first = await computeShopIdentity(input);
+      for (let index = 0; index < 1024; index++) await computeShopIdentity({ ...input, vendorAccountId: String(index) });
+      expect(await computeShopIdentity(input)).toEqual(first);
+      expect(digest).toHaveBeenCalledTimes(1026);
+    } finally { digest.mockRestore(); }
+  });
   it('normalizes stable identity fields and excludes vendor display name', () => {
     const normalized = normalizeShopIdentity(base);
     expect(normalized.mapNameNormalized).toBe('prontera');

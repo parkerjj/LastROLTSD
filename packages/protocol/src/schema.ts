@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { UploadRequest } from './types';
+import { tryParseUploadRequest, uploadObservedAtSchema } from './fast-upload';
 
 const integer = z.number().int().finite();
 const option = z.object({ type: integer.min(0).max(65535), value: integer.min(-2147483648).max(2147483647), param: integer.min(-2147483648).max(2147483647) }).strict();
@@ -18,7 +19,7 @@ const shop = z.object({
 export const uploadRequestSchema = z.object({
   protocol_version: z.literal(2), client_run_id: z.string().trim().min(1).max(120), snapshot_id: z.string().trim().min(1).max(160),
   snapshot_mode: z.enum(['full', 'delta', 'heartbeat']), part_index: integer.min(0).max(63), part_count: integer.min(1).max(64),
-  observed_at: z.string().datetime({ offset: true }), shops: z.array(shop).max(300),
+  observed_at: uploadObservedAtSchema, shops: z.array(shop).max(300),
 }).strict().superRefine((value, ctx) => {
   if (value.part_index >= value.part_count) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['part_index'], message: 'part_index must be less than part_count' });
   const uuids = new Set<string>();
@@ -36,6 +37,8 @@ export class UploadValidationError extends Error {
 export function parseUploadRequest(input: unknown): UploadRequest {
   const candidate = input && typeof input === 'object' ? { ...(input as Record<string, unknown>) } : input;
   if (candidate && typeof candidate === 'object') delete (candidate as Record<string, unknown>).source_id;
+  const fast = tryParseUploadRequest(candidate);
+  if (fast) return fast;
   const result = uploadRequestSchema.safeParse(candidate);
   if (!result.success) throw new UploadValidationError(result.error.issues);
   return result.data as UploadRequest;

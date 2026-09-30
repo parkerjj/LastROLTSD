@@ -1,0 +1,726 @@
+{
+  "baseline_commit": "ff17fa0081b6b15c2e179cd0b92b4d5c973c0ecf",
+  "command": "pnpm exec vite-node --config vitest.config.ts scripts/benchmark-upload-cpu.mjs",
+  "before": {
+    "runtime": "v24.19.0",
+    "iterations": 100,
+    "rounds": 5,
+    "entry": "createApp",
+    "note": "Local Node process CPU, synthetic storage. Not Cloudflare CPU or MySQL/TLS cost. Retry seeding excluded. full-new is warm-cache; full-new-cold changes authenticated source each invocation to force identity cache misses.",
+    "results": [
+      {
+        "size": "small",
+        "scenario": "validate",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          0.677,
+          0.328,
+          0.313,
+          0.367,
+          0.425
+        ],
+        "median_cpu_ms": 0.367
+      },
+      {
+        "size": "small",
+        "scenario": "full-new",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          2.112,
+          1.641,
+          1.704,
+          1.9,
+          2.446
+        ],
+        "median_cpu_ms": 1.9,
+        "statements": 9,
+        "boundBytes": 26969
+      },
+      {
+        "size": "small",
+        "scenario": "full-new-cold",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          1.657,
+          1.462,
+          1.645,
+          2.031,
+          1.907
+        ],
+        "median_cpu_ms": 1.657,
+        "statements": 9,
+        "boundBytes": 27053
+      },
+      {
+        "size": "small",
+        "scenario": "full-duplicate",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          2.088,
+          1.501,
+          1.482,
+          1.578,
+          1.776
+        ],
+        "median_cpu_ms": 1.578,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "small",
+        "scenario": "full-last-part",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          2.118,
+          1.582,
+          1.477,
+          1.517,
+          1.404
+        ],
+        "median_cpu_ms": 1.517,
+        "statements": 11,
+        "boundBytes": 26986
+      },
+      {
+        "size": "normal",
+        "scenario": "validate",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          1.611,
+          1.275,
+          1.222,
+          1.222,
+          1.228
+        ],
+        "median_cpu_ms": 1.228
+      },
+      {
+        "size": "normal",
+        "scenario": "full-new",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          3.319,
+          3.304,
+          3.999,
+          3.361,
+          3.374
+        ],
+        "median_cpu_ms": 3.361,
+        "statements": 9,
+        "boundBytes": 88779
+      },
+      {
+        "size": "normal",
+        "scenario": "full-new-cold",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          3.511,
+          3.301,
+          3.825,
+          3.366,
+          3.266
+        ],
+        "median_cpu_ms": 3.366,
+        "statements": 9,
+        "boundBytes": 88947
+      },
+      {
+        "size": "normal",
+        "scenario": "full-duplicate",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          3.329,
+          3.236,
+          3.612,
+          3.058,
+          3.328
+        ],
+        "median_cpu_ms": 3.328,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "normal",
+        "scenario": "full-last-part",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          3.321,
+          3.409,
+          3.924,
+          3.378,
+          3.426
+        ],
+        "median_cpu_ms": 3.409,
+        "statements": 11,
+        "boundBytes": 88796
+      },
+      {
+        "size": "large",
+        "scenario": "validate",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          6.381,
+          6.375,
+          6.373,
+          6.513,
+          6.464
+        ],
+        "median_cpu_ms": 6.381
+      },
+      {
+        "size": "large",
+        "scenario": "full-new",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          15.559,
+          15.395,
+          14.641,
+          15.196,
+          14.198
+        ],
+        "median_cpu_ms": 15.196,
+        "statements": 9,
+        "boundBytes": 398109
+      },
+      {
+        "size": "large",
+        "scenario": "full-new-cold",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          15.688,
+          15.378,
+          14.782,
+          15.697,
+          15.884
+        ],
+        "median_cpu_ms": 15.688,
+        "statements": 9,
+        "boundBytes": 398487
+      },
+      {
+        "size": "large",
+        "scenario": "full-duplicate",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          16.108,
+          15.756,
+          15.861,
+          15.705,
+          16.055
+        ],
+        "median_cpu_ms": 15.861,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "large",
+        "scenario": "full-last-part",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          15.627,
+          15.801,
+          15.984,
+          14.781,
+          15.841
+        ],
+        "median_cpu_ms": 15.801,
+        "statements": 11,
+        "boundBytes": 398126
+      },
+      {
+        "size": "many-options",
+        "scenario": "validate",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          6.026,
+          6.043,
+          5.948,
+          5.79,
+          5.889
+        ],
+        "median_cpu_ms": 5.948
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-new",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          14.522,
+          14.515,
+          13.921,
+          13.839,
+          14.758
+        ],
+        "median_cpu_ms": 14.515,
+        "statements": 9,
+        "boundBytes": 388269
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-new-cold",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          13.226,
+          14.393,
+          13.725,
+          13.154,
+          14.286
+        ],
+        "median_cpu_ms": 13.725,
+        "statements": 9,
+        "boundBytes": 388367
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-duplicate",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          14.071,
+          14.225,
+          13.53,
+          12.657,
+          13.813
+        ],
+        "median_cpu_ms": 13.813,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-last-part",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          14.982,
+          16.21,
+          15.536,
+          13.878,
+          14.796
+        ],
+        "median_cpu_ms": 14.982,
+        "statements": 11,
+        "boundBytes": 388286
+      }
+    ]
+  },
+  "after": {
+    "runtime": "v24.19.0",
+    "iterations": 100,
+    "rounds": 5,
+    "entry": "direct-upload",
+    "note": "Local Node process CPU, synthetic storage. Not Cloudflare CPU or MySQL/TLS cost. Retry seeding excluded. full-new is warm-cache; full-new-cold changes authenticated source each invocation to force identity cache misses.",
+    "results": [
+      {
+        "size": "small",
+        "scenario": "validate",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          0.24,
+          0.095,
+          0.069,
+          0.073,
+          0.08
+        ],
+        "median_cpu_ms": 0.08
+      },
+      {
+        "size": "small",
+        "scenario": "full-new",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          0.734,
+          0.651,
+          0.62,
+          0.539,
+          0.608
+        ],
+        "median_cpu_ms": 0.62,
+        "statements": 9,
+        "boundBytes": 24769
+      },
+      {
+        "size": "small",
+        "scenario": "full-new-cold",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          0.776,
+          0.822,
+          0.813,
+          0.792,
+          0.796
+        ],
+        "median_cpu_ms": 0.796,
+        "statements": 9,
+        "boundBytes": 24793
+      },
+      {
+        "size": "small",
+        "scenario": "full-duplicate",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          0.621,
+          0.527,
+          0.537,
+          0.513,
+          0.508
+        ],
+        "median_cpu_ms": 0.527,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "small",
+        "scenario": "full-last-part",
+        "body_bytes": 20036,
+        "shops": 10,
+        "items": 100,
+        "options": 200,
+        "cpu_ms_samples": [
+          0.56,
+          0.62,
+          0.493,
+          0.513,
+          0.531
+        ],
+        "median_cpu_ms": 0.531,
+        "statements": 11,
+        "boundBytes": 24786
+      },
+      {
+        "size": "normal",
+        "scenario": "validate",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          0.466,
+          0.258,
+          0.293,
+          0.3,
+          0.258
+        ],
+        "median_cpu_ms": 0.293
+      },
+      {
+        "size": "normal",
+        "scenario": "full-new",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          1.47,
+          1.417,
+          1.349,
+          1.325,
+          1.455
+        ],
+        "median_cpu_ms": 1.417,
+        "statements": 9,
+        "boundBytes": 84359
+      },
+      {
+        "size": "normal",
+        "scenario": "full-new-cold",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          1.828,
+          1.838,
+          1.827,
+          1.821,
+          1.773
+        ],
+        "median_cpu_ms": 1.827,
+        "statements": 9,
+        "boundBytes": 84387
+      },
+      {
+        "size": "normal",
+        "scenario": "full-duplicate",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          1.164,
+          1.11,
+          1.288,
+          1.241,
+          1.297
+        ],
+        "median_cpu_ms": 1.241,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "normal",
+        "scenario": "full-last-part",
+        "body_bytes": 75316,
+        "shops": 20,
+        "items": 400,
+        "options": 800,
+        "cpu_ms_samples": [
+          1.318,
+          1.311,
+          1.351,
+          1.464,
+          1.292
+        ],
+        "median_cpu_ms": 1.318,
+        "statements": 11,
+        "boundBytes": 84376
+      },
+      {
+        "size": "large",
+        "scenario": "validate",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          1.206,
+          1.293,
+          1.286,
+          1.289,
+          1.294
+        ],
+        "median_cpu_ms": 1.289
+      },
+      {
+        "size": "large",
+        "scenario": "full-new",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          5.916,
+          5.802,
+          6.291,
+          6.65,
+          6.346
+        ],
+        "median_cpu_ms": 6.291,
+        "statements": 9,
+        "boundBytes": 387029
+      },
+      {
+        "size": "large",
+        "scenario": "full-new-cold",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          6.93,
+          7.724,
+          7.224,
+          7.738,
+          7.217
+        ],
+        "median_cpu_ms": 7.224,
+        "statements": 9,
+        "boundBytes": 387057
+      },
+      {
+        "size": "large",
+        "scenario": "full-duplicate",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          5.247,
+          5.421,
+          5.224,
+          5.703,
+          5.309
+        ],
+        "median_cpu_ms": 5.309,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "large",
+        "scenario": "full-last-part",
+        "body_bytes": 365056,
+        "shops": 50,
+        "items": 2000,
+        "options": 4000,
+        "cpu_ms_samples": [
+          5.947,
+          5.585,
+          5.872,
+          5.442,
+          5.639
+        ],
+        "median_cpu_ms": 5.639,
+        "statements": 11,
+        "boundBytes": 387046
+      },
+      {
+        "size": "many-options",
+        "scenario": "validate",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          1.432,
+          1.464,
+          1.39,
+          1.489,
+          1.483
+        ],
+        "median_cpu_ms": 1.464
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-new",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          5.826,
+          5.651,
+          5.837,
+          6.035,
+          6.36
+        ],
+        "median_cpu_ms": 5.837,
+        "statements": 9,
+        "boundBytes": 386069
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-new-cold",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          6.445,
+          6.09,
+          6.15,
+          6.244,
+          6.046
+        ],
+        "median_cpu_ms": 6.15,
+        "statements": 9,
+        "boundBytes": 386097
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-duplicate",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          5.626,
+          5.646,
+          6.841,
+          6.666,
+          6.524
+        ],
+        "median_cpu_ms": 6.524,
+        "statements": 3,
+        "boundBytes": 0
+      },
+      {
+        "size": "many-options",
+        "scenario": "full-last-part",
+        "body_bytes": 381336,
+        "shops": 10,
+        "items": 500,
+        "options": 10000,
+        "cpu_ms_samples": [
+          6.374,
+          6.625,
+          6.61,
+          6.566,
+          6.609
+        ],
+        "median_cpu_ms": 6.609,
+        "statements": 11,
+        "boundBytes": 386086
+      }
+    ]
+  }
+}

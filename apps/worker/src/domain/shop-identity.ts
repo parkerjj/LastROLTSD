@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 export interface ShopIdentityInput {
   sourceId: string;
   vendorAccountId: string;
@@ -21,6 +23,10 @@ export interface NormalizedShopIdentity {
 }
 
 const clean = (value: string): string => value.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
+const encoder = new TextEncoder();
+type ShopIdentity = { identityHash: string; shopId: string; canonical: string };
+const identities = new Map<string, ShopIdentity>();
+const MAX_CACHED_IDENTITIES = 1024;
 
 export function normalizeShopIdentity(input: ShopIdentityInput): NormalizedShopIdentity {
   const normalized = {
@@ -47,8 +53,16 @@ export function normalizeShopIdentity(input: ShopIdentityInput): NormalizedShopI
 }
 
 export async function computeShopIdentity(input: ShopIdentityInput): Promise<{ identityHash: string; shopId: string; canonical: string }> {
+  // Cache only immutable calculations, never source status, market state or I/O.
+  // Include every raw identity field so normalized/hash semantics remain unchanged.
+  const key = JSON.stringify([input.sourceId, input.vendorAccountId, input.shopType, input.mapName, input.x, input.y, input.title]);
+  const cached = identities.get(key);
+  if (cached) return { ...cached };
   const normalized = normalizeShopIdentity(input);
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalized.canonical));
-  const identityHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  return { identityHash, shopId: `shop_v1_${identityHash}`, canonical: normalized.canonical };
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(normalized.canonical));
+  const identityHash = Buffer.from(digest).toString('hex');
+  const identity = { identityHash, shopId: `shop_v1_${identityHash}`, canonical: normalized.canonical };
+  if (identities.size >= MAX_CACHED_IDENTITIES) identities.delete(identities.keys().next().value!);
+  identities.set(key, identity);
+  return { ...identity };
 }

@@ -26,8 +26,11 @@ export async function receiveFullUpload(
   if (request.snapshot_mode !== 'full' || !isValidIdempotencyKey(idempotencyKey) || batchId !== idempotencyKey) {
     throw new IngestionError(400, 'idempotency_key_mismatch', 'Idempotency-Key must match a full snapshot part');
   }
-  const identities = await Promise.all(request.shops.map((shop) => computeShopIdentity({ sourceId: source.id,
-    vendorAccountId: shop.vendor_account_id, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y, title: shop.title })));
+  const identities = await Promise.all(request.shops.map(async (shop) => {
+    const { identityHash, shopId } = await computeShopIdentity({ sourceId: source.id,
+      vendorAccountId: shop.vendor_account_id, shopType: shop.shop_type, mapName: shop.map_name, x: shop.x, y: shop.y, title: shop.title });
+    return { identityHash, shopId };
+  }));
   if (new Set(identities.map((identity) => identity.identityHash)).size !== identities.length) {
     throw new IngestionError(422, 'duplicate_shop_identity', 'Shop canonical identity must be unique within a snapshot', { action: 'new_snapshot' });
   }

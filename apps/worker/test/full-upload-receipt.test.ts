@@ -10,6 +10,17 @@ export function fullRequest(overrides: Partial<UploadRequest> = {}): UploadReque
 }
 
 describe('full upload receipt', () => {
+  it('binds only the identity fields used by storage and preserves the validated payload hash', async () => {
+    const request = fullRequest();
+    let receipt: Parameters<FullReceiptStore['receive']>[0] | undefined;
+    await receiveFullUpload({ id: 'source' }, request, 'full-1/0', { async receive(input) {
+      receipt = input;
+      return { response: input.response, wakeup: null };
+    } });
+    expect(receipt?.identities[0]).not.toHaveProperty('canonical');
+    expect(receipt?.payloadJson).toBe(JSON.stringify(request));
+    expect(receipt?.payloadHash).toBe('2365ab57ee8c740cfde901fc5410a39815ded4851e1b70e00feb29c984e42c29');
+  });
   it('returns ordered stable identities without applying listings and dispatches only a ready snapshot', async () => {
     const request = fullRequest();
     const receive = vi.fn<FullReceiptStore['receive']>(async (input) => ({ response: input.response, wakeup: { sourceId: 'source', snapshotId: 'full-1', generation: 0 } }));
