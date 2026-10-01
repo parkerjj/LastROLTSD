@@ -1,4 +1,4 @@
-export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client";
+export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors";
 
 interface NavEntry {
   readonly page: SitePage;
@@ -35,6 +35,12 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     icon: "ph-address-book",
   },
   { page: "updates", href: "/updates", label: "更新说明", icon: "ph-scroll" },
+  {
+    page: "sponsors",
+    href: "/sponsor",
+    label: "赛博化缘",
+    icon: "ph-coffee",
+  },
 ];
 
 const EXTERNAL_ENTRIES: ReadonlyArray<{

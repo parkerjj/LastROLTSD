@@ -18,3 +18,10 @@ MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-databa
 MYSQL_TEST_URL=mysql://replace-user:replace-password@replace-host:3306/replace-test-database?ssl=true
 # The real MySQL integration test stays skipped unless this is changed to 1 explicitly.
 ALLOW_MYSQL_TEST_DESTRUCTIVE=0
+
+# Afdian (爱发电) open API token for the sponsor page. Leave empty for local development;
+# the endpoint then responds 503. In production it is injected from the GitHub production
+# environment secret AFDIAN_TOKEN. Never commit a real token.
+AFDIAN_TOKEN=
+# Public creator user id. Optional: the Worker falls back to the built-in LTSD_RO value.
+AFDIAN_USER_ID=

@@ -188,3 +188,25 @@ export interface LastroAccountStatusResponse {
   state: LastroAccountState;
   data?: LastroAccountData;
 }
+
+/** 赛博化缘页光荣榜上的一位赞助者（字段均为爱发电公开信息）。 */
+export interface SponsorHonorEntry {
+  id: string;
+  name: string;
+  avatar: string;
+  url: string;
+  /** 累计赞助金额（元，两位小数字符串）。 */
+  amount: string;
+  lastPayAt: number | null;
+}
+
+/** GET /api/v1/sponsors 的响应：本月收入 + 累计光荣榜。 */
+export interface SponsorSummary {
+  month: string;
+  monthLabel: string;
+  monthIncome: string;
+  monthOrderCount: number;
+  supporterCount: number;
+  supporters: SponsorHonorEntry[];
+  generatedAt: number;
+}

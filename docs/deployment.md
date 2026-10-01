@@ -63,10 +63,13 @@ Create the GitHub Environment named `production` with exactly these deployment s
 
 - `MYSQL_URL`
 - `GUESTBOOK_RATE_SECRET`
+- `AFDIAN_TOKEN`
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
-The workflow installs, builds, lints, type-checks, tests, applies the idempotent MySQL migration, performs a MySQL dry-run connection check, passes `MYSQL_URL` and `GUESTBOOK_RATE_SECRET` to `wrangler secret put` through standard input, then deploys. A migration or connection failure prevents deployment. It never prints either secret and no longer runs D1 migrations or reads a D1 database ID.
+`AFDIAN_TOKEN` is the open API token for the Afdian (爱发电) sponsor page (`/sponsor`, endpoint `GET /api/v1/sponsors`). The workflow passes it to `wrangler secret put AFDIAN_TOKEN` through standard input; the token must never appear in source code, Wrangler TOML, or workflow YAML. If the secret is missing the workflow warns instead of failing, and the sponsor endpoint responds 503 until the secret is configured.
+
+The workflow installs, builds, lints, type-checks, tests, applies the idempotent MySQL migration, performs a MySQL dry-run connection check, passes `MYSQL_URL`, `GUESTBOOK_RATE_SECRET`, and `AFDIAN_TOKEN` to `wrangler secret put` through standard input, then deploys. A migration or connection failure prevents deployment. It never prints either secret and no longer runs D1 migrations or reads a D1 database ID.
 
 Configure the other Worker secrets (`CURSOR_SECRET`, `ADMIN_SECRET`) independently through a secure local terminal. Do not place their values in GitHub workflow YAML or Wrangler TOML. `MYSQL_URL` is intentionally absent from both Wrangler configuration files.
 
