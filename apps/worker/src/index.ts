@@ -23,6 +23,7 @@ import { registerLastroAccountRoute } from './routes/lastro-accounts';
 import { registerMakingCookieRoute } from './routes/making-cookie';
 import { registerPresenceRoute } from './routes/presence';
 import { registerIwaRoutes } from './routes/iwa';
+import { registerSponsorRoutes } from './routes/sponsors';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -49,6 +50,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerMakingCookieRoute(app);
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
+  registerSponsorRoutes(app, env);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);

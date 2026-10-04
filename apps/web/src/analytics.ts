@@ -23,6 +23,8 @@ export const AnalyticsEvent = {
   AutocompleteSelect: 'autocomplete_select',
   /** 菜农监控台使用情况（仅上报监控账号数量，绝不上报账号/密码等任何信息） */
   AccountsUsage: 'accounts_usage',
+  /** 点击赛博化缘页的爱发电外链 */
+  SponsorOutbound: 'sponsor_outbound',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

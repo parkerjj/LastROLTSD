@@ -1,4 +1,4 @@
-import type { GuestbookFilters, GuestbookPage, GuestbookSubmissionInput, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage } from './types';
+import type { GuestbookFilters, GuestbookPage, GuestbookSubmissionInput, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage, SponsorSummary } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -21,6 +21,7 @@ export interface MarketApiClient {
   searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage>;
   createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }>;
   getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse>;
+  getSponsorSummary(signal?: AbortSignal): Promise<SponsorSummary>;
 }
 
 export class MarketApi implements MarketApiClient {
@@ -81,6 +82,10 @@ export class MarketApi implements MarketApiClient {
       ...(signal ? { signal } : {}),
     });
     return this.readResponse(response);
+  }
+
+  async getSponsorSummary(signal?: AbortSignal): Promise<SponsorSummary> {
+    return this.request('/api/v1/sponsors', signal);
   }
 
   private async request<T>(path: string, signal?: AbortSignal): Promise<T> {
