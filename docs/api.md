@@ -130,6 +130,8 @@ Successful public GET searches also use the Workers Cache API for up to 30 secon
 
 Text is normalized with Unicode NFKC, leading/trailing whitespace removal, internal whitespace folding, and lowercase conversion. Empty normalized text disables the text filter and `q` is limited to 80 Unicode code points. The authoritative catalog is a server-owned static asset; live MySQL search matches the current listing/shop data with bounded, parameterized predicates. The Worker does not construct SQL from request text or materialize an unbounded application-side item-ID `IN` list. The current listing and non-closed shop state determine whether a listing is returned; `include_stale=true` still excludes closed shops.
 
+`q_scope` restricts which fields the `q` text matches and accepts a comma-separated subset of `item`, `shop`, and `vendor` (canonical order, duplicates and surrounding whitespace are tolerated): `item` matches catalog item names resolved to item IDs, `shop` matches shop titles, and `vendor` matches vendor names; omitting the parameter or passing `all` keeps the default behavior of matching all three. Item-name matching resolves `q` against the server-owned static catalog with the same normalization, name/alias/ID substring rules, item-ID ordering, and top-50 bound the web client applies; the resolved IDs are merged into the filter set and bound into the search cursor. Under an item-only `q_scope`, a `q` that resolves to no catalog item returns an empty page unless explicit `item_id`/`item_ids` parameters are present. The other filters (`item_id`, `item_ids`, price, map, shop type, options) are independent of `q_scope` and always apply.
+
 Example catalog/alias/shop search:
 
 ```http
@@ -151,7 +153,7 @@ Definitions with `value_policy: "flag"` (for example `赋予武器火属性` or 
 
 The legacy exact raw tuple query remains available through 2026-10-31 only when all three parameters are supplied together: `option_type=12&option_value=50&option_param=0`. It has exact equality semantics. Mixing legacy parameters with `option=` returns `400`; incomplete legacy tuples return `400`. New integrations must use structured `option=`. Unknown option types remain stored and displayed, but structured queries for an unknown type return the standard `bad_request` error envelope.
 
-Search cursors are HMAC-signed and bind the normalized q and q mode, catalog/option/search-index versions, every scalar filter, normalized option conditions and mode, sort, last sort value, and last listing ID. Reusing a cursor with a different q, option condition, definition/catalog version, or sort returns `400`.
+Search cursors are HMAC-signed and bind the normalized q, the q scope, and q mode, catalog/option/search-index versions, every scalar filter, normalized option conditions and mode, sort, last sort value, and last listing ID. Reusing a cursor with a different q, q scope, option condition, definition/catalog version, or sort returns `400`.
 
 `GET /api/v1/options` returns stable type-level metadata, an ETag, and `Cache-Control: public, max-age=86400`. It does not enumerate every exact value/param tuple:
 

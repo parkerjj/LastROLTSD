@@ -44,7 +44,7 @@ function constantTimeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-export function parseSearchParams(url: URL, options: { cursorSecret?: string; verifyCursor?: boolean; catalogVersion?: string; optionVersion?: string; searchIndexVersion?: string } = {}): SearchFilters {
+export function parseSearchParams(url: URL, options: { cursorSecret?: string; verifyCursor?: boolean; catalogVersion?: string; optionVersion?: string; searchIndexVersion?: string; resolvedItemIds?: number[] } = {}): SearchFilters {
   const number = (name: string): number | undefined => {
     const raw = url.searchParams.get(name); if (raw === null || raw === '') return undefined;
     if (!/^-?\d+$/.test(raw)) throw new SearchValidationError(`Invalid ${name}`);
@@ -59,6 +59,16 @@ export function parseSearchParams(url: URL, options: { cursorSecret?: string; ve
   for (const [field, query] of values) { const value = number(query); if (value !== undefined) (filters as unknown as Record<string, unknown>)[field] = value; }
   const rawItemIds = url.searchParams.get('item_ids');
   if (rawItemIds) { const ids = rawItemIds.split(',').map((value) => Number(value)); if (ids.length > 50 || ids.some((value) => !Number.isSafeInteger(value) || value < 0)) throw new SearchValidationError('Invalid item_ids'); (filters as any).item_ids = [...new Set(ids)]; }
+  // 服务端图鉴解析出的 item ids 在游标上下文计算之前合并，保证翻页校验与签发两侧一致。
+  const resolvedItemIds = options.resolvedItemIds?.filter((value) => Number.isSafeInteger(value) && value >= 0) ?? [];
+  if (resolvedItemIds.length > 0) (filters as any).item_ids = [...new Set([...(filters.item_ids ?? []), ...resolvedItemIds])];
+  // q_scope 支持逗号分隔多值（item/shop/vendor 组合）；单独 all 归一化为缺省，all 与其它值混用报 400。
+  const rawQScope = url.searchParams.get('q_scope');
+  if (rawQScope !== null) {
+    const scopes = [...new Set(rawQScope.split(',').map((value) => value.trim()).filter(Boolean))];
+    if (scopes.length === 0 || (scopes.includes('all') && scopes.length > 1) || scopes.some((value) => value !== 'all' && value !== 'item' && value !== 'shop' && value !== 'vendor')) throw new SearchValidationError('Invalid q_scope');
+    if (!scopes.includes('all')) (filters as any).q_scope = (['item', 'shop', 'vendor'] as const).filter((value) => scopes.includes(value));
+  }
   const map = url.searchParams.get('map')?.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase(); if (map) filters.map = [...map].slice(0, 80).join('');
   const shopType = url.searchParams.get('shop_type'); if (shopType && shopType !== 'buy' && shopType !== 'sell') throw new SearchValidationError('Invalid shop_type'); if (shopType === 'buy' || shopType === 'sell') filters.shop_type = shopType;
   const includeStale = url.searchParams.get('include_stale'); if (includeStale !== null) { if (includeStale !== 'true' && includeStale !== 'false') throw new SearchValidationError('Invalid include_stale'); filters.include_stale = includeStale === 'true'; }
@@ -100,7 +110,7 @@ export function decodeCursor(value: string, expected?: CursorExpectation, secret
 export function searchCursorContext(filters: SearchFilters): string {
   const options = [...(filters.options ?? [])].sort((left, right) => left.type - right.type || left.operator.localeCompare(right.operator) || left.value.localeCompare(right.value) || (left.param ?? Number.MIN_SAFE_INTEGER) - (right.param ?? Number.MIN_SAFE_INTEGER));
   const itemIds = [...new Set([...(filters.item_ids ?? [])].filter((id) => Number.isSafeInteger(id)))].sort((left, right) => left - right);
-  const canonical = JSON.stringify({ q: filters.q ?? null, catalogVersion: filters.catalogVersion ?? null, optionVersion: filters.optionVersion ?? null, searchIndexVersion: filters.searchIndexVersion ?? null, item_id: filters.item_id ?? null, item_ids: itemIds.length > 0 ? itemIds : null, option_type: filters.option_type ?? null, option_value: filters.option_value ?? null, option_param: filters.option_param ?? null, options: options.length > 0 ? options : null, option_mode: filters.option_mode ?? 'all', price_min: filters.price_min ?? null, price_max: filters.price_max ?? null, map: filters.map ?? null, shop_type: filters.shop_type ?? null, include_stale: filters.include_stale ?? false, sort: filters.sort });
+  const canonical = JSON.stringify({ q: filters.q ?? null, ...(filters.q_scope ? { q_scope: filters.q_scope } : {}), catalogVersion: filters.catalogVersion ?? null, optionVersion: filters.optionVersion ?? null, searchIndexVersion: filters.searchIndexVersion ?? null, item_id: filters.item_id ?? null, item_ids: itemIds.length > 0 ? itemIds : null, option_type: filters.option_type ?? null, option_value: filters.option_value ?? null, option_param: filters.option_param ?? null, options: options.length > 0 ? options : null, option_mode: filters.option_mode ?? 'all', price_min: filters.price_min ?? null, price_max: filters.price_max ?? null, map: filters.map ?? null, shop_type: filters.shop_type ?? null, include_stale: filters.include_stale ?? false, sort: filters.sort });
   return createHash('sha256').update(canonical).digest('base64url');
 }
 export function encodeHistoryCursor(id: number, secret = DEFAULT_CURSOR_SECRET): string {

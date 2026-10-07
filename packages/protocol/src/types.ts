@@ -12,8 +12,10 @@ export interface UploadRequest {
   protocol_version: 2; client_run_id: string; snapshot_id: string; snapshot_mode: SnapshotMode;
   part_index: number; part_count: number; observed_at: string; shops: UploadShop[];
 }
+export type SearchQScope = 'all' | 'item' | 'shop' | 'vendor';
+export type SearchQScopeValue = Exclude<SearchQScope, 'all'>;
 export interface SearchFilters {
-  q?: string; item_id?: number; item_ids?: number[]; option_type?: number; option_value?: number; option_param?: number;
+  q?: string; q_scope?: SearchQScopeValue[]; item_id?: number; item_ids?: number[]; option_type?: number; option_value?: number; option_param?: number;
   catalogVersion?: string; optionVersion?: string; searchIndexVersion?: string;
   options?: Array<{ type: number; operator: string; value: string; param?: number }>;
   option_mode?: 'all' | 'any';

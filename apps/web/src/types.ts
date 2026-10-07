@@ -62,9 +62,11 @@ export interface SearchOptionFilter {
 
 export type SearchScopeKey = 'name' | 'shop' | 'vendor';
 export type SearchScopes = Record<SearchScopeKey, boolean>;
+export type SearchQScopeValue = 'item' | 'shop' | 'vendor';
 
 export interface SearchFilters {
   q?: string;
+  q_scope?: SearchQScopeValue[];
   item_id?: number;
   item_ids?: number[];
   price_min?: number;

@@ -157,12 +157,8 @@ describe('metadata-driven option controls', () => {
     second.querySelector<HTMLInputElement>('[data-option-value]')!.value = '1.50';
     second.querySelector<HTMLInputElement>('[data-option-param]')!.value = '7';
 
-    expect(serializeSearchForm(form, [spRecovery, rate], [
-      { itemId: 4002, name: '波利帽', aliases: [] },
-      { itemId: 4001, name: '波利卡片', aliases: ['波利'] },
-    ])).toEqual({
+    expect(serializeSearchForm(form, [spRecovery, rate])).toEqual({
       q: '波利',
-      item_ids: [4001, 4002],
       limit: 20,
       sort: 'price_asc',
       options: [
@@ -171,6 +167,31 @@ describe('metadata-driven option controls', () => {
       ],
       option_mode: 'any',
     });
+  });
+
+  it('maps scope toggles onto the server q_scope multi-value', () => {
+    const dom = new JSDOM(`<form id="form">
+      <label>搜索<input name="q" value="波利"></label>
+      <button type="button" class="scope-toggle" data-scope="name" aria-pressed="true">道具</button>
+      <button type="button" class="scope-toggle" data-scope="shop" aria-pressed="false">商店</button>
+      <button type="button" class="scope-toggle" data-scope="vendor" aria-pressed="true">商人</button>
+    </form>`);
+    const form = dom.window.document.querySelector('form') as HTMLFormElement;
+    // 子集开启：固定顺序 item,shop,vendor，只发开启项。
+    expect(serializeSearchForm(form)).toEqual({ q: '波利', limit: 20, sort: 'price_asc', q_scope: ['item', 'vendor'] });
+
+    // 全开：不发 q_scope（等价缺省 all）。
+    form.querySelector('[data-scope="shop"]')!.setAttribute('aria-pressed', 'true');
+    expect(serializeSearchForm(form)).toEqual({ q: '波利', limit: 20, sort: 'price_asc' });
+
+    // 全关：不发 q_scope（由页面守卫拦截请求）。
+    for (const button of form.querySelectorAll('.scope-toggle')) button.setAttribute('aria-pressed', 'false');
+    expect(serializeSearchForm(form)).toEqual({ q: '波利', limit: 20, sort: 'price_asc' });
+
+    // 无关键词：忽略开关。
+    (form.querySelector('[name="q"]') as HTMLInputElement).value = '';
+    form.querySelector('[data-scope="name"]')!.setAttribute('aria-pressed', 'true');
+    expect(serializeSearchForm(form)).toEqual({ limit: 20, sort: 'price_asc' });
   });
 
   it('adds and removes multiple rows', () => {

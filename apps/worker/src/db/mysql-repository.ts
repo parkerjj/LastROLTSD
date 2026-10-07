@@ -995,11 +995,15 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         matchPredicates.push(`l.item_id IN (${itemIds.map((itemId) => add(itemId)).join(', ')})`);
       }
       const normalizedQuery = filters.q ? normalizeCatalogQuery(filters.q) : '';
-      if ([...normalizedQuery].length >= 2) {
+      // q_scope 只约束 q 的文本匹配：item 范围下 q 已在路由层解析进 item_ids，SQL 不做对应 LIKE；
+      // shop=仅商店标题、vendor=仅商人名，多值组合按开启项 OR，缺省（all）保持两者 OR 的原行为。
+      const textScopes = (filters.q_scope ?? ['item', 'shop', 'vendor']).filter((value) => value !== 'item');
+      if (textScopes.length > 0 && [...normalizedQuery].length >= 2) {
         const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\${value}`);
-        const titleQuery = add(`%${escaped}%`);
-        const vendorQuery = add(`%${escaped}%`);
-        matchPredicates.push(`(s.title_normalized LIKE ${titleQuery} ESCAPE '\\\\' OR COALESCE(s.vendor_name_normalized, '') LIKE ${vendorQuery} ESCAPE '\\\\')`);
+        const parts: string[] = [];
+        if (textScopes.includes('shop')) parts.push(`s.title_normalized LIKE ${add(`%${escaped}%`)} ESCAPE '\\\\'`);
+        if (textScopes.includes('vendor')) parts.push(`COALESCE(s.vendor_name_normalized, '') LIKE ${add(`%${escaped}%`)} ESCAPE '\\\\'`);
+        matchPredicates.push(parts.length === 1 ? `(${parts[0]})` : `(${parts.join(' OR ')})`);
       }
       if (matchPredicates.length > 0) where.push(`(${matchPredicates.join(' OR ')})`);
       if (filters.price_min !== undefined) where.push(`l.price >= ${add(filters.price_min)}`);

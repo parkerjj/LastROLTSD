@@ -21,6 +21,7 @@ import type {
   ItemDescription,
   ListingSearchResult,
   SearchFilters,
+  SearchQScopeValue,
   SearchScopeKey,
   SearchScopes,
 } from "./types";
@@ -282,6 +283,20 @@ function mountSearchPage(): void {
     return scopes;
   }
 
+  // 开关状态映射为服务端 q_scope 多值：全开 = 缺省（不发），子集 = 固定顺序数组。
+  function scopedFilters(
+    scopes: SearchScopes,
+    previous: SearchFilters,
+  ): SearchFilters {
+    const { cursor: _cursor, q_scope: _scope, ...rest } = previous;
+    const values: SearchQScopeValue[] = [];
+    if (scopes.name) values.push("item");
+    if (scopes.shop) values.push("shop");
+    if (scopes.vendor) values.push("vendor");
+    if (values.length === 3) return rest;
+    return { ...rest, q_scope: values };
+  }
+
   form.addEventListener("click", (event) => {
     const toggle = (event.target as Element | null)?.closest<HTMLButtonElement>(
       ".scope-toggle",
@@ -302,7 +317,15 @@ function mountSearchPage(): void {
       ".scope-toggle-state b",
     );
     if (stateText) stateText.textContent = active ? "已开启" : "已关闭";
-    renderSearchState();
+    // 有关键词且至少开启一个范围时走服务端过滤（重新查询，分页按范围计算）；
+    // 无关键词的初始浏览或全部关闭时仅刷新展示（全关显示引导提示，不发请求）。
+    const scopes = readSearchScopes();
+    const previous = searchController.getState().filters;
+    if (!previous.q || !(scopes.name || scopes.shop || scopes.vendor)) {
+      renderSearchState();
+      return;
+    }
+    void performSearch(scopedFilters(scopes, previous), true);
   });
 
   async function performSearch(
@@ -725,11 +748,16 @@ function mountSearchPage(): void {
         const filters = serializeSearchForm(
           form,
           dictionary.getState().definitions,
-          catalog.items,
         );
         initialBrowse = false;
         setFormError(null);
         hideSuggestions();
+        // 命中范围全部关闭时没有可查询的范围：只刷新展示（引导提示），不发请求。
+        const scopes = readSearchScopes();
+        if (filters.q && !(scopes.name || scopes.shop || scopes.vendor)) {
+          renderSearchState();
+          return;
+        }
         void performSearch(filters, true, true);
       } catch (error) {
         setFormError(error instanceof Error ? error.message : "请检查搜索条件");
