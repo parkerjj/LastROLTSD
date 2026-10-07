@@ -21,7 +21,6 @@ import type {
   ItemDescription,
   ListingSearchResult,
   SearchFilters,
-  SearchQScopeValue,
   SearchScopeKey,
   SearchScopes,
 } from "./types";
@@ -283,20 +282,8 @@ function mountSearchPage(): void {
     return scopes;
   }
 
-  // 开关状态映射为服务端 q_scope 多值：全开 = 缺省（不发），子集 = 固定顺序数组。
-  function scopedFilters(
-    scopes: SearchScopes,
-    previous: SearchFilters,
-  ): SearchFilters {
-    const { cursor: _cursor, q_scope: _scope, ...rest } = previous;
-    const values: SearchQScopeValue[] = [];
-    if (scopes.name) values.push("item");
-    if (scopes.shop) values.push("shop");
-    if (scopes.vendor) values.push("vendor");
-    if (values.length === 3) return rest;
-    return { ...rest, q_scope: values };
-  }
-
+  // 开关点击以「当前表单」为准重新序列化（serializeSearchForm 会读取开关生成 q_scope 多值），
+  // 避免用户改了输入未提交时沿用上一次搜索的旧条件；全开时 serialize 不发 q_scope（等价缺省 all）。
   form.addEventListener("click", (event) => {
     const toggle = (event.target as Element | null)?.closest<HTMLButtonElement>(
       ".scope-toggle",
@@ -317,15 +304,29 @@ function mountSearchPage(): void {
       ".scope-toggle-state b",
     );
     if (stateText) stateText.textContent = active ? "已开启" : "已关闭";
-    // 有关键词且至少开启一个范围时走服务端过滤（重新查询，分页按范围计算）；
-    // 无关键词的初始浏览或全部关闭时仅刷新展示（全关显示引导提示，不发请求）。
     const scopes = readSearchScopes();
-    const previous = searchController.getState().filters;
-    if (!previous.q || !(scopes.name || scopes.shop || scopes.vendor)) {
+    // 全部关闭：没有可查询的范围，仅刷新展示（引导提示），不发请求。
+    if (!(scopes.name || scopes.shop || scopes.vendor)) {
       renderSearchState();
       return;
     }
-    void performSearch(scopedFilters(scopes, previous), true);
+    let filters: SearchFilters;
+    try {
+      filters = serializeSearchForm(
+        form,
+        dictionary.getState().definitions,
+      );
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "请检查搜索条件");
+      return;
+    }
+    // 表单没有关键词（初始浏览或已清空）：开关不触发查询。
+    if (!filters.q) {
+      renderSearchState();
+      return;
+    }
+    initialBrowse = false;
+    void performSearch(filters, true);
   });
 
   async function performSearch(

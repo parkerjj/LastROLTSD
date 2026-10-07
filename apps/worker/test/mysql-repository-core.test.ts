@@ -335,6 +335,33 @@ describe('MySQL repository upload core', () => {
     expect(db.values[0]).toEqual([1, 2, '%测试商店%', '%测试商店%', 51]);
   });
 
+  it('applies scoped text predicates even for single-character queries', async () => {
+    const db = new RecordingMysqlDatabase();
+    await createMysqlRepository(db).searchListings({
+      limit: 20,
+      sort: 'price_asc',
+      q: '店',
+      q_scope: ['shop'],
+    });
+
+    // 单字符 q 不允许被静默丢弃成全量查询：shop 范围仍要产出标题 LIKE。
+    expect(db.sql[0]).toContain("s.title_normalized LIKE ?");
+    expect(db.sql[0]).not.toContain('vendor_name_normalized');
+    expect(db.values[0]).toEqual(['%店%', 21]);
+
+    const combined = new RecordingMysqlDatabase();
+    await createMysqlRepository(combined).searchListings({
+      limit: 20,
+      sort: 'price_asc',
+      q: '店',
+      q_scope: ['shop', 'vendor'],
+    });
+
+    expect(combined.sql[0]).toContain("s.title_normalized LIKE ?");
+    expect(combined.sql[0]).toContain("COALESCE(s.vendor_name_normalized, '') LIKE ?");
+    expect(combined.values[0]).toEqual(['%店%', '%店%', 21]);
+  });
+
   it('keeps legacy listing writes batched and parameterized for service compatibility', async () => {
     const db = new RecordingMysqlDatabase();
     const repo = createMysqlRepository(db);
