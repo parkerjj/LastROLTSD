@@ -14,6 +14,7 @@ import { runRetention } from './services/retention';
 import { logError, recordMetric } from './observability';
 import { registerAssetRoute } from './routes/assets';
 import { withSearchCache } from './middleware/search-cache';
+import { registerCorsMiddleware, withCorsHeaders } from './middleware/cors';
 import { createGuestbookRepository } from './db/guestbook-repository';
 import { registerGuestbookRoutes } from './routes/guestbook';
 import { createUploadHandler } from './services/upload-handler';
@@ -31,6 +32,7 @@ export type WorkerVariables = { requestId: string };
 export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
   const database = injectedDatabase ?? (env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined);
+  registerCorsMiddleware(app);
   app.use('*', async (c, next) => {
     const started = Date.now();
     const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
@@ -124,7 +126,7 @@ export async function fetchUpload(request: Request, env: AppEnv, database: Mysql
   const started = Date.now();
   const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
   const repository = createMysqlRepository(database, env.CURSOR_SECRET);
-  const response = await uploadResponse(request, env, repository, undefined, createUploadHandler(database, env), requestId);
+  const response = withCorsHeaders(await uploadResponse(request, env, repository, undefined, createUploadHandler(database, env), requestId));
   response.headers.set('x-request-id', requestId);
   const declaredBytes = Number(request.headers.get('content-length') ?? 0);
   recordMetric({ requestId, route: '/api/v1/market/upload', status: response.status, elapsedMs: Date.now() - started,
@@ -167,14 +169,15 @@ async function fetchSearch(request: Request, url: URL, env: AppEnv, context?: Pi
       const database = createMysqlDatabase(env.MYSQL_URL!);
       try {
         // MySQL validates the cursor before issuing SQL; avoid route-level revalidation.
-        return await searchResponse(request, createMysqlRepository(database, env.CURSOR_SECRET), env.CURSOR_SECRET, false);
+        // CORS 头必须在进入缓存前写入，否则 HIT 响应不带 access-control-allow-origin。
+        return withCorsHeaders(await searchResponse(request, createMysqlRepository(database, env.CURSOR_SECRET), env.CURSOR_SECRET, false));
       } finally {
         await database.close();
       }
     }, context);
   } catch (error) {
     logError('lastroweb.search_error', error, { request_id: requestId, route: url.pathname });
-    response = new Response('Internal Server Error', { status: 500, headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': 'no-store' } });
+    response = withCorsHeaders(new Response('Internal Server Error', { status: 500, headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': 'no-store' } }));
   }
   response.headers.set('x-request-id', requestId);
   recordMetric({ requestId, route: url.pathname, status: response.status, elapsedMs: Date.now() - started });
