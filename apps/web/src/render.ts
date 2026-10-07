@@ -888,8 +888,9 @@ function groupListings(
       return;
     }
     // 只在用户开启的命中范围内归组；名称未命中时可继续落到商店/商人组。
+    // 名称组把物品 ID 字符串一并纳入：服务端图鉴按 ID 串命中（q_scope=item）的结果也要能归组。
     const fields = [
-      normalizeGroupValue(item.itemName),
+      normalizeGroupValue(`${item.itemName} ${item.itemId}`),
       normalizeGroupValue(item.title),
       normalizeGroupValue(item.vendorName),
     ];

@@ -1,5 +1,4 @@
-import type { OptionDefinition, OptionOperator, SearchFilters, SearchOptionFilter } from './types';
-import { catalogItemIds } from './catalog';
+import type { OptionDefinition, OptionOperator, SearchFilters, SearchOptionFilter, SearchQScopeValue } from './types';
 
 const OPERATOR_LABELS: Record<OptionOperator, string> = {
   eq: '=',
@@ -34,7 +33,7 @@ function isValidOptionValue(value: string, definition: OptionDefinition): boolea
   return Number.isSafeInteger(Number(signed));
 }
 
-export function serializeSearchForm(form: HTMLFormElement, definitions: readonly OptionDefinition[] = [], catalog: readonly { itemId: number; name: string; aliases: string[] }[] = []): SearchFilters {
+export function serializeSearchForm(form: HTMLFormElement, definitions: readonly OptionDefinition[] = []): SearchFilters {
   const FormDataCtor = form.ownerDocument.defaultView?.FormData ?? FormData;
   const data = new FormDataCtor(form);
   const filters: SearchFilters = { limit: 20, sort: 'price_asc' };
@@ -75,9 +74,16 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
       ...(param ? { param: Number(param) } : {}),
     }];
   });
-  if (filters.q && catalog.length > 0) {
-    const itemIds = catalogItemIds(catalog, filters.q);
-    if (itemIds.length > 0) filters.item_ids = itemIds;
+  // 命中范围开关转为服务端 q_scope（多值）：全开时不发（等价缺省 all）；
+  // 道具名命中由服务端图鉴解析（此前在浏览器端解析 item_ids，现已统一走 q_scope）。
+  if (filters.q) {
+    const scopes: SearchQScopeValue[] = [];
+    for (const button of form.querySelectorAll<HTMLButtonElement>('.scope-toggle')) {
+      if (button.getAttribute('aria-pressed') !== 'true') continue;
+      if (button.dataset.scope === 'name') scopes.push('item');
+      else if (button.dataset.scope === 'shop' || button.dataset.scope === 'vendor') scopes.push(button.dataset.scope);
+    }
+    if (scopes.length > 0 && scopes.length < 3) filters.q_scope = (['item', 'shop', 'vendor'] as const).filter((value) => scopes.includes(value));
   }
   if (options.length > 0) {
     filters.options = options;
