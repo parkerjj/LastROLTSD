@@ -997,8 +997,9 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       const normalizedQuery = filters.q ? normalizeCatalogQuery(filters.q) : '';
       // q_scope 只约束 q 的文本匹配：item 范围下 q 已在路由层解析进 item_ids，SQL 不做对应 LIKE；
       // shop=仅商店标题、vendor=仅商人名，多值组合按开启项 OR，缺省（all）保持两者 OR 的原行为。
+      // 归一化后非空即匹配（含单字符）：中文单字搜索（如「店」）不能被静默丢弃成全量查询。
       const textScopes = (filters.q_scope ?? ['item', 'shop', 'vendor']).filter((value) => value !== 'item');
-      if (textScopes.length > 0 && [...normalizedQuery].length >= 2) {
+      if (textScopes.length > 0 && normalizedQuery) {
         const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\${value}`);
         const parts: string[] = [];
         if (textScopes.includes('shop')) parts.push(`s.title_normalized LIKE ${add(`%${escaped}%`)} ESCAPE '\\\\'`);
