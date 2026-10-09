@@ -6,12 +6,11 @@
  *   放大镜 → Usable
  *   金币 / 代币 → Etc
  *   其余 2M+ → Etc（默认兜底）
- * 同时追加到数据 SQL 文件并重新压缩 gz。
+ * 同时追加到数据 SQL 文件。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import mysql from 'mysql2/promise';
-import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,7 +59,7 @@ async function main() {
   if (inserts.length > 20) console.log(`... and ${inserts.length - 20} more`);
 
   // 追加到数据 SQL
-  const sqlPath = path.join(__dirname, '..', 'migrations', 'mysql', 'data', '006_item_catalog_data.sql');
+  const sqlPath = path.join(__dirname, '..', 'migrations', 'mysql', '007_item_catalog_data.sql');
   let sql = fs.readFileSync(sqlPath, 'utf8');
   const block = `\n-- server-custom items from items.json (not in rAthena source)\n` +
     inserts.map((i) =>
@@ -68,16 +67,12 @@ async function main() {
     ).join('\n') + '\n';
 
   if (sql.includes('-- server-custom items from items.json')) {
-    sql = sql.replace(/-- server-custom items from items\.json[\s\S]*?(?=-- end of item_catalog|$)/, block);
+    sql = sql.replace(/-- server-custom items from items\.json[\s\S]*$/, block);
   } else {
-    sql = sql.replace(/-- end of item_catalog/, block + '-- end of item_catalog');
+    sql += block;
   }
   fs.writeFileSync(sqlPath, sql);
-
-  // 重新 gzip
-  const gzPath = sqlPath + '.gz';
-  fs.writeFileSync(gzPath, zlib.gzipSync(fs.readFileSync(sqlPath), { level: 9 }));
-  console.log(`gz regenerated: ${(fs.statSync(gzPath).size / 1024 / 1024).toFixed(2)}MB`);
+  console.log(`SQL updated: ${sqlPath}`);
 
   const [[total]] = await c.query('SELECT COUNT(*) c FROM item_catalog');
   console.log('item_catalog total:', total.c);
