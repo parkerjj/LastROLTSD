@@ -1,4 +1,6 @@
 import type { OptionDefinition, OptionOperator, SearchFilters, SearchOptionFilter, SearchQScopeValue } from './types';
+import type { ItemCategoryTree } from './catalog';
+import { catalogItemIds } from './catalog';
 
 const OPERATOR_LABELS: Record<OptionOperator, string> = {
   eq: '=',
@@ -33,7 +35,7 @@ function isValidOptionValue(value: string, definition: OptionDefinition): boolea
   return Number.isSafeInteger(Number(signed));
 }
 
-export function serializeSearchForm(form: HTMLFormElement, definitions: readonly OptionDefinition[] = []): SearchFilters {
+export function serializeSearchForm(form: HTMLFormElement, definitions: readonly OptionDefinition[] = [], catalog: readonly { itemId: number; name: string; aliases: string[] }[] = [], categoryTree?: ItemCategoryTree): SearchFilters {
   const FormDataCtor = form.ownerDocument.defaultView?.FormData ?? FormData;
   const data = new FormDataCtor(form);
   const filters: SearchFilters = { limit: 20, sort: 'price_asc' };
@@ -44,6 +46,20 @@ export function serializeSearchForm(form: HTMLFormElement, definitions: readonly
     if (key === 'item_id' || key === 'price_min' || key === 'price_max') {
       const parsed = Number(value);
       if (Number.isSafeInteger(parsed)) (filters as unknown as Record<string, unknown>)[key] = parsed;
+      continue;
+    }
+    // 分类字段：选了小类但没选大类时自动补大类
+    if (key === 'item_category' && value) {
+      const tree = categoryTree?.taxonomy ?? [];
+      const parent = tree.find((t) => t.leaves.some((l) => l.code === value));
+      if (parent) {
+        (filters as unknown as Record<string, unknown>)['item_type'] = parent.code;
+        (filters as unknown as Record<string, unknown>)['item_category'] = value;
+        continue;
+      }
+    }
+    if (key === 'item_type' && value) {
+      (filters as unknown as Record<string, unknown>)[key] = value;
       continue;
     }
     (filters as unknown as Record<string, unknown>)[key] = value;

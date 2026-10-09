@@ -73,6 +73,8 @@ export interface SearchFilters {
   price_max?: number;
   map?: string;
   shop_type?: 'buy' | 'sell';
+  item_type?: string;
+  item_category?: string;
   options?: SearchOptionFilter[];
   option_mode?: 'all' | 'any';
   limit: number;
