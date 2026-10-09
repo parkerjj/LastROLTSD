@@ -1011,6 +1011,8 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       if (filters.price_max !== undefined) where.push(`l.price <= ${add(filters.price_max)}`);
       if (filters.map) where.push(`s.map_name = ${add(normalizeCatalogQuery(filters.map))}`);
       if (filters.shop_type) where.push(`s.shop_type = ${add(filters.shop_type)}`);
+      if (filters.item_type) where.push(`l.item_id IN (SELECT item_id FROM item_catalog WHERE type_code = ${add(filters.item_type)})`);
+      if (filters.item_category) where.push(`l.item_id IN (SELECT item_id FROM item_catalog WHERE category_code = ${add(filters.item_category)})`);
 
       getOptionDefinitionSet(filters.optionVersion);
       const definitionMap = OPTION_DEFINITION_MAP;

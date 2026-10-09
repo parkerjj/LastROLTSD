@@ -94,7 +94,7 @@ function mountSearchPage(): void {
       </section>
       <div class="market-workspace">
         <aside class="filter-sidebar" aria-label="扩展搜索">
-          <div id="advanced-filters" class="search-reveal advanced-filters"><div class="reveal-heading"><div><strong>高级搜索</strong><span>范围、价格、地图和商店类型筛选</span></div><span class="reveal-caption">可选</span></div><div class="scope-filters"><div class="scope-filters-head"><strong>命中范围</strong><span>关键词在哪些位置参与匹配</span></div><div class="scope-toggle-row" role="group" aria-label="关键词命中范围"><button type="button" class="scope-toggle is-active" data-scope="name" aria-pressed="true"><i class="ph ph-package" aria-hidden="true"></i><span class="scope-toggle-label">物品</span><span class="scope-toggle-state"><i class="ph ph-check-circle" aria-hidden="true"></i><b>已开启</b></span></button><button type="button" class="scope-toggle is-active" data-scope="shop" aria-pressed="true"><i class="ph ph-storefront" aria-hidden="true"></i><span class="scope-toggle-label">店名</span><span class="scope-toggle-state"><i class="ph ph-check-circle" aria-hidden="true"></i><b>已开启</b></span></button><button type="button" class="scope-toggle is-active" data-scope="vendor" aria-pressed="true"><i class="ph ph-user" aria-hidden="true"></i><span class="scope-toggle-label">商人</span><span class="scope-toggle-state"><i class="ph ph-check-circle" aria-hidden="true"></i><b>已开启</b></span></button></div></div><div class="filters"><label for="price-min">最低价格<input id="price-min" name="price_min" inputmode="numeric" type="number" min="0" placeholder="不限" /></label><label for="price-max">最高价格<input id="price-max" name="price_max" inputmode="numeric" type="number" min="0" placeholder="不限" /></label><label for="map-name">地图<select id="map-name" name="map"><option value="">全部</option>${mapFilterMarkup}</select></label><label for="shop-type">商店类型<select id="shop-type" name="shop_type"><option value="">全部类型</option><option value="sell">出售</option><option value="buy">收购</option></select></label></div></div>
+          <div id="advanced-filters" class="search-reveal advanced-filters"><div class="reveal-heading"><div><strong>高级搜索</strong><span>范围、价格、地图和商店类型筛选</span></div><span class="reveal-caption">可选</span></div><div class="scope-filters"><div class="scope-filters-head"><strong>命中范围</strong><span>关键词在哪些位置参与匹配</span></div><div class="scope-toggle-row" role="group" aria-label="关键词命中范围"><button type="button" class="scope-toggle is-active" data-scope="name" aria-pressed="true"><i class="ph ph-package" aria-hidden="true"></i><span class="scope-toggle-label">物品</span><span class="scope-toggle-state"><i class="ph ph-check-circle" aria-hidden="true"></i><b>已开启</b></span></button><button type="button" class="scope-toggle is-active" data-scope="shop" aria-pressed="true"><i class="ph ph-storefront" aria-hidden="true"></i><span class="scope-toggle-label">店名</span><span class="scope-toggle-state"><i class="ph ph-check-circle" aria-hidden="true"></i><b>已开启</b></span></button><button type="button" class="scope-toggle is-active" data-scope="vendor" aria-pressed="true"><i class="ph ph-user" aria-hidden="true"></i><span class="scope-toggle-label">商人</span><span class="scope-toggle-state"><i class="ph ph-check-circle" aria-hidden="true"></i><b>已开启</b></span></button></div></div><div class="filters"><label for="price-min">最低价格<input id="price-min" name="price_min" inputmode="numeric" type="number" min="0" placeholder="不限" /></label><label for="price-max">最高价格<input id="price-max" name="price_max" inputmode="numeric" type="number" min="0" placeholder="不限" /></label><label for="map-name">地图<select id="map-name" name="map"><option value="">全部</option>${mapFilterMarkup}</select></label><label for="shop-type">商店类型<select id="shop-type" name="shop_type"><option value="">全部类型</option><option value="sell">出售</option><option value="buy">收购</option></select></label><label for="item-type">道具大类<select id="item-type" name="item_type"><option value="">全部</option></select></label><label for="item-category">道具小类<select id="item-category" name="item_category" disabled><option value="">请先选择大类</option></select></label></div></div>
           <div id="option-search-panel" class="search-reveal option-search-panel"><div id="option-dictionary-status" class="option-dictionary-status" role="status" aria-live="polite"></div><fieldset id="option-fieldset" class="option-filters"><legend>词条搜索与过滤</legend><div class="option-heading"><p>添加词条条件，筛选精炼、卡片与装备属性。</p><div class="option-mode" role="group" aria-label="词条匹配方式"><label><input type="radio" name="option_mode" value="all" checked />全部满足</label><label><input type="radio" name="option_mode" value="any" />满足任一</label></div></div><div id="option-rows"></div><button type="button" id="add-option" class="secondary-button" disabled aria-label="添加词条条件"><i class="ph ph-plus" aria-hidden="true"></i> 添加词条条件</button></fieldset></div>
           <p id="form-error" class="form-error" role="alert" hidden></p>
         </aside>
@@ -448,6 +448,56 @@ function mountSearchPage(): void {
     renderOptionDictionary();
   }
 
+  // ── 道具分类级联 ──────────────────────────────────────────────────────
+
+  const itemTypeSelect = root.querySelector<HTMLSelectElement>("#item-type")!;
+  const itemCategorySelect = root.querySelector<HTMLSelectElement>("#item-category")!;
+  let categoryTree: import('./catalog').ItemCategoryTree | undefined;
+
+  async function loadCategoryTree(): Promise<void> {
+    try {
+      const { createCategoryTreeLoader } = await import("./catalog");
+      categoryTree = await createCategoryTreeLoader()();
+      renderCategoryOptions();
+    } catch {
+      // 分类树不可用时静默降级，不影响搜索
+      itemTypeSelect.disabled = true;
+      itemCategorySelect.disabled = true;
+    }
+  }
+
+  function renderCategoryOptions(): void {
+    if (!categoryTree) return;
+    itemTypeSelect.replaceChildren(
+      new Option("全部", ""),
+      ...categoryTree.taxonomy.map((t) => new Option(t.nameZh, t.code)),
+    );
+    itemTypeSelect.disabled = false;
+    itemCategorySelect.disabled = true;
+    itemCategorySelect.replaceChildren(new Option("请先选择大类", ""));
+  }
+
+  itemTypeSelect.addEventListener("change", () => {
+    const typeCode = itemTypeSelect.value;
+    if (!typeCode || !categoryTree) {
+      itemCategorySelect.disabled = true;
+      itemCategorySelect.replaceChildren(new Option("请先选择大类", ""));
+      return;
+    }
+    const type = categoryTree.taxonomy.find((t) => t.code === typeCode);
+    if (!type) return;
+    if (type.leaves.length === 0) {
+      itemCategorySelect.disabled = true;
+      itemCategorySelect.replaceChildren(new Option("该大类无小类", ""));
+      return;
+    }
+    itemCategorySelect.replaceChildren(
+      new Option("全部", ""),
+      ...type.leaves.map((l) => new Option(l.nameZh, l.code)),
+    );
+    itemCategorySelect.disabled = false;
+  });
+
   function hideSuggestions(): void {
     autocompleteItems = [];
     activeSuggestion = -1;
@@ -749,6 +799,8 @@ function mountSearchPage(): void {
         const filters = serializeSearchForm(
           form,
           dictionary.getState().definitions,
+          catalog.items,
+          categoryTree,
         );
         initialBrowse = false;
         setFormError(null);
@@ -1092,6 +1144,7 @@ function mountSearchPage(): void {
   void loadMarketStatus();
   window.setInterval(() => void loadMarketStatus(), 60_000);
   void loadOptionDictionary();
+  void loadCategoryTree();
   void loadCatalog()
     .then((catalog) => {
       catalogItems = catalog.items;

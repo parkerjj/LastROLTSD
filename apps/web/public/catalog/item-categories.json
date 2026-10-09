@@ -1,0 +1,407 @@
+{
+  "version": "rathena-20261004",
+  "taxonomy": [
+    {
+      "code": "Weapon",
+      "nameZh": "武器",
+      "sortOrder": 1,
+      "leaves": [
+        {
+          "code": "1h_sword",
+          "nameZh": "单手剑",
+          "sortOrder": 1
+        },
+        {
+          "code": "2h_sword",
+          "nameZh": "双手剑",
+          "sortOrder": 2
+        },
+        {
+          "code": "dagger",
+          "nameZh": "短剑",
+          "sortOrder": 3
+        },
+        {
+          "code": "katar",
+          "nameZh": "拳刃",
+          "sortOrder": 4
+        },
+        {
+          "code": "1h_axe",
+          "nameZh": "单手斧",
+          "sortOrder": 5
+        },
+        {
+          "code": "2h_axe",
+          "nameZh": "双手斧",
+          "sortOrder": 6
+        },
+        {
+          "code": "huuma",
+          "nameZh": "风魔飞镖",
+          "sortOrder": 7
+        },
+        {
+          "code": "mace",
+          "nameZh": "钝器",
+          "sortOrder": 8
+        },
+        {
+          "code": "1h_spear",
+          "nameZh": "单手矛",
+          "sortOrder": 9
+        },
+        {
+          "code": "2h_spear",
+          "nameZh": "双手矛",
+          "sortOrder": 10
+        },
+        {
+          "code": "2h_staff",
+          "nameZh": "双手杖",
+          "sortOrder": 11
+        },
+        {
+          "code": "book",
+          "nameZh": "书籍",
+          "sortOrder": 12
+        },
+        {
+          "code": "staff",
+          "nameZh": "单手杖",
+          "sortOrder": 13
+        },
+        {
+          "code": "bow",
+          "nameZh": "弓",
+          "sortOrder": 14
+        },
+        {
+          "code": "knuckle",
+          "nameZh": "拳套",
+          "sortOrder": 15
+        },
+        {
+          "code": "musical",
+          "nameZh": "乐器",
+          "sortOrder": 16
+        },
+        {
+          "code": "whip",
+          "nameZh": "鞭子",
+          "sortOrder": 17
+        },
+        {
+          "code": "revolver",
+          "nameZh": "左轮",
+          "sortOrder": 18
+        },
+        {
+          "code": "rifle",
+          "nameZh": "来福",
+          "sortOrder": 19
+        },
+        {
+          "code": "shotgun",
+          "nameZh": "散弹",
+          "sortOrder": 20
+        },
+        {
+          "code": "gatling",
+          "nameZh": "格林",
+          "sortOrder": 21
+        },
+        {
+          "code": "grenade",
+          "nameZh": "榴弹",
+          "sortOrder": 22
+        }
+      ]
+    },
+    {
+      "code": "Armor",
+      "nameZh": "防具",
+      "sortOrder": 2,
+      "leaves": [
+        {
+          "code": "shield",
+          "nameZh": "盾牌",
+          "sortOrder": 1
+        },
+        {
+          "code": "head_mid",
+          "nameZh": "头饰(中)",
+          "sortOrder": 2
+        },
+        {
+          "code": "head_top",
+          "nameZh": "头饰(上)",
+          "sortOrder": 3
+        },
+        {
+          "code": "head_low",
+          "nameZh": "头饰(下)",
+          "sortOrder": 4
+        },
+        {
+          "code": "head_top_mid",
+          "nameZh": "头饰(上中)",
+          "sortOrder": 5
+        },
+        {
+          "code": "head_top_mid_low",
+          "nameZh": "头饰(上中下)",
+          "sortOrder": 6
+        },
+        {
+          "code": "head_mid_low",
+          "nameZh": "头饰(中下)",
+          "sortOrder": 7
+        },
+        {
+          "code": "armor",
+          "nameZh": "铠甲",
+          "sortOrder": 8
+        },
+        {
+          "code": "shoes",
+          "nameZh": "鞋子",
+          "sortOrder": 9
+        },
+        {
+          "code": "garment",
+          "nameZh": "披肩",
+          "sortOrder": 10
+        },
+        {
+          "code": "accessory",
+          "nameZh": "装饰品",
+          "sortOrder": 11
+        },
+        {
+          "code": "head_top_low",
+          "nameZh": "头饰(上下)",
+          "sortOrder": 12
+        },
+        {
+          "code": "costume_head_top",
+          "nameZh": "时装头饰(上)",
+          "sortOrder": 13
+        },
+        {
+          "code": "costume_head_mid",
+          "nameZh": "时装头饰(中)",
+          "sortOrder": 14
+        },
+        {
+          "code": "costume_head_low",
+          "nameZh": "时装头饰(下)",
+          "sortOrder": 15
+        },
+        {
+          "code": "costume_garment",
+          "nameZh": "时装披风",
+          "sortOrder": 16
+        },
+        {
+          "code": "costume_head_mid_low",
+          "nameZh": "时装头饰(中下)",
+          "sortOrder": 17
+        },
+        {
+          "code": "costume_head_top_mid",
+          "nameZh": "时装头饰(上中)",
+          "sortOrder": 18
+        },
+        {
+          "code": "costume_head_top_mid_low",
+          "nameZh": "时装头饰(上中下)",
+          "sortOrder": 19
+        },
+        {
+          "code": "costume_head_top_low",
+          "nameZh": "时装头饰(上下)",
+          "sortOrder": 20
+        }
+      ]
+    },
+    {
+      "code": "Card",
+      "nameZh": "卡片",
+      "sortOrder": 3,
+      "leaves": [
+        {
+          "code": "card_armor",
+          "nameZh": "卡片-铠甲",
+          "sortOrder": 1
+        },
+        {
+          "code": "card_weapon",
+          "nameZh": "卡片-武器",
+          "sortOrder": 2
+        },
+        {
+          "code": "card_shoes",
+          "nameZh": "卡片-鞋子",
+          "sortOrder": 3
+        },
+        {
+          "code": "card_headgear",
+          "nameZh": "卡片-头盔",
+          "sortOrder": 4
+        },
+        {
+          "code": "card_shield",
+          "nameZh": "卡片-盾牌",
+          "sortOrder": 5
+        },
+        {
+          "code": "card_garment",
+          "nameZh": "卡片-披肩",
+          "sortOrder": 6
+        },
+        {
+          "code": "card_accessory",
+          "nameZh": "卡片-饰品",
+          "sortOrder": 7
+        },
+        {
+          "code": "card_enchant",
+          "nameZh": "附魔卡",
+          "sortOrder": 8
+        },
+        {
+          "code": "card_other",
+          "nameZh": "卡片-其他",
+          "sortOrder": 9
+        }
+      ]
+    },
+    {
+      "code": "Shadowgear",
+      "nameZh": "影子装备",
+      "sortOrder": 4,
+      "leaves": [
+        {
+          "code": "shadow_armor",
+          "nameZh": "影子铠甲",
+          "sortOrder": 1
+        },
+        {
+          "code": "shadow_weapon",
+          "nameZh": "影子武器",
+          "sortOrder": 2
+        },
+        {
+          "code": "shadow_shield",
+          "nameZh": "影子盾牌",
+          "sortOrder": 3
+        },
+        {
+          "code": "shadow_shoes",
+          "nameZh": "影子鞋子",
+          "sortOrder": 4
+        },
+        {
+          "code": "shadow_earring",
+          "nameZh": "影子耳环",
+          "sortOrder": 5
+        },
+        {
+          "code": "shadow_pendant",
+          "nameZh": "影子吊坠",
+          "sortOrder": 6
+        }
+      ]
+    },
+    {
+      "code": "Ammo",
+      "nameZh": "弹药",
+      "sortOrder": 5,
+      "leaves": [
+        {
+          "code": "arrow",
+          "nameZh": "箭矢",
+          "sortOrder": 1
+        },
+        {
+          "code": "ammo_dagger",
+          "nameZh": "飞刀",
+          "sortOrder": 2
+        },
+        {
+          "code": "bullet",
+          "nameZh": "子弹",
+          "sortOrder": 3
+        },
+        {
+          "code": "ammo_grenade",
+          "nameZh": "榴弹弹药",
+          "sortOrder": 4
+        },
+        {
+          "code": "ammo_shuriken",
+          "nameZh": "手里剑",
+          "sortOrder": 5
+        },
+        {
+          "code": "ammo_kunai",
+          "nameZh": "苦无",
+          "sortOrder": 6
+        },
+        {
+          "code": "ammo_throwweapon",
+          "nameZh": "投掷武器",
+          "sortOrder": 7
+        },
+        {
+          "code": "cannonball",
+          "nameZh": "炮弹",
+          "sortOrder": 8
+        }
+      ]
+    },
+    {
+      "code": "Petarmor",
+      "nameZh": "宠物装备",
+      "sortOrder": 6,
+      "leaves": []
+    },
+    {
+      "code": "Healing",
+      "nameZh": "恢复道具",
+      "sortOrder": 7,
+      "leaves": []
+    },
+    {
+      "code": "Usable",
+      "nameZh": "消耗道具",
+      "sortOrder": 8,
+      "leaves": []
+    },
+    {
+      "code": "DelayConsume",
+      "nameZh": "延迟消耗道具",
+      "sortOrder": 9,
+      "leaves": []
+    },
+    {
+      "code": "Cash",
+      "nameZh": "商城道具",
+      "sortOrder": 10,
+      "leaves": []
+    },
+    {
+      "code": "Etc",
+      "nameZh": "其他道具",
+      "sortOrder": 11,
+      "leaves": []
+    },
+    {
+      "code": "Petegg",
+      "nameZh": "宠物蛋",
+      "sortOrder": 12,
+      "leaves": []
+    }
+  ]
+}
