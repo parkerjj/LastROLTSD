@@ -1,0 +1,82 @@
+CREATE TABLE IF NOT EXISTS item_types (
+  code VARCHAR(32) NOT NULL,
+  name_zh VARCHAR(64) NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS item_categories (
+  code VARCHAR(64) NOT NULL,
+  type_code VARCHAR(32) NOT NULL,
+  name_zh VARCHAR(64) NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (code),
+  INDEX idx_item_categories_type (type_code, sort_order),
+  CONSTRAINT fk_item_categories_type FOREIGN KEY (type_code) REFERENCES item_types (code) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS item_catalog (
+  item_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(191) NOT NULL DEFAULT '',
+  name_zh VARCHAR(191) NOT NULL DEFAULT '',
+  type_code VARCHAR(32) NOT NULL,
+  category_code VARCHAR(64) NOT NULL DEFAULT '',
+  buy_price BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  sell_price BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  weight INT UNSIGNED NOT NULL DEFAULT 0,
+  attack INT UNSIGNED NOT NULL DEFAULT 0,
+  magic_attack INT UNSIGNED NOT NULL DEFAULT 0,
+  defense INT UNSIGNED NOT NULL DEFAULT 0,
+  `range` INT UNSIGNED NOT NULL DEFAULT 0,
+  slots INT UNSIGNED NOT NULL DEFAULT 0,
+  weapon_level INT UNSIGNED NOT NULL DEFAULT 0,
+  armor_level INT UNSIGNED NOT NULL DEFAULT 0,
+  equip_level_min INT UNSIGNED NOT NULL DEFAULT 0,
+  equip_level_max INT UNSIGNED NOT NULL DEFAULT 0,
+  refineable TINYINT(1) NOT NULL DEFAULT 0,
+  gradable TINYINT(1) NOT NULL DEFAULT 0,
+  view VARCHAR(64) NOT NULL DEFAULT '',
+  jobs VARCHAR(191) NOT NULL DEFAULT '',
+  classes VARCHAR(191) NOT NULL DEFAULT '',
+  gender VARCHAR(16) NOT NULL DEFAULT '',
+  location VARCHAR(191) NOT NULL DEFAULT '',
+  description MEDIUMTEXT NULL,
+  script MEDIUMTEXT NULL,
+  equip_script MEDIUMTEXT NULL,
+  unequip_script MEDIUMTEXT NULL,
+  stack_amount INT UNSIGNED NOT NULL DEFAULT 0,
+  bind_on_equip TINYINT(1) NOT NULL DEFAULT 0,
+  unique_item TINYINT(1) NOT NULL DEFAULT 0,
+  no_consume TINYINT(1) NOT NULL DEFAULT 0,
+  delay_duration INT UNSIGNED NOT NULL DEFAULT 0,
+  trade_no_drop TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_trade TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_sell TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_cart TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_storage TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_guild_storage TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_mail TINYINT(1) NOT NULL DEFAULT 0,
+  trade_no_auction TINYINT(1) NOT NULL DEFAULT 0,
+  trade_partner TINYINT(1) NOT NULL DEFAULT 0,
+  buying_store TINYINT(1) NOT NULL DEFAULT 0,
+  alias_name VARCHAR(191) NOT NULL DEFAULT '',
+  icon_small VARCHAR(512) NOT NULL DEFAULT '',
+  icon_large VARCHAR(512) NOT NULL DEFAULT '',
+  dvg_url VARCHAR(512) NOT NULL DEFAULT '',
+  source_file VARCHAR(64) NOT NULL DEFAULT '',
+  catalog_version VARCHAR(64) NOT NULL DEFAULT '',
+  created_at BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (item_id),
+  INDEX idx_item_catalog_type (type_code, item_id),
+  INDEX idx_item_catalog_category (category_code, item_id),
+  INDEX idx_item_catalog_name (name, item_id),
+  INDEX idx_item_catalog_name_zh (name_zh, item_id),
+  CONSTRAINT fk_item_catalog_type FOREIGN KEY (type_code) REFERENCES item_types (code) ON DELETE CASCADE,
+  CONSTRAINT fk_item_catalog_category FOREIGN KEY (category_code) REFERENCES item_categories (code) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- 道具数据文件位于 migrations/mysql/data/006_item_catalog_data.sql.gz
+-- 部署后请人工解压并导入：
+--   gzip -d migrations/mysql/data/006_item_catalog_data.sql.gz
+--   mysql -u <user> -p <database> < migrations/mysql/data/006_item_catalog_data.sql

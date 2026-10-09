@@ -64,6 +64,40 @@ export function catalogItemIds(items: readonly ItemAutocomplete[], query: string
   return findCatalogMatches(items, query, SEARCH_ITEM_ID_LIMIT).map((item) => item.itemId);
 }
 
+export interface ItemCategoryLeaf {
+  code: string;
+  nameZh: string;
+  sortOrder: number;
+}
+
+export interface ItemType {
+  code: string;
+  nameZh: string;
+  sortOrder: number;
+  leaves: ItemCategoryLeaf[];
+}
+
+export interface ItemCategoryTree {
+  version: string;
+  taxonomy: ItemType[];
+}
+
+export function createCategoryTreeLoader(
+  fetcher: typeof fetch = fetch,
+  path = '/catalog/item-categories.json',
+): () => Promise<ItemCategoryTree> {
+  let pending: Promise<ItemCategoryTree> | undefined;
+  return () => {
+    pending ??= fetcher(path).then(async (response) => {
+      if (!response.ok) throw new Error('category tree unavailable');
+      const payload = await response.json() as ItemCategoryTree;
+      if (!payload || !Array.isArray(payload.taxonomy)) throw new Error('category tree invalid');
+      return payload;
+    });
+    return pending;
+  };
+}
+
 export function hydrateSearchPage(
   page: SearchPage<ListingSearchResult>,
   items: readonly ItemAutocomplete[],

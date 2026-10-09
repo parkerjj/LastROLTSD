@@ -20,6 +20,7 @@ export interface SearchFilters {
   options?: Array<{ type: number; operator: string; value: string; param?: number }>;
   option_mode?: 'all' | 'any';
   price_min?: number; price_max?: number; map?: string; shop_type?: 'buy' | 'sell';
+  item_type?: string; item_category?: string;
   include_stale?: boolean; limit: number; cursor?: string; sort: 'price_asc' | 'price_desc' | 'changed_desc';
 }
 export interface SearchPage<T> { items: T[]; nextCursor: string | null }

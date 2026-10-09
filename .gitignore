@@ -7,6 +7,9 @@ dist/
 .deployment-secrets.local
 wrangler.*.local.toml
 source-seed*.local.sql
+# 数据 SQL 压缩包是交付件，解压版仅本地使用
+migrations/mysql/data/*.sql
+!migrations/mysql/data/*.sql.gz
 .chrome-ui-check/
 .chrome-formal-profile/
 %SystemDrive%/
