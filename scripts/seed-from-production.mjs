@@ -2,13 +2,16 @@
  * 从生产站 https://ltsd.ro 抓取 100 条真实市场数据，导入本地 MySQL 作为测试数据。
  * 会替换掉 source_id = 'local-test' 的旧假数据。
  *
- * 用法：node scripts/seed-from-production.cjs [数量，默认100] [--snapshot]
+ * 用法：node scripts/seed-from-production.mjs [数量，默认100] [--snapshot]
  *   --snapshot  可选，把原始响应存到 scripts/local-market-snapshot.json
  */
 import mysql from 'mysql2/promise';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SOURCE_ID = 'local-test';
 const API_BASE = 'https://ltsd.ro/api/v1/market/search';

@@ -2,7 +2,7 @@
  * 本地测试数据：按道具分类均匀生成假 shops/listings，
  * 保证每个主要小类都有可检索结果。仅供本地开发，不提交（.gitignore 外的脚本仅开发用）。
  *
- * 用法：node scripts/seed-local.cjs
+ * 用法：node scripts/seed-local.mjs
  */
 import mysql from 'mysql2/promise';
 

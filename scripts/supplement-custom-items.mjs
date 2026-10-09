@@ -12,6 +12,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import mysql from 'mysql2/promise';
 import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function inferType(name) {
   if (/魔物蛋|怪物蛋/.test(name)) return 'Petegg';
@@ -65,7 +68,7 @@ async function main() {
     ).join('\n') + '\n';
 
   if (sql.includes('-- server-custom items from items.json')) {
-    sql = sql.replace(/-- server-custom items from itemsjson[\s\S]*?(?=-- end of item_catalog|$)/, block);
+    sql = sql.replace(/-- server-custom items from items\.json[\s\S]*?(?=-- end of item_catalog|$)/, block);
   } else {
     sql = sql.replace(/-- end of item_catalog/, block + '-- end of item_catalog');
   }
