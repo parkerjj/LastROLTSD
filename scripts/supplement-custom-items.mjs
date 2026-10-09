@@ -28,7 +28,7 @@ function escSql(s) {
 }
 
 async function main() {
-  const itemsJson = JSON.parse(fs.readFileSync('apps/web/public/catalog/items.json', 'utf8'));
+  const itemsJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps', 'web', 'public', 'catalog', 'items.json'), 'utf8'));
   const allIds = itemsJson.items.map((i) => i.itemId);
 
   const c = await mysql.createConnection('mysql://root:root@127.0.0.1:3306/ro_items');
