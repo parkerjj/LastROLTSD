@@ -76,7 +76,4 @@ CREATE TABLE IF NOT EXISTS item_catalog (
   CONSTRAINT fk_item_catalog_category FOREIGN KEY (category_code) REFERENCES item_categories (code) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- 道具数据文件位于 migrations/mysql/data/006_item_catalog_data.sql.gz
--- 部署后请人工解压并导入：
---   gzip -d migrations/mysql/data/006_item_catalog_data.sql.gz
---   mysql -u <user> -p <database> < migrations/mysql/data/006_item_catalog_data.sql
+-- 道具数据由 007_item_catalog_data.sql 自动导入，无需人工操作。

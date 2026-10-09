@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 从 rAthena 道具宽表 CSV 生成：
- * 1. migrations/mysql/006_item_catalog_data.sql  — 29,356 条 INSERT 数据
+ * 1. migrations/mysql/007_item_catalog_data.sql  — 29,356 条 INSERT 数据
  * 2. apps/web/public/catalog/item-categories.json — 前端分类树（taxonomy）
  *
  * 用法：
@@ -9,7 +9,7 @@
  *   node scripts/item-catalog-import.mjs --dry-run --input-file ... --version ...
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -395,10 +395,9 @@ async function main() {
     return;
   }
 
-  const dataDir = resolve(__dirname, '../migrations/mysql/data');
-  const sqlPath = join(dataDir, '006_item_catalog_data.sql');
+  const sqlPath = resolve(__dirname, '../migrations/mysql/007_item_catalog_data.sql');
   const treePath = resolve(__dirname, '../apps/web/public/catalog/item-categories.json');
-  await mkdir(dataDir, { recursive: true });
+  await mkdir(dirname(sqlPath), { recursive: true });
   await mkdir(dirname(treePath), { recursive: true });
   await writeFile(sqlPath, sqlContent, 'utf8');
   await writeFile(treePath, treeContent, 'utf8');
