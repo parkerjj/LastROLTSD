@@ -26,6 +26,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:migration
       - run: pnpm test:docs
 
   deploy-production:

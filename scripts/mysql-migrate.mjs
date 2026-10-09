@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { createReadStream } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
+import { batchStatements, sqlStatements } from './mysql-migration-lib.mjs';
 import mysql from 'mysql2/promise';
 
-const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 const migrationsDirectory = new URL('../migrations/mysql/', import.meta.url);
 const dryRun = process.argv.includes('--dry-run');
 
@@ -11,11 +12,11 @@ try {
   const migrations = await loadMigrations();
   const connection = await mysql.createConnection(parseMysqlUrl(requireMysqlUrl()));
   try {
-    await connection.execute('SELECT 1 AS healthy');
+    await connection.query('SELECT 1 AS healthy');
     if (dryRun) {
       process.stdout.write(`[mysql-migrate] dry run: ${migrations.length} migration files verified\n`);
     } else {
-      await connection.execute(`
+      await connection.query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           name VARCHAR(255) NOT NULL,
           checksum CHAR(64) NOT NULL,
@@ -35,48 +36,45 @@ try {
 }
 
 async function loadMigrations() {
-  const names = (await readdir(migrationsDirectory))
-    .filter((name) => /^\d{3,4}_.+\.sql$/u.test(name))
-    .sort();
-  if (names.length === 0) throw new Error('no MySQL migration files found');
-  return Promise.all(names.map(async (name) => {
-    const sql = await readFile(new URL(name, migrationsDirectory), 'utf8');
-    if (sql.trim() === '') throw new Error(`migration ${name} is empty`);
-    return { name, sql, checksum: createHash('sha256').update(sql).digest('hex') };
-  }));
+  const names = (await readdir(migrationsDirectory)).filter((name) => /^\d{3,4}_.+\.sql$/u.test(name)).sort();
+  if (!names.length) throw new Error('no MySQL migration files found');
+  const migrations = [];
+  for (const name of names) {
+    const url = new URL(name, migrationsDirectory);
+    if ((await stat(url)).size === 0) throw new Error(`migration ${name} is empty`);
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(url)) hash.update(chunk);
+    migrations.push({name,url,checksum:hash.digest('hex')});
+  }
+  return migrations;
 }
 
-async function applyMigration(connection, migration) {
-  const [rows] = await connection.execute('SELECT checksum FROM schema_migrations WHERE name=?', [migration.name]);
+async function applyMigration(connection,migration) {
+  const [rows] = await connection.query('SELECT checksum FROM schema_migrations WHERE name=?', [migration.name]);
   const applied = Array.isArray(rows) ? rows[0] : undefined;
   if (applied) {
     if (applied.checksum !== migration.checksum) throw new Error(`migration checksum mismatch: ${migration.name}`);
+    process.stdout.write(`[mysql-migrate] skipped ${migration.name} (already applied)\n`);
     return;
   }
-
-  for (const statement of splitStatements(migration.sql)) await connection.execute(statement);
-  await connection.execute('INSERT INTO schema_migrations(name,checksum,applied_at) VALUES (?,?,?)', [migration.name, migration.checksum, Date.now()]);
-}
-
-function splitStatements(sql) {
-  const statements = [];
-  let statement = '';
-  let quote = null;
-  for (let index = 0; index < sql.length; index += 1) {
-    const character = sql[index];
-    const previous = sql[index - 1];
-    if ((character === "'" || character === '"' || character === '`') && previous !== '\\') {
-      quote = quote === character ? null : quote ?? character;
+  let queryCount = 0;
+  let statementCount = 0;
+  const lines = createInterface({ input: createReadStream(migration.url, { encoding: 'utf8' }), crlfDelay: Infinity });
+  try {
+    for await (const batch of batchStatements(sqlStatements(lines))) {
+      try { await connection.query(batch.sql); }
+      catch (error) {
+        const code = error && typeof error.code === 'string' ? error.code : 'UNKNOWN';
+        throw new Error(`migration ${migration.name} failed at batch ${queryCount + 1} (statement ${statementCount + 1}, ${code})`);
+      }
+      queryCount += 1;
+      statementCount += batch.rows;
     }
-    if (character === ';' && quote === null) {
-      if (statement.trim() !== '') statements.push(statement.trim());
-      statement = '';
-    } else {
-      statement += character;
-    }
+  } finally {
+    lines.close();
   }
-  if (statement.trim() !== '') statements.push(statement.trim());
-  return statements;
+  await connection.query('INSERT INTO schema_migrations(name,checksum,applied_at) VALUES (?,?,?)', [migration.name, migration.checksum, Date.now()]);
+  process.stdout.write(`[mysql-migrate] applied ${migration.name}: ${statementCount} statements in ${queryCount} queries\n`);
 }
 
 function requireMysqlUrl() {
