@@ -5,10 +5,10 @@
  * 用法：node scripts/seed-from-production.cjs [数量，默认100] [--snapshot]
  *   --snapshot  可选，把原始响应存到 scripts/local-market-snapshot.json
  */
-const mysql = require('mysql2/promise');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
+import mysql from 'mysql2/promise';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const SOURCE_ID = 'local-test';
 const API_BASE = 'https://ltsd.ro/api/v1/market/search';

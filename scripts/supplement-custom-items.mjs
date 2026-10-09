@@ -8,10 +8,10 @@
  *   其余 2M+ → Etc（默认兜底）
  * 同时追加到数据 SQL 文件并重新压缩 gz。
  */
-const fs = require('node:fs');
-const path = require('node:path');
-const mysql = require('mysql2/promise');
-const zlib = require('node:zlib');
+import fs from 'node:fs';
+import path from 'node:path';
+import mysql from 'mysql2/promise';
+import zlib from 'node:zlib';
 
 function inferType(name) {
   if (/魔物蛋|怪物蛋/.test(name)) return 'Petegg';

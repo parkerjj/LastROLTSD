@@ -4,7 +4,7 @@
  *
  * 用法：node scripts/seed-local.cjs
  */
-const mysql = require('mysql2/promise');
+import mysql from 'mysql2/promise';
 
 const SOURCE_ID = 'local-test';
 const MAPS = ['prontera', 'morocc', 'geffen', 'payon', 'alberta', 'izlude', 'aldebaran'];
