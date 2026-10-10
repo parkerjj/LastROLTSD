@@ -3,7 +3,7 @@ import { parseSearchParams, SearchValidationError, SEARCH_INDEX_VERSION } from '
 import type { MarketRepository } from '../db/repository';
 import { withQueryCacheHeaders } from '../middleware/cache';
 
-// q 经图鉴解析成 item ids 的回调（q_scope=all/item 时由路由层调用；实现见 index.ts）。
+// Optional legacy resolver. Production resolves item names inside MySQL.
 export type CatalogItemResolver = (query: string) => Promise<number[]>;
 
 export function registerSearchRoute(app: Hono<any>, repo: MarketRepository, cursorSecret?: string, resolveItemIds?: CatalogItemResolver): void {
@@ -21,8 +21,8 @@ export async function searchResponse(request: Request, repo: MarketRepository, c
     const resolvesItems = rawQuery && (rawScopes.length === 0 || rawScopes.includes('all') || rawScopes.includes('item'));
     const resolvedItemIds = resolvesItems && resolveItemIds ? await resolveItemIds(rawQuery!) : undefined;
     const filters = parseSearchParams(url, { ...(cursorSecret === undefined ? {} : { cursorSecret }), verifyCursor, catalogVersion, optionVersion: definitions.version, searchIndexVersion: SEARCH_INDEX_VERSION, ...(resolvedItemIds?.length ? { resolvedItemIds } : {}) });
-    // 仅 item 范围且 q 一条图鉴都没命中、又没有显式 ID 参数时，匹配谓词会整体消失并退化为全量查询，直接短路为空页。
-    if (filters.q && filters.q_scope?.length === 1 && filters.q_scope[0] === 'item' && filters.item_id === undefined && !(filters.item_ids?.length)) {
+    // Only a supplied resolver can confirm an empty catalog match; production uses SQL.
+    if (resolveItemIds && filters.q && filters.q_scope?.length === 1 && filters.q_scope[0] === 'item' && filters.item_id === undefined && !(filters.item_ids?.length)) {
       return withQueryCacheHeaders(Response.json({ items: [], nextCursor: null }), 'search');
     }
     const page = await repo.searchListings(filters);
