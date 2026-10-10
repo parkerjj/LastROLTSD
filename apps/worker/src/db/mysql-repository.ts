@@ -189,6 +189,9 @@ function listingFromRow(row: Row): ListingRow {
 function listingFromSearchRow(row: Row): ListingSearchRow {
   return {
     ...listingFromRow(row),
+    ...(row.item_name == null || String(row.item_name).trim() === '' ? {} : { itemName: String(row.item_name) }),
+    ...(row.item_icon == null || String(row.item_icon).trim() === '' ? {} : { itemIcon: String(row.item_icon) }),
+    ...(row.item_icon_large == null || String(row.item_icon_large).trim() === '' ? {} : { itemIconLarge: String(row.item_icon_large) }),
     shopId: String(row.shop_id_display ?? row.shop_key),
     shopStatus: String(row.shop_status) as ListingSearchRow['shopStatus'],
     shopKey: String(row.shop_key),
@@ -1070,8 +1073,12 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       const rows = await db.all<Row>(`SELECT l.id, l.shop_id, l.item_fingerprint, l.item_key, l.item_id, l.upgrade, l.slots,
           l.card0, l.card1, l.card2, l.card3, l.price, l.quantity, l.status, l.state_version, l.missing_full_count,
           l.last_changed_at, s.public_shop_id AS shop_id_display, s.status AS shop_status, s.public_shop_id AS shop_key,
-          s.title, s.vendor_name, s.map_name, s.x, s.y, s.shop_type
+          s.title, s.vendor_name, s.map_name, s.x, s.y, s.shop_type,
+          COALESCE(NULLIF(c.name_zh, ''), NULLIF(c.name, '')) AS item_name,
+          NULLIF(c.icon_small, '') AS item_icon,
+          NULLIF(c.icon_large, '') AS item_icon_large
         FROM listings l JOIN shops s ON s.id = l.shop_id
+        LEFT JOIN item_catalog c ON c.item_id = l.item_id
         WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?`, params);
       const items = rows.slice(0, limit).map(listingFromSearchRow);
       if (items.length > 0) {
