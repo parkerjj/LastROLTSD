@@ -71,10 +71,33 @@ max_retries = 3
 
 [observability.logs]
 enabled = true
-invocation_logs = true
-
+# Do not log every successful GET/404 invocation.
+invocation_logs = false
+head_sampling_rate = 0.05
 
 [observability.traces]
 enabled = true
-head_sampling_rate = 1
+head_sampling_rate = 0.01
+persist = true
+
+# Set per-environment values explicitly: Wrangler environments do not inherit
+# all top-level observability settings.
+[env.staging.observability.logs]
+enabled = true
+invocation_logs = false
+head_sampling_rate = 0.05
+
+[env.staging.observability.traces]
+enabled = true
+head_sampling_rate = 0.01
+persist = true
+
+[env.production.observability.logs]
+enabled = true
+invocation_logs = false
+head_sampling_rate = 0.05
+
+[env.production.observability.traces]
+enabled = true
+head_sampling_rate = 0.01
 persist = true

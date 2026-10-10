@@ -5,7 +5,7 @@ export class SearchValidationError extends Error { constructor(message: string) 
 const SORTS = new Set<SearchFilters['sort']>(['price_asc', 'price_desc', 'changed_desc']);
 export const DEFAULT_CURSOR_SECRET = 'lastroweb-local-cursor-secret-v1';
 const MAX_CURSOR_LENGTH = 512;
-export const SEARCH_INDEX_VERSION = 'active-shop-bounded-v1';
+export const SEARCH_INDEX_VERSION = 'mysql-catalog-search-v2';
 type SearchSort = SearchFilters['sort'];
 export interface CursorExpectation { sort?: SearchSort; context?: string }
 

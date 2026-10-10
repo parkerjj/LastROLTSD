@@ -40,8 +40,8 @@ describe('Worker MySQL connection ownership', () => {
     const body = await response.json() as { error: { request_id: string } };
     expect(body.error.request_id).toBe(response.headers.get('x-request-id'));
     expect(response.headers.get('cache-control')).toBe('no-store');
-    const metric = errors.mock.calls.map(([line]) => JSON.parse(String(line))).find((entry) => entry.metric === 'lastroweb.request');
-    expect(metric).toMatchObject({ body_bytes: 2 });
+    // Routine unauthorized responses are intentionally not persisted as Worker errors.
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it('isolates concurrent direct uploads by source and per-request limits', async () => {

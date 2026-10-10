@@ -97,9 +97,9 @@ export function logInfo(metric: string, context: LogContext = {}): void {
   emit('info', { metric, ...context });
 }
 
-/** HTTP status codes >= 400 represent error responses and are eligible for logging. */
+/** Client 4xx responses are expected outcomes; only HTTP 5xx merit request error logs. */
 export function isErrorResponse(status: number): boolean {
-  return status >= 400;
+  return status >= 500;
 }
 
 export interface MetricEvent {
@@ -123,7 +123,7 @@ export interface UploadErrorEvent {
 }
 
 /**
- * Per-request metric. Successful responses (status < 400) emit nothing,
+ * Per-request metric. Success and client errors (status < 500) emit nothing,
  * satisfying the "do not log OK" requirement. Error responses are forwarded
  * to logError so they gain timestamp + structured payload.
  */
@@ -142,6 +142,7 @@ export function recordMetric(event: MetricEvent): void {
 
 /** Upload-stage error event. Already ERROR severity; routed through logError for consistency. */
 export function recordUploadError(event: UploadErrorEvent): void {
+  if (!isErrorResponse(event.status)) return;
   logError('lastroweb.upload_error', new Error(event.message), {
     request_id: event.requestId,
     status: event.status,
