@@ -113,7 +113,7 @@ export function hydrateSearchPage(
       if (name === undefined && description === undefined) return item;
       const currentDescription = String(item.description ?? '').trim();
       const hasUsableDescription = currentDescription !== '' && currentDescription !== '暂无详细描述';
-      return { ...item, ...(name === undefined ? {} : { itemName: name }), ...(description === undefined || hasUsableDescription ? {} : { description }) };
+      return { ...item, ...(String(item.itemName ?? '').trim() || name === undefined ? {} : { itemName: name }), ...(description === undefined || hasUsableDescription ? {} : { description }) };
     }),
   };
 }
