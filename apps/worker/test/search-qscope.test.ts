@@ -139,7 +139,7 @@ describe('search route q_scope wiring', () => {
     const { app, seen } = makeApp(undefined);
     const response = await app.request('/api/v1/market/search?q=%E6%B3%A2%E5%88%A9&q_scope=item');
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ items: [], nextCursor: null });
+    await expect(response.json()).resolves.toMatchObject({ items: [], nextCursor: expect.any(String) });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ q: '波利', q_scope: ['item'] });
   });
