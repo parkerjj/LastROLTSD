@@ -103,7 +103,7 @@ describe('upload route', () => {
     expect((await limited.json() as { error: { code: string } }).error.code).toBe('payload_too_large');
   });
 
-  it('logs only safe authentication diagnostics for a 403', async () => {
+  it('keeps disabled-source diagnostics out of logs for expected 403 responses', async () => {
     const key = 'route-secret';
     const app = new Hono();
     const repository = repo(await hashApiKey(key), 'disabled');
@@ -114,11 +114,7 @@ describe('upload route', () => {
       const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'idempotency-key': 'snap/0' }, body: JSON.stringify(heartbeatPayload) });
       expect(response.status).toBe(403);
       expect(output).not.toHaveBeenCalled();
-      const failure = JSON.parse(String(errors.mock.calls[0]?.[0]));
-      expect(failure).toMatchObject({ metric: 'lastroweb.upload_error', status: 403, details: { stage: 'authenticate', expected: 'active', actual: 'disabled' } });
-      expect(failure.details).not.toHaveProperty('tokenHashPrefix');
-      expect(failure.details).not.toHaveProperty('storedHashPrefix');
-      expect(JSON.stringify(errors.mock.calls)).not.toContain('vendor-account');
+      expect(errors).not.toHaveBeenCalled();
     } finally {
       output.mockRestore();
       errors.mockRestore();
@@ -144,7 +140,7 @@ describe('upload route', () => {
     }
   });
 
-  it('keeps malformed JSON, unknown fields, and idempotency values out of error logs', async () => {
+  it('does not emit error logs for malformed JSON, unknown fields, or invalid idempotency values', async () => {
     const key = 'route-secret';
     const app = new Hono();
     registerUploadRoute(app, { ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 512 * 1024 }, repo(await hashApiKey(key)), { applyBatchObservations: async () => ({ processedListings: 0, changedListings: 0, soldEvents: 0 }) });
@@ -159,10 +155,9 @@ describe('upload route', () => {
         const response = await app.request('/api/v1/market/upload', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'idempotency-key': idempotencyKey }, body });
         expect(response.status).toBe(status);
       }
-      expect(errors).toHaveBeenCalledTimes(3);
+      expect(errors).not.toHaveBeenCalled();
       const logs = JSON.stringify([...output.mock.calls, ...errors.mock.calls]);
       for (const value of ['private-payload', 'secret-value', 'private-field-name', 'private-key', key, 'vendor-account']) expect(logs).not.toContain(value);
-      expect(JSON.parse(String(errors.mock.calls[1]?.[0])).details).toMatchObject({ stage: 'validate', issues: [{ path: [], code: 'unrecognized_keys' }] });
     } finally {
       output.mockRestore();
       errors.mockRestore();

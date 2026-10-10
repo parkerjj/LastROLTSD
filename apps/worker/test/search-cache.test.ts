@@ -57,6 +57,14 @@ describe('search edge cache', () => {
     expect([...entries.values()][0]?.headers.has('x-request-id')).toBe(false);
   });
 
+  it('does not fetch the large catalog asset when matching names in MySQL', async () => {
+    const fetchAsset = vi.fn(async () => { throw new Error('catalog asset must not be accessed'); });
+    const response = await worker.fetch(new Request(url + '&q=' + encodeURIComponent('亡者牙齿') + '&q_scope=item'),
+      { ...bindings, ASSETS: { fetch: fetchAsset } });
+    expect(response.status).toBe(200);
+    expect(fetchAsset).not.toHaveBeenCalled();
+    expect(databaseReads).toBe(1);
+  });
   it('expires results and does not extend browser freshness on a cache hit', async () => {
     let now = 1_800_000_000_000;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
