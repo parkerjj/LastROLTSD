@@ -331,8 +331,10 @@ describe('MySQL repository upload core', () => {
 
     expect(result).toEqual({ items: [], nextCursor: null });
     expect(db.sql[0]).toContain('l.item_id IN (?, ?)');
+    expect(db.sql[0]).toContain('FROM item_catalog');
+    expect(db.sql[0]).toContain('ORDER BY item_id LIMIT 50');
     expect(db.sql[0]).not.toMatch(/\?\d+/u);
-    expect(db.values[0]).toEqual([1, 2, '%测试商店%', '%测试商店%', 51]);
+    expect(db.values[0]).toEqual([1, 2, '%测试商店%', '%测试商店%', '%测试商店%', '%测试商店%', '%测试商店%', '%测试商店%', 51]);
   });
 
   it('applies scoped text predicates even for single-character queries', async () => {
@@ -362,6 +364,26 @@ describe('MySQL repository upload core', () => {
     expect(combined.values[0]).toEqual(['%店%', '%店%', 21]);
   });
 
+  it('delegates item-only Unicode name searches to MySQL', async () => {
+    const db = new RecordingMysqlDatabase();
+    await createMysqlRepository(db).searchListings({ limit: 20, sort: 'price_asc', q: '亡者牙齿', q_scope: ['item'] });
+    expect(db.sql).toHaveLength(1);
+    expect(db.sql[0]).toContain('FROM item_catalog');
+    expect(db.sql[0]).toContain('name_zh LIKE ?');
+    expect(db.sql[0]).toContain('alias_name LIKE ?');
+    expect(db.sql[0]).not.toContain('s.title_normalized LIKE');
+    expect(db.values[0]).toEqual(['%亡者牙齿%', '%亡者牙齿%', '%亡者牙齿%', '%亡者牙齿%', 21]);
+  });
+
+  it('combines item/shop name matches with an item type filter in one query', async () => {
+    const db = new RecordingMysqlDatabase();
+    await createMysqlRepository(db).searchListings({ limit: 20, sort: 'changed_desc', q: '柔软的羽毛', q_scope: ['item', 'shop'], item_type: 'Etc' });
+    expect(db.sql).toHaveLength(1);
+    expect(db.sql[0]).toContain('FROM item_catalog');
+    expect(db.sql[0]).toContain('s.title_normalized LIKE ?');
+    expect(db.sql[0]).toContain('WHERE type_code = ?');
+    expect(db.values[0]).toEqual(['%柔软的羽毛%', '%柔软的羽毛%', '%柔软的羽毛%', '%柔软的羽毛%', '%柔软的羽毛%', 'Etc', 21]);
+  });
   it('keeps legacy listing writes batched and parameterized for service compatibility', async () => {
     const db = new RecordingMysqlDatabase();
     const repo = createMysqlRepository(db);
