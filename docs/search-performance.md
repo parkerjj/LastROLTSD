@@ -1,5 +1,30 @@
 # Search CPU optimization
 
+## October 2026 MySQL name matching and log volume
+
+The previous Worker fetched and parsed the 1.3 MB `catalog/items.json`
+asset during item-name searches and normalized/scanned/sorted every item in
+JavaScript. That could exceed the 10 ms CPU budget on an uncached request.
+
+The new market search uses parameterized MySQL catalog predicates
+(`name_zh`, `name`, `alias_name`, and numeric `item_id`) with the
+lowest 50 matching IDs, combined in the listing query with shop/vendor name
+and item type/category filters. No large catalog JSON is loaded for these
+requests. This moves expensive catalog matching from the Worker to MySQL, but
+`%term%` substring matching cannot use a standard B-tree prefix index. Verify
+MySQL load and `EXPLAIN ANALYZE` after release; a dedicated search-terms
+index can further optimize very large catalogs. The MySQL catalog is imported
+separately from web autocomplete data: keep custom aliases synchronized.
+
+The search index version has been bumped so old pagination cursors cannot
+be used across deployments. Normal 4xx responses no longer generate
+request error logs. Invocation logs are disabled, while persisted Workers
+Logs are sampled at 5% and traces at 1% in production and staging. Genuine
+failures can also be sampled out; use Cloudflare's request/error metrics for
+total failure counts.
+
+
+
 The search GET fast path calls the shared search handler without rebuilding the
 full Hono router. It uses native `node:crypto` SHA-256/HMAC with the existing
 synchronous cursor API and byte-compatible signatures. The MySQL repository
