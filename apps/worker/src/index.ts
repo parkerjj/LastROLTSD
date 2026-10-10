@@ -4,8 +4,7 @@ import { healthPayload } from './routes/health';
 import { createMysqlDatabase, type MysqlDatabase } from './db/mysql-client';
 import { createMysqlRepository } from './db/mysql-repository';
 import { registerUploadRoute, uploadResponse } from './routes/upload';
-import { registerSearchRoute, searchResponse, type CatalogItemResolver } from './routes/search';
-import { matchCatalogItemIds, type CatalogEntry } from './domain/catalog';
+import { registerSearchRoute, searchResponse } from './routes/search';
 import { registerOptionsRoute } from './routes/options';
 import { registerHistoryRoute } from './routes/history';
 import { registerStatusRoute } from './routes/status';
@@ -63,7 +62,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
       cursorSecret: env.CURSOR_SECRET ?? '',
       rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
     });
-    registerSearchRoute(app, repository, env.CURSOR_SECRET, createCatalogItemResolver(env.ASSETS));
+    registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
     registerStatusRoute(app, repository);
@@ -160,59 +159,29 @@ async function loadCatalogItemIds(assets: AppEnv['ASSETS']): Promise<ReadonlySet
   return pending;
 }
 
-const catalogEntriesCache = new WeakMap<object, Promise<readonly CatalogEntry[]>>();
-
-// 图鉴全量条目（名称/别名）仅用于 q_scope 的名字→ID 解析；解析失败按空目录降级。
-async function loadCatalogEntries(assets: AppEnv['ASSETS']): Promise<readonly CatalogEntry[]> {
-  if (!assets || typeof assets !== 'object') return [];
-  let pending = catalogEntriesCache.get(assets as object);
-  if (!pending) {
-    pending = Promise.resolve().then(async () => {
-      const response = await assets.fetch('https://lastroweb.invalid/catalog/items.json');
-      if (!response.ok) throw new Error('catalog asset unavailable');
-      const payload = await response.json() as { items?: Array<{ itemId?: unknown; name?: unknown; aliases?: unknown }> };
-      if (!Array.isArray(payload.items)) throw new Error('catalog asset invalid');
-      return payload.items.flatMap((item): CatalogEntry[] => {
-        const itemId = Number(item.itemId);
-        if (!Number.isSafeInteger(itemId) || itemId <= 0 || typeof item.name !== 'string') return [];
-        const aliases = Array.isArray(item.aliases) ? item.aliases.filter((alias): alias is string => typeof alias === 'string') : [];
-        return [{ itemId, name: item.name, aliases }];
-      });
-    }).catch((error) => {
-      catalogEntriesCache.delete(assets as object);
-      throw error;
-    });
-    catalogEntriesCache.set(assets as object, pending);
-  }
-  return pending;
-}
-
-export function createCatalogItemResolver(assets: AppEnv['ASSETS']): CatalogItemResolver | undefined {
-  if (!assets || typeof assets !== 'object') return undefined;
-  return async (query: string) => matchCatalogItemIds(await loadCatalogEntries(assets), query);
-}
-
 // The hot search path reuses this handler instead of rebuilding every Hono route.
 async function fetchSearch(request: Request, url: URL, env: AppEnv, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
   const started = Date.now();
   const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
   let response: Response;
+  let errorLogged = false;
   try {
     response = await withSearchCache(request, url, env, async () => {
       const database = createMysqlDatabase(env.MYSQL_URL!);
       try {
         // MySQL validates the cursor before issuing SQL; avoid route-level revalidation.
         // CORS 头必须在进入缓存前写入，否则 HIT 响应不带 access-control-allow-origin。
-        return withCorsHeaders(await searchResponse(request, createMysqlRepository(database, env.CURSOR_SECRET), env.CURSOR_SECRET, false, createCatalogItemResolver(env.ASSETS)));
+        return withCorsHeaders(await searchResponse(request, createMysqlRepository(database, env.CURSOR_SECRET), env.CURSOR_SECRET, false));
       } finally {
         await database.close();
       }
     }, context);
   } catch (error) {
+    errorLogged = true;
     logError('lastroweb.search_error', error, { request_id: requestId, route: url.pathname });
     response = withCorsHeaders(new Response('Internal Server Error', { status: 500, headers: { 'content-type': 'text/plain; charset=UTF-8', 'cache-control': 'no-store' } }));
   }
   response.headers.set('x-request-id', requestId);
-  recordMetric({ requestId, route: url.pathname, status: response.status, elapsedMs: Date.now() - started });
+  if (!errorLogged) recordMetric({ requestId, route: url.pathname, status: response.status, elapsedMs: Date.now() - started });
   return response;
 }
