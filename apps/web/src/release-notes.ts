@@ -18,6 +18,108 @@ export interface ReleaseNote {
  */
 export const releaseNotes: ReleaseNote[] = [
   {
+    version: '0.11.0',
+    date: '2026-10-10',
+    title: '全量道具图鉴与稳定性',
+    summary: '道具目录补全，后台更稳定，避免崩溃。',
+    changes: [
+      {
+        category: '数据',
+        title: '道具目录补全至30,812条',
+        description: '覆盖服务端自定义道具（2m+ID段），分类筛选不再是残缺版。',
+      },
+      {
+        category: '性能',
+        title: '物品名称解析下沉数据库',
+        description: '物品名称解析下沉到数据库完成，搜索响应更快、更省资源。',
+      },
+      {
+        category: '稳定性',
+        title: '数据库迁移全自动',
+        description: '数据库迁移流程全面自动化，40MB 级数据也能全自动部署，更新更快更稳。',
+      },
+      {
+        category: '稳定性',
+        title: '接口日志降噪',
+        description: '接口日志降噪，出问题时定位更迅速，日常干扰更少。',
+      },
+    ],
+  },
+  {
+    version: '0.10.0',
+    date: '2026-10-09',
+    title: '搜索大升级：道具分类筛选',
+    summary: '找东西不用再靠猜名字了。',
+    changes: [
+      {
+        category: '搜索',
+        title: '道具两级分类筛选',
+        description: '先选大类再选小类（武器→单手剑），选完直接出结果。',
+      },
+      {
+        category: '搜索',
+        title: '命中范围多选组合',
+        description: '命中范围（道具名/商店名/商人名）支持多选组合，想同时按名字和店主找也没问题。',
+      },
+      {
+        category: '搜索',
+        title: '单字符搜索修复',
+        description: '修复只输入一个字符时被忽略、变成全量查询的问题，单字搜索终于正常了。',
+      },
+    ],
+  },
+  {
+    version: '0.9.0',
+    date: '2026-10-02',
+    title: '赛博化缘页面上线',
+    summary: '免费服务器偶尔抽风，所以开了这个化缘页，凑点钱把服务器升级成稳定的付费版。',
+    changes: [
+      {
+        category: '赞助',
+        title: '赞助页面上线',
+        description: '本月收入、交易笔数、更新时间实时展示，导航栏咖啡杯图标直达。',
+      },
+      {
+        category: '赞助',
+        title: '赞助名人堂',
+        description: '按金额排列支持过的爱心玩家，前三名皇冠/金/银徽章。',
+      },
+      {
+        category: '说明',
+        title: '完全自愿，随时可停',
+        description: '全部用于付费服务器与域名等站点基础开销，让露天商店.Ro 少宕机、少抽风。',
+      },
+    ],
+  },
+  {
+    version: '0.8.0',
+    date: '2026-09-28',
+    title: '进阶客户端上线',
+    summary: '进阶客户端（IWA）正式开放，安装更简单，启动更直接。',
+    changes: [
+      {
+        category: '客户端',
+        title: '进阶客户端开放入口',
+        description: '进阶客户端页面全新上线，安装步骤精简为三步，教程链接全部支持一键复制。',
+      },
+      {
+        category: '启动',
+        title: '自定义协议拉起客户端',
+        description: '新增自定义协议拉起客户端功能，支持通过协议启动进阶客户端，无需手动输入地址。',
+      },
+      {
+        category: '查看',
+        title: '配备安装缩略图',
+        description: '安装步骤配了缩略图，点开可以放大查看细节。',
+      },
+      {
+        category: '版本',
+        title: '动态版本号展示',
+        description: '客户端页面动态显示最新版本号，随时确认自己是不是最新版。',
+      },
+    ],
+  },
+  {
     version: '0.7.0',
     date: '2026-09-26',
     title: '词条查询优化与地图定位重设计',
