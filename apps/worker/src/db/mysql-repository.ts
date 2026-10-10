@@ -995,6 +995,25 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         matchPredicates.push(`l.item_id IN (${itemIds.map((itemId) => add(itemId)).join(', ')})`);
       }
       const normalizedQuery = filters.q ? normalizeCatalogQuery(filters.q) : '';
+      // Resolve catalog names/aliases in MySQL rather than parsing 1.3 MB
+      // of static item data and normalizing every name on each Worker request.
+      if (normalizedQuery && (!filters.q_scope || filters.q_scope.includes('item'))) {
+        const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\${value}`);
+        const pattern = `%${escaped}%`;
+        const terms = [
+          `name_zh LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `alias_name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `CAST(item_id AS CHAR) LIKE ${add(pattern)} ESCAPE '\\\\'`,
+        ];
+        matchPredicates.push(`l.item_id IN (
+          SELECT matched.item_id FROM (
+            SELECT item_id FROM item_catalog
+            WHERE ${terms.join(' OR ')}
+            ORDER BY item_id LIMIT 50
+          ) AS matched
+        )`);
+      }
       // q_scope 只约束 q 的文本匹配：item 范围下 q 已在路由层解析进 item_ids，SQL 不做对应 LIKE；
       // shop=仅商店标题、vendor=仅商人名，多值组合按开启项 OR，缺省（all）保持两者 OR 的原行为。
       // 归一化后非空即匹配（含单字符）：中文单字搜索（如「店」）不能被静默丢弃成全量查询。
