@@ -22,10 +22,10 @@ describe('observability logging', () => {
   });
 
   describe('isErrorResponse', () => {
-    it('treats 4xx and 5xx as error responses', () => {
+    it('only treats 5xx as server errors', () => {
       expect(isErrorResponse(399)).toBe(false);
-      expect(isErrorResponse(400)).toBe(true);
-      expect(isErrorResponse(404)).toBe(true);
+      expect(isErrorResponse(400)).toBe(false);
+      expect(isErrorResponse(404)).toBe(false);
       expect(isErrorResponse(500)).toBe(true);
       expect(isErrorResponse(503)).toBe(true);
     });
@@ -82,12 +82,10 @@ describe('observability logging', () => {
       expect(payload.stack.length).toBeGreaterThan(0);
     });
 
-    it('emits a 4xx client error through the same error channel', () => {
+    it('skips ordinary 4xx responses including missing images', () => {
       recordMetric({ requestId: 'req-422', route: '/api/v1/market/upload', status: 422, elapsedMs: 3 });
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      const payload = JSON.parse(errorSpy.mock.calls[0]![0] as string);
-      expect(payload.status).toBe(422);
-      expect(payload.level).toBe('error');
+      recordMetric({ requestId: 'missing-image', route: '/api/v1/assets/items/small/19142.gif', status: 404, elapsedMs: 1 });
+      expect(errorSpy).not.toHaveBeenCalled();
     });
 
     it('omits body_bytes when not provided', () => {
@@ -144,11 +142,15 @@ describe('observability logging', () => {
     });
   });
 
-  describe('recordUploadError — keeps ERROR severity and gains timestamp/stack', () => {
+  describe('recordUploadError — only records server failures', () => {
+    it('skips client-side upload rejections', () => {
+      recordUploadError({ requestId: 'bad-upload', status: 413, code: 'payload_too_large', message: 'too large', errorClass: 'LimitError' });
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
     it('routes through logError with full context', () => {
       recordUploadError({
         requestId: 'req-up',
-        status: 413,
+        status: 503,
         code: 'payload_too_large',
         message: 'Upload body exceeds configured limit',
         errorClass: 'LimitError',
@@ -162,7 +164,7 @@ describe('observability logging', () => {
         metric: 'lastroweb.upload_error',
         level: 'error',
         request_id: 'req-up',
-        status: 413,
+        status: 503,
         code: 'payload_too_large',
         message: 'Upload body exceeds configured limit',
         error_class: 'LimitError',
