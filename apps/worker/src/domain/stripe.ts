@@ -55,6 +55,7 @@ interface StripeCheckoutSession {
   payment_intent?: string | {
     latest_charge?: string | {
       created?: number;
+      amount_refunded?: number;
       balance_transaction?: string | { created?: number } | null;
     } | null;
   } | null;
@@ -196,7 +197,15 @@ export async function fetchStripeDonors(options: {
     if (session.status !== COMPLETE_STATUS || session.payment_status !== 'paid') continue;
     if (session.currency?.toLowerCase() !== 'cny') continue;
     const amountCents = Number(session.amount_total ?? 0);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) continue;
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) continue;
+    const intent = session.payment_intent;
+    const charge = intent && typeof intent === 'object' ? intent.latest_charge : null;
+    const rawRefunded = charge && typeof charge === 'object' ? Number(charge.amount_refunded ?? 0) : 0;
+    // Stripe's original balance transaction does not deduct later refunds.
+    // Count only the retained part of the Checkout Session payment.
+    const refundedCents = Number.isSafeInteger(rawRefunded) && rawRefunded > 0 ? rawRefunded : 0;
+    const retainedCents = Math.max(0, amountCents - refundedCents);
+    if (retainedCents === 0) continue;
     const email = typeof session.customer_details?.email === 'string'
       ? session.customer_details.email.trim().toLowerCase()
       : '';
@@ -207,18 +216,18 @@ export async function fetchStripeDonors(options: {
     const paidAt = confirmedPaymentAt(session);
     const existing = byEmail.get(key);
     if (existing) {
-      existing.cents += amountCents;
+      existing.cents += retainedCents;
       if (paidAt !== null && paidAt > existing.lastPaidAt) existing.lastPaidAt = paidAt;
       if (!existing.publicName && publicName) existing.publicName = publicName;
     } else {
       byEmail.set(key, {
-        cents: amountCents,
+        cents: retainedCents,
         lastPaidAt: paidAt ?? 0,
         publicName,
       });
     }
     if (paidAt !== null && paidAt >= window.startSec && paidAt < window.endSec) {
-      monthCents += amountCents;
+      monthCents += retainedCents;
       monthOrderCount += 1;
     }
   }
