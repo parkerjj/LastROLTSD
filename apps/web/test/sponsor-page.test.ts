@@ -131,6 +131,28 @@ describe('sponsor page', () => {
     expect(cards[1]!.querySelector('.honor-avatar--fallback')?.textContent).toBe('<');
   });
 
+  it('uses the configured public Stripe payment link for both CTAs', async () => {
+    const configured = 'https://donate.stripe.com/test-configured-donation';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        month: '2026-10',
+        monthLabel: '2026 年 10 月',
+        monthIncome: '0.00',
+        monthOrderCount: 0,
+        supporterCount: 0,
+        supporters: [],
+        generatedAt: Date.now(),
+        stripeDonateUrl: configured,
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+
+    const root = mountInJsdom();
+    await vi.waitFor(() => expect(root.querySelector('[data-sponsor-income]')?.textContent).toBe('0.00'), { timeout: 1000 });
+    const ctas = [...root.querySelectorAll<HTMLAnchorElement>('[data-sponsor-stripe]')];
+    expect(ctas).toHaveLength(2);
+    expect(ctas.every((cta) => cta.href === configured)).toBe(true);
+  });
+
   it('shows an empty honor roll message when nobody has sponsored yet', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
