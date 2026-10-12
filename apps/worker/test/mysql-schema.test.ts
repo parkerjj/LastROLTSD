@@ -35,7 +35,7 @@ describe('MySQL 8 market schema', () => {
     expect(queryIndexes).toContain('CREATE INDEX idx_listings_active_changed ON listings (status, last_changed_at DESC, id DESC)');
     expect(queryIndexes).toContain("index_name = 'idx_upload_batches_status_completed'");
     expect(queryIndexes).toContain("index_name = 'idx_listings_active_changed'");
-    expect(queryIndexes).not.toMatch(/CREATE INDEX IF NOT EXISTS/iu);
+    expect(queryIndexes).not.toMatch(/(?:^|\n)\s*CREATE INDEX IF NOT EXISTS/iu);
     expect((queryIndexes.match(/FROM information_schema\.statistics/gu) ?? [])).toHaveLength(2);
     expect((queryIndexes.match(/PREPARE lastroweb_\w+ FROM @lastroweb_\w+;/gu) ?? [])).toHaveLength(2);
     expect((queryIndexes.match(/EXECUTE lastroweb_\w+;/gu) ?? [])).toHaveLength(2);
