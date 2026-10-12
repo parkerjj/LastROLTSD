@@ -37,6 +37,8 @@ export function resetSponsorSummaryCacheForTesting(): void {
 
 export function registerSponsorRoutes(app: Hono<any>, env: AppEnv): void {
   app.get('/api/v1/sponsors', async (c) => {
+    // Public configuration: same link that the server queries via Stripe.
+    const stripeDonateUrl = env.STRIPE_DONATE_URL || STRIPE_DONATE_URL;
     const token = env.AFDIAN_TOKEN;
     if (!token) {
       return c.json(
@@ -48,7 +50,7 @@ export function registerSponsorRoutes(app: Hono<any>, env: AppEnv): void {
 
     const now = Date.now();
     if (summaryCache && now - summaryCache.fetchedAt < SUMMARY_CACHE_TTL_MS) {
-      return c.json(summaryCache.payload, 200, {
+      return c.json({ ...summaryCache.payload, stripeDonateUrl }, 200, {
         'cache-control': RESPONSE_CACHE_CONTROL,
         'x-cache': 'hit',
       });
@@ -61,13 +63,13 @@ export function registerSponsorRoutes(app: Hono<any>, env: AppEnv): void {
       });
       const merged = await mergeStripeSupporters(env, afdianSummary);
       summaryCache = { payload: merged, fetchedAt: Date.now() };
-      return c.json(merged, 200, { 'cache-control': RESPONSE_CACHE_CONTROL, 'x-cache': 'miss' });
+      return c.json({ ...merged, stripeDonateUrl }, 200, { 'cache-control': RESPONSE_CACHE_CONTROL, 'x-cache': 'miss' });
     } catch (error) {
       logError('lastroweb.afdian_sponsor_error', error, {
         request_id: c.get('requestId') as string | undefined,
       });
       if (summaryCache) {
-        return c.json(summaryCache.payload, 200, { 'cache-control': 'no-store', 'x-cache': 'stale' });
+        return c.json({ ...summaryCache.payload, stripeDonateUrl }, 200, { 'cache-control': 'no-store', 'x-cache': 'stale' });
       }
       return c.json(
         { error: { message: 'sponsor feed temporarily unavailable' } },
