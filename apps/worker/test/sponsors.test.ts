@@ -321,6 +321,7 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
     name: string | null;
     payment_status?: 'paid' | 'unpaid';
     paidAt?: number;
+    refundedCents?: number;
     publicName?: string;
   }>) {
     const window = currentMonthWindow();
@@ -367,6 +368,7 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
             created: s.created,
             payment_intent: { latest_charge: {
               created: s.paidAt ?? s.created,
+              amount_refunded: s.refundedCents ?? 0,
               balance_transaction: { created: s.paidAt ?? s.created },
             } },
             ...(s.publicName ? { metadata: { public_name_opt_in: 'true', public_display_name: s.publicName } } : {}),
@@ -465,6 +467,26 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
       expect(data.supporters[1]!.id).toMatch(/^stripe:[0-9a-f]{32}$/u);
       expect(data.supporters[0]!.id).not.toBe(data.supporters[1]!.id);
       expect(data.monthOrderCount).toBe(2);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('subtracts partial and full refunds from retained donations and current-month receipts', async () => {
+    const window = currentMonthWindow();
+    const sessions = [
+      { status: 'complete', amount_total: 1000, refundedCents: 250, currency: 'cny', created: window.startSec + 10, email: 'partial@example.test', name: null },
+      { status: 'complete', amount_total: 500, refundedCents: 500, currency: 'cny', created: window.startSec + 20, email: 'full@example.test', name: null },
+      { status: 'complete', amount_total: 300, refundedCents: 0, currency: 'cny', created: window.startSec + 30, email: 'normal@example.test', name: null },
+    ];
+    const fetchMock = makeDualSourceFetchMock(0, sessions);
+    try {
+      const data = await fetchStripeDonors({ secretKey: STRIPE_KEY });
+      expect(data.monthCents).toBe(1050);
+      expect(data.monthOrderCount).toBe(2);
+      expect(data.supporters).toHaveLength(2);
+      expect(data.supporters.map((donor) => donor.amount)).toEqual(['7.50', '3.00']);
+      expect(JSON.stringify(data)).not.toContain('@example.test');
     } finally {
       fetchMock.mockRestore();
     }
