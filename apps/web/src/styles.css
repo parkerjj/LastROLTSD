@@ -8104,3 +8104,141 @@ a.sponsor-honor-card:hover {
     width: 100%;
   }
 }
+
+/* ─── 赛博化缘 Stripe + 爱发电双渠道按钮/芯片/光荣榜来源徽章 ─── */
+
+/* 主推 Stripe 按钮复用 .sponsor-cta-button 金色渐变实心样式，仅加 position 容纳「推荐」徽章 */
+.sponsor-cta-button--stripe {
+  position: relative;
+}
+
+/* 「推荐」红色徽章：右上角浮于按钮边沿 */
+.recommend-badge {
+  position: absolute;
+  top: -7px;
+  right: 10px;
+  padding: 2px 7px;
+  background: var(--red);
+  color: #fff8ee;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+/* 爱发电金色描边幽灵按钮（次推）：与 Stripe 实心按钮同高同形，描边加粗保证深绿卡片上清晰可辨 */
+.sponsor-cta-ghost {
+  background: transparent;
+  border: 1.5px solid var(--gold);
+  color: var(--gold);
+  box-shadow: none;
+}
+
+.sponsor-cta-ghost:hover {
+  background: rgba(198, 148, 69, .12);
+  border-color: #d6a454;
+  color: #d6a454;
+  filter: none;
+  box-shadow: none;
+  transform: none;
+}
+
+/* 卖点芯片（资金卡内） */
+.sponsor-benefit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+}
+
+.benefit-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  background: rgba(198, 148, 69, .14);
+  border: 1px solid rgba(198, 148, 69, .28);
+  border-radius: 999px;
+  font-size: 11px;
+  color: #d4c89e;
+  white-space: nowrap;
+}
+
+.sponsor-benefit-note {
+  margin: 0;
+  color: #8a9189;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 光荣榜来源徽章：在 name 与 amount 之间 */
+.sponsor-source-badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.sponsor-source-badge--stripe {
+  background: #635bff;
+  color: #fff;
+}
+
+.sponsor-source-badge--afdian {
+  background: rgba(198, 148, 69, .18);
+  border: 1px solid rgba(198, 148, 69, .3);
+  color: var(--gold-dark);
+}
+
+/* 底部 CTA 双按钮布局 */
+.sponsor-bottom-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sponsor-bottom-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.sponsor-mini-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  justify-content: flex-end;
+}
+
+.mini-chip {
+  position: relative;
+  padding: 0 4px;
+  color: #8a9189;
+  font-size: 11px;
+}
+
+.mini-chip:not(:last-child)::after {
+  content: "·";
+  position: absolute;
+  right: -3px;
+  color: #6d776f;
+}
+
+@media (max-width: 760px) {
+  .sponsor-bottom-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .sponsor-mini-chips {
+    justify-content: flex-start;
+  }
+}

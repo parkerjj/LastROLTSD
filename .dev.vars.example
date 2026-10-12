@@ -25,3 +25,12 @@ ALLOW_MYSQL_TEST_DESTRUCTIVE=0
 AFDIAN_TOKEN=
 # Public creator user id. Optional: the Worker falls back to the built-in LTSD_RO value.
 AFDIAN_USER_ID=
+
+# Stripe Secret Key for the /sponsor honor roll merge. Leave empty to silently skip
+# Stripe donors (honor roll degrades to Afdian-only). In production it is injected from
+# the GitHub production environment secret STRIPE_SECRET_KEY via wrangler secret put.
+# Never commit a real key (sk_live_... or sk_test_...).
+STRIPE_SECRET_KEY=
+# Optional: override the Stripe Payment Link donate URL. Defaults to the LTSD_RO built-in
+# https://donate.stripe.com/3cI3cxa8B4Q0fY8ejM1RC00 when left empty.
+STRIPE_DONATE_URL=

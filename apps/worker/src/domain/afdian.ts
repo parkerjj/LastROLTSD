@@ -32,7 +32,7 @@ const ORDER_PAGE_SIZE = 100;
 const BEIJING_OFFSET_MS = 8 * 60 * 60_000;
 
 export interface SponsorHonorEntry {
-  /** 爱发电用户 ID（公开，非隐私信息）。 */
+  /** 爱发电用户 ID（公开，非隐私信息）；Stripe 来源条目使用 `stripe:` 前缀的伪 ID。 */
   id: string;
   name: string;
   avatar: string;
@@ -41,6 +41,8 @@ export interface SponsorHonorEntry {
   amount: string;
   /** 最近一次赞助的秒级时间戳，无记录时为 null。 */
   lastPayAt: number | null;
+  /** 光荣榜来源徽章：缺省视为爱发电（向后兼容旧前端缓存）。 */
+  source?: 'afdian' | 'stripe';
 }
 
 export interface SponsorSummary {
@@ -268,6 +270,7 @@ export async function fetchSponsorSummary(options: {
         url: `https://afdian.com/u/${id}`,
         amount: centsToYuan(cents),
         lastPayAt: parseAfdianTime(raw.last_pay_time),
+        source: 'afdian',
       };
     })
     .filter((entry): entry is SponsorHonorEntry => entry !== null)

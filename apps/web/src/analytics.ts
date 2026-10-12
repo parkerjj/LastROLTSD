@@ -25,6 +25,8 @@ export const AnalyticsEvent = {
   AccountsUsage: 'accounts_usage',
   /** 点击赛博化缘页的爱发电外链 */
   SponsorOutbound: 'sponsor_outbound',
+  /** 点击赛博化缘页的 Stripe 外链 */
+  SponsorStripeOutbound: 'sponsor_stripe_outbound',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];

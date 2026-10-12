@@ -8,18 +8,22 @@ import {
   fetchSponsorSummary,
   parseAfdianTime,
 } from '../src/domain/afdian';
+import { STRIPE_DONATE_URL, fetchStripeDonors, resetStripeCacheForTesting } from '../src/domain/stripe';
 import type { AppEnv } from '../src/env';
 import { registerSponsorRoutes, resetSponsorSummaryCacheForTesting } from '../src/routes/sponsors';
 
 const TOKEN = 'test-afdian-token';
+const STRIPE_KEY = 'sk_test_xxx';
 const USER_ID = 'cc5b9728bd2111f185435254001e7c00';
+const STRIPE_PLINK_ID = 'plink_abc123';
 
-function makeEnv(token: string | undefined): AppEnv {
+function makeEnv(token: string | undefined, stripeKey?: string | undefined): AppEnv {
   return {
     ENVIRONMENT: 'local',
     BUILD_VERSION: 'test',
     MAX_BODY_BYTES: 512 * 1024,
     ...(token ? { AFDIAN_TOKEN: token, AFDIAN_USER_ID: USER_ID } : {}),
+    ...(stripeKey ? { STRIPE_SECRET_KEY: stripeKey } : {}),
   } as AppEnv;
 }
 
@@ -187,6 +191,7 @@ describe('fetchSponsorSummary', () => {
 describe('GET /api/v1/sponsors route', () => {
   beforeEach(() => {
     resetSponsorSummaryCacheForTesting();
+    resetStripeCacheForTesting();
   });
 
   it('returns 503 when no token is configured', async () => {
@@ -296,6 +301,237 @@ describe('GET /api/v1/sponsors route', () => {
     } finally {
       fetchMock.mockRestore();
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('GET /api/v1/sponsors route with Stripe merge', () => {
+  beforeEach(() => {
+    resetSponsorSummaryCacheForTesting();
+    resetStripeCacheForTesting();
+  });
+
+  /** 构造 Afdian + Stripe 双源 fetch 桩。Stripe 用本月内的 created 时间。 */
+  function makeDualSourceFetchMock(afdianIncomeCents: number, stripeSessions: Array<{
+    status: string;
+    amount_total: number;
+    currency: string;
+    created: number;
+    email: string | null;
+    name: string | null;
+  }>) {
+    const window = currentMonthWindow();
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      // Afdian query-order：返回本月订单（afdianIncomeCents=0 时为空列表，验证 0 单场景）。
+      if (url.includes('query-order')) {
+        const orders = afdianIncomeCents > 0
+          ? [{ status: 2, total_amount: (afdianIncomeCents / 100).toFixed(2), create_time: beijingString(window.startSec + 60) }]
+          : [];
+        return jsonResponse({
+          ec: 200,
+          data: { total_page: 1, list: orders },
+        });
+      }
+      // Afdian query-sponsor：返回一位累计 ¥5.20 的爱发电赞助者。
+      if (url.includes('query-sponsor')) {
+        return jsonResponse({
+          ec: 200,
+          data: {
+            total_page: 1,
+            list: [
+              { all_sum_amount: '5.20', last_pay_time: window.startSec + 120, user: { user_id: 'alice-uid', name: '爱丽丝', avatar: '' } },
+            ],
+          },
+        });
+      }
+      // Stripe：列出 payment_links，返回与 STRIPE_DONATE_URL 匹配的那条。
+      if (url.includes('/payment_links')) {
+        return jsonResponse({
+          data: [{ id: STRIPE_PLINK_ID, url: STRIPE_DONATE_URL }],
+          has_more: false,
+        });
+      }
+      // Stripe：列出该 payment link 下的 checkout sessions。
+      if (url.includes('/checkout/sessions')) {
+        return jsonResponse({
+          data: stripeSessions.map((s, i) => ({
+            id: `cs_test_${i}`,
+            status: s.status,
+            amount_total: s.amount_total,
+            currency: s.currency,
+            created: s.created,
+            customer_details: s.email === null ? null : { email: s.email, name: s.name },
+          })),
+          has_more: false,
+        });
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+  }
+
+  it('merges Stripe donors into the honor roll alongside Afdian sponsors, sorted by amount', async () => {
+    const window = currentMonthWindow();
+    // Stripe：两笔本月 complete 单（不同 email） + 一笔未完成（应被过滤）。
+    const stripeSessions = [
+      // 累计 ¥10.00，本月，排榜首。
+      { status: 'complete', amount_total: 1000, currency: 'cny', created: window.startSec + 200, email: 'a@x.com', name: 'Stripe A' },
+      // 累计 ¥3.00，本月。
+      { status: 'complete', amount_total: 300, currency: 'cny', created: window.startSec + 300, email: 'b@x.com', name: null },
+      // 未完成，必须被过滤掉。
+      { status: 'open', amount_total: 9999, currency: 'cny', created: window.startSec + 400, email: 'c@x.com', name: 'Filtered' },
+    ];
+    const fetchMock = makeDualSourceFetchMock(520, stripeSessions);
+
+    try {
+      const app = new Hono();
+      registerSponsorRoutes(app, makeEnv(TOKEN, STRIPE_KEY));
+      const response = await app.request('/api/v1/sponsors');
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        monthIncome: string;
+        monthOrderCount: number;
+        supporters: Array<{ id: string; amount: string; source?: 'afdian' | 'stripe'; name: string }>;
+      };
+      // Afdian 1 单 ¥5.20 + Stripe 2 单 ¥10.00 + ¥3.00 = ¥18.20，共 3 单。
+      expect(body.monthIncome).toBe('18.20');
+      expect(body.monthOrderCount).toBe(3);
+      // 3 位赞助者按金额降序：Stripe A ¥10 > 爱丽丝 ¥5.20 > Stripe b ¥3.00。
+      expect(body.supporters).toHaveLength(3);
+      expect(body.supporters[0]!.id).toBe('stripe:a@x.com');
+      expect(body.supporters[0]!.amount).toBe('10.00');
+      expect(body.supporters[0]!.source).toBe('stripe');
+      expect(body.supporters[1]!.id).toBe('alice-uid');
+      expect(body.supporters[1]!.source).toBe('afdian');
+      expect(body.supporters[2]!.amount).toBe('3.00');
+      // 无 name 时回退为 email 前缀。
+      expect(body.supporters[2]!.name).toBe('b');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('aggregates Stripe sessions by email across multiple payments', async () => {
+    const window = currentMonthWindow();
+    // 同一 email 三笔（一笔未完成被过滤），应累加为 ¥7.00。
+    const stripeSessions = [
+      { status: 'complete', amount_total: 500, currency: 'cny', created: window.startSec + 100, email: 'dup@x.com', name: 'Duo' },
+      { status: 'complete', amount_total: 200, currency: 'cny', created: window.startSec + 200, email: 'DUP@x.com', name: null },
+      { status: 'open', amount_total: 9999, currency: 'cny', created: window.startSec + 300, email: 'dup@x.com', name: 'Filtered' },
+    ];
+    const fetchMock = makeDualSourceFetchMock(0, stripeSessions);
+
+    try {
+      const app = new Hono();
+      registerSponsorRoutes(app, makeEnv(TOKEN, STRIPE_KEY));
+      const response = await app.request('/api/v1/sponsors');
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { supporters: Array<{ id: string; amount: string; source?: string }> };
+      // Afdian Alice ¥5.20 + Stripe 聚合后 ¥7.00 = 2 位赞助者。
+      expect(body.supporters).toHaveLength(2);
+      // 找到 Stripe 聚合的那一位，验证金额累加与 email 归一化。
+      const stripeAgg = body.supporters.find((s) => s.source === 'stripe');
+      expect(stripeAgg).toBeDefined();
+      expect(stripeAgg!.amount).toBe('7.00');
+      expect(stripeAgg!.id).toBe('stripe:dup@x.com');
+      // 三笔里只有两笔 complete 进入月份统计。
+      expect((body as { monthOrderCount: number }).monthOrderCount).toBe(2);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('degrades to Afdian-only when Stripe API returns an error', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('query-order')) {
+        return jsonResponse({ ec: 200, data: { total_page: 1, list: [{ status: 2, total_amount: '5.20', create_time: beijingString(currentMonthWindow().startSec + 60) }] } });
+      }
+      if (url.includes('query-sponsor')) {
+        return jsonResponse({ ec: 200, data: { total_page: 1, list: [{ all_sum_amount: '5.20', user: { user_id: 'alice-uid', name: '爱丽丝', avatar: '' } }] } });
+      }
+      // Stripe payment_links 失败 → 触发降级路径。
+      return new Response('stripe down', { status: 500 });
+    });
+
+    try {
+      const app = new Hono();
+      registerSponsorRoutes(app, makeEnv(TOKEN, STRIPE_KEY));
+      const response = await app.request('/api/v1/sponsors');
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { monthIncome: string; supporters: Array<{ source?: string; id: string }> };
+      // 没有合并 Stripe，仍是爱发电原值 ¥5.20、1 位赞助者。
+      expect(body.monthIncome).toBe('5.20');
+      expect(body.supporters).toHaveLength(1);
+      expect(body.supporters[0]!.source).toBe('afdian');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('skips Stripe entirely when STRIPE_SECRET_KEY is not configured', async () => {
+    // 不设 Stripe key；fetch 只应被 Afdian 接口调用。
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('query-order')) {
+        return jsonResponse({ ec: 200, data: { total_page: 1, list: [{ status: 2, total_amount: '5.20', create_time: beijingString(currentMonthWindow().startSec + 60) }] } });
+      }
+      if (url.includes('query-sponsor')) {
+        return jsonResponse({ ec: 200, data: { total_page: 1, list: [{ all_sum_amount: '5.20', user: { user_id: 'alice-uid', name: '爱丽丝', avatar: '' } }] } });
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    });
+
+    try {
+      const app = new Hono();
+      registerSponsorRoutes(app, makeEnv(TOKEN));
+      const response = await app.request('/api/v1/sponsors');
+      expect(response.status).toBe(200);
+      // 没有任何 Stripe 调用：fetch 只触达 Afdian 两次（query-order + query-sponsor）。
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+});
+
+describe('fetchStripeDonors', () => {
+  beforeEach(() => {
+    resetStripeCacheForTesting();
+  });
+
+  it('paginates checkout sessions with starting_after cursor', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/payment_links')) {
+        return jsonResponse({ data: [{ id: STRIPE_PLINK_ID, url: STRIPE_DONATE_URL }], has_more: false });
+      }
+      if (url.includes('/checkout/sessions')) {
+        // 第一页返回 100 条 + has_more=true，第二页返回 1 条收尾。
+        const isSecondPage = url.includes('starting_after=cs_test_99');
+        if (isSecondPage) {
+          return jsonResponse({ data: [{ id: 'cs_test_100', status: 'complete', amount_total: 700, currency: 'cny', created: currentMonthWindow().startSec + 1, customer_details: { email: 'last@x.com', name: 'Last' } }], has_more: false });
+        }
+        const firstPage = Array.from({ length: 100 }, (_, i) => ({
+          id: `cs_test_${i}`,
+          status: 'complete',
+          amount_total: 100,
+          currency: 'cny',
+          created: currentMonthWindow().startSec + i,
+          customer_details: { email: `u${i}@x.com`, name: `User${i}` },
+        }));
+        return jsonResponse({ data: firstPage, has_more: true });
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    try {
+      const data = await fetchStripeDonors({ secretKey: STRIPE_KEY, nowMs: Date.UTC(2026, 9, 15, 12, 0, 0) });
+      // 100 + 1 = 101 位赞助者，每人 ¥1，除最后一位 ¥7。
+      expect(data.supporters).toHaveLength(101);
+      expect(data.monthOrderCount).toBe(101);
+    } finally {
+      fetchMock.mockRestore();
     }
   });
 });
