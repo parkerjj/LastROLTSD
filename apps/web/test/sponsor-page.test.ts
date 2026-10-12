@@ -33,13 +33,31 @@ describe('sponsor page', () => {
     expect(navLink).not.toBeNull();
     expect(navLink?.getAttribute('aria-current')).toBe('page');
     expect(navLink?.querySelector('.ph-coffee')).not.toBeNull();
-    // 打赏按钮指向爱发电且安全地在新标签打开。
-    const ctas = [...root.querySelectorAll<HTMLAnchorElement>('a[href="https://afdian.com/a/LTSD_RO"]')];
-    expect(ctas.length).toBeGreaterThan(0);
-    for (const cta of ctas) {
+    // 主推 Stripe 按钮指向 donate URL 且安全地在新标签打开。
+    const stripeCtas = [...root.querySelectorAll<HTMLAnchorElement>('a[href="https://donate.stripe.com/3cI3cxa8B4Q0fY8ejM1RC00"]')];
+    expect(stripeCtas.length).toBeGreaterThan(0);
+    for (const cta of stripeCtas) {
       expect(cta.target).toBe('_blank');
       expect(cta.rel).toContain('noopener');
+      // 「推荐」徽章存在。
+      expect(cta.querySelector('.recommend-badge')?.textContent).toContain('推荐');
     }
+    // 爱发电幽灵按钮也存在。
+    const afdianCtas = [...root.querySelectorAll<HTMLAnchorElement>('a[href="https://afdian.com/a/LTSD_RO"]')];
+    expect(afdianCtas.length).toBeGreaterThan(0);
+    for (const cta of afdianCtas) {
+      expect(cta.target).toBe('_blank');
+      expect(cta.rel).toContain('noopener');
+      expect(cta.classList.contains('sponsor-cta-ghost')).toBe(true);
+    }
+    // 卖点芯片有四枚：自定义金额 / 瞬间到账 / 支付宝 / 手续费最低。
+    const chips = [...root.querySelectorAll('.benefit-chip')];
+    expect(chips.length).toBeGreaterThanOrEqual(4);
+    const chipLabels = chips.map((c) => c.textContent?.trim() ?? '');
+    expect(chipLabels).toContain('自定义金额');
+    expect(chipLabels).toContain('瞬间到账');
+    expect(chipLabels).toContain('支付宝');
+    expect(chipLabels).toContain('手续费最低');
     // 初始加载态。
     expect(root.querySelector('[data-sponsor-income]')?.textContent).toBe('—');
     expect(root.querySelector('.sponsor-honor-loading')).not.toBeNull();
@@ -52,16 +70,26 @@ describe('sponsor page', () => {
         monthLabel: '2026 年 10 月',
         monthIncome: '12.50',
         monthOrderCount: 3,
-        supporterCount: 2,
+        supporterCount: 3,
         // Worker 已按累计金额降序返回，前端直接按接口顺序渲染。
         supporters: [
+          {
+            id: 'stripe:a@x.com',
+            name: 'Stripe 老王',
+            avatar: '',
+            url: '',
+            amount: '6.50',
+            lastPayAt: 2,
+            source: 'stripe',
+          },
           {
             id: 'bob-uid',
             name: '<img src=x onerror=alert(1)>鲍勃',
             avatar: '',
             url: 'https://afdian.com/u/bob-uid',
-            amount: '6.50',
+            amount: '6.00',
             lastPayAt: 2,
+            source: 'afdian',
           },
           {
             id: 'alice-uid',
@@ -70,6 +98,7 @@ describe('sponsor page', () => {
             url: 'https://afdian.com/u/alice-uid',
             amount: '6.00',
             lastPayAt: 1,
+            // 缺省 source 视为爱发电。
           },
         ],
         generatedAt: Date.now(),
@@ -83,16 +112,45 @@ describe('sponsor page', () => {
     expect(root.querySelector('[data-sponsor-status]')?.textContent).toContain('3 笔支持');
 
     const cards = [...root.querySelectorAll<HTMLElement>('.sponsor-honor-card')];
-    expect(cards).toHaveLength(2);
+    expect(cards).toHaveLength(3);
     // 金额高者排第一，前三名展示奖牌图标。
     expect(cards[0]!.querySelector('.honor-rank--gold .ph-crown')).not.toBeNull();
     expect(cards[0]!.querySelector('.honor-amount')?.textContent).toBe('¥6.50');
+    // 榜首来自 Stripe：紫色实底徽章 + 「Stripe」文案。
+    expect(cards[0]!.querySelector('.sponsor-source-badge--stripe')?.textContent).toBe('Stripe');
+    // 第二位来自爱发电：金色描边徽章 + 「爱发电」文案。
+    expect(cards[1]!.querySelector('.sponsor-source-badge--afdian')?.textContent).toBe('爱发电');
     expect(cards[1]!.querySelector('.honor-rank--silver .ph-medal')).not.toBeNull();
+    expect(cards[1]!.querySelector('.honor-amount')?.textContent).toBe('¥6.00');
+    // 缺省 source 也展示为爱发电徽章（向后兼容旧缓存）。
+    expect(cards[2]!.querySelector('.sponsor-source-badge--afdian')?.textContent).toBe('爱发电');
     // 昵称中的 HTML 必须被当作纯文本转义，不产生注入节点。
     expect(root.querySelector('.sponsor-honor img[onerror]')).toBeNull();
-    expect(cards[0]!.querySelector('.honor-name')?.textContent).toContain('鲍勃');
+    expect(cards[1]!.querySelector('.honor-name')?.textContent).toContain('鲍勃');
     // 无头像时使用首字兜底。
-    expect(cards[0]!.querySelector('.honor-avatar--fallback')?.textContent).toBe('<');
+    expect(cards[1]!.querySelector('.honor-avatar--fallback')?.textContent).toBe('<');
+  });
+
+  it('uses the configured public Stripe payment link for both CTAs', async () => {
+    const configured = 'https://donate.stripe.com/test-configured-donation';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        month: '2026-10',
+        monthLabel: '2026 年 10 月',
+        monthIncome: '0.00',
+        monthOrderCount: 0,
+        supporterCount: 0,
+        supporters: [],
+        generatedAt: Date.now(),
+        stripeDonateUrl: configured,
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+
+    const root = mountInJsdom();
+    await vi.waitFor(() => expect(root.querySelector('[data-sponsor-income]')?.textContent).toBe('0.00'), { timeout: 1000 });
+    const ctas = [...root.querySelectorAll<HTMLAnchorElement>('[data-sponsor-stripe]')];
+    expect(ctas).toHaveLength(2);
+    expect(ctas.every((cta) => cta.href === configured)).toBe(true);
   });
 
   it('shows an empty honor roll message when nobody has sponsored yet', async () => {

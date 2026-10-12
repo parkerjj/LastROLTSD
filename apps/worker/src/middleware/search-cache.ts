@@ -16,6 +16,9 @@ function cacheKey(url: URL, env: AppEnv): Request {
     lastNamespace = { identity, secret, value: createHmac('sha256', secret).update(identity).digest('hex') };
   }
   const key = new URL(url);
+  // Equivalent query parameter orders share one Cache API entry. The stable
+  // sort preserves the order of repeated filters (e.g. option=...).
+  key.searchParams.sort();
   key.pathname = `/__search_cache/${lastNamespace.value}${url.pathname}`;
   return new Request(key);
 }

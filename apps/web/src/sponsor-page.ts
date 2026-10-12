@@ -6,12 +6,18 @@ import type { SponsorHonorEntry, SponsorSummary } from "./types";
 /**
  * 赛博化缘页（/sponsor）。
  *
- * 纯为爱发电的非营利说明页：本月真实打赏收入 + 累计赞助光荣榜，
- * 数据由 Worker 用 secret 中的爱发电 token 服务端拉取（见 routes/sponsors.ts），
- * 浏览器只会访问自家 /api/v1/sponsors，永远接触不到 token。
+ * 非营利说明页：本月真实打赏收入 + 累计赞助光荣榜。
+ * 数据由 Worker 用 secret 中的爱发电 token + Stripe Secret Key 服务端拉取
+ * （见 routes/sponsors.ts），浏览器只访问自家 /api/v1/sponsors，永远接触不到机密。
+ *
+ * 主推 Stripe（金色实心按钮 + 「推荐」徽章 + 卖点芯片），次推爱发电（金色描边幽灵按钮）。
+ * 光荣榜按累计金额排序，Stripe 与爱发电同台竞争榜首，每条带来源徽章。
  */
 
 const AFDIAN_PAGE_URL = "https://afdian.com/a/LTSD_RO";
+const STRIPE_PAGE_URL = "https://donate.stripe.com/3cI3cxa8B4Q0fY8ejM1RC00";
+
+const STRIPE_BENEFITS = ["自定义金额", "瞬间到账", "支付宝", "手续费最低"] as const;
 
 export function mountSponsorPage(root: HTMLElement): void {
   document.title = "赛博化缘 · 露天商店.Ro";
@@ -25,9 +31,9 @@ export function mountSponsorPage(root: HTMLElement): void {
     <main class="sponsor-main page-width">
       <section class="sponsor-hero" aria-labelledby="sponsor-page-title">
         <div class="sponsor-hero-copy">
-          <p class="eyebrow">赛博化缘 / SUPPORT ON AFDian</p>
+          <p class="eyebrow">赛博化缘 / SUPPORT THE STATION</p>
           <h1 id="sponsor-page-title">赛博<span>化缘</span></h1>
-          <p class="sponsor-hero-subtitle">露天商店.Ro 一直挂在白嫖来的免费服务器上，由站长个人维护，纯靠爱发电。免费服务器偶尔抽风，所以开了这个化缘页：如果你觉得这个站点确实帮到了你，可以自愿赏口饭吃，凑点钱把服务器升级成稳定的付费版。</p>
+          <p class="sponsor-hero-subtitle">露天商店.Ro 一直挂在白嫖来的免费服务器上，由站长个人维护，纯靠打赏。免费服务器偶尔抽风，所以开了这个化缘页：如果你觉得这个站点确实帮到了你，可以自愿赏口饭吃，凑点钱把服务器升级成稳定的付费版。</p>
           <div class="sponsor-hero-meta">
             <span class="meta-chip"><i class="ph ph-hand-heart" aria-hidden="true"></i>完全自愿</span>
             <span class="meta-chip"><i class="ph ph-bell-slash" aria-hidden="true"></i>随时可停</span>
@@ -41,12 +47,20 @@ export function mountSponsorPage(root: HTMLElement): void {
           <div class="fund-month" data-sponsor-month>本月（北京时间）</div>
           <div class="fund-amount"><span class="fund-currency">¥</span><strong data-sponsor-income>—</strong></div>
           <p class="fund-sub" data-sponsor-status>正在清点香火钱…</p>
-          <a class="sponsor-cta-button" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
-            <i class="ph ph-heart" aria-hidden="true"></i>
-            <span>前往爱发电打赏</span>
+          <a class="sponsor-cta-button sponsor-cta-button--stripe" href="${STRIPE_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-stripe>
+            <span class="recommend-badge">推荐</span>
+            <i class="ph ph-credit-card" aria-hidden="true"></i>
+            <span>为爱发电</span>
             <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
           </a>
-          <p class="fund-footnote" data-sponsor-updated>数据来自爱发电，每分钟自动更新</p>
+          <p class="sponsor-benefit-chips">${STRIPE_BENEFITS.map((label) => `<span class="benefit-chip">${label}</span>`).join("")}</p>
+          <p class="sponsor-benefit-note">手续费最低，让更多捐款直接用于站点运营</p>
+          <a class="sponsor-cta-button sponsor-cta-ghost" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
+            <i class="ph ph-wechat-logo" aria-hidden="true"></i>
+            <span>微信打赏</span>
+            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+          </a>
+          <p class="fund-footnote" data-sponsor-updated>数据来自爱发电 + Stripe，每分钟自动更新</p>
         </aside>
       </section>
 
@@ -54,14 +68,14 @@ export function mountSponsorPage(root: HTMLElement): void {
         <span class="notice-badge">关于化缘</span>
         <div class="notice-body">
           <p><strong>钱会花在哪：</strong>付费服务器与域名等站点基础开销，让露天商店.Ro 少宕机、少抽风。</p>
-          <p><strong>关于回报：</strong>打赏属于自愿支持，没有付费专属功能，也不构成任何交易；爱发电上的支付、退款等规则以平台为准。</p>
+          <p><strong>关于回报：</strong>打赏属于自愿支持，没有付费专属功能，也不构成任何交易；爱发电与 Stripe 上的支付、退款等规则以平台为准。</p>
         </div>
       </section>
 
       <section class="sponsor-section" aria-labelledby="sponsor-honor-title">
         <div class="section-heading">
           <div><p class="eyebrow">HONOR ROLL</p><h2 id="sponsor-honor-title">光荣榜</h2></div>
-          <p>感谢每一位为爱发电的玩家。榜单按累计支持金额排序，数据来自爱发电。</p>
+          <p>感谢每一位为爱发电的玩家。榜单按累计支持金额排序，数据来自爱发电与 Stripe。</p>
         </div>
         <div class="sponsor-honor" data-sponsor-honor>
           <p class="sponsor-honor-loading"><i class="ph ph-hourglass" aria-hidden="true"></i>正在搬来功德箱…</p>
@@ -69,14 +83,24 @@ export function mountSponsorPage(root: HTMLElement): void {
       </section>
 
       <section class="sponsor-bottom-cta" aria-label="打赏入口">
-        <div>
+        <div class="sponsor-bottom-copy">
           <h2>随缘打赏，丰俭由人</h2>
           <p>一元也是爱，一分也是情。功德无量，喵。</p>
         </div>
-        <a class="sponsor-cta-button sponsor-cta-button--large" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
-          <i class="ph ph-heart" aria-hidden="true"></i>
-          <span>去爱发电支持一下</span>
-        </a>
+        <div class="sponsor-bottom-actions">
+          <a class="sponsor-cta-button sponsor-cta-button--large sponsor-cta-button--stripe" href="${STRIPE_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-stripe>
+            <span class="recommend-badge">推荐</span>
+            <i class="ph ph-credit-card" aria-hidden="true"></i>
+            <span>为爱发电</span>
+            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+          </a>
+          <a class="sponsor-cta-button sponsor-cta-button--large sponsor-cta-ghost" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
+            <i class="ph ph-wechat-logo" aria-hidden="true"></i>
+            <span>微信打赏</span>
+            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
+          </a>
+          <p class="sponsor-mini-chips">${STRIPE_BENEFITS.map((label) => `<span class="mini-chip">${label}</span>`).join("")}</p>
+        </div>
       </section>
     </main>
     <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="/sponsor">赛博化缘</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
@@ -87,6 +111,12 @@ export function mountSponsorPage(root: HTMLElement): void {
   root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-cta]").forEach((link) => {
     link.addEventListener("click", () => {
       track(AnalyticsEvent.SponsorOutbound);
+    });
+  });
+
+  root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-stripe]").forEach((link) => {
+    link.addEventListener("click", () => {
+      track(AnalyticsEvent.SponsorStripeOutbound);
     });
   });
 
@@ -103,12 +133,26 @@ async function refreshSponsorSummary(root: HTMLElement): Promise<void> {
 
   try {
     const summary = await new MarketApi().getSponsorSummary();
+    // Keep both payment CTAs aligned with the server-side Stripe Payment Link.
+    // The fallback URL remains available for older API versions.
+    if (summary.stripeDonateUrl) {
+      try {
+        const stripeUrl = new URL(summary.stripeDonateUrl);
+        if (stripeUrl.protocol === "https:") {
+          root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-stripe]").forEach((link) => {
+            link.href = stripeUrl.href;
+          });
+        }
+      } catch {
+        // Ignore malformed public configuration rather than rendering a bad URL.
+      }
+    }
     renderFundCard(summary, incomeEl, monthEl, statusEl, updatedEl);
     renderHonorRoll(honorEl, summary.supporters);
   } catch {
     incomeEl.textContent = "—";
     statusEl.textContent = "暂时无法获取收入数据，请稍后再试";
-    updatedEl.textContent = "数据来自爱发电，每分钟自动更新";
+    updatedEl.textContent = "数据来自爱发电 + Stripe，每分钟自动更新";
     honorEl.innerHTML = "";
     const error = document.createElement("p");
     error.className = "sponsor-honor-error";
@@ -128,7 +172,7 @@ function renderFundCard(
   incomeEl.textContent = summary.monthIncome;
   statusEl.textContent = `本月共 ${summary.monthOrderCount} 笔支持 · 累计 ${summary.supporterCount} 位列榜`;
   const minutesAgo = Math.max(0, Math.round((Date.now() - summary.generatedAt) / 60_000));
-  updatedEl.textContent = minutesAgo <= 1 ? "数据刚刚更新 · 来源爱发电" : `数据更新于 ${minutesAgo} 分钟前 · 来源爱发电`;
+  updatedEl.textContent = minutesAgo <= 1 ? "数据刚刚更新 · 来源爱发电 + Stripe" : `数据更新于 ${minutesAgo} 分钟前 · 来源爱发电 + Stripe`;
 }
 
 function renderHonorRoll(container: HTMLElement, supporters: SponsorHonorEntry[]): void {
@@ -185,11 +229,16 @@ function renderHonorRoll(container: HTMLElement, supporters: SponsorHonorEntry[]
     name.className = "honor-name";
     name.textContent = supporter.name;
 
+    const source = document.createElement("span");
+    const sourceKind = supporter.source === "stripe" ? "stripe" : "afdian";
+    source.className = `sponsor-source-badge sponsor-source-badge--${sourceKind}`;
+    source.textContent = sourceKind === "stripe" ? "Stripe" : "爱发电";
+
     const amount = document.createElement("span");
     amount.className = "honor-amount";
     amount.textContent = `¥${supporter.amount}`;
 
-    card.append(rank, avatar, name, amount);
+    card.append(rank, avatar, name, source, amount);
     container.appendChild(card);
   }
 }

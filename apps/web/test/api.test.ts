@@ -28,6 +28,15 @@ describe('market API', () => {
     expect(url.searchParams.get('option_mode')).toBe('any');
   });
 
+  it('sorts search parameter keys into a stable URL regardless of property insertion order', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new MarketApi();
+    await api.search({ q: '波利', limit: 20, sort: 'price_asc' });
+    await api.search({ sort: 'price_asc', q: '波利', limit: 20 });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(fetchMock.mock.calls[1]?.[0]);
+  });
+
   it('loads item-wide history without allowing a client-side day range', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ itemId: 1001, currentListings: [], sales: [], events: [], windowStart: 1, windowEnd: 2 }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

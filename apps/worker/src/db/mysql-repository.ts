@@ -188,7 +188,21 @@ function listingFromRow(row: Row): ListingRow {
 
 function listingFromSearchRow(row: Row): ListingSearchRow {
   return {
-    ...listingFromRow(row),
+    id: Number(row.id),
+    shopSessionId: Number(row.shop_id),
+    itemFingerprint: String(row.item_fingerprint),
+    itemKey: row.item_key == null ? null : String(row.item_key),
+    itemId: Number(row.item_id),
+    upgrade: Number(row.upgrade),
+    slots: Number(row.slots),
+    cards: [Number(row.card0 ?? 0), Number(row.card1 ?? 0), Number(row.card2 ?? 0), Number(row.card3 ?? 0)],
+    price: Number(row.price),
+    quantity: Number(row.quantity),
+    lastQuantity: Number(row.quantity),
+    status: String(row.status),
+    stateVersion: Number(row.state_version),
+    missingStreak: Number(row.missing_full_count),
+    lastChangedAt: Number(row.last_changed_at),
     ...(row.item_name == null || String(row.item_name).trim() === '' ? {} : { itemName: String(row.item_name) }),
     ...(row.item_icon == null || String(row.item_icon).trim() === '' ? {} : { itemIcon: String(row.item_icon) }),
     ...(row.item_icon_large == null || String(row.item_icon_large).trim() === '' ? {} : { itemIconLarge: String(row.item_icon_large) }),
@@ -1003,16 +1017,33 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       if (normalizedQuery && (!filters.q_scope || filters.q_scope.includes('item'))) {
         const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\${value}`);
         const pattern = `%${escaped}%`;
-        const terms = [
+        // MySQL ngram FULLTEXT provides a small candidate set for plain Han
+        // phrases. A final LIKE preserves the original substring semantics.
+        // Single characters, identifiers, mixed scripts and punctuation must
+        // retain the legacy predicates; ngram cannot represent them safely.
+        const useNgram = /^\p{Script=Han}{2,}$/u.test(normalizedQuery);
+        let catalogMatch: string;
+        if (useNgram) {
+          const phrase = add(`"${normalizedQuery}"`);
+          const nameTerms = [
+          `name_zh LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `alias_name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          ];
+          catalogMatch = `MATCH(name_zh, name, alias_name) AGAINST (${phrase} IN BOOLEAN MODE) AND (${nameTerms.join(' OR ')})`;
+        } else {
+          const terms = [
           `name_zh LIKE ${add(pattern)} ESCAPE '\\\\'`,
           `name LIKE ${add(pattern)} ESCAPE '\\\\'`,
           `alias_name LIKE ${add(pattern)} ESCAPE '\\\\'`,
           `CAST(item_id AS CHAR) LIKE ${add(pattern)} ESCAPE '\\\\'`,
-        ];
+          ];
+          catalogMatch = terms.join(' OR ');
+        }
         matchPredicates.push(`l.item_id IN (
           SELECT matched.item_id FROM (
             SELECT item_id FROM item_catalog
-            WHERE ${terms.join(' OR ')}
+            WHERE ${catalogMatch}
             ORDER BY item_id LIMIT 50
           ) AS matched
         )`);
@@ -1054,7 +1085,8 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         throw new SearchValidationError('Incomplete legacy option filter');
       }
 
-      const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: searchCursorContext(filters) }, cursorSecret) : null;
+      const cursorContext = filters.cursor ? searchCursorContext(filters) : undefined;
+      const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: cursorContext! }, cursorSecret) : null;
       const sortColumn = filters.sort === 'changed_desc' ? 'l.last_changed_at' : 'l.price';
       if (cursor) {
         const operator = filters.sort === 'price_asc' ? '>' : '<';
@@ -1080,7 +1112,10 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         FROM listings l JOIN shops s ON s.id = l.shop_id
         LEFT JOIN item_catalog c ON c.item_id = l.item_id
         WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ?`, params);
-      const items = rows.slice(0, limit).map(listingFromSearchRow);
+      const items: ListingSearchRow[] = [];
+      for (let index = 0, count = Math.min(limit, rows.length); index < count; index += 1) {
+        items.push(listingFromSearchRow(rows[index]!));
+      }
       if (items.length > 0) {
         const optionRows = await db.all<Row>(`SELECT listing_options.listing_id, listing_options.option_type,
             listing_options.option_value, listing_options.option_param
@@ -1102,7 +1137,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       const sortValue = last ? (filters.sort === 'changed_desc' ? last.lastChangedAt : last.price) : 0;
       return {
         items,
-        nextCursor: rows.length > limit && last ? encodeCursor({ sort: filters.sort, sortValue, id: last.id, context: searchCursorContext(filters) }, cursorSecret) : null,
+        nextCursor: rows.length > limit && last ? encodeCursor({ sort: filters.sort, sortValue, id: last.id, context: cursorContext ?? searchCursorContext(filters) }, cursorSecret) : null,
       };
     },
     async getListingHistory(listingId, limit, cursor) {

@@ -193,7 +193,7 @@ export interface LastroAccountStatusResponse {
   data?: LastroAccountData;
 }
 
-/** 赛博化缘页光荣榜上的一位赞助者（字段均为爱发电公开信息）。 */
+/** 赛博化缘页光荣榜上的一位赞助者（字段均为公开信息）。 */
 export interface SponsorHonorEntry {
   id: string;
   name: string;
@@ -202,10 +202,14 @@ export interface SponsorHonorEntry {
   /** 累计赞助金额（元，两位小数字符串）。 */
   amount: string;
   lastPayAt: number | null;
+  /** 光荣榜来源徽章：缺省视为爱发电（向后兼容旧前端缓存）。 */
+  source?: 'afdian' | 'stripe';
 }
 
 /** GET /api/v1/sponsors 的响应：本月收入 + 累计光荣榜。 */
 export interface SponsorSummary {
+  /** Public Stripe payment link selected by the backend, optional for old API responses. */
+  stripeDonateUrl?: string;
   month: string;
   monthLabel: string;
   monthIncome: string;

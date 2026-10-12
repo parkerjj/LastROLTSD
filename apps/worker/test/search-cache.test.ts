@@ -65,6 +65,16 @@ describe('search edge cache', () => {
     expect(fetchAsset).not.toHaveBeenCalled();
     expect(databaseReads).toBe(1);
   });
+  it('reuses one Cache API entry across equivalent query parameter orders', async () => {
+    const first = await worker.fetch(new Request(url + '&q=' + encodeURIComponent('波利')), bindings);
+    const reordered = 'https://example.test/api/v1/market/search?q=' +
+      encodeURIComponent('波利') + '&sort=changed_desc&limit=20';
+    const second = await worker.fetch(new Request(reordered), bindings);
+    expect(first.headers.get('x-search-cache')).toBe('MISS');
+    expect(second.headers.get('x-search-cache')).toBe('HIT');
+    expect(databaseReads).toBe(1);
+  });
+
   it('expires results and does not extend browser freshness on a cache hit', async () => {
     let now = 1_800_000_000_000;
     vi.spyOn(Date, 'now').mockImplementation(() => now);
