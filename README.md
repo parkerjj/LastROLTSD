@@ -33,6 +33,8 @@ pnpm exec wrangler dev --local
 
 See [deployment](docs/deployment.md), [MySQL migration](docs/mysql-migration.md), [operations](docs/operations.md), and the [API contract](docs/api.md).
 
+The planned player account system is documented in the [account system specification](docs/superpowers/specs/2026-10-12-ltsd-account-system-design.md), with a reviewed [implementation plan](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan.md), [review record](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan-review.md), and [development handoff prompt](docs/superpowers/plans/2026-10-12-ltsd-account-system-development-prompt.md).
+
 ***
 
 # LastROWeb（中文）
@@ -69,3 +71,5 @@ pnpm exec wrangler dev --local
 - `GET /api/health` — Worker 与 MySQL 健康检查
 
 详见[部署文档](docs/deployment.md)、[MySQL 迁移](docs/mysql-migration.md)、[运维手册](docs/operations.md)与 [API 契约](docs/api.md)。
+
+待实现的玩家账号系统见[账号系统规格](docs/superpowers/specs/2026-10-12-ltsd-account-system-design.md)，详细步骤见已审阅的[实施计划](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan.md)、[Review记录](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan-review.md)及[开发交接Prompt](docs/superpowers/plans/2026-10-12-ltsd-account-system-development-prompt.md)。
