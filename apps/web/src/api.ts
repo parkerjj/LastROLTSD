@@ -37,6 +37,9 @@ export class MarketApi implements MarketApiClient {
       }
       if (value !== undefined && value !== '') params.set(key, String(value));
     }
+    // Make semantically equivalent filter object insertion orders share the
+    // same outer Workers Cache key as well as the in-Worker Cache API entry.
+    params.sort();
     return this.request(`/api/v1/market/search?${params.toString()}`, signal);
   }
 
