@@ -75,7 +75,7 @@ export const releaseNotes: ReleaseNote[] = [
   },
   {
     version: '0.10.0',
-    date: '2026-10-8',
+    date: '2026-10-08',
     title: 'LRO 进阶客户端 v0.1.20 更新内容',
     summary: '优化客户端性能与修复一些已知bug，持续优化游戏体验',
     changes: [
