@@ -449,6 +449,27 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
     }
   });
 
+  it('keeps separate paid anonymous sessions independent even when one opts into a public name', async () => {
+    const window = currentMonthWindow();
+    const sessions = [
+      { status: 'complete', amount_total: 200, currency: 'cny', created: window.startSec + 200, email: null, name: null, publicName: '公开昵称' },
+      { status: 'complete', amount_total: 300, currency: 'cny', created: window.startSec + 300, email: null, name: null },
+    ];
+    const fetchMock = makeDualSourceFetchMock(0, sessions);
+    try {
+      const data = await fetchStripeDonors({ secretKey: STRIPE_KEY });
+      expect(data.supporters).toHaveLength(2);
+      expect(data.supporters.map((donor) => donor.amount)).toEqual(['3.00', '2.00']);
+      expect(data.supporters.map((donor) => donor.name)).toEqual(['匿名善人', '公开昵称']);
+      expect(data.supporters[0]!.id).toMatch(/^stripe:[0-9a-f]{32}$/u);
+      expect(data.supporters[1]!.id).toMatch(/^stripe:[0-9a-f]{32}$/u);
+      expect(data.supporters[0]!.id).not.toBe(data.supporters[1]!.id);
+      expect(data.monthOrderCount).toBe(2);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('aggregates Stripe sessions by email across multiple payments', async () => {
     const window = currentMonthWindow();
     // 同一 email 三笔（一笔未完成被过滤），应累加为 ¥7.00。
