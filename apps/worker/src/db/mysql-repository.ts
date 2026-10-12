@@ -1086,7 +1086,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       }
 
       const cursorContext = filters.cursor ? searchCursorContext(filters) : undefined;
-      const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: cursorContext }, cursorSecret) : null;
+      const cursor = filters.cursor ? decodeCursor(filters.cursor, { sort: filters.sort, context: cursorContext! }, cursorSecret) : null;
       const sortColumn = filters.sort === 'changed_desc' ? 'l.last_changed_at' : 'l.price';
       if (cursor) {
         const operator = filters.sort === 'price_asc' ? '>' : '<';
