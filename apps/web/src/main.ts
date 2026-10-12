@@ -1142,7 +1142,6 @@ function mountSearchPage(): void {
   renderOptionDictionary();
   renderSearchState();
   void loadMarketStatus();
-  window.setInterval(() => void loadMarketStatus(), 60_000);
   void loadOptionDictionary();
   void loadCategoryTree();
   void loadCatalog()
