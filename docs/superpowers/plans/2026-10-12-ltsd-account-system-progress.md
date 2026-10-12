@@ -19,8 +19,8 @@
 | Task | 状态 | 提交范围 | 验证 / skip | review |
 |---|---|---|---|---|
 | 0 | complete | 8a2155f..f22aaa9 | 基线见下，真实DB skip | 独立6.1-sol/high Spec PASS / quality PASS，无Critical/Important |
-| 1 | complete | base f22aaa9；本次feature提交 | 18pass0skip/typecheck/targeted lint；见报告 | 初审1 Important，fix1复审Spec/quality Approve |
-| 2 | 未开始 | — | — | — |
+| 1 | complete | f22aaa9..3b18249 | 18pass0skip/typecheck/targeted lint；见报告 | 初审1 Important，fix1复审Spec/quality Approve |
+| 2 | complete | base 3b18249；本次feature提交 | 7unit/1真实MySQL，均0skip；migration/typecheck/lint exit0 | 初审1Important/2Minor，fix1全部ADDRESSED；Spec/quality Approve |
 | 3 | 未开始 | — | — | — |
 | 4 | 未开始 | — | — | — |
 | 5 | 未开始 | — | — | — |
@@ -208,3 +208,20 @@ Task1 fix round1 evidence：18pass/0skip、typecheck、input/test targeted lint�
 
 Task 1: complete（feat: add account contracts and native crypto；18pass0skip；独立review原Important已解决，fix round1 clean）。
 Task 2: 开始DDL/repository/专用MySQL验证，依赖Task1已通过。
+
+Task1 commit：3b1824906bbe93623344a5447df835fa2f0cf57e。Task2 implementer /root/task2_implement，显式gpt-6-luna/max fresh context。
+
+Ruling: Task2提前交付真实只读mail availability，并为createAuthRepository增加兼容的可选日/月budget options；公开provider/budget使用固定32-byte零键，个人标识仍HMAC — Task4先于Task5却依赖额度、Task9可配置预算不能与读取漂移，固定公开键避免rate秘密轮换重置整站额度 — 若错只需内部接口/范围适配，未改变公开响应或鉴权。
+
+## 2026-10-13恢复记录
+- Task2原Luna因usage limit terminal error停止，无最终报告/commit/review；保留所有源码改动。
+- 管理人22:03:59 UTC（Europe/Tallinn 01:03:59）查询ordinaryUsageAllowed=true、primary used0%，恢复原代理，不换模型、不购买额度/重置credits。
+- Task2 schema验收需按计划从空专用_test库运行全部迁移；当前helper先runner后TRUNCATE+ALTER会掩盖DDL首ID错误，要求修正为 guarded专用测试schema清空→runner001–009→首插自然10000。不改009为迁就元数据NULL。
+
+Task2独立review Request Changes，1Important digest owner未绑定已锁user；2Minor 写入阶段覆盖不全/存在性读取ID。当前任务三项一并最小修复，不带未解决load-bearing进入Task3/4。fix round1交原Luna。
+
+Ruling: Task4 authenticate返回请求内含sessionToken的内部身份子类型，refresh用原Cookie值重发；Repo基础identity保持摘要 — 原推荐refresh(identity)仅有摘要无法生成同值Cookie，明确请求内数据解决不轮换要求 — 若错需内部签名适配；不得改变JSON/SQL原文不落库规则。
+
+Task2 fix round1：Repository owner锁谓词/digest归属记录/写阶段守卫/SELECT1已修；schema+repository7pass0skip/typecheck/targeted lint/diff-check exit0；真实MySQL8.4.5从空库001–009全applied，1pass0skip。scoped复审待结论。
+
+Task 2: complete（feat: add MySQL account schema and repository；真实MySQL8.4.5/001–009全applied/自然ID10000/大ID/唯一/rollback证据；review fix1 clean）。

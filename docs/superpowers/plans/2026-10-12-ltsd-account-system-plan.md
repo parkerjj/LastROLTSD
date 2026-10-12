@@ -180,7 +180,7 @@ Resend的429必须按JSON错误name区分：daily_quota_exceeded、monthly_quota
 - readMailAvailability(now):Promise<MailAvailability>读取MySQL全站日/月预算及供应商暂停标记，月额度优先于日额度；不按请求Email是否存在改变结果。AVAILABLE仅表示本站尚不知道额度已耗尽，不承诺一定送达。
 - 注册/恢复202、待验证本人重发202返回AuthAcceptedResponse；新/旧/不存在Email都按相同全局状态返回，不暴露用户或任务ID。PENDING用户login/me返回mail_availability，ACTIVE可null；me仍校验真实会话，不能变成公开查某邮箱接口。
 - 本地预算用尽在reserveMailAttempt事务内记录暂停及终结；实际HTTP返回daily_quota_exceeded则通过recordProviderQuota按该次HTTP尝试的attempt.dayBucketStart原子写供应商scope日暂停至该bucket的下一UTC 00:00，并把当前任务终结FAILED＋MAIL_DAILY_QUOTA、清密文；本地未发出不扣HTTP次数，已预留/已发HTTP不返还预算。已失败任务不能次日自动重发。其他尚未尝试任务暂停，恢复后仅在原动作仍有效时发送，过期取消；重发入口可复用本人同版本仍有效的未发送任务，避免重复排队。
-- 使用auth_rate_limits已有字段保存共享暂停：固定provider key_digest，scope=mail-provider-daily，bucket_start为UTC日开始，next_allowed_at为次日UTC开始；月scope=mail-provider-monthly，bucket_start为UTC月开始；本站月暂停next_allowed_at为下一UTC月开始，expires_at为暂停结束后24小时。provider月恢复以真实账户为准；缺少更准时间时先保守暂停至下一UTC月开始再允许一次正常尝试，UI retry_at仍为null，若仍被拒绝则再次暂停。日暂停expires_at也为其结束后24小时，缺记录等价未被供应商暂停，预算仍独立校验。provider错误必须绑定该次HTTP预留返回的MailAttemptContext，不用job创建时间、first_attempt_at或响应处理时间来选择周期；旧日/月的迟到拒绝只能记旧bucket，绝不创建或延长新bucket暂停。新周期允许正常尝试后再依据该次真实错误处理额度；me只读当前bucket，因此不会被旧拒绝误伤。邮件领取/预留必须看该共享状态，不能放Worker全局变量。readMailAvailability按同一规则查询，原子预留发现本站日预算已满，也在原事务终结当前job/清密文并写暂停，不采用先返回quota再异步处理的两步流程；reserveMailAttempt返回status=quota后直接结束该次投递。
+- 使用auth_rate_limits已有字段保存共享暂停：固定公开provider key_digest（32字节零值；用于全站provider/budget，不包含个人Email/IP且不随rate secret轮换改变），scope=mail-provider-daily，bucket_start为UTC日开始，next_allowed_at为次日UTC开始；月scope=mail-provider-monthly，bucket_start为UTC月开始；本站月暂停next_allowed_at为下一UTC月开始，expires_at为暂停结束后24小时。provider月恢复以真实账户为准；缺少更准时间时先保守暂停至下一UTC月开始再允许一次正常尝试，UI retry_at仍为null，若仍被拒绝则再次暂停。日暂停expires_at也为其结束后24小时，缺记录等价未被供应商暂停，预算仍独立校验。provider错误必须绑定该次HTTP预留返回的MailAttemptContext，不用job创建时间、first_attempt_at或响应处理时间来选择周期；旧日/月的迟到拒绝只能记旧bucket，绝不创建或延长新bucket暂停。新周期允许正常尝试后再依据该次真实错误处理额度；me只读当前bucket，因此不会被旧拒绝误伤。邮件领取/预留必须看该共享状态，不能放Worker全局变量。readMailAvailability按同一规则查询，原子预留发现本站日预算已满，也在原事务终结当前job/清密文并写暂停，不采用先返回quota再异步处理的两步流程；reserveMailAttempt返回status=quota后直接结束该次投递。
 - monthly_quota_exceeded或本地月预算满写月暂停并FAILED＋MAIL_MONTHLY_QUOTA。本站月预算在UTC月切换；供应商月恢复时点按实际账户确认，无确切时间则retry_at=null，UI不承诺明天恢复。若供应商仍拒绝，重新暂停，不在同一次调用循环探测。
 - 日额度统一提示：“今天发送邮件的数量已达到上限，请明天重新登录账号，再进行 Email 身份验证。”另显示retry_at对应用户当地时间，并说明服务商日额度按UTC恢复；已收到的有效验证链接仍可正常使用，不因全站暂停被撤销。受限账号仍能登录、改本人资料和退出；邮件受理/失败都不改变PENDING状态。
 - 月额度提示：“本月邮件发送额度已用完，请待额度恢复后重试。”恢复密码页换成“额度恢复后重新申请密码重置”，不要求无法登录的用户先登录。
@@ -200,7 +200,7 @@ Resend Free日限额按UTC日恢复；当前额度包括同团队其他发送及
 
 ### 2.5 账号Repository接口边界
 
-`createAuthRepository(db:MysqlDatabase):AuthRepository`，必须至少给出下列操作。查询返回显式定义行类型，不用any或SELECT *；与SQL表字段映射放repository。
+`createAuthRepository(db:MysqlDatabase,options?:AuthRepositoryOptions):AuthRepository`，保持单参数调用兼容；`AuthRepositoryOptions={mailDailyLimit?:number;mailMonthlyLimit?:number}`，默认100/3000，由账号配置接入后传入，额度读取与预留复用同一设置。必须至少给出下列操作。查询返回显式定义行类型，不用any或SELECT *；与SQL表字段映射放repository。
 
 - `readCredentialByEmail(emailNormalized:string):Promise<CredentialSnapshot|null>`：含string userId、status、credentialVersion、authVersion和摘要材料，**不含头像**。
 - `readProfile(userId:UserId):Promise<AccountProfile|null>`：只读has_avatar/avatar_version，不读Base64。
@@ -226,7 +226,7 @@ Resend Free日限额按UTC日恢复；当前额度包括同团队其他发送及
 4. **auth_sessions**：token_digest BINARY(32) PK；user_id FK；credential_version/auth_version、created_at/last_seen_at/expires_at均NOT NULL；只有revoked_at可NULL。索引(user_id)、(expires_at,token_digest)。随机值不入库。
 5. **auth_action_tokens**：token_digest BINARY(32) PK；user_id FK、purpose、email_snapshot、credential_version、created_at/expires_at NOT NULL，consumed_at/revoked_at可NULL；索引(user_id,purpose)、(expires_at,token_digest)。允许同用途多个未过期动作。
 6. **auth_mail_outbox**：id CHAR(36) PK（UUID）、action_digest nullable（不建阻碍TTL清理的FK，仅动作关联摘要）、user_id nullable FK、purpose、payload_ciphertext小型Base64（终结后可NULL）、payload_iv（终结后可NULL）、payload_key_version VARCHAR(16) NOT NULL、priority TINYINT UNSIGNED（通知0、验证/恢复1）、state、lease_id nullable、lease_until、attempt_count、next_attempt_at、created_at/expires_at、first_attempt_at nullable、provider_message_id nullable、last_error_code nullable。索引(state,priority,next_attempt_at,id)、(state,lease_until,id)、(expires_at,id)、(user_id,purpose,state,created_at,id)（本人重发合并未发送任务的有界查询）。供应商幂等key为ltsd-auth/＋id；state取PENDING/CLAIMED/SENT/FAILED/CANCELLED。
-7–8. **auth_security_events** 与 **auth_rate_limits**：前6个表加这2个小表，总共8个；事件id自增但无10000要求，user_id nullable、event/request_id/result/reason/created_at，索引(created_at,id)；rate主键(scope,key_digest,bucket_start)、request_count、next_allowed_at、expires_at，索引(expires_at)。scope仅预定义（含§2.3的provider日/月暂停），key_digest BINARY(32)用独立AUTH_RATE_SECRET HMAC；禁止完整IP/邮箱日志。schema测试断言8个新表。
+7–8. **auth_security_events** 与 **auth_rate_limits**：前6个表加这2个小表，总共8个；事件id自增但无10000要求，user_id nullable、event/request_id/result/reason/created_at，索引(created_at,id)；rate主键(scope,key_digest,bucket_start)、request_count、next_allowed_at、expires_at，索引(expires_at)。scope仅预定义（含§2.3的provider日/月暂停），key_digest BINARY(32)用独立AUTH_RATE_SECRET HMAC；禁止完整IP/邮箱日志。全站公开provider及budget键使用固定32字节零digest，个人Email/IP/session限流键使用独立AUTH_RATE_SECRET HMAC。schema测试断言8个新表。
 
 精度方案：**不要更改现有全项目MysqlWriteResult**。新用户INSERT后，在同一事务用唯一email_normalized读取 `CAST(id AS CHAR) AS id`；所有auth查询的user_id/id均CAST AS CHAR，绑定字符串作为BIGINT参数。既有Number insertId仅忽略。对 >Number.MAX_SAFE_INTEGER 的合成用户测试读回保真。
 
@@ -274,7 +274,7 @@ RESEND_API_KEY/MAIL_FROM是投递配置，可使任务暂停但不能让现有�
 ## Task 2: MySQL迁移与账号Repository
 
 **Files:** 009_account_system.sql、auth/repository.ts、tests/helpers/auth-mysql.ts；worker/test/auth-schema.test.ts、auth-repository.test.ts。
-**Interfaces:** 实现§2.5全部基础操作；导出CredentialSnapshot、UserRecord、AuthRepository/AuthTx等明确类型。Task5/13再添加有界后台操作。
+**Interfaces:** 实现§2.5全部基础操作；导出CredentialSnapshot、UserRecord、AuthRepository/AuthTx等明确类型。Task2先交付真实只读readMailAvailability供先于Task5的Task4消费；按当前UTC bucket读取mail-budget-daily/monthly和mail-provider-daily/monthly，月优先，日retry_at下一UTC日、月null。Task5/13再添加有界后台操作。
 
 - [ ] 写失败测试：DDL八表/初始AUTO_INCREMENT10000/唯一email/FK/头像ASCII TEXT长度；SQL查询不含头像；AuthTx不支持嵌套transaction。新表第一用户"10000"，相同邮箱并发最多一人，回滚不留半个Credential。
 - [ ] 跑 `rtk proxy pnpm exec vitest run apps/worker/test/auth-schema.test.ts apps/worker/test/auth-repository.test.ts` 确认RED；schema字符串测试仅辅助DDL约束，真实SQL结果由集成验证承担。
@@ -299,10 +299,11 @@ RESEND_API_KEY/MAIL_FROM是投递配置，可使任务暂停但不能让现有�
 ## Task 4: 登录、本人查询、30天会话和退出
 
 **Files:** auth/session-service.ts、router.ts、repository.ts（必要条件操作）；worker/test/auth-session.test.ts。
-**Interfaces:** `createSessionService(repo,config,runtime)` 提供 `login(email,password):Promise<{response:AuthSessionResponse;cookie:string}>`、`authenticate(request):Promise<AuthIdentity>`、`me(identity):Promise<AuthSessionResponse>`、`refresh(identity):Promise<{expires_at:number;csrf_token:string;cookie:string}>`、`logout(identityOrNull):Promise<void>`、`logoutAll(identity):Promise<void>`。
+**Interfaces:** `createSessionService(repo,config,runtime)` 提供 `login(email,password):Promise<{response:AuthSessionResponse;cookie:string}>`、`authenticate(request):Promise<AuthenticatedSessionIdentity>`、`me(identity):Promise<AuthSessionResponse>`、`refresh(identity:AuthenticatedSessionIdentity):Promise<{expires_at:number;csrf_token:string;cookie:string}>`、`logout(identityOrNull):Promise<void>`、`logoutAll(identity):Promise<void>`。
 
 - [ ] 写失败测试：ACTIVE正常、PENDING有限、错误/未知/禁用同401；默认到期和Cookie恰为30天；第29天访问续30天、再第29天又续、恰好到期失败；me不刷新DB和Cookie期限。
 - [ ] 跑 `rtk proxy pnpm exec vitest run apps/worker/test/auth-session.test.ts` RED。
+- [ ] 内部`AuthenticatedSessionIdentity=AuthIdentity & {readonly sessionToken:string}`只携带当前请求Cookie原值供refresh重发同值Cookie；Repository/AuthIdentity基础类型仍只含摘要，不写DB、JSON、日志或跨请求字典。
 - [ ] login在事务外单HMAC；未知Email使用固定dummy材料验证，错误时同code/message，无忙等。成功事务锁用户、重查credential/authVersion/status，生成32字节token、存摘要、新Cookie；和之前会话无固定继承。版本变化时失败，不使用旧校验快照创建新会话。
 - [ ] authenticate/readIdentity JOIN检查最新user状态、session两版本、revoked_at和expires_at>now；PENDING只allow me/refresh/资料头像/验证/logout。refresh在用户锁和session锁均取得后重新读取runtime.now()再判过期、查版本，续期用单调不缩短值（GREATEST原expires_at和本次now＋30天），同步Cookie；不在每次refresh换token，不把expires_at判断改成≥。
 - [ ] logout单次撤销该digest；logout-all在用户锁下auth_version++，不无界遍历session；无效Cookie可清且幂等，但不能给不存在身份额外权限。普通me/refresh/鉴权401只清前端内存身份，**不发送删除Cookie的Set-Cookie**，防迟到旧401覆盖刚登录/验证后的新Cookie；只有明确logout/logout-all/成功改密或恢复等操作按契约清理。

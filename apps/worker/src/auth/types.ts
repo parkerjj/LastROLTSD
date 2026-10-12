@@ -138,10 +138,23 @@ export interface CredentialSnapshot {
   keyVersion: string;
 }
 
-export interface NewMailJob {
-  payloadKeyVersion: string;
+export interface NewMailJob extends SealedMailPayload {
+  id: string;
+  actionDigest: Uint8Array | null;
+  userId: UserId | null;
+  purpose: MailPurpose;
+  priority: 0 | 1;
+  createdAt: number;
+  expiresAt: number;
 }
 
-export interface ClaimedMailJob {
-  payloadKeyVersion: string;
+export interface ClaimedMailJob extends NewMailJob {
+  state: 'CLAIMED';
+  leaseId: string;
+  leaseUntil: number;
+  attemptCount: number;
+  nextAttemptAt: number;
+  firstAttemptAt: number | null;
+  providerMessageId: string | null;
+  lastErrorCode: string | null;
 }

@@ -1,0 +1,135 @@
+import { describe, expect, it } from 'vitest';
+import { createAuthRepository, type NewAuthUser } from '../../apps/worker/src/auth/repository';
+import type { PasswordMaterial } from '../../apps/worker/src/auth/types';
+import type { MysqlRow } from '../../apps/worker/src/db/mysql-client';
+import { withAuthTestDatabase } from '../helpers/auth-mysql';
+
+const requireMysqlTests = process.env.REQUIRE_AUTH_MYSQL_TESTS === '1';
+const runMysqlTests = Boolean(process.env.MYSQL_TEST_URL) || requireMysqlTests;
+const AUTH_TABLES = [
+  'auth_action_tokens', 'auth_avatars', 'auth_credentials', 'auth_mail_outbox',
+  'auth_rate_limits', 'auth_security_events', 'auth_sessions', 'auth_users',
+];
+const FIRST_USER: NewAuthUser = {
+  email: 'first@example.test', emailNormalized: 'first@example.test', displayName: 'First', createdAt: 1_800_000_000_000,
+};
+const CREDENTIAL: PasswordMaterial = {
+  scheme: 'hmac-sha256-v1', salt: new Uint8Array(16), digest: new Uint8Array(32), keyVersion: 'v1',
+};
+
+describe('real MySQL account schema and repository', () => {
+  it.skipIf(!runMysqlTests)('preserves the market schema and enforces account IDs, uniqueness, rollback, and mail quotas', async () => {
+    await withAuthTestDatabase(async ({ database, createDatabase }) => {
+      const server = await database.first('SELECT VERSION() AS version');
+      expect(String(server?.version)).toMatch(/^8\.4\.5(?:[-+]|$)/u);
+
+      const tableRows = await database.all<MysqlRow>(`SELECT TABLE_NAME AS table_name
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name IN (${AUTH_TABLES.map(() => '?').join(', ')})`, AUTH_TABLES);
+      expect(tableRows.map((row) => String(row.table_name)).sort()).toEqual([...AUTH_TABLES].sort());
+
+      const legacyNames = ['market_sources', 'shops', 'listings', 'listing_events', 'guestbook_entries', 'item_catalog'];
+      const legacyTables = await database.all<MysqlRow>(`SELECT TABLE_NAME AS table_name
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name IN (${legacyNames.map(() => '?').join(', ')})`, legacyNames);
+      expect(legacyTables.map((row) => String(row.table_name)).sort()).toEqual([...legacyNames].sort());
+
+      const uniqueEmail = await database.first('SELECT COUNT(*) AS row_count FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? AND column_name = ? AND non_unique = 0', [
+        'auth_users', 'uq_auth_users_email_normalized', 'email_normalized',
+      ]);
+      expect(Number(uniqueEmail?.row_count)).toBe(1);
+      const foreignKeys = await database.first(`SELECT COUNT(*) AS row_count
+        FROM information_schema.table_constraints
+        WHERE constraint_schema = DATABASE() AND constraint_type = 'FOREIGN KEY'
+          AND table_name IN (${AUTH_TABLES.map(() => '?').join(', ')})`, AUTH_TABLES);
+      expect(Number(foreignKeys?.row_count)).toBe(6);
+
+      const avatarColumn = await database.first('SELECT DATA_TYPE AS data_type, CHARACTER_SET_NAME AS character_set_name, COLLATION_NAME AS collation_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?', ['auth_avatars', 'avatar_base64']);
+      expect(avatarColumn).toMatchObject({ data_type: 'text', character_set_name: 'ascii', collation_name: 'ascii_bin' });
+
+      const repository = createAuthRepository(database);
+      const firstId = await repository.transaction(async (tx) => {
+        const user = await tx.insertUser(FIRST_USER);
+        await tx.insertCredential(user.id, CREDENTIAL);
+        return user.id;
+      });
+      expect(firstId).toBe('10000');
+      await expect(repository.readCredentialByEmail(FIRST_USER.emailNormalized)).resolves.toMatchObject({ userId: '10000' });
+
+      await repository.transaction(async (tx) => {
+        const user = await tx.lockUser(firstId);
+        expect(user?.id).toBe(firstId);
+        await tx.saveAvatar(firstId, 'QUJD', FIRST_USER.createdAt + 1);
+      });
+      await expect(repository.readAvatar(firstId)).resolves.toEqual({ base64: 'QUJD', version: 1 });
+
+      await database.run('DELETE FROM auth_avatars WHERE user_id = ?', ['10000']);
+      await database.run('INSERT INTO auth_avatars (user_id, avatar_base64, updated_at) VALUES (?, ?, ?)', ['10000', 'A'.repeat(43_692), FIRST_USER.createdAt]);
+      await database.run('DELETE FROM auth_avatars WHERE user_id = ?', ['10000']);
+      await expect(database.run('INSERT INTO auth_avatars (user_id, avatar_base64, updated_at) VALUES (?, ?, ?)', [
+        '10000', 'A'.repeat(43_693), FIRST_USER.createdAt,
+      ])).rejects.toThrow();
+
+      const concurrentUser: NewAuthUser = {
+        email: 'race@example.test', emailNormalized: 'race@example.test', displayName: 'Race', createdAt: FIRST_USER.createdAt + 1,
+      };
+      const secondDatabase = createDatabase();
+      const secondRepository = createAuthRepository(secondDatabase);
+      const connectionIds = await Promise.all([
+        database.first('SELECT CONNECTION_ID() AS connection_id'),
+        secondDatabase.first('SELECT CONNECTION_ID() AS connection_id'),
+      ]);
+      expect(String(connectionIds[0]?.connection_id)).not.toBe(String(connectionIds[1]?.connection_id));
+      const createRacingUser = (selectedRepository: typeof repository) => selectedRepository.transaction(async (tx) => {
+        const user = await tx.insertUser(concurrentUser);
+        await tx.insertCredential(user.id, CREDENTIAL);
+        return user.id;
+      });
+      const race = await Promise.allSettled([createRacingUser(repository), createRacingUser(secondRepository)]);
+      expect(race.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(race.filter((result) => result.status === 'rejected')).toHaveLength(1);
+      const raceCounts = await database.first(`SELECT
+          (SELECT COUNT(*) FROM auth_users WHERE email_normalized = ?) AS user_count,
+          (SELECT COUNT(*) FROM auth_credentials AS c INNER JOIN auth_users AS u ON u.id = c.user_id WHERE u.email_normalized = ?) AS credential_count`, [
+        concurrentUser.emailNormalized, concurrentUser.emailNormalized,
+      ]);
+      expect(Number(raceCounts?.user_count)).toBe(1);
+      expect(Number(raceCounts?.credential_count)).toBe(1);
+
+      const rollbackUser = { ...concurrentUser, email: 'rollback@example.test', emailNormalized: 'rollback@example.test' };
+      await expect(repository.transaction(async (tx) => {
+        const user = await tx.insertUser(rollbackUser);
+        await tx.insertCredential(user.id, CREDENTIAL);
+        throw new Error('force auth transaction rollback');
+      })).rejects.toThrow('force auth transaction rollback');
+      const rollbackCounts = await database.first(`SELECT
+          (SELECT COUNT(*) FROM auth_users WHERE email_normalized = ?) AS user_count,
+          (SELECT COUNT(*) FROM auth_credentials AS c INNER JOIN auth_users AS u ON u.id = c.user_id WHERE u.email_normalized = ?) AS credential_count`, [
+        rollbackUser.emailNormalized, rollbackUser.emailNormalized,
+      ]);
+      expect(Number(rollbackCounts?.user_count)).toBe(0);
+      expect(Number(rollbackCounts?.credential_count)).toBe(0);
+
+      await database.run('ALTER TABLE auth_users AUTO_INCREMENT = 9007199254740993');
+      const largeUser = { ...concurrentUser, email: 'large@example.test', emailNormalized: 'large@example.test' };
+      const largeId = await repository.transaction(async (tx) => (await tx.insertUser(largeUser)).id);
+      expect(largeId).toBe('9007199254740993');
+
+      const now = Date.UTC(2026, 9, 12, 12);
+      const dayStart = Date.UTC(2026, 9, 12);
+      const monthStart = Date.UTC(2026, 9, 1);
+      const nextDay = dayStart + 86_400_000;
+      const nextMonth = Date.UTC(2026, 10, 1);
+      const zeroDigest = new Uint8Array(32);
+      await database.run(`INSERT INTO auth_rate_limits
+          (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)`, ['mail-budget-daily', zeroDigest, dayStart, 100, nextDay, nextDay + 86_400_000]);
+      await database.run(`INSERT INTO auth_rate_limits
+          (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)`, ['mail-budget-monthly', zeroDigest, monthStart, 3_000, nextMonth, nextMonth + 86_400_000]);
+      await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'MAIL_MONTHLY_QUOTA', retry_at: null });
+      await database.run('DELETE FROM auth_rate_limits WHERE scope = ? AND bucket_start = ? AND key_digest = ?', ['mail-budget-monthly', monthStart, zeroDigest]);
+      await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'MAIL_DAILY_QUOTA', retry_at: nextDay });
+    });
+  }, 120_000);
+});
