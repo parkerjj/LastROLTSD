@@ -188,7 +188,21 @@ function listingFromRow(row: Row): ListingRow {
 
 function listingFromSearchRow(row: Row): ListingSearchRow {
   return {
-    ...listingFromRow(row),
+    id: Number(row.id),
+    shopSessionId: Number(row.shop_id),
+    itemFingerprint: String(row.item_fingerprint),
+    itemKey: row.item_key == null ? null : String(row.item_key),
+    itemId: Number(row.item_id),
+    upgrade: Number(row.upgrade),
+    slots: Number(row.slots),
+    cards: [Number(row.card0 ?? 0), Number(row.card1 ?? 0), Number(row.card2 ?? 0), Number(row.card3 ?? 0)],
+    price: Number(row.price),
+    quantity: Number(row.quantity),
+    lastQuantity: Number(row.quantity),
+    status: String(row.status),
+    stateVersion: Number(row.state_version),
+    missingStreak: Number(row.missing_full_count),
+    lastChangedAt: Number(row.last_changed_at),
     ...(row.item_name == null || String(row.item_name).trim() === '' ? {} : { itemName: String(row.item_name) }),
     ...(row.item_icon == null || String(row.item_icon).trim() === '' ? {} : { itemIcon: String(row.item_icon) }),
     ...(row.item_icon_large == null || String(row.item_icon_large).trim() === '' ? {} : { itemIconLarge: String(row.item_icon_large) }),
