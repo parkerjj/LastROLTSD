@@ -1001,28 +1001,28 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       // Resolve catalog names/aliases in MySQL rather than parsing 1.3 MB
       // of static item data and normalizing every name on each Worker request.
       if (normalizedQuery && (!filters.q_scope || filters.q_scope.includes('item'))) {
-        const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\\\${value}`);
+        const escaped = normalizedQuery.replace(/[\\%_]/gu, (value) => `\\${value}`);
         const pattern = `%${escaped}%`;
         // MySQL ngram FULLTEXT provides a small candidate set for plain Han
         // phrases. A final LIKE preserves the original substring semantics.
         // Single characters, identifiers, mixed scripts and punctuation must
         // retain the legacy predicates; ngram cannot represent them safely.
-        const useNgram = /^\\p{Script=Han}{2,}$/u.test(normalizedQuery);
+        const useNgram = /^\p{Script=Han}{2,}$/u.test(normalizedQuery);
         let catalogMatch: string;
         if (useNgram) {
           const phrase = add(`"${normalizedQuery}"`);
           const nameTerms = [
-            `name_zh LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
-            `name LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
-            `alias_name LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
+          `name_zh LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `alias_name LIKE ${add(pattern)} ESCAPE '\\\\'`,
           ];
           catalogMatch = `MATCH(name_zh, name, alias_name) AGAINST (${phrase} IN BOOLEAN MODE) AND (${nameTerms.join(' OR ')})`;
         } else {
           const terms = [
-            `name_zh LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
-            `name LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
-            `alias_name LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
-            `CAST(item_id AS CHAR) LIKE ${add(pattern)} ESCAPE '\\\\\\\\'`,
+          `name_zh LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `alias_name LIKE ${add(pattern)} ESCAPE '\\\\'`,
+          `CAST(item_id AS CHAR) LIKE ${add(pattern)} ESCAPE '\\\\'`,
           ];
           catalogMatch = terms.join(' OR ');
         }
