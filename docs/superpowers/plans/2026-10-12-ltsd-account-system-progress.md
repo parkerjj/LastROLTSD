@@ -18,8 +18,8 @@
 ## 任务账本
 | Task | 状态 | 提交范围 | 验证 / skip | review |
 |---|---|---|---|---|
-| 0 | complete | 本文档基线提交 | 基线见下，真实DB skip | 独立6.1-sol/high Spec PASS / quality PASS，无Critical/Important |
-| 1 | 未开始 | — | — | — |
+| 0 | complete | 8a2155f..f22aaa9 | 基线见下，真实DB skip | 独立6.1-sol/high Spec PASS / quality PASS，无Critical/Important |
+| 1 | complete | base f22aaa9；本次feature提交 | 18pass0skip/typecheck/targeted lint；见报告 | 初审1 Important，fix1复审Spec/quality Approve |
 | 2 | 未开始 | — | — | — |
 | 3 | 未开始 | — | — | — |
 | 4 | 未开始 | — | — | — |
@@ -186,3 +186,25 @@
 
 Task 0: complete（基线文档提交，独立preflight review clean）。
 Task 1: 即将派发fresh Luna max；管理人保留提交职责。
+
+Task 1 implementer：/root/task1_implement，显式gpt-6-luna/max fresh context；brief/report见该计划scratch目录。
+
+## 本地真实MySQL测试环境
+- 官方archive下载MySQL8.4.5 minimal，当前用户启动独立daemon，bind127.0.0.1:13306；专用lastroweb_auth_test，独立临时随机测试凭据，不使用VPS/生产URL。
+- 版本查询8.4.5；未迁移任何生产数据。运行包装器 .superpowers/sdd/2026-10-12-ltsd-account-system-plan/with-test-env.mjs 只向child环境注入MYSQL_TEST_URL、AUTH_TEST_DB_ALLOW_RESET=1、REQUIRE_AUTH_MYSQL_TESTS=1，URL不打印。
+- 后续schema及竞争测试使用此专用实例，尚未声称通过。
+
+- 技能资料检索：Cloudflare官方Workers best practices/limits，确认HTTP与Cron Free完整CPU10ms、每账户Cron5；Resend官方errors确认daily/monthly/rate_limit分类，日额度UTC午夜恢复。参考 https://developers.cloudflare.com/workers/platform/limits/ 与 https://resend.com/docs/api-reference/errors 。最新Workers types 5.20261012.1仅在本地cache核查，不升级项目依赖。
+
+Ruling: Task1文本明确previous邮件key解密验收，虽接口列表未列AES helper，仍在crypto.ts实现最小sealMailPayload/openMailPayload以闭合该要求；模板/HTTP/outbox留Task5 — 避免伪测key映射充当解密证据，后续复用 — 若错仅需重构内部helper，无公开契约变化。固定UTF8正文≤8192、AES-GCM随机12-byte IV，AAD=UTF8(JSON.stringify([mailId,purpose]))；sealed字段payloadCiphertext/payloadIv/payloadKeyVersion，current写入、严格按版本读取。
+
+Task1已报告17pass0skip/typecheck/targeted ESLint/diff-check exit0，独立task1_review审查中；完整报告与diff在该计划scratch。Task2允许对types.ts的mail行占位作必要字段补齐，不扩大原语行为，避免重复互不兼容同名契约。
+
+Task1 review Request Changes：Important: validatePassword允许孤立UTF16 surrogate，但TextEncoder静默改为U+FFFD，不同输入可验证同一凭据。reviewer已运行createPasswordMaterial/verifyPassword复现 originalMatches/differentSurrogateMatches/replacementCharacterMatches均true。位置crypto.ts:73,input.ts:68。
+Ruling: 拒绝孤立surrogate这类非良构Unicode字符串，再按有效Unicode原样UTF8编码；不改HMAC规定message或加密码复杂度 — 解决已复现输入碰撞，合法emoji/空格/U+FFFD仍可用 — 若解释错误需修订非法编码错误契约，但不影响正常用户密码。
+Task1 fix round1：原Luna修复与focused验证，待复审。
+
+Task1 fix round1 evidence：18pass/0skip、typecheck、input/test targeted lint及diff-check exit0；原Important非良构UTF16碰撞已补回归并拒绝。独立fresh task1_fix_review复审中。
+
+Task 1: complete（feat: add account contracts and native crypto；18pass0skip；独立review原Important已解决，fix round1 clean）。
+Task 2: 开始DDL/repository/专用MySQL验证，依赖Task1已通过。

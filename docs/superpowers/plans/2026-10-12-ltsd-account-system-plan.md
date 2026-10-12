@@ -263,7 +263,7 @@ Task步骤里的失败测试名是具体测试意图，最终实现用it(...)并
 
 - [ ] 写失败测试：4/5/256/257字符边界、5个emoji通过、前后空格保留、12345通过、确认不匹配失败；display_name空白失败/32通过/33失败/可重名；Email大小写同归一值、加号和点号不合并、非法行分隔符拒绝。
 - [ ] 跑 `rtk proxy pnpm exec vitest run apps/worker/test/auth-primitives.test.ts apps/worker/test/auth-input.test.ts`，缺模块/功能行为失败即RED。不能用syntax错误代替有效失败测试。
-- [ ] 实现§2类型；Email local-part使用有界ASCII常规邮箱格式（长度≤64、总长度≤254，拒绝空点段/控制字符），域名转ASCII并统一大小写；不引入重量RFC解析器。密码长度用code point，不用JS .length或HTML maxlength作为唯一规则。昵称只trim自身，不能连带trim密码。
+- [ ] 实现§2类型；Email local-part使用有界ASCII常规邮箱格式（长度≤64、总长度≤254，拒绝空点段/控制字符），域名转ASCII并统一大小写；不引入重量RFC解析器。密码长度用code point，不用JS .length或HTML maxlength作为唯一规则；摘要前拒绝孤立UTF-16 surrogate，避免UTF-8替换导致不同输入等同，不改变合法Unicode密码规则。昵称只trim自身，不能连带trim密码。
 - [ ] 秘密约定：密码/CSRF/rate/mail秘密均独立32随机字节的标准Base64，服务器导入前严格解码32字节；密码message为UTF8(ltsd-password-v1＋NUL)＋16字节salt＋UTF8原密码；digest用原生HMAC、verify用subtle.verify。会话/动作是32随机字节base64url，摘要SHA-256原token字节，拒绝非法格式再解码。密码AUTH_PASSWORD_KEY_VERSION、邮件AUTH_MAIL_PAYLOAD_KEY_VERSION默认"1"，均为非秘密设置。Config输出passwordKeys/mailPayloadKeys（当前＋最多一个previous的ReadonlyMap<string,Uint8Array>版本→原始key字节映射；异步importKey由crypto函数完成）及currentPasswordKeyVersion/currentMailPayloadKeyVersion；CredentialSnapshot.keyVersion/NewMailJob.payloadKeyVersion必须匹配映射后选择对应key，不能用当前key尝试所有旧记录。可选旧pair为AUTH_PASSWORD_PREVIOUS_KEY_VERSION＋AUTH_PASSWORD_PREVIOUS_SECRET、AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION＋AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET；每pair必须同时有值，版本不能与current相同，key仍为32字节Base64。首次不配previous即可；不每部署生成或自动轮换。
 - [ ] 补测试：同密码两个salt摘要不同、错误pepper/密码拒绝、scheme/版本未知安全失败、token随机值不等于ID、秘密缺失返回预定503，不把secret拼进错误；不循环HMAC、不导入第三方密码库。跑上述测试与typecheck，review通过后提交 `feat: add account contracts and native crypto`。
 
