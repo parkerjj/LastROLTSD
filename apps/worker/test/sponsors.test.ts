@@ -319,6 +319,9 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
     created: number;
     email: string | null;
     name: string | null;
+    payment_status?: 'paid' | 'unpaid';
+    paidAt?: number;
+    publicName?: string;
   }>) {
     const window = currentMonthWindow();
     return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -358,9 +361,15 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
           data: stripeSessions.map((s, i) => ({
             id: `cs_test_${i}`,
             status: s.status,
+            payment_status: s.payment_status ?? (s.status === 'complete' ? 'paid' : 'unpaid'),
             amount_total: s.amount_total,
             currency: s.currency,
             created: s.created,
+            payment_intent: { latest_charge: {
+              created: s.paidAt ?? s.created,
+              balance_transaction: { created: s.paidAt ?? s.created },
+            } },
+            ...(s.publicName ? { metadata: { public_name_opt_in: 'true', public_display_name: s.publicName } } : {}),
             customer_details: s.email === null ? null : { email: s.email, name: s.name },
           })),
           has_more: false,
@@ -375,7 +384,7 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
     // Stripe：两笔本月 complete 单（不同 email） + 一笔未完成（应被过滤）。
     const stripeSessions = [
       // 累计 ¥10.00，本月，排榜首。
-      { status: 'complete', amount_total: 1000, currency: 'cny', created: window.startSec + 200, email: 'a@x.com', name: 'Stripe A' },
+      { status: 'complete', amount_total: 1000, currency: 'cny', created: window.startSec + 200, email: 'a@x.com', name: 'Stripe A', publicName: 'Stripe A' },
       // 累计 ¥3.00，本月。
       { status: 'complete', amount_total: 300, currency: 'cny', created: window.startSec + 300, email: 'b@x.com', name: null },
       // 未完成，必须被过滤掉。
@@ -398,14 +407,43 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
       expect(body.monthOrderCount).toBe(3);
       // 3 位赞助者按金额降序：Stripe A ¥10 > 爱丽丝 ¥5.20 > Stripe b ¥3.00。
       expect(body.supporters).toHaveLength(3);
-      expect(body.supporters[0]!.id).toBe('stripe:a@x.com');
+      expect(body.supporters[0]!.id).toMatch(/^stripe:[0-9a-f]{32}$/u);
+      expect(JSON.stringify(body)).not.toContain('a@x.com');
+      expect(body.supporters[0]!.name).toBe('Stripe A');
       expect(body.supporters[0]!.amount).toBe('10.00');
       expect(body.supporters[0]!.source).toBe('stripe');
       expect(body.supporters[1]!.id).toBe('alice-uid');
       expect(body.supporters[1]!.source).toBe('afdian');
       expect(body.supporters[2]!.amount).toBe('3.00');
-      // 无 name 时回退为 email 前缀。
-      expect(body.supporters[2]!.name).toBe('b');
+      // 收款信息中的姓名和邮箱均不可作为默认公开昵称。
+      expect(body.supporters[2]!.name).toBe('匿名善人');
+      expect(JSON.stringify(body)).not.toContain('b@x.com');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('excludes completed but unpaid sessions and attributes donations by payment time', async () => {
+    const window = currentMonthWindow();
+    const sessions = [
+      // Checkout was opened last month, but funds arrived this month.
+      { status: 'complete', payment_status: 'paid' as const, amount_total: 400, currency: 'cny', created: window.startSec - 90, paidAt: window.startSec + 90, email: 'late@example.test', name: 'Private Person' },
+      // Checkout complete does not mean paid for delayed payment methods.
+      { status: 'complete', payment_status: 'unpaid' as const, amount_total: 9900, currency: 'cny', created: window.startSec + 20, paidAt: window.startSec + 30, email: 'pending@example.test', name: 'Pending' },
+      // Paid last month: part of cumulative honor roll but not monthly income.
+      { status: 'complete', payment_status: 'paid' as const, amount_total: 300, currency: 'cny', created: window.startSec - 300, paidAt: window.startSec - 150, email: 'prior@example.test', name: null },
+    ];
+    const fetchMock = makeDualSourceFetchMock(0, sessions);
+    try {
+      const data = await fetchStripeDonors({ secretKey: STRIPE_KEY });
+      expect(data.monthOrderCount).toBe(1);
+      expect(data.monthCents).toBe(400);
+      expect(data.supporters).toHaveLength(2);
+      const serialized = JSON.stringify(data);
+      expect(serialized).not.toContain('late@example.test');
+      expect(serialized).not.toContain('Private Person');
+      expect(serialized).not.toContain('pending@example.test');
+      expect(data.supporters.every((entry) => entry.id.startsWith('stripe:'))).toBe(true);
     } finally {
       fetchMock.mockRestore();
     }
@@ -433,7 +471,8 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
       const stripeAgg = body.supporters.find((s) => s.source === 'stripe');
       expect(stripeAgg).toBeDefined();
       expect(stripeAgg!.amount).toBe('7.00');
-      expect(stripeAgg!.id).toBe('stripe:dup@x.com');
+      expect(stripeAgg!.id).toMatch(/^stripe:[0-9a-f]{32}$/u);
+      expect(JSON.stringify(body)).not.toContain('dup@x.com');
       // 三笔里只有两笔 complete 进入月份统计。
       expect(body.monthOrderCount).toBe(2);
     } finally {
@@ -510,14 +549,16 @@ describe('fetchStripeDonors', () => {
         // 第一页返回 100 条 + has_more=true，第二页返回 1 条收尾。
         const isSecondPage = url.includes('starting_after=cs_test_99');
         if (isSecondPage) {
-          return jsonResponse({ data: [{ id: 'cs_test_100', status: 'complete', amount_total: 700, currency: 'cny', created: currentMonthWindow().startSec + 1, customer_details: { email: 'last@x.com', name: 'Last' } }], has_more: false });
+          return jsonResponse({ data: [{ id: 'cs_test_100', status: 'complete', payment_status: 'paid', amount_total: 700, currency: 'cny', created: currentMonthWindow().startSec + 1, payment_intent: { latest_charge: { created: currentMonthWindow().startSec + 1, balance_transaction: { created: currentMonthWindow().startSec + 1 } } }, customer_details: { email: 'last@x.com', name: 'Last' } }], has_more: false });
         }
         const firstPage = Array.from({ length: 100 }, (_, i) => ({
           id: `cs_test_${i}`,
           status: 'complete',
+          payment_status: 'paid',
           amount_total: 100,
           currency: 'cny',
           created: currentMonthWindow().startSec + i,
+          payment_intent: { latest_charge: { created: currentMonthWindow().startSec + i, balance_transaction: { created: currentMonthWindow().startSec + i } } },
           customer_details: { email: `u${i}@x.com`, name: `User${i}` },
         }));
         return jsonResponse({ data: firstPage, has_more: true });
