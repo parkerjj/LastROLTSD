@@ -36,6 +36,28 @@ try {
 
 `pnpm db:mysql:verify` reports row counts for all six tables, maximum IDs where applicable, foreign-key count, `listing_events.transition_key` uniqueness, the `upload_batches` source/batch idempotency key, nullable fields, and sample Chinese text. Supply `--expected-counts <json-file>` when an independently recorded source count is available. Do not run destructive cleanup merely to make numbers match.
 
+## Production indexes already installed manually (October 2026)
+
+Three read-query optimizations were already created directly in the production MySQL database:
+
+- `idx_upload_batches_status_completed` on `upload_batches(status, completed_at)` for the latest accepted snapshot timestamp.
+- `idx_listings_active_changed` on `listings(status, last_changed_at DESC, id DESC)` for newest listings without sorting all active rows.
+- `ft_item_catalog_names` as an `ngram` FULLTEXT index on `item_catalog(name_zh, name, alias_name)` for Chinese item search.
+
+These are represented by **new**, incremental migrations `008_item_catalog_fulltext.sql` and `009_read_query_indexes.sql` (respectively one FULLTEXT and two B-tree indexes). Both guard each `CREATE INDEX` using `information_schema.statistics`. On the existing production database the index definitions are already present, so these DDL statements are **skipped**, but the new migration checksums are recorded in `schema_migrations`. New databases obtain the indexes normally. **Do not edit existing numbered migrations** after application: `mysql-migrate.mjs` refuses changed checksums. Running `db:mysql:migrate -- --dry-run` checks migration files and database connectivity but does not execute DDL or simulate which indexes would be created.
+
+You can verify the installed indexes read-only with:
+
+```sql
+SHOW INDEX FROM upload_batches WHERE Key_name = 'idx_upload_batches_status_completed';
+SHOW INDEX FROM listings WHERE Key_name = 'idx_listings_active_changed';
+SHOW INDEX FROM item_catalog WHERE Key_name = 'ft_item_catalog_names';
+SELECT name, applied_at FROM schema_migrations
+WHERE name IN ('008_item_catalog_fulltext.sql', '009_read_query_indexes.sql');
+```
+
+The first three queries should show the columns and order described above. The final query only shows the two migration tracking rows **after** a successful deploy. Manual index creation alone does not add tracking rows.
+
 ## Cutover and rollback boundary
 
 Only after a successful MySQL validation should the GitHub production deployment set the Worker `MYSQL_URL` secret and deploy. Verify `/api/health` returns `db: "ok"`, then perform a controlled upload/search/history smoke test.
