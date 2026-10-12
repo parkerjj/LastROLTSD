@@ -426,7 +426,7 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
       registerSponsorRoutes(app, makeEnv(TOKEN, STRIPE_KEY));
       const response = await app.request('/api/v1/sponsors');
       expect(response.status).toBe(200);
-      const body = (await response.json()) as { supporters: Array<{ id: string; amount: string; source?: string }> };
+      const body = (await response.json()) as { supporters: Array<{ id: string; amount: string; source?: string }>; monthOrderCount: number };
       // Afdian Alice ¥5.20 + Stripe 聚合后 ¥7.00 = 2 位赞助者。
       expect(body.supporters).toHaveLength(2);
       // 找到 Stripe 聚合的那一位，验证金额累加与 email 归一化。
@@ -435,7 +435,7 @@ describe('GET /api/v1/sponsors route with Stripe merge', () => {
       expect(stripeAgg!.amount).toBe('7.00');
       expect(stripeAgg!.id).toBe('stripe:dup@x.com');
       // 三笔里只有两笔 complete 进入月份统计。
-      expect((body as { monthOrderCount: number }).monthOrderCount).toBe(2);
+      expect(body.monthOrderCount).toBe(2);
     } finally {
       fetchMock.mockRestore();
     }
