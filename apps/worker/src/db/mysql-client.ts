@@ -160,8 +160,13 @@ export function chunkRows<T>(rows: readonly T[], rowWidth: number, maximumBoundV
   return chunks;
 }
 
+// Configuration values are safe to reuse across requests; MySQL pools and
+// sockets are not, and must remain scoped to the invocation that opened them.
+let lastMysqlConfig: { url: string; config: MysqlConfig } | undefined;
+
 export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
-  const config = parseMysqlUrl(mysqlUrl);
+  const config = lastMysqlConfig?.url === mysqlUrl ? lastMysqlConfig.config : parseMysqlUrl(mysqlUrl);
+  if (lastMysqlConfig?.url !== mysqlUrl) lastMysqlConfig = { url: mysqlUrl, config };
   let pool: MysqlPoolLike | undefined;
   return createMysqlDatabaseForPoolFactory(() => {
     if (pool) return pool;
