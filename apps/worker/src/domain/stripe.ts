@@ -19,7 +19,6 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 const MAX_CHECKOUT_PAGES = 10;
 const STRIPE_PAGE_SIZE = 100;
 const COMPLETE_STATUS = 'complete';
-const ANONYMOUS_KEY = '__anonymous__';
 
 export interface StripeSponsorData {
   supporters: SponsorHonorEntry[];
@@ -113,7 +112,6 @@ async function resolvePaymentLinkId(secretKey: string, donateUrl: string): Promi
 /** Never expose donor emails as public IDs. The Stripe secret is scoped
  * with a versioned purpose prefix so hashes are not enumerable offline. */
 function publicDonorId(key: string, secretKey: string): string {
-  if (key === ANONYMOUS_KEY) return 'stripe:anon';
   const digest = createHmac('sha256', secretKey)
     .update('lastroweb-sponsor-id-v1\0')
     .update(key)
@@ -202,7 +200,9 @@ export async function fetchStripeDonors(options: {
     const email = typeof session.customer_details?.email === 'string'
       ? session.customer_details.email.trim().toLowerCase()
       : '';
-    const key = email || ANONYMOUS_KEY;
+    // Email-less sessions belong to distinct donors; do not merge unrelated
+    // payments or credit another donor's explicitly opted-in public name.
+    const key = email || `session:${session.id}`;
     const publicName = optedInName(session);
     const paidAt = confirmedPaymentAt(session);
     const existing = byEmail.get(key);
