@@ -208,6 +208,8 @@ export interface SponsorHonorEntry {
 
 /** GET /api/v1/sponsors 的响应：本月收入 + 累计光荣榜。 */
 export interface SponsorSummary {
+  /** Public Stripe payment link selected by the backend, optional for old API responses. */
+  stripeDonateUrl?: string;
   month: string;
   monthLabel: string;
   monthIncome: string;
