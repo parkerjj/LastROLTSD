@@ -1,5 +1,6 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
 import type {
+  AuthRateLimitRule,
   AccountProfile,
   AccountStatus,
   ActionPurpose,
@@ -132,6 +133,7 @@ export interface AuthRepository {
   transaction<T>(work: (tx: AuthTx) => Promise<T>): Promise<T>;
   readActionSnapshot(tokenDigest: Uint8Array): Promise<ActionSnapshot | null>;
   readMailAvailability(now: number): Promise<MailAvailability>;
+  consumeAuthRateLimits(rules: readonly AuthRateLimitRule[], now: () => number): Promise<{ allowed: boolean; retryAfter: number }>;
   readAvatar(userId: UserId): Promise<{ base64: string | null; version: number } | null>;
 }
 
@@ -287,6 +289,78 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
         return { code: 'MAIL_DAILY_QUOTA', retry_at: nextDayStart };
       }
       return { code: 'AVAILABLE', retry_at: null };
+    },
+
+    async consumeAuthRateLimits(rules, getNow) {
+      if (rules.length === 0) return { allowed: true, retryAfter: 0 };
+      const initialNow = timestampValue(getNow(), 'now');
+      const lockRows = prepareRateLimitRows(rules, initialNow);
+
+      return db.transaction(async (transactionDb) => {
+        for (const row of lockRows) {
+          await transactionDb.run(`INSERT INTO auth_rate_limits
+              (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
+            VALUES (?, ?, ?, 0, 0, ?)
+            ON DUPLICATE KEY UPDATE request_count = request_count`, [
+            row.scope, row.keyDigest, row.bucketStart, row.expiresAt,
+          ]);
+        }
+
+        const records = new Map<string, MailLimitRow>();
+        for (const row of lockRows) {
+          const record = await transactionDb.first<MailLimitRow>(`SELECT request_count, next_allowed_at, expires_at
+            FROM auth_rate_limits
+            WHERE scope = ? AND key_digest = ? AND bucket_start = ?
+            FOR UPDATE`, [row.scope, row.keyDigest, row.bucketStart]);
+          if (!record) throw new Error('auth rate limit row missing after lock');
+          records.set(rateLimitRowId(row), record);
+        }
+
+        const currentNow = timestampValue(getNow(), 'now');
+        if (lockRows.some((row) => row.rule.kind === 'window'
+          && Math.floor(currentNow / row.rule.windowMs) * row.rule.windowMs !== row.bucketStart)) {
+          return { allowed: false, retryAfter: 1 };
+        }
+
+        let blockedUntil = 0;
+        for (const row of lockRows) {
+          const record = records.get(rateLimitRowId(row))!;
+          if (row.rule.kind === 'window') {
+            if (countValue(record) >= row.rule.limit) blockedUntil = Math.max(blockedUntil, row.expiresAt);
+          } else if (providerPauseActive(record, currentNow)) {
+            blockedUntil = Math.max(blockedUntil, numberValue(record.next_allowed_at, 'next_allowed_at'));
+          }
+        }
+
+        for (const row of lockRows) {
+          if (row.rule.kind !== 'window') continue;
+          const clamp = row.rule.limit + 1;
+          await transactionDb.run(`UPDATE auth_rate_limits
+            SET request_count = CASE WHEN request_count >= ? THEN ? ELSE request_count + 1 END
+            WHERE scope = ? AND key_digest = ? AND bucket_start = ?`, [
+            clamp, clamp, row.scope, row.keyDigest, row.bucketStart,
+          ]);
+        }
+
+        const hasExceededWindow = lockRows.some((row) => row.rule.kind === 'window'
+          && countValue(records.get(rateLimitRowId(row))) >= row.rule.limit);
+        for (const row of lockRows) {
+          if (row.rule.kind !== 'cooldown' || hasExceededWindow) continue;
+          const record = records.get(rateLimitRowId(row))!;
+          if (!providerPauseActive(record, currentNow)) {
+            const nextAllowedAt = timestampValue(currentNow + row.rule.cooldownMs, 'cooldown next_allowed_at');
+            await transactionDb.run(`UPDATE auth_rate_limits
+              SET request_count = 1, next_allowed_at = ?, expires_at = ?
+              WHERE scope = ? AND key_digest = ? AND bucket_start = 0`, [
+              nextAllowedAt, nextAllowedAt, row.scope, row.keyDigest,
+            ]);
+          }
+        }
+
+        return blockedUntil > currentNow
+          ? { allowed: false, retryAfter: Math.max(1, Math.ceil((blockedUntil - currentNow) / 1000)) }
+          : { allowed: true, retryAfter: 0 };
+      });
     },
 
     async readAvatar(userId) {
@@ -650,6 +724,61 @@ function mapAction(row: MysqlRow): ActionSnapshot {
 
 function countValue(row: MailLimitRow | undefined): number {
   return row ? numberValue(row.request_count, 'request_count') : 0;
+}
+
+interface RateLimitLockRow {
+  rule: AuthRateLimitRule;
+  scope: string;
+  keyDigest: Uint8Array;
+  digestHex: string;
+  bucketStart: number;
+  expiresAt: number;
+}
+
+function prepareRateLimitRows(rules: readonly AuthRateLimitRule[], now: number): RateLimitLockRow[] {
+  const rows = rules.map((rule): RateLimitLockRow => {
+    if (!(rule.keyDigest instanceof Uint8Array) || rule.keyDigest.byteLength !== 32) throw new Error('invalid auth rate limit digest');
+    const digestHex = digestKey(rule.keyDigest);
+    if (rule.kind === 'window') {
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(rule.scope) || rule.scope === 'mail_cooldown'
+        || !Number.isSafeInteger(rule.limit) || rule.limit < 1 || rule.limit > 4_294_967_294
+        || !Number.isSafeInteger(rule.windowMs) || rule.windowMs < 1) {
+        throw new Error('invalid auth rate limit rule');
+      }
+      const bucketStart = Math.floor(now / rule.windowMs) * rule.windowMs;
+      const expiresAt = timestampValue(bucketStart + rule.windowMs, 'rate limit expires_at');
+      return { rule, scope: rule.scope, keyDigest: new Uint8Array(rule.keyDigest), digestHex, bucketStart, expiresAt };
+    }
+    if (rule.scope !== 'mail_cooldown' || !Number.isSafeInteger(rule.cooldownMs) || rule.cooldownMs < 1) {
+      throw new Error('invalid auth cooldown rule');
+    }
+    return {
+      rule,
+      scope: rule.scope,
+      keyDigest: new Uint8Array(rule.keyDigest),
+      digestHex,
+      bucketStart: 0,
+      expiresAt: timestampValue(now + rule.cooldownMs, 'cooldown expires_at'),
+    };
+  });
+
+  const uniqueRows = new Set<string>();
+  for (const row of rows) {
+    const id = rateLimitRowId(row);
+    if (uniqueRows.has(id)) throw new Error('duplicate auth rate limit rule');
+    uniqueRows.add(id);
+  }
+  return rows.sort((left, right) => compareAscii(left.scope, right.scope)
+    || compareAscii(left.digestHex, right.digestHex)
+    || left.bucketStart - right.bucketStart);
+}
+
+function rateLimitRowId(row: Pick<RateLimitLockRow, 'scope' | 'digestHex' | 'bucketStart'>): string {
+  return `${row.scope}\0${row.digestHex}\0${row.bucketStart}`;
+}
+
+function compareAscii(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function providerPauseActive(row: MailLimitRow | undefined, now: number): boolean {

@@ -6,6 +6,10 @@ export type CsrfMode = 'anonymous' | 'session';
 export type PasswordScheme = 'hmac-sha256-v1';
 export type AuthFailureStatus = 400 | 401 | 403 | 404 | 413 | 415 | 429 | 503;
 
+export type AuthRateLimitRule =
+  | { kind: 'window'; scope: string; keyDigest: Uint8Array; limit: number; windowMs: number }
+  | { kind: 'cooldown'; scope: 'mail_cooldown'; keyDigest: Uint8Array; cooldownMs: number };
+
 export interface AccountProfile {
   id: UserId;
   email: string;

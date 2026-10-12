@@ -20,8 +20,8 @@
 |---|---|---|---|---|
 | 0 | complete | 8a2155f..f22aaa9 | 基线见下，真实DB skip | 独立6.1-sol/high Spec PASS / quality PASS，无Critical/Important |
 | 1 | complete | f22aaa9..3b18249 | 18pass0skip/typecheck/targeted lint；见报告 | 初审1 Important，fix1复审Spec/quality Approve |
-| 2 | complete | base 3b18249；本次feature提交 | 7unit/1真实MySQL，均0skip；migration/typecheck/lint exit0 | 初审1Important/2Minor，fix1全部ADDRESSED；Spec/quality Approve |
-| 3 | 未开始 | — | — | — |
+| 2 | complete | 3b18249..2c26a92 | 7unit/1真实MySQL，均0skip；migration/typecheck/lint exit0 | 初审1Important/2Minor，fix1全部ADDRESSED；Spec/quality Approve |
+| 3 | complete | base 2c26a92；本次feature提交 | 12unit/1真实MySQL，0skip；type/lint；fix无SQL重跑 | 独立初审PASS；管理人补验收fix1 fresh复审PASS |
 | 4 | 未开始 | — | — | — |
 | 5 | 未开始 | — | — | — |
 | 6 | 未开始 | — | — | — |
@@ -225,3 +225,16 @@ Ruling: Task4 authenticate返回请求内含sessionToken的内部身份子类型
 Task2 fix round1：Repository owner锁谓词/digest归属记录/写阶段守卫/SELECT1已修；schema+repository7pass0skip/typecheck/targeted lint/diff-check exit0；真实MySQL8.4.5从空库001–009全applied，1pass0skip。scoped复审待结论。
 
 Task 2: complete（feat: add MySQL account schema and repository；真实MySQL8.4.5/001–009全applied/自然ID10000/大ID/唯一/rollback证据；review fix1 clean）。
+
+Ruling: Task3允许repository.ts新增共享限流/冷却操作，补原Files漏项 — rate-limit需多实例MySQL事务且SQL必须集中repository，Task2基础接口尚无该操作 — 若错仅多一个任务归属调整，无公开API/数据格式变化。
+
+Task2 commit2c26a92f479b10a899558ca11eddf8960e419635。Task3单个fresh Luna，scope/clock/guard前置见brief。
+
+Task3过程证据：指定unit9pass0skip；真库第一次测试期望混淆60s/3600s，修正断言后REQUIRE MySQL8.4.5单流程1pass0skip。等待最终报告与独立review，尚未提交Task3。GETcsrf无DB，非法UTF8严格拒绝已明确。
+
+Task3独立review PASS，报告措辞Minor需收窄为锁后时钟跨桶；管理人实际HTTP补验收：error.request_id不存在、runtime.now=1000被忽略。补1Important/1Minor，交Luna fix1，未提交。
+Ruling: CSRF issue/assert在原四参数后增加可选now回调（默认Date.now），router转发AuthRuntime.now；保持原调用兼容及wire格式 — 所有账号时间可注入，避免GETcsrf无视受控时钟 — 若错仅内部签名调整，无cookie/权限语义变化。
+
+Ruling: Task4使readIdentity的显式JOIN同时返回expiresAt（内部LiveAuthIdentity子类型）；authenticate再携带仅请求内sessionToken形成AuthenticatedSessionIdentity，me/refresh复用已查期限 — 原最小AuthIdentity没有expires_at且只有摘要，无法在不再查同一session/重设随机值的前提返回期限与Cookie — 若错需内部类型适配，公开wire仍expires_at，SQL仅新增显式期限列而不读图片。
+
+Task 3: complete（feat: add bounded account request security；12unit/1 REQUIRЕ MySQL均0skip；errorEnvelope/runtimeClock/报告Minor已修复，fix1复审PASS）。

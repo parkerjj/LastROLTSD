@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createAuthRepository, type NewAuthUser } from '../../apps/worker/src/auth/repository';
-import type { PasswordMaterial } from '../../apps/worker/src/auth/types';
+import type { AuthRateLimitRule, PasswordMaterial } from '../../apps/worker/src/auth/types';
 import type { MysqlRow } from '../../apps/worker/src/db/mysql-client';
+import { consumeAuthRateLimit } from '../../apps/worker/src/auth/rate-limit';
 import { withAuthTestDatabase } from '../helpers/auth-mysql';
 
 const requireMysqlTests = process.env.REQUIRE_AUTH_MYSQL_TESTS === '1';
@@ -130,6 +131,77 @@ describe('real MySQL account schema and repository', () => {
       await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'MAIL_MONTHLY_QUOTA', retry_at: null });
       await database.run('DELETE FROM auth_rate_limits WHERE scope = ? AND bucket_start = ? AND key_digest = ?', ['mail-budget-monthly', monthStart, zeroDigest]);
       await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'MAIL_DAILY_QUOTA', retry_at: nextDay });
+
+      const rollbackRule: AuthRateLimitRule = {
+        kind: 'window', scope: 'test_rollback', keyDigest: new Uint8Array(32).fill(11), limit: 1, windowMs: 60_000,
+      };
+      await expect(repository.transaction(async () => {
+        await expect(consumeAuthRateLimit(repository, [rollbackRule], () => Date.UTC(2026, 9, 12, 13)))
+          .resolves.toEqual({ allowed: true, retryAfter: 0 });
+        throw new Error('force outer business rollback');
+      })).rejects.toThrow('force outer business rollback');
+      await expect(consumeAuthRateLimit(repository, [rollbackRule], () => Date.UTC(2026, 9, 12, 13) + 1))
+        .resolves.toEqual({ allowed: false, retryAfter: 60 });
+
+      const concurrentRule: AuthRateLimitRule = {
+        kind: 'window', scope: 'test_concurrent', keyDigest: new Uint8Array(32).fill(12), limit: 1, windowMs: 60_000,
+      };
+      const concurrentLimits = await Promise.all([
+        consumeAuthRateLimit(repository, [concurrentRule], () => Date.UTC(2026, 9, 12, 14)),
+        consumeAuthRateLimit(secondRepository, [concurrentRule], () => Date.UTC(2026, 9, 12, 14)),
+      ]);
+      expect(concurrentLimits.map((result) => result.allowed).sort()).toEqual([false, true]);
+
+      const boundaryStart = Date.UTC(2026, 9, 12, 16, 0, 59, 999);
+      const boundaryBucket = Math.floor(boundaryStart / 60_000) * 60_000;
+      const boundaryRule: AuthRateLimitRule = {
+        kind: 'window', scope: 'test_clock_boundary', keyDigest: new Uint8Array(32).fill(15), limit: 2, windowMs: 60_000,
+      };
+      let boundaryClockCalls = 0;
+      await expect(consumeAuthRateLimit(repository, [boundaryRule], () => (
+        boundaryClockCalls++ === 0 ? boundaryStart : boundaryStart + 1
+      ))).resolves.toEqual({ allowed: false, retryAfter: 1 });
+      expect(boundaryClockCalls).toBe(2);
+      const unconsumedOldBucket = await database.first('SELECT request_count FROM auth_rate_limits WHERE scope = ? AND key_digest = ? AND bucket_start = ?', [
+        'test_clock_boundary', boundaryRule.keyDigest, boundaryBucket,
+      ]);
+      expect(Number(unconsumedOldBucket?.request_count)).toBe(0);
+
+      const clampNow = Date.UTC(2026, 9, 12, 15);
+      const clampKey = new Uint8Array(32).fill(13);
+      const clampBucket = Math.floor(clampNow / 60_000) * 60_000;
+      await database.run(`INSERT INTO auth_rate_limits
+          (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
+        VALUES (?, ?, ?, ?, 0, ?)`, ['test_clamp', clampKey, clampBucket, 4_294_967_295, clampBucket + 60_000]);
+      const clampRule: AuthRateLimitRule = {
+        kind: 'window', scope: 'test_clamp', keyDigest: clampKey, limit: 2, windowMs: 60_000,
+      };
+      await expect(consumeAuthRateLimit(repository, [clampRule], () => clampNow))
+        .resolves.toMatchObject({ allowed: false });
+      const clamped = await database.first('SELECT request_count FROM auth_rate_limits WHERE scope = ? AND key_digest = ? AND bucket_start = ?', [
+        'test_clamp', clampKey, clampBucket,
+      ]);
+      expect(Number(clamped?.request_count)).toBe(3);
+
+      const hourStart = Date.UTC(2026, 9, 12, 23, 59, 50);
+      const mailEmailKey = new Uint8Array(32).fill(14);
+      const mailWindow: AuthRateLimitRule = {
+        kind: 'window', scope: 'mail_email', keyDigest: mailEmailKey, limit: 5, windowMs: 60 * 60 * 1000,
+      };
+      const mailCooldown: AuthRateLimitRule = {
+        kind: 'cooldown', scope: 'mail_cooldown', keyDigest: mailEmailKey, cooldownMs: 60_000,
+      };
+      let clockCalls = 0;
+      const firstMailAt = hourStart + 3;
+      await expect(consumeAuthRateLimit(repository, [mailWindow, mailCooldown], () => (
+        clockCalls++ === 0 ? hourStart : firstMailAt
+      ))).resolves.toEqual({ allowed: true, retryAfter: 0 });
+      expect(clockCalls).toBe(2);
+      const nextHourAttempt = firstMailAt + 20_000;
+      await expect(consumeAuthRateLimit(repository, [mailWindow, mailCooldown], () => nextHourAttempt))
+        .resolves.toEqual({ allowed: false, retryAfter: 40 });
+      await expect(consumeAuthRateLimit(repository, [mailWindow, mailCooldown], () => firstMailAt + 60_000))
+        .resolves.toEqual({ allowed: true, retryAfter: 0 });
     });
   }, 120_000);
 });

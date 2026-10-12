@@ -204,7 +204,7 @@ Resend Free日限额按UTC日恢复；当前额度包括同团队其他发送及
 
 - `readCredentialByEmail(emailNormalized:string):Promise<CredentialSnapshot|null>`：含string userId、status、credentialVersion、authVersion和摘要材料，**不含头像**。
 - `readProfile(userId:UserId):Promise<AccountProfile|null>`：只读has_avatar/avatar_version，不读Base64。
-- `readIdentity(sessionDigest:Uint8Array,now:number):Promise<AuthIdentity|null>`：JOIN状态/版本/到期校验。
+- `readIdentity(sessionDigest:Uint8Array,now:number):Promise<LiveAuthIdentity|null>`：JOIN状态/版本/到期校验，同时显式返回expiresAt供me复用；内部`LiveAuthIdentity=AuthIdentity & {readonly expiresAt:number}`，不增加公开字段或读取头像。
 - `transaction<T>(work:(tx:AuthTx)=>Promise<T>):Promise<T>`。
 - AuthTx：`lockUser(userId):Promise<UserRecord|null>`、`readCredential(userId)`、`insertUser(input):Promise<UserRecord>`、`insertCredential(userId,material)`、`saveCredential(userId,material,nextVersion,now)`。
 - AuthTx：`readSessionForUpdate(digest)`、`insertSession(input)`、`renewSession(digest,expiresAt,now)`、`revokeSession(digest,now)`、`bumpAuthVersion(userId,now)`。
@@ -284,7 +284,7 @@ RESEND_API_KEY/MAIL_FROM是投递配置，可使任务暂停但不能让现有�
 
 ## Task 3: 有界正文、CSRF、共享限流和独立路由入口
 
-**Files:** auth/body.ts、csrf.ts、rate-limit.ts、router.ts，修改middleware/cors.ts；worker/test/auth-security.test.ts、auth-body.test.ts、cors.test.ts。
+**Files:** auth/body.ts、csrf.ts、rate-limit.ts、router.ts，修改middleware/cors.ts及repository.ts的共享限流/冷却操作；worker/test/auth-security.test.ts、auth-body.test.ts、cors.test.ts。
 **Interfaces:** `readAuthJson(request,maxBytes):Promise<Record<string,unknown>>`；`issueCsrf(request,config,mode:CsrfMode,identity?):Promise<{token:string;cookie?:string}>`；`assertCsrf(request,config,mode:CsrfMode,identity?):Promise<void>`；`consumeAuthRateLimit(repo,rules,now):Promise<{allowed:boolean;retryAfter:number}>`；`registerAuthRoutes(app,env,database?,runtime?):void`。
 
 - [ ] 写失败测试：chunked无Content-Length的64KiB+1拒绝，谎报Content-Length仍拒绝；坏JSON/未知字段/数组拒绝；跨站origin、缺X-CSRF-Token、错Cookie nonce拒绝；公开搜索仍ACAO*，账号无通配符。
@@ -299,11 +299,11 @@ RESEND_API_KEY/MAIL_FROM是投递配置，可使任务暂停但不能让现有�
 ## Task 4: 登录、本人查询、30天会话和退出
 
 **Files:** auth/session-service.ts、router.ts、repository.ts（必要条件操作）；worker/test/auth-session.test.ts。
-**Interfaces:** `createSessionService(repo,config,runtime)` 提供 `login(email,password):Promise<{response:AuthSessionResponse;cookie:string}>`、`authenticate(request):Promise<AuthenticatedSessionIdentity>`、`me(identity):Promise<AuthSessionResponse>`、`refresh(identity:AuthenticatedSessionIdentity):Promise<{expires_at:number;csrf_token:string;cookie:string}>`、`logout(identityOrNull):Promise<void>`、`logoutAll(identity):Promise<void>`。
+**Interfaces:** `createSessionService(repo,config,runtime)` 提供 `login(email,password):Promise<{response:AuthSessionResponse;cookie:string}>`、`authenticate(request):Promise<AuthenticatedSessionIdentity>`、`me(identity:LiveAuthIdentity):Promise<AuthSessionResponse>`、`refresh(identity:AuthenticatedSessionIdentity):Promise<{expires_at:number;csrf_token:string;cookie:string}>`、`logout(identityOrNull):Promise<void>`、`logoutAll(identity):Promise<void>`。
 
 - [ ] 写失败测试：ACTIVE正常、PENDING有限、错误/未知/禁用同401；默认到期和Cookie恰为30天；第29天访问续30天、再第29天又续、恰好到期失败；me不刷新DB和Cookie期限。
 - [ ] 跑 `rtk proxy pnpm exec vitest run apps/worker/test/auth-session.test.ts` RED。
-- [ ] 内部`AuthenticatedSessionIdentity=AuthIdentity & {readonly sessionToken:string}`只携带当前请求Cookie原值供refresh重发同值Cookie；Repository/AuthIdentity基础类型仍只含摘要，不写DB、JSON、日志或跨请求字典。
+- [ ] 内部`AuthenticatedSessionIdentity=LiveAuthIdentity & {readonly sessionToken:string}`只携带当前请求Cookie原值供refresh重发同值Cookie；Repository/AuthIdentity基础类型仍只含摘要，不写DB、JSON、日志或跨请求字典。
 - [ ] login在事务外单HMAC；未知Email使用固定dummy材料验证，错误时同code/message，无忙等。成功事务锁用户、重查credential/authVersion/status，生成32字节token、存摘要、新Cookie；和之前会话无固定继承。版本变化时失败，不使用旧校验快照创建新会话。
 - [ ] authenticate/readIdentity JOIN检查最新user状态、session两版本、revoked_at和expires_at>now；PENDING只allow me/refresh/资料头像/验证/logout。refresh在用户锁和session锁均取得后重新读取runtime.now()再判过期、查版本，续期用单调不缩短值（GREATEST原expires_at和本次now＋30天），同步Cookie；不在每次refresh换token，不把expires_at判断改成≥。
 - [ ] logout单次撤销该digest；logout-all在用户锁下auth_version++，不无界遍历session；无效Cookie可清且幂等，但不能给不存在身份额外权限。普通me/refresh/鉴权401只清前端内存身份，**不发送删除Cookie的Set-Cookie**，防迟到旧401覆盖刚登录/验证后的新Cookie；只有明确logout/logout-all/成功改密或恢复等操作按契约清理。
