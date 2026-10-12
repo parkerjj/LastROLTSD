@@ -43,6 +43,21 @@ describe('options route', () => {
     expect(second.headers.get('cache-control')).toContain('86400');
   });
 
+  it('reuses the same encoded representation for stable definitions, without crossing versions', async () => {
+    const items = [definition];
+    let version = 'v1';
+    const app = new Hono();
+    registerOptionsRoute(app, { getOptionDefinitions: async () => ({ version, items }) } as never);
+    const first = await app.request('/api/v1/options');
+    const second = await app.request('/api/v1/options');
+    expect(await first.text()).toEqual(await second.text());
+    expect(first.headers.get('etag')).toEqual(second.headers.get('etag'));
+    version = 'v2';
+    const next = await app.request('/api/v1/options');
+    expect(next.headers.get('etag')).not.toBe(first.headers.get('etag'));
+    expect((await next.json() as { version: string }).version).toBe('v2');
+  });
+
   it('uses the standard error envelope for unknown definition version', async () => {
     const app = new Hono();
     registerOptionsRoute(app, { getOptionDefinitions: async () => { throw Object.assign(new Error('Unknown option version'), { status: 400 }); } } as never);
