@@ -133,6 +133,20 @@ async function refreshSponsorSummary(root: HTMLElement): Promise<void> {
 
   try {
     const summary = await new MarketApi().getSponsorSummary();
+    // Keep both payment CTAs aligned with the server-side Stripe Payment Link.
+    // The fallback URL remains available for older API versions.
+    if (summary.stripeDonateUrl) {
+      try {
+        const stripeUrl = new URL(summary.stripeDonateUrl);
+        if (stripeUrl.protocol === "https:") {
+          root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-stripe]").forEach((link) => {
+            link.href = stripeUrl.href;
+          });
+        }
+      } catch {
+        // Ignore malformed public configuration rather than rendering a bad URL.
+      }
+    }
     renderFundCard(summary, incomeEl, monthEl, statusEl, updatedEl);
     renderHonorRoll(honorEl, summary.supporters);
   } catch {
