@@ -4,6 +4,6 @@ import type { MarketRepository } from '../db/repository';
 export function registerStatusRoute(app: Hono<any>, repo: MarketRepository): void {
   app.get('/api/v1/status', async (c) => {
     const latestUpdatedAt = await repo.getLatestMarketUpdateAt?.();
-    return c.json({ latestUpdatedAt: latestUpdatedAt ?? null }, 200, { 'cache-control': 'no-store' });
+    return c.json({ latestUpdatedAt: latestUpdatedAt ?? null }, 200, { 'cache-control': 'public, max-age=0, s-maxage=180' });
   });
 }
