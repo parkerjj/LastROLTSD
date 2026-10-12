@@ -189,10 +189,13 @@ function mountSearchPage(): void {
         : `更新于 ${Math.max(0, Math.floor((Date.now() - latestUpdatedAt) / 60_000))} 分钟前`;
   }
 
+  let lastMarketUpdatedAt: number | null = null;
   async function loadMarketStatus(): Promise<void> {
     try {
-      renderMarketStatus((await api.getStatus()).latestUpdatedAt);
+      lastMarketUpdatedAt = (await api.getStatus()).latestUpdatedAt;
+      renderMarketStatus(lastMarketUpdatedAt);
     } catch {
+      lastMarketUpdatedAt = null;
       renderMarketStatus(null);
       marketUpdatedAt.textContent = "更新时间暂不可用";
     }
@@ -1142,6 +1145,8 @@ function mountSearchPage(): void {
   renderOptionDictionary();
   renderSearchState();
   void loadMarketStatus();
+  // Update the visible elapsed time without any further API/database requests.
+  window.setInterval(() => renderMarketStatus(lastMarketUpdatedAt), 60_000);
   void loadOptionDictionary();
   void loadCategoryTree();
   void loadCatalog()
