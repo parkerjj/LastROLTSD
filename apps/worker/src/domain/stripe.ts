@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { currentMonthWindow, type SponsorHonorEntry } from './afdian';
 
 /**
@@ -46,10 +47,19 @@ interface StripeCustomerDetails {
 interface StripeCheckoutSession {
   id: string;
   status?: string;
+  payment_status?: string;
   amount_total?: number;
   currency?: string;
   created?: number;
   customer_details?: StripeCustomerDetails | null;
+  // Populated by expanding data.payment_intent.latest_charge.balance_transaction.
+  payment_intent?: string | {
+    latest_charge?: string | {
+      created?: number;
+      balance_transaction?: string | { created?: number } | null;
+    } | null;
+  } | null;
+  metadata?: { public_name_opt_in?: string; public_display_name?: string } | null;
 }
 
 interface StripeCheckoutSessionsResponse {
@@ -59,9 +69,8 @@ interface StripeCheckoutSessionsResponse {
 
 interface DonorAggregate {
   cents: number;
-  lastCreated: number;
-  name: string | null;
-  email: string | null;
+  lastPaidAt: number;
+  publicName: string | null;
 }
 
 /** 模块级缓存：解析出的 Payment Link ID 在 Worker 进程内复用，避免每次都列表 payment_links。 */
@@ -101,6 +110,40 @@ async function resolvePaymentLinkId(secretKey: string, donateUrl: string): Promi
   return cachedPaymentLinkId;
 }
 
+/** Never expose donor emails as public IDs. The Stripe secret is scoped
+ * with a versioned purpose prefix so hashes are not enumerable offline. */
+function publicDonorId(key: string, secretKey: string): string {
+  if (key === ANONYMOUS_KEY) return 'stripe:anon';
+  const digest = createHmac('sha256', secretKey)
+    .update('lastroweb-sponsor-id-v1\0')
+    .update(key)
+    .digest('hex')
+    .slice(0, 32);
+  return \`stripe:\${digest}\`;
+}
+
+/** Session creation is not payment completion: use payment transaction time,
+ * not session.created, when counting the current month's received donations. */
+function confirmedPaymentAt(session: StripeCheckoutSession): number | null {
+  const intent = session.payment_intent;
+  const charge = intent && typeof intent === 'object' ? intent.latest_charge : null;
+  if (!charge || typeof charge !== 'object') return null;
+  const balance = charge.balance_transaction;
+  const settled = balance && typeof balance === 'object' ? Number(balance.created) : NaN;
+  const charged = Number(charge.created);
+  const at = Number.isSafeInteger(settled) && settled > 0 ? settled : charged;
+  return Number.isSafeInteger(at) && at > 0 ? at : null;
+}
+
+/** Stripe billing name is not an opt-in public name. */
+function optedInName(session: StripeCheckoutSession): string | null {
+  const metadata = session.metadata;
+  if (metadata?.public_name_opt_in !== 'true') return null;
+  const value = metadata.public_display_name?.trim();
+  if (!value || value.includes('@')) return null;
+  return value.slice(0, 40);
+}
+
 /** 元值（分）转两位小数字符串，与爱发电光荣榜 amount 口径一致。 */
 function centsToYuan(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -109,7 +152,7 @@ function centsToYuan(cents: number): string {
 /**
  * 抓取某条 Payment Link 下所有 checkout sessions，按 email 聚合为光荣榜条目。
  *
- * 月份统计以 Stripe 服务器返回的 created（Unix 秒）为准，按北京时间自然月归类，
+ * 月份统计以支付对应 Charge/Balance Transaction 的时间为准，按北京时间自然月归类，
  * 与 afdian.ts 的 currentMonthWindow 对齐——两者共用同一窗口，可直接相加。
  */
 export async function fetchStripeDonors(options: {
@@ -134,6 +177,7 @@ export async function fetchStripeDonors(options: {
       limit: String(STRIPE_PAGE_SIZE),
     });
     if (startingAfter) params.set('starting_after', startingAfter);
+    params.append('expand[]', 'data.payment_intent.latest_charge.balance_transaction');
     const body = await fetchStripeJson<StripeCheckoutSessionsResponse>(
       `/checkout/sessions?${params.toString()}`,
       secretKey,
@@ -151,31 +195,29 @@ export async function fetchStripeDonors(options: {
   let monthOrderCount = 0;
 
   for (const session of collected) {
-    if (session.status !== COMPLETE_STATUS) continue;
+    if (session.status !== COMPLETE_STATUS || session.payment_status !== 'paid') continue;
+    if (session.currency?.toLowerCase() !== 'cny') continue;
     const amountCents = Number(session.amount_total ?? 0);
     if (!Number.isFinite(amountCents) || amountCents <= 0) continue;
     const email = typeof session.customer_details?.email === 'string'
       ? session.customer_details.email.trim().toLowerCase()
       : '';
     const key = email || ANONYMOUS_KEY;
-    const name = typeof session.customer_details?.name === 'string'
-      ? session.customer_details.name.trim()
-      : null;
-    const created = Number(session.created ?? 0);
+    const publicName = optedInName(session);
+    const paidAt = confirmedPaymentAt(session);
     const existing = byEmail.get(key);
     if (existing) {
       existing.cents += amountCents;
-      if (created > existing.lastCreated) existing.lastCreated = created;
-      if (!existing.name && name) existing.name = name;
+      if (paidAt !== null && paidAt > existing.lastPaidAt) existing.lastPaidAt = paidAt;
+      if (!existing.publicName && publicName) existing.publicName = publicName;
     } else {
       byEmail.set(key, {
         cents: amountCents,
-        lastCreated: created,
-        name,
-        email: email || null,
+        lastPaidAt: paidAt ?? 0,
+        publicName,
       });
     }
-    if (created >= window.startSec && created < window.endSec) {
+    if (paidAt !== null && paidAt >= window.startSec && paidAt < window.endSec) {
       monthCents += amountCents;
       monthOrderCount += 1;
     }
@@ -183,15 +225,13 @@ export async function fetchStripeDonors(options: {
 
   const supporters: SponsorHonorEntry[] = [];
   for (const [key, agg] of byEmail.entries()) {
-    const emailLocalPart = agg.email ? (agg.email.split('@')[0] ?? '') : '';
-    const displayName = agg.name?.trim() || emailLocalPart || '匿名善人';
     supporters.push({
-      id: `stripe:${key === ANONYMOUS_KEY ? 'anon' : key}`,
-      name: displayName,
+      id: publicDonorId(key, secretKey),
+      name: agg.publicName || '匿名善人',
       avatar: '',
       url: '',
       amount: centsToYuan(agg.cents),
-      lastPayAt: agg.lastCreated > 0 ? agg.lastCreated : null,
+      lastPayAt: agg.lastPaidAt > 0 ? agg.lastPaidAt : null,
       source: 'stripe',
     });
   }
