@@ -119,7 +119,7 @@ function publicDonorId(key: string, secretKey: string): string {
     .update(key)
     .digest('hex')
     .slice(0, 32);
-  return \`stripe:\${digest}\`;
+  return `stripe:${digest}`;
 }
 
 /** Session creation is not payment completion: use payment transaction time,
