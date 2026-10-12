@@ -56,8 +56,8 @@ export function mountSponsorPage(root: HTMLElement): void {
           <p class="sponsor-benefit-chips">${STRIPE_BENEFITS.map((label) => `<span class="benefit-chip">${label}</span>`).join("")}</p>
           <p class="sponsor-benefit-note">手续费最低，让更多捐款直接用于站点运营</p>
           <a class="sponsor-cta-button sponsor-cta-ghost" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
-            <i class="ph ph-heart" aria-hidden="true"></i>
-            <span>爱发电打赏</span>
+            <i class="ph ph-wechat-logo" aria-hidden="true"></i>
+            <span>微信打赏</span>
             <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
           </a>
           <p class="fund-footnote" data-sponsor-updated>数据来自爱发电 + Stripe，每分钟自动更新</p>
@@ -95,8 +95,8 @@ export function mountSponsorPage(root: HTMLElement): void {
             <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
           </a>
           <a class="sponsor-cta-button sponsor-cta-button--large sponsor-cta-ghost" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
-            <i class="ph ph-heart" aria-hidden="true"></i>
-            <span>爱发电</span>
+            <i class="ph ph-wechat-logo" aria-hidden="true"></i>
+            <span>微信打赏</span>
             <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
           </a>
           <p class="sponsor-mini-chips">${STRIPE_BENEFITS.map((label) => `<span class="mini-chip">${label}</span>`).join("")}</p>
