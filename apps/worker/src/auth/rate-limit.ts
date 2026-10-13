@@ -26,6 +26,24 @@ export async function authRateLimitKey(secret: Uint8Array, kind: AuthRateLimitKe
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, toArrayBuffer(message)));
 }
 
+export function trustedAuthClientIp(request: Request, environment: string): string {
+  if (environment === 'production') {
+    const cloudflareIp = request.headers.get('cf-connecting-ip')?.trim();
+    if (cloudflareIp && cloudflareIp.length <= 64) return cloudflareIp;
+  }
+
+  if (environment === 'local') {
+    try {
+      const hostname = new URL(request.url).hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return hostname;
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  return 'unknown';
+}
+
 export async function consumeAuthRateLimit(
   repository: AuthRepository,
   rules: readonly AuthRateLimitRule[],

@@ -21,6 +21,8 @@ export type {
   UserId,
 } from './types';
 
+export type LiveAuthIdentity = AuthIdentity & { readonly expiresAt: number };
+
 const DAY_MILLISECONDS = 86_400_000;
 const ZERO_RATE_KEY_DIGEST = new Uint8Array(32);
 const MAIL_DAILY_LIMIT = 100;
@@ -129,7 +131,7 @@ export interface AuthTx {
 export interface AuthRepository {
   readCredentialByEmail(emailNormalized: string): Promise<CredentialSnapshot | null>;
   readProfile(userId: UserId): Promise<AccountProfile | null>;
-  readIdentity(sessionDigest: Uint8Array, now: number): Promise<AuthIdentity | null>;
+  readIdentity(sessionDigest: Uint8Array, now: number): Promise<LiveAuthIdentity | null>;
   transaction<T>(work: (tx: AuthTx) => Promise<T>): Promise<T>;
   readActionSnapshot(tokenDigest: Uint8Array): Promise<ActionSnapshot | null>;
   readMailAvailability(now: number): Promise<MailAvailability>;
@@ -224,7 +226,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
 
     async readIdentity(sessionDigest, now) {
       const row = await db.first<MysqlRow>(`SELECT CAST(s.user_id AS CHAR) AS user_id, u.status,
-          s.credential_version, s.auth_version
+          s.credential_version, s.auth_version, s.expires_at
         FROM auth_sessions AS s
         INNER JOIN auth_users AS u ON u.id = s.user_id
         WHERE s.token_digest = ?
@@ -233,6 +235,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
           AND s.credential_version = u.credential_version
           AND s.auth_version = u.auth_version
           AND u.status <> 'DISABLED'
+          AND (u.status <> 'ACTIVE' OR u.email_verified_at IS NOT NULL)
         LIMIT 1`, [sessionDigest, timestampValue(now, 'now')]);
       if (!row) return null;
       return {
@@ -241,6 +244,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
         credentialVersion: numberValue(row.credential_version, 'credential_version'),
         authVersion: numberValue(row.auth_version, 'auth_version'),
         sessionDigest: new Uint8Array(sessionDigest),
+        expiresAt: numberValue(row.expires_at, 'expires_at'),
       };
     },
 
@@ -525,10 +529,12 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
       const owner = lockedDigestOwner(lockedSessions, tokenDigest, userId);
       if (owner === null) return false;
       const at = timestampValue(now, 'now');
+      const lastSeenCutoff = Math.max(0, at - DAY_MILLISECONDS);
       const result = await db.run(`UPDATE auth_sessions
-        SET last_seen_at = ?, expires_at = ?
+        SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END,
+            expires_at = GREATEST(expires_at, ?)
         WHERE token_digest = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?`, [
-        at, timestampValue(expiresAt, 'expiresAt'), tokenDigest, owner, at,
+        lastSeenCutoff, at, timestampValue(expiresAt, 'expiresAt'), tokenDigest, owner, at,
       ]);
       return result.affectedRows === 1;
     },

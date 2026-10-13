@@ -21,8 +21,8 @@
 | 0 | complete | 8a2155f..f22aaa9 | 基线见下，真实DB skip | 独立6.1-sol/high Spec PASS / quality PASS，无Critical/Important |
 | 1 | complete | f22aaa9..3b18249 | 18pass0skip/typecheck/targeted lint；见报告 | 初审1 Important，fix1复审Spec/quality Approve |
 | 2 | complete | 3b18249..2c26a92 | 7unit/1真实MySQL，均0skip；migration/typecheck/lint exit0 | 初审1Important/2Minor，fix1全部ADDRESSED；Spec/quality Approve |
-| 3 | complete | base 2c26a92；本次feature提交 | 12unit/1真实MySQL，0skip；type/lint；fix无SQL重跑 | 独立初审PASS；管理人补验收fix1 fresh复审PASS |
-| 4 | 未开始 | — | — | — |
+| 3 | complete | 2c26a92..8e16202 | 12unit/1真实MySQL，0skip；type/lint；fix无SQL重跑 | 独立初审PASS；管理人补验收fix1 fresh复审PASS |
+| 4 | complete | base 8e16202；本次feature提交 | 22focused/2真MySQL0skip/type/lint，fault模拟 | 初审经补查改1Important，fix1复审PASS |
 | 5 | 未开始 | — | — | — |
 | 6 | 未开始 | — | — | — |
 | 7 | 未开始 | — | — | — |
@@ -237,4 +237,14 @@ Ruling: CSRF issue/assert在原四参数后增加可选now回调（默认Date.no
 
 Ruling: Task4使readIdentity的显式JOIN同时返回expiresAt（内部LiveAuthIdentity子类型）；authenticate再携带仅请求内sessionToken形成AuthenticatedSessionIdentity，me/refresh复用已查期限 — 原最小AuthIdentity没有expires_at且只有摘要，无法在不再查同一session/重设随机值的前提返回期限与Cookie — 若错需内部类型适配，公开wire仍expires_at，SQL仅新增显式期限列而不读图片。
 
-Task 3: complete（feat: add bounded account request security；12unit/1 REQUIRЕ MySQL均0skip；errorEnvelope/runtimeClock/报告Minor已修复，fix1复审PASS）。
+Task 3: complete（feat: add bounded account request security；12unit/1 REQUIRE MySQL均0skip；errorEnvelope/runtimeClock/报告Minor已修复，fix1复审PASS）。
+
+Task3 commit8e16202e50bdd2bc9b93513df3bbad52bf2be17b。Task4 fresh Luna max，仅五个会话接口，live expiry/request Cookie接口已明确。
+
+Ruling: 无有效会话POST logout仍强制可信Origin，缺失/跨源403；仅免session CSRF，不采用GET的optional Origin — plan写操作缺Origin失败关闭、幂等logout例外只是不授权限 — 若错仅非浏览器需补可信Origin，不改合法浏览器退出行为。
+
+Task4初审PASS因管理人补传漏掉Spec§10的审计要求后被reviewer修正为Spec FAIL/quality REQUEST CHANGES；1Important当前login/logout/logoutAll无持久security event。fix1交原Luna，三现有状态事务补appendEvent并证明失败回滚、幂等不重复。不新增权限/API，不依赖后续route metric。
+
+Task4 fix1：三成功状态事务内append security events，当前logout仅实际revoke；audit故障不发/清Cookie并模拟事务rollback。22focused/type/lint/diff exit0；REQUIRE MySQL8.4.5 2pass0skip、LOGIN/LOGOUT_ALL事件实际持久。audit故障是模拟，未真实DB失败注入；scoped复审待结论。
+
+Task 4: complete（feat: add rolling account sessions；22focused/2REQUIRE MySQL0skip；audit fix1独立review PASS）。

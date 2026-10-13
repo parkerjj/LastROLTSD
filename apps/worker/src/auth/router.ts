@@ -3,8 +3,12 @@ import type { MysqlDatabase } from '../db/mysql-client';
 import type { AppEnv } from '../env';
 import { jsonError, requestId } from '../middleware/errors';
 import { readAuthJson } from './body';
-import { issueCsrf } from './csrf';
+import { assertCsrf, assertTrustedWriteOrigin, issueCsrf } from './csrf';
 import { resolveAuthConfig } from './config';
+import { normalizeEmail } from './input';
+import { createAuthRepository } from './repository';
+import { AUTH_RATE_LIMITS, authRateLimitKey, consumeAuthRateLimit, trustedAuthClientIp } from './rate-limit';
+import { clearSessionCookie, createSessionService } from './session-service';
 import { AuthFailure, type AuthBindings, type AuthFailureStatus, type AuthRuntime } from './types';
 
 type AuthRouteMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -58,6 +62,23 @@ function unavailable(c: any): Response {
   return jsonFailure(c, 'AUTH_UNAVAILABLE', '账号服务暂不可用', 503);
 }
 
+function routeFailure(c: any, error: unknown): Response {
+  return error instanceof AuthFailure
+    ? jsonFailure(c, error.code, error.publicMessage, error.status)
+    : unavailable(c);
+}
+
+async function readEmptyAuthBody(request: Request): Promise<void> {
+  const body = await readAuthJson(request, GENERAL_JSON_LIMIT);
+  if (Object.keys(body).length !== 0) throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+}
+
+function tooManyRequests(c: any, retryAfter: number): Response {
+  const response = jsonFailure(c, 'AUTH_RATE_LIMITED', '请求过于频繁，请稍后重试', 429);
+  response.headers.set('retry-after', String(retryAfter));
+  return response;
+}
+
 function knownPath(path: string): boolean {
   return KNOWN_PATHS.has(path) || /^\/api\/v1\/users\/[1-9]\d{0,19}\/avatar$/u.test(path);
 }
@@ -82,6 +103,16 @@ export function registerAuthRoutes(
   database?: MysqlDatabase,
   runtime?: AuthRuntime,
 ): void {
+  const repository = database ? createAuthRepository(database) : null;
+  const authRuntime = runtime ?? { now: () => Date.now(), fetch: globalThis.fetch };
+  const sessionRoutePaths = new Set([
+    '/api/v1/auth/login',
+    '/api/v1/auth/me',
+    '/api/v1/auth/session/refresh',
+    '/api/v1/auth/logout',
+    '/api/v1/auth/logout-all',
+  ]);
+
   app.get('/api/v1/auth/csrf', async (c) => {
     const config = enabledConfig(env);
     if (!config) return unavailable(c);
@@ -97,7 +128,106 @@ export function registerAuthRoutes(
     }
   });
 
+  app.post('/api/v1/auth/login', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (Object.keys(body).some((field) => field !== 'email' && field !== 'password')) {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      }
+      if (typeof body.email !== 'string' || typeof body.password !== 'string') {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+      }
+
+      await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
+      const emailNormalized = normalizeEmail(body.email).normalized;
+      const [emailDigest, ipDigest] = await Promise.all([
+        authRateLimitKey(config.rateSecret, 'email', emailNormalized),
+        authRateLimitKey(config.rateSecret, 'ip', trustedAuthClientIp(c.req.raw, env.ENVIRONMENT)),
+      ]);
+      const emailLimit = AUTH_RATE_LIMITS.loginPerEmail;
+      const ipLimit = AUTH_RATE_LIMITS.loginPerIp;
+      const rateLimit = await consumeAuthRateLimit(repository, [
+        { kind: 'window', scope: emailLimit.scope, keyDigest: emailDigest, limit: emailLimit.limit, windowMs: emailLimit.windowMs },
+        { kind: 'window', scope: ipLimit.scope, keyDigest: ipDigest, limit: ipLimit.limit, windowMs: ipLimit.windowMs },
+      ], () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const result = await createSessionService(repository, config, authRuntime).login(body.email, body.password);
+      return c.json(result.response, 200, { 'cache-control': 'no-store', 'set-cookie': result.cookie });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.get('/api/v1/auth/me', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const service = createSessionService(repository, config, authRuntime);
+      const identity = await service.authenticate(c.req.raw);
+      return c.json(await service.me(identity), 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/session/refresh', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      await readEmptyAuthBody(c.req.raw);
+      const service = createSessionService(repository, config, authRuntime);
+      const identity = await service.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      const refreshed = await service.refresh(identity);
+      return c.json({ expires_at: refreshed.expires_at, csrf_token: refreshed.csrf_token }, 200, {
+        'cache-control': 'no-store', 'set-cookie': refreshed.cookie,
+      });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/logout', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      await readEmptyAuthBody(c.req.raw);
+      assertTrustedWriteOrigin(c.req.raw, config);
+      const service = createSessionService(repository, config, authRuntime);
+      let identity = null;
+      try {
+        identity = await service.authenticate(c.req.raw);
+      } catch (error) {
+        if (!(error instanceof AuthFailure) || error.status !== 401) throw error;
+      }
+      if (identity) await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      await service.logout(identity);
+      return c.newResponse(null, 204, { 'cache-control': 'no-store', 'set-cookie': clearSessionCookie(config) });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/logout-all', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      await readEmptyAuthBody(c.req.raw);
+      const service = createSessionService(repository, config, authRuntime);
+      const identity = await service.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      await service.logoutAll(identity);
+      return c.newResponse(null, 204, { 'cache-control': 'no-store', 'set-cookie': clearSessionCookie(config) });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
   for (const route of PLACEHOLDER_ROUTES) {
+    if (sessionRoutePaths.has(route.path)) continue;
     app.on([route.method], route.path, async (c) => {
       if (!database || !enabledConfig(env)) return unavailable(c);
       if (route.fields) {

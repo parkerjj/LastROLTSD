@@ -19,6 +19,76 @@ const CREDENTIAL: PasswordMaterial = {
 };
 
 describe('real MySQL account schema and repository', () => {
+  it.skipIf(!runMysqlTests)('returns the live session expiry and renews without shortening or oversaving activity', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const repository = createAuthRepository(database);
+      const createdAt = Date.UTC(2026, 9, 12, 12);
+      const expiresAt = createdAt + 30 * 24 * 60 * 60 * 1000;
+      const refreshAt = createdAt + 60 * 60 * 1000;
+      const userId = await repository.transaction(async (tx) => {
+        const user = await tx.insertUser({
+          email: 'session@example.test', emailNormalized: 'session@example.test', displayName: 'Session', createdAt,
+        });
+        await tx.insertCredential(user.id, CREDENTIAL);
+        return user.id;
+      });
+      const tokenDigest = new Uint8Array(32).fill(23);
+
+      await repository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.insertSession({
+          tokenDigest, userId, credentialVersion: 1, authVersion: 1,
+          createdAt, lastSeenAt: createdAt, expiresAt,
+        });
+        await tx.appendEvent({
+          userId, event: 'LOGIN', requestId: null, result: 'SUCCESS', reason: null, createdAt,
+        });
+      });
+
+      const identity = await repository.readIdentity(tokenDigest, refreshAt);
+      expect.soft(identity).toMatchObject({ expiresAt });
+      await repository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.readSessionForUpdate(tokenDigest);
+        await tx.renewSession(tokenDigest, expiresAt - 1, refreshAt);
+      });
+
+      const stored = await database.first<MysqlRow>(`SELECT expires_at, last_seen_at
+        FROM auth_sessions WHERE token_digest = ?`, [tokenDigest]);
+      expect.soft({ expiresAt: Number(stored?.expires_at), lastSeenAt: Number(stored?.last_seen_at) }).toEqual({
+        expiresAt, lastSeenAt: createdAt,
+      });
+
+      await database.run('UPDATE auth_users SET status = ? WHERE id = ?', ['ACTIVE', userId]);
+      const inconsistentIdentity = await repository.readIdentity(tokenDigest, refreshAt);
+      expect.soft(inconsistentIdentity).toBeNull();
+
+      await database.run('UPDATE auth_users SET email_verified_at = ? WHERE id = ?', [refreshAt, userId]);
+      const activeIdentity = await repository.readIdentity(tokenDigest, refreshAt);
+      expect.soft(activeIdentity).toMatchObject({ authVersion: 1, expiresAt });
+      await repository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        const logoutAllAt = refreshAt + 1;
+        await tx.bumpAuthVersion(userId, logoutAllAt);
+        await tx.appendEvent({
+          userId, event: 'LOGOUT_ALL', requestId: null, result: 'SUCCESS', reason: null, createdAt: logoutAllAt,
+        });
+      });
+      await expect(repository.readIdentity(tokenDigest, refreshAt + 1)).resolves.toBeNull();
+      const securityEvents = await database.all<MysqlRow>(
+        'SELECT `event`, request_id, result, reason, created_at FROM auth_security_events WHERE user_id = ? ORDER BY id',
+        [userId],
+      );
+      expect(securityEvents.map((event) => ({
+        event: event.event, request_id: event.request_id, result: event.result,
+        reason: event.reason, created_at: Number(event.created_at),
+      }))).toEqual([
+        { event: 'LOGIN', request_id: null, result: 'SUCCESS', reason: null, created_at: createdAt },
+        { event: 'LOGOUT_ALL', request_id: null, result: 'SUCCESS', reason: null, created_at: refreshAt + 1 },
+      ]);
+    });
+  }, 120_000);
+
   it.skipIf(!runMysqlTests)('preserves the market schema and enforces account IDs, uniqueness, rollback, and mail quotas', async () => {
     await withAuthTestDatabase(async ({ database, createDatabase }) => {
       const server = await database.first('SELECT VERSION() AS version');

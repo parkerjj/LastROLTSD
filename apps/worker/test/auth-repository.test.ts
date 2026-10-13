@@ -83,6 +83,32 @@ describe('account MySQL repository', () => {
     expect(db.calls.find(({ sql }) => sql.includes('EXISTS'))?.sql).toContain('EXISTS');
   });
 
+  it('returns the live session expiry with the joined identity', async () => {
+    const db = new FakeDatabase();
+    const now = 1_800_000_000_000;
+    const expiresAt = now + 30 * 24 * 60 * 60 * 1000;
+    const sessionDigest = new Uint8Array(32).fill(9);
+    db.sessionRow = {
+      user_id: userRow.id,
+      status: userRow.status,
+      credential_version: userRow.credential_version,
+      auth_version: userRow.auth_version,
+      expires_at: expiresAt,
+    };
+
+    const identity = await createAuthRepository(db).readIdentity(sessionDigest, now);
+
+    expect(identity).toEqual({
+      userId: userRow.id,
+      status: userRow.status,
+      credentialVersion: userRow.credential_version,
+      authVersion: userRow.auth_version,
+      sessionDigest,
+      expiresAt,
+    });
+    expect(db.calls[0]?.sql).toContain('s.expires_at');
+  });
+
   it('binds transaction work and resolves the inserted user through its unique email', async () => {
     const db = new FakeDatabase();
     const repository = createAuthRepository(db);
@@ -196,7 +222,12 @@ describe('account MySQL repository', () => {
     const sessionUpdate = ownedCalls.find(({ method, sql }) => method === 'run' && sql.includes('UPDATE auth_sessions'));
     const actionUpdate = ownedCalls.find(({ method, sql }) => method === 'run' && sql.includes('UPDATE auth_action_tokens'));
     expect(sessionUpdate?.sql).toMatch(/WHERE token_digest = \? AND user_id = \?/u);
-    expect(sessionUpdate?.values).toEqual([1_700_000_000_001, 1_800_000_000_001, ownedSessionDigest, '10000', 1_700_000_000_001]);
+    expect(sessionUpdate?.sql).toContain('GREATEST(expires_at, ?)');
+    expect(sessionUpdate?.sql).toContain('last_seen_at <= ?');
+    expect(sessionUpdate?.values).toEqual([
+      1_700_000_000_001 - 86_400_000, 1_700_000_000_001, 1_800_000_000_001,
+      ownedSessionDigest, '10000', 1_700_000_000_001,
+    ]);
     expect(actionUpdate?.sql).toMatch(/WHERE token_digest = \? AND user_id = \?/u);
     expect(actionUpdate?.values).toEqual([1_700_000_000_001, ownedActionDigest, '10000', 1_700_000_000_001]);
   });

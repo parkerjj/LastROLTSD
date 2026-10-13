@@ -205,7 +205,8 @@ describe('account CSRF and route security', () => {
       headers: { origin: 'https://lastro.example', 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'player@example.test', password: '12345' }),
     });
-    expect(knownRouteResponse.status).toBe(503);
+    expect(knownRouteResponse.status).toBe(403);
+    expect(await knownRouteResponse.json()).toMatchObject({ error: { code: 'AUTH_CSRF_INVALID' } });
 
     const unknown = await app.request('/api/v1/auth/not-a-route');
     expect(unknown.status).toBe(404);

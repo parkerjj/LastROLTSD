@@ -64,7 +64,7 @@ function assertOptionalTrustedOrigin(request: Request, config: AuthConfig): void
   if (origin !== null && !isTrustedOrigin(origin, config)) throw invalidCsrf();
 }
 
-function assertTrustedWriteOrigin(request: Request, config: AuthConfig): void {
+export function assertTrustedWriteOrigin(request: Request, config: AuthConfig): void {
   const origin = request.headers.get('origin');
   if (!origin || request.headers.get('sec-fetch-site')?.toLowerCase() === 'cross-site' || !isTrustedOrigin(origin, config)) {
     throw invalidCsrf();
