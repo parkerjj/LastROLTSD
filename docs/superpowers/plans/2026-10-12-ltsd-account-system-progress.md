@@ -435,3 +435,23 @@ Task13复审I1 ADDRESSED，限定SpecPASS/QualityAPPROVE，无新Critical/Import
 Task13 Minor（deferred，Task15文档修正）：deployment.md:81及operations.md:17把最终deploy失败仍关闭写得过于绝对。实现步骤失败停止正确、版本映射在最终命令完整；该措辞不影响Task14接口/安全竞争，Task15允许在这两段改为“secret put失败无恢复；最终发布失败/含糊须核对，不能仅凭退出码认定开启或关闭”，最终整分支review必须检查。不是静默忽略或把远端状态当已测。
 
 Task 13: complete（feat: configure bounded account background jobs；35focused0skip/7完整REQUIRE MySQL0skip/type/lint/docs58/diff，fixpreflight5pass0skip；独立I1修复＋fresh复审PASS）。账号关闭无新pool、独立*/2、单mail/单类≤50、TTL/FK/同预算、默认false预检/关闭发布屏障/docs均本地完成；上述一文档Minor留Task15明确修正，生产workflow/Cron/域名/Secrets/邮件/10ms未验。
+
+Task13 commit 272a47a9d8b35a231316bc66fabe692b696d29e7。Task14 fresh唯一Luna/max开始，真实MySQL两个独立clients/barrier、quota主流程/AC映射/公开数据保留、少量真实browser与CI REQUIRE新job；不执行GitHub/production/真邮件，未完成前不声称最终门禁或整个branch review通过。
+
+Ruling: Task14同Email race在service层两个已通过安全前置调用accepted，真实SQL只一user/credential/action/outbox并保winner密码；不要求同期HTTP两202 — 我dispatch强于原Task14，实际router先60s email共享冷却；Spec统一匿名响应与Plan明确限流429均需保留，不能为测试删除防滥用 — 成本是证据必须明确service vs HTTP，同期HTTP可202＋429且不依存在性；允许冷却后新/旧Email统一202原API流程复用。CodeGraph核对AUTH_RATE_LIMITS.mailCooldown和register前置，原Spec/计划不改，仅精确brief更正，Luna无需产品改动。
+
+Task14阶段真实SQL证据（代理报告）：race两合并case2pass，独立两个MysqlDatabase clients，register在insertUser前、同/不同RESET与refresh/logoutall/disabled在lockUser前barrier；旧login在真实credential快照后等另一client改密commit再放行。barrier不持user锁、不外层rollback，不靠概率sleep。首次完整REQUIRE9pass1fail为quota流程跨13h旧匿名CSRF过期的fixture问题；午夜重新取得nonce后定向真库quota PASS，完整两file0skip仍重跑中，未标最终通过。
+
+Task14最终主门禁阶段（代理报告）：完整REQUIRE两file10pass0skip/exit0（flow8/races2）。Chrome155.0.8059.39 localHono/MySQL真browser register202/login200、HttpOnly SameSiteLax Cookie且无localStorage身份、verifyURL清/GET不消费/第三方请求0/主动confirmPOST一次消费、CSRF403只1PATCH不重放、另一标签logout清旧昵称draft；无真Resend、非部署WorkerCPU。bridge/Vite已请求关闭，先确认退出/连接释放再reset；等待缺URL REQUIRE预期拒绝/type/lint/diff/AC映射/report及独立review，不提前提交。
+
+Task14最终report已完整读：2file10pass0skip/166.81s/type/lint/diff exit0；无URL REQUIRE选1failed7名称skipexit1是成功拒绝未算GREEN；CI本地YAML解析验证service8.4.5/三flag/串行suite/needs/main条件，未runGithub。browser JSON留scratch；403为Playwright响应注入，仅验证实际客户端不重放1PATCH，logout/TokenConfirm/BroadcastChannel走真实Hono/MySQL，不冒称该403后端产生。ownedports确认停止后testDB重建9迁移/所有clients关。source仅两个test+CI，无生产hooks/代码变化。三file包交fresh task14_review，连同Spec实际AC01–29核对，未提交。
+
+Task14独立review SpecFAIL/QualityREQUEST CHANGES，I1/I2 Important（测试缺口不是当前产品漏洞）：注册密码exactly-one未绑定实际INSERT赢家，败者覆盖仍能通过；两种refresh撤销竞争双gate同时放行，未固定撤销commit先于旧refresh lock且允许fulfilled，可能漏过错误续期。管理人核对实际源码接受，fix1限测试/报告，真实赢家绑定＋撤销先commit后放行/拒401/不续旧expiry。没有生产代码变动。
+
+Ruling: AC11误引测试证据须修正，并将wrong-current无改动、same-password允许、两个原credential快照change竞争最多一次升级合并到既有生命周期/race — Spec实际AC11明确关键密码/授权行为且全部可本地验，不把source review伪称动态tests，也不每项独立矩阵 — 成本为一次必要真库回归，现有正确实现直接GREEN无需人为产品RED。M1其余AC07同版本两VERIFY乱序未动态测准确列source review/未验，AC27月UI引Web证据不拿provider429分类代替UI。Luna不改API/限流/Spec，只补最少关键证据，完整两个REQUIREfile0skip后fresh scoped复审。
+
+Task14 fix1首次完整REQUIRE：flow8/8、races第二case通过、第一case120s超时，合计9pass1fail/exit非0，未当GREEN。管理人定位confirmReset在进入lockUser barrier前复核profile.email与action.emailSnapshot；新测试已记录真实注册赢家，但RESET夹具仍固定大小写Email，可能在另一actor获胜时提前拒绝而ready永不resolve。要求Luna单case窄诊断确认、仅修夹具快照与早期失败释放；不加timeout、不改产品、不盲重跑全suite。最终完整REQUIRE仍待通过。
+
+Task14 fix1报告完整核对：actual committed INSERT actor绑定最终密码/败者false、0sessions；两种旧refresh均停lock前，另一client撤销/停用commit后释放，固定401/expiry不变/nullidentity；合并wrong-current/samepwd/双change唯一赢家与版本。RESET夹具改锁定user.email派生action/mail，barrier前失败abort/release并检查到达数；旧timeout未记录阶段，根因由源码与数据流推断，非历史trace。修复单case1pass1名称skip16.79s，最终两完整REQUIREfile10pass0skip165.69s/type/定向lint/diffexit0，runner/DB连接已退出。AC07完整双VERIFY乱序未动态验、AC27月UI为Websource边界已修。614行原review快照scoped包交fresh task14_fix1_review，未提交。
+
+Task 14: complete（test: enforce account MySQL races and acceptance；最终2完整REQUIREfile10pass0skip165.69s/type/lint/diff，Chrome155合成账号本地browser证据沿用）。fresh fix1复审SpecPASS/QualityAPPROVE，I1/I2/M1与AC11/夹具/barrier全部ADDRESSED，无新Critical/Important；管理人完整核对报告及新diffcheck，允许本地提交，仅CI＋两tests＋账本。公开数据fixture前后相等，CI REQUIRE新job只是本地配置尚未远端run。AC07双VERIFY乱序未动态测/production各条件照实保留。下一任务Task15全量门禁/近似bench/文档与最终整branchreview，不提前判上线。

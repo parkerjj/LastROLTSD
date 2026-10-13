@@ -29,9 +29,38 @@ jobs:
       - run: pnpm test:migration
       - run: pnpm test:docs
 
+  verify-auth-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4.5
+        env:
+          MYSQL_ROOT_PASSWORD: task14-ci-root-only
+          MYSQL_DATABASE: lastroweb_auth_test
+          MYSQL_USER: lastroweb_auth_test
+          MYSQL_PASSWORD: task14-ci-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent --host=127.0.0.1 --user=root --password=task14-ci-root-only"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    env:
+      MYSQL_TEST_URL: mysql://lastroweb_auth_test:task14-ci-only@127.0.0.1:3306/lastroweb_auth_test
+      AUTH_TEST_DB_ALLOW_RESET: '1'
+      REQUIRE_AUTH_MYSQL_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run tests/integration/auth-account-flow.test.ts tests/integration/auth-account-races.test.ts --maxWorkers=1 --no-file-parallelism
+
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: verify
+    needs: [verify, verify-auth-mysql]
     runs-on: ubuntu-latest
     environment: production
     steps:

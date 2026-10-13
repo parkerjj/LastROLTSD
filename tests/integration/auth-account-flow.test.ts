@@ -1035,6 +1035,180 @@ describe('real MySQL account schema and repository', () => {
     });
   }, 120_000);
 
+  it.skipIf(!runMysqlTests)('keeps a pending account usable through provider daily quota and verifies after UTC recovery', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const baseTime = Date.UTC(2026, 9, 13, 12);
+      const dayOneStart = Date.UTC(2026, 9, 13);
+      const nextDay = Date.UTC(2026, 9, 14);
+      let now = baseTime;
+      let fetchCalls = 0;
+      const bindings: AppEnv & AuthBindings = {
+        ...testAuthBindings(),
+        RESEND_API_KEY: 're_test-task14',
+        MAIL_FROM: 'LTSD <auth@example.test>',
+        AUTH_MAIL_DAILY_LIMIT: '1',
+        AUTH_MAIL_MONTHLY_LIMIT: '20',
+      };
+      const config = resolveAuthConfig(bindings);
+      const repository = createAuthRepository(database, {
+        mailDailyLimit: config.mailDailyLimit,
+        mailMonthlyLimit: config.mailMonthlyLimit,
+      });
+      const runtime = {
+        now: () => now,
+        fetch: (async () => {
+          fetchCalls += 1;
+          if (fetchCalls === 1) return new Response(JSON.stringify({ name: 'daily_quota_exceeded' }), { status: 429 });
+          if (fetchCalls === 2) return new Response(JSON.stringify({ id: 'task14-verify-accepted' }), { status: 200 });
+          throw new Error('unexpected Resend request in the quota flow');
+        }) as typeof globalThis.fetch,
+      };
+      const app = new Hono();
+      registerAuthRoutes(app, bindings, database, runtime);
+
+      const sourceId = 'task14-synthetic-source';
+      const sourceHash = 'a'.repeat(64);
+      await database.run(`INSERT INTO market_sources (id, name, api_key_hash, status, created_at)
+        VALUES (?, ?, ?, 'active', ?)`, [sourceId, 'Task14 synthetic source', sourceHash, baseTime]);
+      const guestbookInsert = await database.run(`INSERT INTO guestbook_entries
+        (category, item_id, is_zeny, contact, content, created_at, expires_at)
+        VALUES ('suggestion', NULL, 0, NULL, ?, ?, NULL)`, ['Task14 synthetic public entry', baseTime]);
+      const guestbookId = String(guestbookInsert.insertId);
+      const readPublicRows = async () => ({
+        source: await database.first<MysqlRow>(`SELECT id, name, api_key_hash, status, last_upload_at,
+            last_full_snapshot_id, last_full_snapshot_at, created_at, updated_at
+          FROM market_sources WHERE id = ?`, [sourceId]),
+        guestbook: await database.first<MysqlRow>(`SELECT CAST(id AS CHAR) AS id, category, item_id, is_zeny,
+            contact, content, created_at, expires_at FROM guestbook_entries WHERE id = ?`, [guestbookId]),
+      });
+      const publicRowsBefore = await readPublicRows();
+
+      const csrfResponse = await app.request('/api/v1/auth/csrf', { headers: { origin: 'https://lastro.example' } });
+      expect(csrfResponse.status).toBe(200);
+      const anonymousCsrf = await csrfResponse.json() as { csrf_token: string };
+      const anonymousCookie = csrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!anonymousCookie) throw new Error('expected anonymous CSRF cookie');
+      const post = (path: string, body: unknown, cookie: string, csrfToken: string) => app.request(path, {
+        method: 'POST',
+        headers: {
+          origin: 'https://lastro.example', 'content-type': 'application/json',
+          cookie, 'x-csrf-token': csrfToken,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const password = 'quota-flow-password';
+      const registration = await post('/api/v1/auth/register', {
+        email: 'quota@example.test', password, password_confirmation: password, display_name: 'Quota Flow',
+      }, anonymousCookie, anonymousCsrf.csrf_token);
+      expect(registration.status).toBe(202);
+      expect(registration.headers.get('set-cookie')).toBeNull();
+      const registeredBody = await registration.json();
+      expect(registeredBody).toEqual({
+        accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
+      });
+
+      const user = await database.first<MysqlRow>(`SELECT CAST(id AS CHAR) AS id, status
+        FROM auth_users WHERE email_normalized = ?`, ['quota@example.test']);
+      if (typeof user?.id !== 'string') throw new Error('expected pending quota-flow account');
+      expect(user.status).toBe('PENDING_EMAIL');
+      const firstOutbox = await database.first<MysqlRow>(`SELECT id, action_digest, CAST(user_id AS CHAR) AS user_id,
+          purpose, priority, created_at, expires_at, payload_ciphertext, payload_iv, payload_key_version
+        FROM auth_mail_outbox WHERE user_id = ? AND purpose = 'VERIFY_EMAIL'`, [user.id]);
+      if (!firstOutbox || !(firstOutbox.action_digest instanceof Uint8Array)) throw new Error('expected initial verification mail');
+
+      const dayOneAttempt = await runAuthJobTick(repository, config, runtime);
+      expect(dayOneAttempt).toEqual({ kind: 'mail', result: 'paused' });
+      expect(fetchCalls).toBe(1);
+      const failedOutbox = await database.first<MysqlRow>(`SELECT state, last_error_code, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [String(firstOutbox.id)]);
+      expect(failedOutbox).toEqual({ state: 'FAILED', last_error_code: 'MAIL_DAILY_QUOTA', payload_ciphertext: null });
+
+      const firstLogin = await post('/api/v1/auth/login', { email: 'quota@example.test', password },
+        anonymousCookie, anonymousCsrf.csrf_token);
+      expect(firstLogin.status).toBe(200);
+      const firstLoginBody = await firstLogin.json() as { csrf_token: string; user: AccountProfile; mail_availability: unknown };
+      expect(firstLoginBody.user).toMatchObject({ id: user.id, status: 'PENDING_EMAIL' });
+      expect(firstLoginBody.mail_availability).toEqual({ code: 'MAIL_DAILY_QUOTA', retry_at: nextDay });
+
+      const firstDayBudget = await database.first<MysqlRow>(`SELECT request_count FROM auth_rate_limits
+        WHERE scope = 'mail-budget-daily' AND key_digest = ? AND bucket_start = ?`, [new Uint8Array(32), dayOneStart]);
+      expect(Number(firstDayBudget?.request_count)).toBe(1);
+      const oldProviderPause = await database.first<MysqlRow>(`SELECT next_allowed_at FROM auth_rate_limits
+        WHERE scope = 'mail-provider-daily' AND key_digest = ? AND bucket_start = ?`, [new Uint8Array(32), dayOneStart]);
+      expect(Number(oldProviderPause?.next_allowed_at)).toBe(nextDay);
+
+      now = nextDay + 60 * 60 * 1000 + 1;
+      const nextDayCsrfResponse = await app.request('/api/v1/auth/csrf', {
+        headers: { origin: 'https://lastro.example' },
+      });
+      expect(nextDayCsrfResponse.status).toBe(200);
+      const nextDayAnonymousCsrf = await nextDayCsrfResponse.json() as { csrf_token: string };
+      const nextDayAnonymousCookie = nextDayCsrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!nextDayAnonymousCookie) throw new Error('expected a fresh anonymous CSRF cookie after UTC recovery');
+      const nextDayLogin = await post('/api/v1/auth/login', { email: 'quota@example.test', password },
+        nextDayAnonymousCookie, nextDayAnonymousCsrf.csrf_token);
+      expect(nextDayLogin.status).toBe(200);
+      const nextDayLoginBody = await nextDayLogin.json() as { csrf_token: string; user: AccountProfile; mail_availability: unknown };
+      expect(nextDayLoginBody.user).toMatchObject({ id: user.id, status: 'PENDING_EMAIL' });
+      expect(nextDayLoginBody.mail_availability).toEqual({ code: 'AVAILABLE', retry_at: null });
+      const nextDayCookie = nextDayLogin.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!nextDayCookie) throw new Error('expected next-day pending session cookie');
+
+      const nextDayMe = await app.request('/api/v1/auth/me', {
+        headers: { origin: 'https://lastro.example', cookie: nextDayCookie },
+      });
+      expect(nextDayMe.status).toBe(200);
+      expect(await nextDayMe.json()).toMatchObject({
+        user: { id: user.id, status: 'PENDING_EMAIL' },
+        mail_availability: { code: 'AVAILABLE', retry_at: null },
+      });
+
+      const resend = await post('/api/v1/auth/email-verification/request', {},
+        nextDayCookie, nextDayLoginBody.csrf_token);
+      expect(resend.status).toBe(202);
+      expect(await resend.json()).toEqual({
+        accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
+      });
+
+      const nextMail = await database.first<MysqlRow>(`SELECT id, action_digest, CAST(user_id AS CHAR) AS user_id,
+          purpose, priority, created_at, expires_at, payload_ciphertext, payload_iv, payload_key_version
+        FROM auth_mail_outbox WHERE user_id = ? AND purpose = 'VERIFY_EMAIL' AND state = 'PENDING'
+        ORDER BY created_at DESC LIMIT 1`, [user.id]);
+      if (!nextMail || !(nextMail.action_digest instanceof Uint8Array)) throw new Error('expected reissued verification mail');
+      const nextJob: NewMailJob = {
+        id: String(nextMail.id), actionDigest: nextMail.action_digest, userId: user.id, purpose: 'VERIFY_EMAIL',
+        priority: Number(nextMail.priority) === 0 ? 0 : 1, createdAt: Number(nextMail.created_at),
+        expiresAt: Number(nextMail.expires_at), payloadCiphertext: String(nextMail.payload_ciphertext),
+        payloadIv: String(nextMail.payload_iv), payloadKeyVersion: String(nextMail.payload_key_version),
+      };
+      const mailIntent = JSON.parse(await openMailPayload(nextJob, {
+        mailId: nextJob.id, purpose: nextJob.purpose,
+      }, config)) as { text: string };
+      const verificationToken = /token=([A-Za-z0-9_-]{43})/u.exec(mailIntent.text)?.[1];
+      if (!verificationToken) throw new Error('expected verification token in sealed reissue');
+
+      const dayTwoAttempt = await runAuthJobTick(repository, config, runtime);
+      expect(dayTwoAttempt).toEqual({ kind: 'mail', result: 'sent' });
+      expect(fetchCalls).toBe(2);
+      const secondDayBudget = await database.first<MysqlRow>(`SELECT request_count FROM auth_rate_limits
+        WHERE scope = 'mail-budget-daily' AND key_digest = ? AND bucket_start = ?`, [new Uint8Array(32), nextDay]);
+      expect(Number(secondDayBudget?.request_count)).toBe(1);
+      await expect(database.first<MysqlRow>(`SELECT state, last_error_code, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [nextJob.id])).resolves.toMatchObject({ state: 'SENT', payload_ciphertext: null });
+
+      const confirmed = await post('/api/v1/auth/email-verification/confirm', { token: verificationToken },
+        nextDayCookie, nextDayLoginBody.csrf_token);
+      expect(confirmed.status).toBe(200);
+      const confirmedBody = await confirmed.json() as { user: AccountProfile };
+      expect(confirmedBody.user).toMatchObject({ id: user.id, status: 'ACTIVE' });
+      expect(fetchCalls).toBe(2);
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [user.id]))
+        .resolves.toEqual({ status: 'ACTIVE' });
+      expect(await readPublicRows()).toEqual(publicRowsBefore);
+    });
+  }, 120_000);
+
   it.skipIf(!runMysqlTests)('sends one ready mail before cleanup, then caps a real indexed cleanup batch at fifty', async () => {
     await withAuthTestDatabase(async ({ database }) => {
       const now = Date.UTC(2026, 9, 13, 12);
