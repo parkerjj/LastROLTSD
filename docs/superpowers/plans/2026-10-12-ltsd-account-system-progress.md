@@ -26,8 +26,8 @@
 | 5 | complete | e0fdc21..9fdf74b | 39focused/3REQUIRE MySQL，0skip/type/lint | 初审1Important，fix1 fresh Spec PASS/quality APPROVE |
 | 6 | complete | 9fdf74b..7c1b6f7 | 23focused/4REQUIRE MySQL0skip/type/lint | 独立Spec PASS/quality APPROVE，无Critical/Important |
 | 7 | complete | 7c1b6f7..eac6440 | 42focused；fix12focused/5REQUIRE MySQL0skip/type/lint | 1Important/1Minor，fix1 fresh Spec PASS/quality APPROVE |
-| 8 | complete | base eac6440；本次feature提交 | fix33focused/6REQUIRE MySQL0skip/type/lint，browser两fixture | 3Important+2Minor，fix1 Spec PASS/quality APPROVE；VP8L缺口明示 |
-| 9 | 未开始 | — | — | — |
+| 8 | complete | eac6440..0c44a2a | fix33focused/6REQUIRE MySQL0skip/type/lint，browser两fixture | 3Important+2Minor，fix1 Spec PASS/quality APPROVE；VP8L缺口明示 |
+| 9 | complete | base 0c44a2a；本条提交 | 30targeted/92auth-health0skip/type/lint/diff；无SQL未重跑真库 | fresh独立Spec PASS/quality APPROVE，无Critical/Important |
 | 10 | 未开始 | — | — | — |
 | 11 | 未开始 | — | — | — |
 | 12 | 未开始 | — | — | — |
@@ -324,3 +324,10 @@ Task8 fix1 reviewer因usage limit终止，提示15:23恢复；无PASS结论。�
 
 Task 8: complete（feat: add editable account profile and WebP avatars；33focused/6REQUIRE MySQL0skip/type/lint/diff，真实browser产物VP8X/VP8+ICCP；3Important ADDRESSED，复审PASS）。AUTH-01注册头像已原子接入；VP8L正向样本与实际Worker CPU未测，前端Crop/mobile仍Task12/14。
 Ruling: profile/setAvatar审计增加兼容可选第三requestId参数，router传既有请求关联helper；v只接受有界数字字符串而仍取当前图 — 修原review直接相关可观测性/格式备注，不改变权限/历史图片语义 — 若错仅内部签名/非法query错误适配，原两参数调用兼容。
+
+Task8 commit 0c44a2a48f9b4c789b5ca3b797b6f55f9cf59f28。Task9开始fresh单Luna/max，沿原createApp签名/生命周期和已有Cors账号例外，auth预算types/config缺项允许补齐；不改公开fastpath/旧环境校验/Cron部署。
+
+Task9自查已核对：真实入口路由、auth raw绑定透传/lazy核心与预算校验、read预算共用、default.fetch成功/认证错误close一次。RED8fail/21pass→30targetedpass，相关92auth-healthpass0skip/type/lint/diff exit0；SQL无改动，生命周期是mysql2 mock，不重跑真库/不声称CPU测量。生成九文件diff并派fresh task9_review，尚未提交。
+
+Task 9: complete（feat: wire account routes into Worker lifecycle；30targeted/92auth-health0skip/type/lint/diff；独立Spec PASS/quality APPROVE，无Critical/Important）。管理人核对报告、源码关键diff与fresh diffcheck；公开无新增鉴权，真库/邮件/Free CPU未测不标通过。后续Task13必须从AuthConfig共用预算。
+Ruling: 保留旧 staging/production MYSQL/CURSOR/GUESTBOOK 全局校验，仅在账号命名空间将其异常映射已知503/未知404/OPTIONS204 — 符合账号稳定JSON失败且不放宽现有公开部署校验 — 若错需局部错误映射修正，不伪造环境或secret。auth预算正整数仅可降低至默认100/3000以内，零与提高额度不隐式启用。

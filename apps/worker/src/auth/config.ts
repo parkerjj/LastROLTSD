@@ -2,6 +2,8 @@ import type { AppEnv } from '../env';
 import { AuthFailure, type AuthBindings, type AuthConfig, type DisabledAuthConfig, type EnabledAuthConfig, type MailDeliveryConfig } from './types';
 
 const UNAVAILABLE_MESSAGE = '账号服务暂不可用';
+const MAIL_DAILY_LIMIT = 100;
+const MAIL_MONTHLY_LIMIT = 3_000;
 
 function unavailable(): AuthFailure {
   return new AuthFailure('AUTH_UNAVAILABLE', 503, UNAVAILABLE_MESSAGE);
@@ -22,6 +24,8 @@ function disabledConfig(): DisabledAuthConfig {
     mailPayloadKeys: emptyKeyVersions(),
     currentPasswordKeyVersion: '1',
     currentMailPayloadKeyVersion: '1',
+    mailDailyLimit: MAIL_DAILY_LIMIT,
+    mailMonthlyLimit: MAIL_MONTHLY_LIMIT,
   };
 }
 
@@ -74,6 +78,14 @@ function keyVersion(value: string | undefined, fallback: string): string {
   return version;
 }
 
+function mailLimit(value: string | undefined, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (!/^[1-9]\d*$/u.test(value)) throw unavailable();
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > maximum) throw unavailable();
+  return parsed;
+}
+
 function optionalPreviousKey(versionValue: string | undefined, secretValue: string | undefined, currentVersion: string): [string, Uint8Array] | null {
   const hasVersion = typeof versionValue === 'string' && versionValue.trim().length > 0;
   const hasSecret = typeof secretValue === 'string' && secretValue.length > 0;
@@ -119,6 +131,8 @@ export function resolveAuthConfig(env: AppEnv & AuthBindings): AuthConfig {
 
   const mysqlUrl = requiredValue(env.MYSQL_URL).trim();
   if (!mysqlUrl) throw unavailable();
+  const mailDailyLimit = mailLimit(env.AUTH_MAIL_DAILY_LIMIT, MAIL_DAILY_LIMIT, MAIL_DAILY_LIMIT);
+  const mailMonthlyLimit = mailLimit(env.AUTH_MAIL_MONTHLY_LIMIT, MAIL_MONTHLY_LIMIT, MAIL_MONTHLY_LIMIT);
   const authSiteUrl = trustedSiteOrigin(env.AUTH_SITE_URL, env.ENVIRONMENT);
   const currentPasswordKeyVersion = keyVersion(env.AUTH_PASSWORD_KEY_VERSION, '1');
   const currentMailPayloadKeyVersion = keyVersion(env.AUTH_MAIL_PAYLOAD_KEY_VERSION, '1');
@@ -145,6 +159,8 @@ export function resolveAuthConfig(env: AppEnv & AuthBindings): AuthConfig {
     mailPayloadKeys,
     currentPasswordKeyVersion,
     currentMailPayloadKeyVersion,
+    mailDailyLimit,
+    mailMonthlyLimit,
     mailDelivery: mailDeliveryConfig(env),
   };
   return config;

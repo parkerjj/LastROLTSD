@@ -106,6 +106,8 @@ export interface AuthBindings {
   RESEND_API_KEY?: string | undefined;
   MAIL_FROM?: string | undefined;
   MAIL_REPLY_TO?: string | undefined;
+  AUTH_MAIL_DAILY_LIMIT?: string | undefined;
+  AUTH_MAIL_MONTHLY_LIMIT?: string | undefined;
 }
 
 interface AuthConfigKeyVersions {
@@ -113,6 +115,8 @@ interface AuthConfigKeyVersions {
   mailPayloadKeys: ReadonlyMap<string, Uint8Array>;
   currentPasswordKeyVersion: string;
   currentMailPayloadKeyVersion: string;
+  mailDailyLimit: number;
+  mailMonthlyLimit: number;
   mailDelivery?: MailDeliveryConfig;
 }
 

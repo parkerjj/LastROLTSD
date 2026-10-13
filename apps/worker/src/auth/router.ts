@@ -168,6 +168,36 @@ function allowHeader(path: string): string {
   return KNOWN_PATHS.get(path) ?? 'OPTIONS';
 }
 
+function isAccountNamespace(path: string): boolean {
+  return path === '/api/v1/auth' || path.startsWith('/api/v1/auth/')
+    || path === '/api/v1/account' || path.startsWith('/api/v1/account/')
+    || /^\/api\/v1\/users\/[^/]+\/avatar$/u.test(path);
+}
+
+export function authEnvResolutionFailureResponse(request: Request): Response | null {
+  const path = new URL(request.url).pathname;
+  if (!isAccountNamespace(path)) return null;
+
+  const id = requestId(request);
+  const method = request.method.toUpperCase();
+  const allowed = allowHeader(path).split(',').map((value) => value.trim());
+  if (!knownPath(path) || !allowed.includes(method)) {
+    const response = jsonError('AUTH_NOT_FOUND', '请求路径不存在', 404, id);
+    response.headers.set('x-request-id', id);
+    return response;
+  }
+  if (method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: { allow: allowHeader(path), 'cache-control': 'no-store', 'x-request-id': id },
+    });
+  }
+
+  const response = jsonError('AUTH_UNAVAILABLE', '账号服务暂不可用', 503, id);
+  response.headers.set('x-request-id', id);
+  return response;
+}
+
 function enabledConfig(env: AppEnv & AuthBindings) {
   try {
     const config = resolveAuthConfig(env);
@@ -183,7 +213,17 @@ export function registerAuthRoutes(
   database?: MysqlDatabase,
   runtime?: AuthRuntime,
 ): void {
-  const repository = database ? createAuthRepository(database) : null;
+  let repository: ReturnType<typeof createAuthRepository> | null = null;
+  const requestConfig = () => {
+    const config = enabledConfig(env);
+    if (config && database && !repository) {
+      repository = createAuthRepository(database, {
+        mailDailyLimit: config.mailDailyLimit,
+        mailMonthlyLimit: config.mailMonthlyLimit,
+      });
+    }
+    return config;
+  };
   const authRuntime = runtime ?? { now: () => Date.now(), fetch: globalThis.fetch };
   const implementedRoutePaths = new Set([
     '/api/v1/auth/register',
@@ -202,7 +242,7 @@ export function registerAuthRoutes(
   ]);
 
   app.get('/api/v1/auth/csrf', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config) return unavailable(c);
     try {
       const result = await issueCsrf(c.req.raw, config, 'anonymous', undefined, runtime ? () => runtime.now() : undefined);
@@ -217,7 +257,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/register', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, AVATAR_JSON_LIMIT);
@@ -273,7 +313,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/login', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
@@ -306,7 +346,7 @@ export function registerAuthRoutes(
   });
 
   app.get('/api/v1/auth/me', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const service = createSessionService(repository, config, authRuntime);
@@ -318,7 +358,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/session/refresh', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       await readEmptyAuthBody(c.req.raw);
@@ -335,7 +375,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/logout', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       await readEmptyAuthBody(c.req.raw);
@@ -356,7 +396,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/logout-all', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       await readEmptyAuthBody(c.req.raw);
@@ -371,7 +411,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/email-verification/request', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       await readEmptyAuthBody(c.req.raw);
@@ -398,7 +438,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/email-verification/confirm', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
@@ -423,7 +463,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/password/change', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
@@ -455,7 +495,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/password-reset/request', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
@@ -480,7 +520,7 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/v1/auth/password-reset/confirm', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
@@ -520,7 +560,7 @@ export function registerAuthRoutes(
   });
 
   app.patch('/api/v1/account/profile', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
@@ -545,7 +585,7 @@ export function registerAuthRoutes(
   });
 
   app.put('/api/v1/account/avatar', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       const body = await readAuthJson(c.req.raw, AVATAR_JSON_LIMIT);
@@ -570,7 +610,7 @@ export function registerAuthRoutes(
   });
 
   app.delete('/api/v1/account/avatar', async (c) => {
-    const config = enabledConfig(env);
+    const config = requestConfig();
     if (!config || !repository) return unavailable(c);
     try {
       await requireBodylessAuthRequest(c.req.raw);
@@ -610,7 +650,7 @@ export function registerAuthRoutes(
 
   app.get('/api/v1/users/:id/avatar', async (c) => {
     if (!/^[1-9]\d{0,19}$/u.test(c.req.param('id'))) return notFound(c);
-    if (!database || !repository || !enabledConfig(env)) return unavailable(c);
+    if (!database || !requestConfig() || !repository) return unavailable(c);
     try {
       return await avatarResponse(c.req.param('id'), c.req.query('v') ?? null, repository);
     } catch (error) {

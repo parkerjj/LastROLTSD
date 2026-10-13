@@ -25,6 +25,7 @@ import { registerMakingCookieRoute } from './routes/making-cookie';
 import { registerPresenceRoute } from './routes/presence';
 import { registerIwaRoutes } from './routes/iwa';
 import { registerSponsorRoutes } from './routes/sponsors';
+import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -53,6 +54,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
+  registerAuthRoutes(app, env, database);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
@@ -80,7 +82,14 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
 
 export default {
   async fetch(request: Request, bindings: Record<string, unknown>, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
-    const env = resolveAppEnv(bindings);
+    let env: AppEnv;
+    try {
+      env = resolveAppEnv(bindings);
+    } catch (error) {
+      const accountResponse = authEnvResolutionFailureResponse(request);
+      if (accountResponse) return accountResponse;
+      throw error;
+    }
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/api/v1/market/search' && env.MYSQL_URL) {
       return fetchSearch(request, url, env, context);

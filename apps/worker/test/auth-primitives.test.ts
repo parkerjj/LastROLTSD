@@ -188,4 +188,16 @@ describe('native account crypto and auth configuration', () => {
     }))).toThrow(AuthFailure);
     expect(() => resolveAuthConfig(bindings({ AUTH_RATE_SECRET: secret.slice(0, -4) }))).toThrow(AuthFailure);
   });
+
+  it('uses positive mail limits no higher than the current free-plan defaults', () => {
+    expect(resolveAuthConfig(bindings({ AUTH_MAIL_DAILY_LIMIT: '25', AUTH_MAIL_MONTHLY_LIMIT: '700' })))
+      .toMatchObject({ mailDailyLimit: 25, mailMonthlyLimit: 700 });
+    expect(resolveAuthConfig(bindings())).toMatchObject({ mailDailyLimit: 100, mailMonthlyLimit: 3000 });
+    for (const value of ['0', '-1', '101', 'not-a-number']) {
+      expect(() => resolveAuthConfig(bindings({ AUTH_MAIL_DAILY_LIMIT: value }))).toThrow(AuthFailure);
+    }
+    for (const value of ['0', '-1', '3001', 'not-a-number']) {
+      expect(() => resolveAuthConfig(bindings({ AUTH_MAIL_MONTHLY_LIMIT: value }))).toThrow(AuthFailure);
+    }
+  });
 });

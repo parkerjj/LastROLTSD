@@ -1,8 +1,9 @@
 import type { Fetcher } from '@cloudflare/workers-types';
 import { DEFAULT_CURSOR_SECRET } from './domain/search';
 import type { SnapshotMessage } from './services/full-upload';
+import type { AuthBindings } from './auth/types';
 
-export interface AppEnv {
+export interface AppEnv extends AuthBindings {
   MYSQL_URL?: string | undefined;
   ASSETS?: Fetcher | undefined;
   ENVIRONMENT: string;
@@ -54,6 +55,23 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     AFDIAN_USER_ID: typeof bindings.AFDIAN_USER_ID === 'string' && bindings.AFDIAN_USER_ID.trim() !== '' ? bindings.AFDIAN_USER_ID.trim() : undefined,
     STRIPE_SECRET_KEY: typeof bindings.STRIPE_SECRET_KEY === 'string' && bindings.STRIPE_SECRET_KEY.trim() !== '' ? bindings.STRIPE_SECRET_KEY.trim() : undefined,
     STRIPE_DONATE_URL: typeof bindings.STRIPE_DONATE_URL === 'string' && bindings.STRIPE_DONATE_URL.trim() !== '' ? bindings.STRIPE_DONATE_URL.trim() : undefined,
+    AUTH_ENABLED: typeof bindings.AUTH_ENABLED === 'string' ? bindings.AUTH_ENABLED : undefined,
+    AUTH_SITE_URL: typeof bindings.AUTH_SITE_URL === 'string' ? bindings.AUTH_SITE_URL : undefined,
+    AUTH_PASSWORD_SECRET: typeof bindings.AUTH_PASSWORD_SECRET === 'string' ? bindings.AUTH_PASSWORD_SECRET : undefined,
+    AUTH_PASSWORD_KEY_VERSION: typeof bindings.AUTH_PASSWORD_KEY_VERSION === 'string' ? bindings.AUTH_PASSWORD_KEY_VERSION : undefined,
+    AUTH_PASSWORD_PREVIOUS_KEY_VERSION: typeof bindings.AUTH_PASSWORD_PREVIOUS_KEY_VERSION === 'string' ? bindings.AUTH_PASSWORD_PREVIOUS_KEY_VERSION : undefined,
+    AUTH_PASSWORD_PREVIOUS_SECRET: typeof bindings.AUTH_PASSWORD_PREVIOUS_SECRET === 'string' ? bindings.AUTH_PASSWORD_PREVIOUS_SECRET : undefined,
+    AUTH_CSRF_SECRET: typeof bindings.AUTH_CSRF_SECRET === 'string' ? bindings.AUTH_CSRF_SECRET : undefined,
+    AUTH_RATE_SECRET: typeof bindings.AUTH_RATE_SECRET === 'string' ? bindings.AUTH_RATE_SECRET : undefined,
+    AUTH_MAIL_PAYLOAD_SECRET: typeof bindings.AUTH_MAIL_PAYLOAD_SECRET === 'string' ? bindings.AUTH_MAIL_PAYLOAD_SECRET : undefined,
+    AUTH_MAIL_PAYLOAD_KEY_VERSION: typeof bindings.AUTH_MAIL_PAYLOAD_KEY_VERSION === 'string' ? bindings.AUTH_MAIL_PAYLOAD_KEY_VERSION : undefined,
+    AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION: typeof bindings.AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION === 'string' ? bindings.AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION : undefined,
+    AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET: typeof bindings.AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET === 'string' ? bindings.AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET : undefined,
+    RESEND_API_KEY: typeof bindings.RESEND_API_KEY === 'string' ? bindings.RESEND_API_KEY : undefined,
+    MAIL_FROM: typeof bindings.MAIL_FROM === 'string' ? bindings.MAIL_FROM : undefined,
+    MAIL_REPLY_TO: typeof bindings.MAIL_REPLY_TO === 'string' ? bindings.MAIL_REPLY_TO : undefined,
+    AUTH_MAIL_DAILY_LIMIT: typeof bindings.AUTH_MAIL_DAILY_LIMIT === 'string' ? bindings.AUTH_MAIL_DAILY_LIMIT : undefined,
+    AUTH_MAIL_MONTHLY_LIMIT: typeof bindings.AUTH_MAIL_MONTHLY_LIMIT === 'string' ? bindings.AUTH_MAIL_MONTHLY_LIMIT : undefined,
   };
 }
 
