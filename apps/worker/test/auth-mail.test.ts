@@ -176,6 +176,25 @@ describe('account mail preparation', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('prepares a sealed action mail draft before the new user ID exists', async () => {
+    const token = createOpaqueToken();
+    const job = await prepareActionMail({
+      mailId: '123e4567-e89b-12d3-a456-426614174009',
+      actionDigest: new Uint8Array(32).fill(9),
+      userId: null,
+      email: 'pilot@example.test',
+      displayName: 'Pilot',
+      token,
+      purpose: 'VERIFY_EMAIL',
+      createdAt: 1_800_000_000_000,
+      expiresAt: 1_800_000_000_000 + 24 * 60 * 60 * 1000,
+    }, authConfig());
+
+    expect(job.userId).toBeNull();
+    expect(job.actionDigest).toEqual(new Uint8Array(32).fill(9));
+    expect((await readIntent(job)).to).toEqual(['pilot@example.test']);
+  });
+
   it.each([
     { purpose: 'VERIFY_EMAIL' as const, path: '/verify-email', lifetime: '24 小时', ttl: 24 * 60 * 60 * 1000 },
     { purpose: 'RESET_PASSWORD' as const, path: '/reset-password', lifetime: '30 分钟', ttl: 30 * 60 * 1000 },

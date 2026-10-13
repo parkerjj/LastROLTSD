@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { Hono } from 'hono';
 import { createAuthRepository, type NewAuthUser } from '../../apps/worker/src/auth/repository';
 import { resolveAuthConfig } from '../../apps/worker/src/auth/config';
 import { createOpaqueToken, digestToken, openMailPayload, sealMailPayload } from '../../apps/worker/src/auth/crypto';
 import { prepareActionMail, preparePasswordChangedMail } from '../../apps/worker/src/auth/mail';
+import { registerAuthRoutes } from '../../apps/worker/src/auth/router';
 import type { AuthBindings, AuthRateLimitRule, PasswordMaterial } from '../../apps/worker/src/auth/types';
-import type { MysqlRow } from '../../apps/worker/src/db/mysql-client';
+import { MysqlDatabaseError, type MysqlDatabase, type MysqlRow } from '../../apps/worker/src/db/mysql-client';
 import type { AppEnv } from '../../apps/worker/src/env';
 import { consumeAuthRateLimit } from '../../apps/worker/src/auth/rate-limit';
 import { withAuthTestDatabase } from '../helpers/auth-mysql';
@@ -29,18 +31,132 @@ function testSecret(fill: number): string {
   return btoa(binary);
 }
 
-function testAuthConfig() {
-  const env: AppEnv & AuthBindings = {
+function testAuthBindings(): AppEnv & AuthBindings {
+  return {
     ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 8192,
     MYSQL_URL: 'mysql://auth:local@127.0.0.1/lastro_test',
     AUTH_ENABLED: 'true', AUTH_SITE_URL: 'https://lastro.example',
     AUTH_PASSWORD_SECRET: testSecret(1), AUTH_CSRF_SECRET: testSecret(2),
     AUTH_RATE_SECRET: testSecret(3), AUTH_MAIL_PAYLOAD_SECRET: testSecret(4),
   };
+}
+
+function testAuthConfig() {
+  const env = testAuthBindings();
   return resolveAuthConfig(env);
 }
 
+function failOutboxInserts(database: MysqlDatabase): MysqlDatabase {
+  const wrap = (current: MysqlDatabase): MysqlDatabase => ({
+    all: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => current.all<T>(sql, values),
+    first: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => current.first<T>(sql, values),
+    run: async (sql: string, values?: readonly unknown[]) => {
+      if (/^\s*INSERT INTO auth_mail_outbox\b/iu.test(sql)) {
+        const duplicate = Object.assign(new Error('duplicate key'), { code: 'ER_DUP_ENTRY', errno: 1062 });
+        throw new MysqlDatabaseError(duplicate, 'insert:auth_mail_outbox');
+      }
+      return current.run(sql, values);
+    },
+    transaction: <T>(work: (transaction: MysqlDatabase) => Promise<T>) =>
+      current.transaction((transaction) => work(wrap(transaction))),
+    healthcheck: () => current.healthcheck(),
+    close: () => current.close(),
+  });
+  return wrap(database);
+}
+
 describe('real MySQL account schema and repository', () => {
+  it.skipIf(!runMysqlTests)('registers a pending account once and rolls back non-user unique failures', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      let now = Date.UTC(2026, 9, 12, 12);
+      let fetchCalls = 0;
+      const runtime = {
+        now: () => now,
+        fetch: (async () => {
+          fetchCalls += 1;
+          return new Response('{}', { status: 200 });
+        }) as typeof globalThis.fetch,
+      };
+      const app = new Hono();
+      registerAuthRoutes(app, testAuthBindings(), database, runtime);
+
+      const csrfResponse = await app.request('/api/v1/auth/csrf', {
+        headers: { origin: 'https://lastro.example' },
+      });
+      expect(csrfResponse.status).toBe(200);
+      const csrf = await csrfResponse.json() as { csrf_token: string };
+      const csrfCookie = csrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!csrfCookie) throw new Error('expected anonymous CSRF cookie');
+      const headers = {
+        origin: 'https://lastro.example',
+        'content-type': 'application/json',
+        'x-csrf-token': csrf.csrf_token,
+        cookie: csrfCookie,
+      };
+      const submit = (email: string, password: string) => app.request('/api/v1/auth/register', {
+        method: 'POST', headers,
+        body: JSON.stringify({ email, password, password_confirmation: password, display_name: 'Pilot' }),
+      });
+
+      const first = await submit('Pilot@example.test', '12345');
+      expect(first.status).toBe(202);
+      expect(first.headers.get('set-cookie')).toBeNull();
+      const firstBody = await first.json();
+      expect(firstBody).toEqual({
+        accepted: true,
+        mail_availability: { code: 'AVAILABLE', retry_at: null },
+      });
+      const user = await database.first<MysqlRow>(`SELECT CAST(id AS CHAR) AS id, email, status
+        FROM auth_users WHERE email_normalized = ?`, ['pilot@example.test']);
+      expect(user).toMatchObject({ id: '10000', email: 'Pilot@example.test', status: 'PENDING_EMAIL' });
+      const credential = await database.first<MysqlRow>('SELECT digest FROM auth_credentials WHERE user_id = ?', [user?.id]);
+      const action = await database.first<MysqlRow>(`SELECT CAST(user_id AS CHAR) AS user_id, purpose
+        FROM auth_action_tokens WHERE user_id = ?`, [user?.id]);
+      const mailJob = await database.first<MysqlRow>(`SELECT CAST(user_id AS CHAR) AS user_id, purpose, state
+        FROM auth_mail_outbox WHERE user_id = ?`, [user?.id]);
+      expect(action).toEqual({ user_id: user?.id, purpose: 'VERIFY_EMAIL' });
+      expect(mailJob).toEqual({ user_id: user?.id, purpose: 'VERIFY_EMAIL', state: 'PENDING' });
+
+      now += 60_001;
+      const duplicate = await submit('pilot@example.test', 'other');
+      expect(duplicate.status).toBe(202);
+      expect(duplicate.headers.get('set-cookie')).toBeNull();
+      expect(await duplicate.json()).toEqual(firstBody);
+      expect(await database.first<MysqlRow>('SELECT digest FROM auth_credentials WHERE user_id = ?', [user?.id]))
+        .toEqual(credential);
+      expect(await database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_users WHERE email_normalized = ?', ['pilot@example.test']))
+        .toMatchObject({ count: 1 });
+      expect(await database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_mail_outbox WHERE user_id = ?', [user?.id]))
+        .toMatchObject({ count: 1 });
+      expect(fetchCalls).toBe(0);
+
+      const failingApp = new Hono();
+      registerAuthRoutes(failingApp, testAuthBindings(), failOutboxInserts(database), runtime);
+      const failingCsrfResponse = await failingApp.request('/api/v1/auth/csrf', {
+        headers: { origin: 'https://lastro.example' },
+      });
+      const failingCsrf = await failingCsrfResponse.json() as { csrf_token: string };
+      const failingCookie = failingCsrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!failingCookie) throw new Error('expected anonymous CSRF cookie for rollback request');
+      const rolledBack = await failingApp.request('/api/v1/auth/register', {
+        method: 'POST',
+        headers: {
+          origin: 'https://lastro.example', 'content-type': 'application/json',
+          'x-csrf-token': failingCsrf.csrf_token, cookie: failingCookie,
+        },
+        body: JSON.stringify({
+          email: 'rollback@example.test', password: '12345', password_confirmation: '12345', display_name: 'Rollback',
+        }),
+      });
+      expect(rolledBack.status).toBe(503);
+      expect(await database.first<MysqlRow>('SELECT id FROM auth_users WHERE email_normalized = ?', ['rollback@example.test']))
+        .toBeNull();
+      expect(await database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_security_events WHERE event = ?', ['REGISTER']))
+        .toMatchObject({ count: 1 });
+      expect(fetchCalls).toBe(0);
+    });
+  }, 120_000);
+
   it.skipIf(!runMysqlTests)('claims, reserves and finishes with lease CAS, shared budget and late old-cycle quota isolation', async () => {
     await withAuthTestDatabase(async ({ database }) => {
       const now = Date.UTC(2026, 9, 9, 10);

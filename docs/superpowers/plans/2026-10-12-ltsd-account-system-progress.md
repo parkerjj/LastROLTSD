@@ -23,8 +23,8 @@
 | 2 | complete | 3b18249..2c26a92 | 7unit/1真实MySQL，均0skip；migration/typecheck/lint exit0 | 初审1Important/2Minor，fix1全部ADDRESSED；Spec/quality Approve |
 | 3 | complete | 2c26a92..8e16202 | 12unit/1真实MySQL，0skip；type/lint；fix无SQL重跑 | 独立初审PASS；管理人补验收fix1 fresh复审PASS |
 | 4 | complete | 8e16202..e0fdc21 | 22focused/2真MySQL0skip/type/lint，fault模拟 | 初审经补查改1Important，fix1复审PASS |
-| 5 | complete | base e0fdc21；本次feature提交 | 39focused/3REQUIRE MySQL，0skip/type/lint | 初审1Important，fix1 fresh Spec PASS/quality APPROVE |
-| 6 | 未开始 | — | — | — |
+| 5 | complete | e0fdc21..9fdf74b | 39focused/3REQUIRE MySQL，0skip/type/lint | 初审1Important，fix1 fresh Spec PASS/quality APPROVE |
+| 6 | complete | base 9fdf74b；本次feature提交 | 23focused/4REQUIRE MySQL0skip/type/lint | 独立Spec PASS/quality APPROVE，无Critical/Important |
 | 7 | 未开始 | — | — | — |
 | 8 | 未开始 | — | — | — |
 | 9 | 未开始 | — | — | — |
@@ -274,3 +274,19 @@ Ruling: 预算锁等待跨UTC周期允许同短事务仅提交旧bucket零值行
 Task5 fix1代理证据：真实RED复现过期任务后有效lateJob未领取；GREEN完整REQUIRE MySQL3pass0skip，过期+有效同tick领取、耗尽priority0不挡有效priority1；39focused/type/lint/diff exit0。expiredLease SQL排除attempt4/24h，残留密文终结由Task13有界清理负责；管理人生成仅repo/flow scoped diff，待fresh复审。
 
 Task 5: complete（feat: add transactional account mail outbox；39focused/3REQUIRE MySQL0skip/type/lint/diff；独立初审领取阻塞已fix1，fresh复审PASS，无新Critical/Important）。401/403原任务暂停至TTL、恢复配置后主动新动作；不自动重启失败/耗尽任务。真实并发集中Task14、Cron清理Task13、生产邮件/完整Free CPU未验证。
+
+Task5 commit 9fdf74ba1594e6f2dfc7ce110457ef7a0efded7c。Task6开始单fresh Luna/max，注册依赖邮件接口已通过。
+
+Ruling: 注册邮件预计算允许ActionMailInput.userId为null未绑定draft，事务INSERT得到自增真实ID后绑定再入库 — 邮件密文/nonce需事务外计算且不可预测自增ID，payload/AAD不依赖userId；现有string调用兼容 — 若错需内部prepare类型适配；不允许虚构0/预测ID或null注册job入库，无schema/API变更。
+
+Task6 RED代理证据：含avatar_base64注册应临时415/AUTH_AVATAR_UNSUPPORTED，当前placeholder503导致1failed（非导入/收集错误）。primitive规则测试复用，不穷举头像；核心注册/重复/事务回滚随后补最小关键覆盖。专用MySQL由唯一Task6 writer独占，管理人/review不同时reset。
+
+Task6真实DB首次新用例因默认5s timeout在migrate阶段结束，其他3例pass约16s/例；不是注册行为RED。按既有120_000ms单例timeout适配全部迁移，确保前进程退出/连接finally关闭才再启动reset，不改产品超时。已有avatar路由行为RED有效。
+
+Task6真实行为RED已确认（代理报告）：合法注册API预期202实际503；同串行REQUIRE file其余3pass，新增测试timeout已120s，前进程退出后才新reset。
+
+Task6阶段GREEN（代理报告）：完整REQUIRE MySQL4pass0skip，新增注册验证5字密码/唯一Email重复统一202无Cookie、密码/任务不重复与outbox冲突rollback；3focused files23pass0skip，type/lint/diff exit0。无新变更不再机械重复suite，待自查报告与独立review。
+
+Task6最终报告已读：23focused/4REQUIRE MySQL0skip/type/lint/diff。顺序重复注册及outbox注入ER_DUP_ENTRY后的真实事务rollback已测，真实同邮箱并发仍Task14；avatar暂415，AUTH-01未标全。已生成七文件diff并派task6_review fresh6.1-sol/high，尚未提交。
+
+Task 6: complete（feat: add email account registration；23focused/4REQUIRE MySQL0skip/type/lint/diff；fresh独立review PASS，顺序duplicate/真实rollback证据，真竞争Task14及头像Task8明确待验收）。

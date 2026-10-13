@@ -5,7 +5,8 @@ import { jsonError, requestId } from '../middleware/errors';
 import { readAuthJson } from './body';
 import { assertCsrf, assertTrustedWriteOrigin, issueCsrf } from './csrf';
 import { resolveAuthConfig } from './config';
-import { normalizeEmail } from './input';
+import { createAccountService } from './account-service';
+import { normalizeEmail, parseDisplayName, validatePasswordConfirmation } from './input';
 import { createAuthRepository } from './repository';
 import { AUTH_RATE_LIMITS, authRateLimitKey, consumeAuthRateLimit, trustedAuthClientIp } from './rate-limit';
 import { clearSessionCookie, createSessionService } from './session-service';
@@ -105,7 +106,8 @@ export function registerAuthRoutes(
 ): void {
   const repository = database ? createAuthRepository(database) : null;
   const authRuntime = runtime ?? { now: () => Date.now(), fetch: globalThis.fetch };
-  const sessionRoutePaths = new Set([
+  const implementedRoutePaths = new Set([
+    '/api/v1/auth/register',
     '/api/v1/auth/login',
     '/api/v1/auth/me',
     '/api/v1/auth/session/refresh',
@@ -125,6 +127,62 @@ export function registerAuthRoutes(
     } catch (error) {
       if (error instanceof AuthFailure) return jsonFailure(c, error.code, error.publicMessage, error.status);
       return unavailable(c);
+    }
+  });
+
+  app.post('/api/v1/auth/register', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, AVATAR_JSON_LIMIT);
+      if (Object.keys(body).some((field) => !['email', 'password', 'password_confirmation', 'display_name', 'avatar_base64'].includes(field))) {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'avatar_base64')) {
+        throw new AuthFailure('AUTH_AVATAR_UNSUPPORTED', 415, '注册暂不支持上传头像，请稍后在账号设置中添加');
+      }
+
+      const emailInput = body.email;
+      const passwordInput = body.password;
+      const confirmationInput = body.password_confirmation;
+      const displayNameInput = body.display_name;
+      if (typeof emailInput !== 'string' || typeof passwordInput !== 'string'
+        || typeof confirmationInput !== 'string' || typeof displayNameInput !== 'string') {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+      }
+
+      const emailNormalized = normalizeEmail(emailInput).normalized;
+      const password = validatePasswordConfirmation(passwordInput, confirmationInput);
+      const displayName = parseDisplayName(displayNameInput);
+      await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
+
+      const clientIp = trustedAuthClientIp(c.req.raw, env.ENVIRONMENT);
+      const [emailDigest, ipDigest] = await Promise.all([
+        authRateLimitKey(config.rateSecret, 'email', emailNormalized),
+        authRateLimitKey(config.rateSecret, 'ip', clientIp),
+      ]);
+      const registrationLimit = AUTH_RATE_LIMITS.registrationPerIp;
+      const mailEmailLimit = AUTH_RATE_LIMITS.mailPerEmail;
+      const mailIpLimit = AUTH_RATE_LIMITS.mailPerIp;
+      const mailCooldown = AUTH_RATE_LIMITS.mailCooldown;
+      const rateLimit = await consumeAuthRateLimit(repository, [
+        { kind: 'window', scope: registrationLimit.scope, keyDigest: ipDigest, limit: registrationLimit.limit, windowMs: registrationLimit.windowMs },
+        { kind: 'window', scope: mailEmailLimit.scope, keyDigest: emailDigest, limit: mailEmailLimit.limit, windowMs: mailEmailLimit.windowMs },
+        { kind: 'window', scope: mailIpLimit.scope, keyDigest: ipDigest, limit: mailIpLimit.limit, windowMs: mailIpLimit.windowMs },
+        { kind: 'cooldown', scope: mailCooldown.scope, keyDigest: emailDigest, cooldownMs: mailCooldown.cooldownMs },
+      ], () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const response = await createAccountService(repository, config, authRuntime).register({
+        email: emailInput,
+        password,
+        password_confirmation: password,
+        display_name: displayName,
+        requestId: requestId(c.req.raw),
+      });
+      return c.json(response, 202, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
     }
   });
 
@@ -227,7 +285,7 @@ export function registerAuthRoutes(
   });
 
   for (const route of PLACEHOLDER_ROUTES) {
-    if (sessionRoutePaths.has(route.path)) continue;
+    if (implementedRoutePaths.has(route.path)) continue;
     app.on([route.method], route.path, async (c) => {
       if (!database || !enabledConfig(env)) return unavailable(c);
       if (route.fields) {

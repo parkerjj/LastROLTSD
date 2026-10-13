@@ -26,7 +26,7 @@ const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 export interface ActionMailInput {
   mailId: string;
   actionDigest: Uint8Array;
-  userId: UserId;
+  userId: UserId | null;
   email: string;
   displayName: string;
   token: string;
@@ -131,7 +131,7 @@ async function sealIntent(mailId: string, purpose: MailPurpose, intent: MailInte
 
 export async function prepareActionMail(input: ActionMailInput, config: AuthConfig): Promise<NewMailJob> {
   requireAuthConfig(config);
-  if (!validMailId(input.mailId) || !validUserId(input.userId)
+  if (!validMailId(input.mailId) || (input.userId !== null && !validUserId(input.userId))
     || !(input.actionDigest instanceof Uint8Array) || input.actionDigest.byteLength !== 32
     || !validMailRecipient(input.email) || typeof input.displayName !== 'string'
     || input.displayName.length > 256 || !/^[A-Za-z0-9_-]{43}$/u.test(input.token)
