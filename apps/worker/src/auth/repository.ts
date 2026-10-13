@@ -111,6 +111,11 @@ export interface AuthSecurityEventInput {
   createdAt: number;
 }
 
+export type ReusableActionMailLookup =
+  | { status: 'none'; now: number }
+  | { status: 'retry' }
+  | { status: 'reuse'; action: ActionSnapshot; now: number; state: 'PENDING' | 'CLAIMED' };
+
 export interface AuthTx {
   lockUser(userId: UserId): Promise<UserRecord | null>;
   readCredential(userId: UserId): Promise<CredentialSnapshot | null>;
@@ -123,6 +128,13 @@ export interface AuthTx {
   revokeSession(tokenDigest: Uint8Array, now: number): Promise<boolean>;
   bumpAuthVersion(userId: UserId, now: number): Promise<void>;
   readActionForUpdate(tokenDigest: Uint8Array): Promise<ActionSnapshot | null>;
+  readReusableActionMail(
+    userId: UserId,
+    purpose: ActionPurpose,
+    credentialVersion: number,
+    emailSnapshot: string,
+    now: () => number,
+  ): Promise<ReusableActionMailLookup>;
   insertAction(input: NewActionToken): Promise<void>;
   consumeAction(tokenDigest: Uint8Array, now: number): Promise<boolean>;
   revokeActions(userId: UserId, purposeOrAll: ActionPurpose | 'all', now: number): Promise<number>;
@@ -193,6 +205,20 @@ interface MailOutboxRow extends MysqlRow {
   last_error_code: unknown;
 }
 
+interface ReusableMailOutboxRow extends MysqlRow {
+  id: unknown;
+  action_digest: unknown;
+  user_id: unknown;
+  purpose: unknown;
+  has_payload: unknown;
+  state: unknown;
+  lease_until: unknown;
+  attempt_count: unknown;
+  next_attempt_at: unknown;
+  expires_at: unknown;
+  first_attempt_at: unknown;
+}
+
 interface MailUserRow extends MysqlRow {
   email: unknown;
   status: unknown;
@@ -251,6 +277,9 @@ const CREDENTIAL_COLUMNS = `CAST(u.id AS CHAR) AS user_id, u.status, u.credentia
 const MAIL_OUTBOX_COLUMNS = `id, action_digest, CAST(user_id AS CHAR) AS user_id, purpose, payload_ciphertext,
   payload_iv, payload_key_version, priority, state, lease_id, lease_until, attempt_count, next_attempt_at,
   created_at, expires_at, first_attempt_at, provider_message_id, last_error_code`;
+const REUSABLE_MAIL_OUTBOX_COLUMNS = `id, action_digest, CAST(user_id AS CHAR) AS user_id, purpose,
+  (payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL) AS has_payload,
+  state, lease_until, attempt_count, next_attempt_at, expires_at, first_attempt_at`;
 
 export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryOptions = {}): AuthRepository {
   const mailDailyLimit = positiveInteger(options.mailDailyLimit ?? MAIL_DAILY_LIMIT, 'mailDailyLimit');
@@ -624,6 +653,73 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
       if (action.userId !== userId || digestKey(action.tokenDigest) !== digestKey(tokenDigest)) return null;
       lockedActions.set(digestKey(tokenDigest), userId);
       return action;
+    },
+
+    async readReusableActionMail(userId, purpose, credentialVersion, emailSnapshot, getNow) {
+      const lockedUserId = singleLockedUser();
+      if (lockedUserId !== userId) throw new Error('auth action user must match the locked user');
+      if (lockPhase >= 3) throw new Error('action rows must be checked before mail outbox rows');
+      lockPhase = 2;
+
+      const actionQueryAt = timestampValue(getNow(), 'now');
+      const actionRows = await db.all<MysqlRow>(`SELECT token_digest, CAST(user_id AS CHAR) AS user_id,
+          purpose, email_snapshot, credential_version, created_at, expires_at, consumed_at, revoked_at
+        FROM auth_action_tokens
+        WHERE user_id = ? AND purpose = ? AND credential_version = ?
+          AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+        ORDER BY created_at DESC
+        LIMIT 128 FOR UPDATE`, [userId, purpose, positiveInteger(credentialVersion, 'credentialVersion'), actionQueryAt]);
+      const actions = actionRows.map(mapAction);
+      for (const action of actions) lockedActions.set(digestKey(action.tokenDigest), userId);
+      const candidates = actions.filter((action) => action.userId === userId
+        && action.purpose === purpose
+        && action.credentialVersion === credentialVersion
+        && action.emailSnapshot === emailSnapshot);
+      if (candidates.length === 0) return { status: 'none', now: timestampValue(getNow(), 'now') };
+
+      const digests = candidates.map((action) => action.tokenDigest);
+      const placeholders = digests.map(() => '?').join(', ');
+      const mailRows = await db.all<ReusableMailOutboxRow>(`SELECT ${REUSABLE_MAIL_OUTBOX_COLUMNS}
+        FROM auth_mail_outbox
+        WHERE action_digest IN (${placeholders}) AND user_id = ? AND purpose = ?`, [
+        ...digests, userId, purpose,
+      ]);
+      const mailByAction = new Map<string, ReusableMailOutboxRow>();
+      for (const row of mailRows) {
+        if (row.action_digest === null) continue;
+        const key = digestKey(byteArrayValue(row.action_digest, 'action_digest'));
+        if (!mailByAction.has(key)) mailByAction.set(key, row);
+      }
+
+      let lockedMailCandidate = false;
+      for (const action of candidates) {
+        const mail = mailByAction.get(digestKey(action.tokenDigest));
+        if (!mail) continue;
+        const observedAt = timestampValue(getNow(), 'now');
+        const state = reusableMailState(mail, observedAt);
+        if (state === null || action.expiresAt <= observedAt) continue;
+        const leaseUntil = nullableNumberValue(mail.lease_until, 'lease_until');
+        if (state === 'CLAIMED' && leaseUntil !== null && leaseUntil > observedAt) {
+          return { status: 'reuse', action, now: observedAt, state };
+        }
+
+        lockPhase = 3;
+        lockedMailCandidate = true;
+        const lockedMail = await db.first<ReusableMailOutboxRow>(`SELECT ${REUSABLE_MAIL_OUTBOX_COLUMNS}
+          FROM auth_mail_outbox
+          WHERE id = ? AND action_digest = ? AND user_id = ? AND purpose = ?
+          FOR UPDATE`, [mail.id, action.tokenDigest, userId, purpose]);
+        if (!lockedMail) continue;
+        const lockedAt = timestampValue(getNow(), 'now');
+        const lockedState = reusableMailState(lockedMail, lockedAt);
+        if (lockedState !== null && action.expiresAt > lockedAt) {
+          return { status: 'reuse', action, now: lockedAt, state: lockedState };
+        }
+      }
+
+      return lockedMailCandidate
+        ? { status: 'retry' }
+        : { status: 'none', now: timestampValue(getNow(), 'now') };
     },
 
     async insertAction(input) {
@@ -1324,6 +1420,26 @@ function mapAction(row: MysqlRow): ActionSnapshot {
     consumedAt: nullableNumberValue(row.consumed_at, 'consumed_at'),
     revokedAt: nullableNumberValue(row.revoked_at, 'revoked_at'),
   };
+}
+
+function reusableMailState(row: ReusableMailOutboxRow, now: number): 'PENDING' | 'CLAIMED' | null {
+  const state = requiredString(row.state, 'state');
+  const expiresAt = numberValue(row.expires_at, 'expires_at');
+  const nextAttemptAt = numberValue(row.next_attempt_at, 'next_attempt_at');
+  if (expiresAt <= now || nextAttemptAt >= expiresAt || numberValue(row.has_payload, 'has_payload') !== 1) return null;
+
+  if (state === 'CLAIMED') {
+    const leaseUntil = nullableNumberValue(row.lease_until, 'lease_until');
+    if (leaseUntil !== null && leaseUntil > now) return 'CLAIMED';
+  }
+
+  const attemptCount = numberValue(row.attempt_count, 'attempt_count');
+  const firstAttemptAt = nullableNumberValue(row.first_attempt_at, 'first_attempt_at');
+  if (attemptCount >= MAIL_MAX_ATTEMPTS
+    || (firstAttemptAt !== null && firstAttemptAt <= Math.max(0, now - MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS))) return null;
+  if (state === 'PENDING') return 'PENDING';
+  if (state === 'CLAIMED' && nullableNumberValue(row.lease_until, 'lease_until') !== null) return 'CLAIMED';
+  return null;
 }
 
 function countValue(row: MailLimitRow | undefined): number {

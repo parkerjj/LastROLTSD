@@ -6,11 +6,12 @@ import { readAuthJson } from './body';
 import { assertCsrf, assertTrustedWriteOrigin, issueCsrf } from './csrf';
 import { resolveAuthConfig } from './config';
 import { createAccountService } from './account-service';
+import { createActionService } from './action-service';
 import { normalizeEmail, parseDisplayName, validatePasswordConfirmation } from './input';
 import { createAuthRepository } from './repository';
 import { AUTH_RATE_LIMITS, authRateLimitKey, consumeAuthRateLimit, trustedAuthClientIp } from './rate-limit';
 import { clearSessionCookie, createSessionService } from './session-service';
-import { AuthFailure, type AuthBindings, type AuthFailureStatus, type AuthRuntime } from './types';
+import { AuthFailure, type AuthBindings, type AuthFailureStatus, type AuthRateLimitRule, type AuthRuntime, type EnabledAuthConfig } from './types';
 
 type AuthRouteMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
@@ -80,6 +81,58 @@ function tooManyRequests(c: any, retryAfter: number): Response {
   return response;
 }
 
+interface SensitiveRateIdentity {
+  kind: 'session' | 'action';
+  value: string;
+}
+
+async function sensitiveRateRules(
+  config: EnabledAuthConfig,
+  clientIp: string,
+  identities: readonly SensitiveRateIdentity[],
+): Promise<AuthRateLimitRule[]> {
+  const ipDigest = await authRateLimitKey(config.rateSecret, 'ip', clientIp);
+  const identityDigests = await Promise.all(identities.map(({ kind, value }) => authRateLimitKey(config.rateSecret, kind, value)));
+  const identityLimit = AUTH_RATE_LIMITS.sensitivePerSessionOrAction;
+  const ipLimit = AUTH_RATE_LIMITS.sensitivePerIp;
+  return [
+    ...identityDigests.map((keyDigest) => ({
+      kind: 'window' as const,
+      scope: identityLimit.scope,
+      keyDigest,
+      limit: identityLimit.limit,
+      windowMs: identityLimit.windowMs,
+    })),
+    { kind: 'window', scope: ipLimit.scope, keyDigest: ipDigest, limit: ipLimit.limit, windowMs: ipLimit.windowMs },
+  ];
+}
+
+async function mailRequestRateRules(
+  config: EnabledAuthConfig,
+  emailNormalized: string,
+  clientIp: string,
+): Promise<AuthRateLimitRule[]> {
+  const [emailDigest, ipDigest] = await Promise.all([
+    authRateLimitKey(config.rateSecret, 'email', emailNormalized),
+    authRateLimitKey(config.rateSecret, 'ip', clientIp),
+  ]);
+  const emailLimit = AUTH_RATE_LIMITS.mailPerEmail;
+  const ipLimit = AUTH_RATE_LIMITS.mailPerIp;
+  const cooldown = AUTH_RATE_LIMITS.mailCooldown;
+  return [
+    { kind: 'window', scope: emailLimit.scope, keyDigest: emailDigest, limit: emailLimit.limit, windowMs: emailLimit.windowMs },
+    { kind: 'window', scope: ipLimit.scope, keyDigest: ipDigest, limit: ipLimit.limit, windowMs: ipLimit.windowMs },
+    { kind: 'cooldown', scope: cooldown.scope, keyDigest: emailDigest, cooldownMs: cooldown.cooldownMs },
+  ];
+}
+
+function requireActionToken(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(value)) {
+    throw new AuthFailure('AUTH_ACTION_INVALID', 400, '链接已失效，请登录后重新申请');
+  }
+  return value;
+}
+
 function knownPath(path: string): boolean {
   return KNOWN_PATHS.has(path) || /^\/api\/v1\/users\/[1-9]\d{0,19}\/avatar$/u.test(path);
 }
@@ -113,6 +166,11 @@ export function registerAuthRoutes(
     '/api/v1/auth/session/refresh',
     '/api/v1/auth/logout',
     '/api/v1/auth/logout-all',
+    '/api/v1/auth/email-verification/request',
+    '/api/v1/auth/email-verification/confirm',
+    '/api/v1/auth/password/change',
+    '/api/v1/auth/password-reset/request',
+    '/api/v1/auth/password-reset/confirm',
   ]);
 
   app.get('/api/v1/auth/csrf', async (c) => {
@@ -279,6 +337,155 @@ export function registerAuthRoutes(
       await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
       await service.logoutAll(identity);
       return c.newResponse(null, 204, { 'cache-control': 'no-store', 'set-cookie': clearSessionCookie(config) });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/email-verification/request', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      await readEmptyAuthBody(c.req.raw);
+      const sessions = createSessionService(repository, config, authRuntime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+
+      const profile = await repository.readProfile(identity.userId);
+      if (!profile) throw new AuthFailure('AUTH_UNAUTHENTICATED', 401, '请先登录');
+      const clientIp = trustedAuthClientIp(c.req.raw, env.ENVIRONMENT);
+      const rules = await sensitiveRateRules(config, clientIp, [{ kind: 'session', value: identity.sessionToken }]);
+      if (profile.status === 'PENDING_EMAIL') {
+        rules.push(...await mailRequestRateRules(config, normalizeEmail(profile.email).normalized, clientIp));
+      }
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const result = await createActionService(repository, config, authRuntime).requestVerification(identity);
+      const status = 'verified' in result ? 200 : 202;
+      return c.json(result, status, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/email-verification/confirm', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (Object.keys(body).some((field) => field !== 'token')) throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      const token = requireActionToken(body.token);
+      const sessions = createSessionService(repository, config, authRuntime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+
+      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT), [
+        { kind: 'session', value: identity.sessionToken },
+        { kind: 'action', value: token },
+      ]);
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const result = await createActionService(repository, config, authRuntime).confirmVerification(identity, token);
+      return c.json(result.response, 200, { 'cache-control': 'no-store', 'set-cookie': result.cookie });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/password/change', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (Object.keys(body).some((field) => !['current_password', 'new_password', 'new_password_confirmation'].includes(field))) {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      }
+      if (typeof body.current_password !== 'string' || typeof body.new_password !== 'string'
+        || typeof body.new_password_confirmation !== 'string') throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+
+      const sessions = createSessionService(repository, config, authRuntime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT), [
+        { kind: 'session', value: identity.sessionToken },
+      ]);
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      await createActionService(repository, config, authRuntime).changePassword(
+        identity,
+        body.current_password,
+        body.new_password,
+        body.new_password_confirmation,
+      );
+      return c.newResponse(null, 204, { 'cache-control': 'no-store', 'set-cookie': clearSessionCookie(config) });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/password-reset/request', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (Object.keys(body).some((field) => field !== 'email')) throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      if (typeof body.email !== 'string') throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+      await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
+
+      const email = normalizeEmail(body.email);
+      const rules = await mailRequestRateRules(
+        config,
+        email.normalized,
+        trustedAuthClientIp(c.req.raw, env.ENVIRONMENT),
+      );
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const response = await createActionService(repository, config, authRuntime).requestReset(body.email);
+      return c.json(response, 202, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/auth/password-reset/confirm', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (Object.keys(body).some((field) => !['token', 'new_password', 'new_password_confirmation'].includes(field))) {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      }
+      const token = requireActionToken(body.token);
+      if (typeof body.new_password !== 'string' || typeof body.new_password_confirmation !== 'string') {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+      }
+      await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
+
+      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT), [
+        { kind: 'action', value: token },
+      ]);
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const sessions = createSessionService(repository, config, authRuntime);
+      let currentIdentity: Awaited<ReturnType<typeof sessions.authenticate>> | null = null;
+      try {
+        currentIdentity = await sessions.authenticate(c.req.raw);
+      } catch (error) {
+        if (!(error instanceof AuthFailure) || error.status !== 401) throw error;
+      }
+      const result = await createActionService(repository, config, authRuntime).confirmReset(
+        token,
+        body.new_password,
+        body.new_password_confirmation,
+      );
+      const headers: Record<string, string> = { 'cache-control': 'no-store' };
+      if (currentIdentity?.userId === result.changedUserId) headers['set-cookie'] = clearSessionCookie(config);
+      return c.newResponse(null, 204, headers);
     } catch (error) {
       return routeFailure(c, error);
     }

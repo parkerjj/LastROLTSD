@@ -5,7 +5,7 @@ import { resolveAuthConfig } from '../../apps/worker/src/auth/config';
 import { createOpaqueToken, digestToken, openMailPayload, sealMailPayload } from '../../apps/worker/src/auth/crypto';
 import { prepareActionMail, preparePasswordChangedMail } from '../../apps/worker/src/auth/mail';
 import { registerAuthRoutes } from '../../apps/worker/src/auth/router';
-import type { AuthBindings, AuthRateLimitRule, PasswordMaterial } from '../../apps/worker/src/auth/types';
+import type { ActionPurpose, AuthBindings, AuthRateLimitRule, NewMailJob, PasswordMaterial } from '../../apps/worker/src/auth/types';
 import { MysqlDatabaseError, type MysqlDatabase, type MysqlRow } from '../../apps/worker/src/db/mysql-client';
 import type { AppEnv } from '../../apps/worker/src/env';
 import { consumeAuthRateLimit } from '../../apps/worker/src/auth/rate-limit';
@@ -609,6 +609,277 @@ describe('real MySQL account schema and repository', () => {
         .resolves.toEqual({ allowed: false, retryAfter: 40 });
       await expect(consumeAuthRateLimit(repository, [mailWindow, mailCooldown], () => firstMailAt + 60_000))
         .resolves.toEqual({ allowed: true, retryAfter: 0 });
+    });
+  }, 120_000);
+
+  it.skipIf(!runMysqlTests)('recovers a pre-registered pending account, verifies only in the same session, and rotates credentials once', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const baseTime = Date.UTC(2026, 9, 13, 12);
+      let now = baseTime;
+      let fetchCalls = 0;
+      const runtime = {
+        now: () => now,
+        fetch: (async () => {
+          fetchCalls += 1;
+          return new Response('{}', { status: 200 });
+        }) as typeof globalThis.fetch,
+      };
+      const app = new Hono();
+      const config = testAuthConfig();
+      const repository = createAuthRepository(database);
+      registerAuthRoutes(app, testAuthBindings(), database, runtime);
+
+      const csrfResponse = await app.request('/api/v1/auth/csrf', { headers: { origin: 'https://lastro.example' } });
+      expect(csrfResponse.status).toBe(200);
+      const anonymousCsrf = await csrfResponse.json() as { csrf_token: string };
+      const anonymousCookie = csrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!anonymousCookie) throw new Error('expected anonymous CSRF cookie');
+
+      const post = (path: string, body: unknown, cookie: string, csrfToken: string) => app.request(path, {
+        method: 'POST',
+        headers: {
+          origin: 'https://lastro.example', 'content-type': 'application/json',
+          cookie, 'x-csrf-token': csrfToken,
+        },
+        body: JSON.stringify(body),
+      });
+      const register = async (email: string, password: string) => {
+        const response = await post('/api/v1/auth/register', {
+          email, password, password_confirmation: password, display_name: 'Pilot',
+        }, anonymousCookie, anonymousCsrf.csrf_token);
+        expect(response.status).toBe(202);
+        expect(response.headers.get('set-cookie')).toBeNull();
+        return response.json();
+      };
+      const login = async (email: string, password: string, cookie = anonymousCookie) => {
+        const response = await post('/api/v1/auth/login', { email, password }, cookie, anonymousCsrf.csrf_token);
+        expect(response.status).toBe(200);
+        const sessionCookie = response.headers.get('set-cookie')?.split(';', 1)[0];
+        if (!sessionCookie) throw new Error('expected authenticated session cookie');
+        const body = await response.json() as { csrf_token: string; user: { id: string; status: string } };
+        return { cookie: sessionCookie, csrfToken: body.csrf_token, body };
+      };
+      const actionMail = async (userId: string, purpose: ActionPurpose) => {
+        const row = await database.first<MysqlRow>(`SELECT id, action_digest, CAST(user_id AS CHAR) AS user_id, purpose,
+            priority, created_at, expires_at, payload_ciphertext, payload_iv, payload_key_version
+          FROM auth_mail_outbox WHERE user_id = ? AND purpose = ? ORDER BY created_at DESC LIMIT 1`, [userId, purpose]);
+        if (!row || !(row.action_digest instanceof Uint8Array)) throw new Error('expected prepared action mail');
+        const job: NewMailJob = {
+          id: String(row.id), actionDigest: row.action_digest, userId: String(row.user_id), purpose,
+          priority: Number(row.priority) === 0 ? 0 : 1,
+          createdAt: Number(row.created_at), expiresAt: Number(row.expires_at),
+          payloadCiphertext: String(row.payload_ciphertext), payloadIv: String(row.payload_iv),
+          payloadKeyVersion: String(row.payload_key_version),
+        };
+        const intent = JSON.parse(await openMailPayload(job, { mailId: job.id, purpose }, config)) as { text: string };
+        const token = /token=([A-Za-z0-9_-]{43})/u.exec(intent.text)?.[1];
+        if (!token) throw new Error('expected action token in sealed mail');
+        return { token, actionDigest: row.action_digest, job };
+      };
+      const userIdFor = async (emailNormalized: string): Promise<string> => {
+        const row = await database.first<MysqlRow>('SELECT CAST(id AS CHAR) AS id FROM auth_users WHERE email_normalized = ?', [emailNormalized]);
+        if (typeof row?.id !== 'string') throw new Error('expected created auth user');
+        return row.id;
+      };
+
+      const attackerPassword = 'attacker-known-password';
+      await register('victim@example.test', attackerPassword);
+      const victimId = await userIdFor('victim@example.test');
+      const oldVerifyMail = await actionMail(victimId, 'VERIFY_EMAIL');
+      const attackerSession = await login('victim@example.test', attackerPassword);
+
+      const scan = await app.request(`/api/v1/auth/email-verification/confirm?token=${oldVerifyMail.token}`, {
+        headers: { origin: 'https://lastro.example', cookie: `${anonymousCookie}; ${attackerSession.cookie}` },
+      });
+      expect(scan.status).toBe(404);
+      await expect(database.first<MysqlRow>(`SELECT consumed_at FROM auth_action_tokens WHERE token_digest = ?`, [oldVerifyMail.actionDigest]))
+        .resolves.toEqual({ consumed_at: null });
+
+      // Simulate the persisted PENDING state after a provider 401/403: it is
+      // retained for audit but cannot be claimed again before its action expires.
+      await database.run(`UPDATE auth_mail_outbox
+        SET next_attempt_at = expires_at, last_error_code = 'MAIL_PROVIDER_AUTH',
+            attempt_count = 1, first_attempt_at = created_at WHERE id = ?`, [oldVerifyMail.job.id]);
+      now += 60_001;
+      const repairedConfigRequest = await post('/api/v1/auth/email-verification/request', {},
+        `${anonymousCookie}; ${attackerSession.cookie}`, attackerSession.csrfToken);
+      expect(repairedConfigRequest.status).toBe(202);
+      expect(await repairedConfigRequest.json()).toEqual({
+        accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
+      });
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_action_tokens WHERE user_id = ?', [victimId]))
+        .resolves.toMatchObject({ count: 2 });
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_mail_outbox WHERE user_id = ?', [victimId]))
+        .resolves.toMatchObject({ count: 2 });
+      await expect(database.first<MysqlRow>(`SELECT state, last_error_code, next_attempt_at, expires_at, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [oldVerifyMail.job.id])).resolves.toMatchObject({
+        state: 'PENDING', last_error_code: 'MAIL_PROVIDER_AUTH',
+      });
+
+      const normalPauseMail = await actionMail(victimId, 'VERIFY_EMAIL');
+      const normalRetryAt = now + 5 * 60 * 1000;
+      expect(normalRetryAt).toBeLessThan(normalPauseMail.job.expiresAt);
+      await database.run(`UPDATE auth_mail_outbox
+        SET next_attempt_at = ?, last_error_code = 'MAIL_SENDER_UNCONFIGURED' WHERE id = ?`, [normalRetryAt, normalPauseMail.job.id]);
+      now += 60_001;
+      const normalPauseRequest = await post('/api/v1/auth/email-verification/request', {},
+        `${anonymousCookie}; ${attackerSession.cookie}`, attackerSession.csrfToken);
+      expect(normalPauseRequest.status).toBe(202);
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_action_tokens WHERE user_id = ?', [victimId]))
+        .resolves.toMatchObject({ count: 2 });
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_mail_outbox WHERE user_id = ?', [victimId]))
+        .resolves.toMatchObject({ count: 2 });
+      await expect(database.first<MysqlRow>('SELECT state, last_error_code, next_attempt_at, expires_at FROM auth_mail_outbox WHERE id = ?', [normalPauseMail.job.id]))
+        .resolves.toMatchObject({ state: 'PENDING', last_error_code: 'MAIL_SENDER_UNCONFIGURED', next_attempt_at: normalRetryAt });
+
+      const otherPassword = 'other-known-password';
+      await register('other@example.test', otherPassword);
+      const otherId = await userIdFor('other@example.test');
+      const otherVerifyMail = await actionMail(otherId, 'VERIFY_EMAIL');
+      const otherSession = await login('other@example.test', otherPassword);
+      const wrongUser = await post('/api/v1/auth/email-verification/confirm', { token: oldVerifyMail.token },
+        `${anonymousCookie}; ${otherSession.cookie}`, otherSession.csrfToken);
+      expect(wrongUser.status).toBe(400);
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [victimId]))
+        .resolves.toMatchObject({ status: 'PENDING_EMAIL' });
+
+      now += 60_001;
+      const resetAccepted = await post('/api/v1/auth/password-reset/request', { email: 'victim@example.test' },
+        `${anonymousCookie}; ${attackerSession.cookie}`, anonymousCsrf.csrf_token);
+      const missingAccepted = await post('/api/v1/auth/password-reset/request', { email: 'missing@example.test' },
+        anonymousCookie, anonymousCsrf.csrf_token);
+      expect(resetAccepted.status).toBe(202);
+      expect(missingAccepted.status).toBe(202);
+      expect(await resetAccepted.json()).toEqual(await missingAccepted.json());
+      const resetMail = await actionMail(victimId, 'RESET_PASSWORD');
+
+      const ownerPassword = 'owner-recovered-password';
+      const reset = await post('/api/v1/auth/password-reset/confirm', {
+        token: resetMail.token, new_password: ownerPassword, new_password_confirmation: ownerPassword,
+      }, `${anonymousCookie}; ${attackerSession.cookie}`, anonymousCsrf.csrf_token);
+      expect(reset.status).toBe(204);
+      expect(reset.headers.get('set-cookie')).toMatch(/Max-Age=0/u);
+      await expect(database.first<MysqlRow>('SELECT status, credential_version, auth_version FROM auth_users WHERE id = ?', [victimId]))
+        .resolves.toMatchObject({ status: 'PENDING_EMAIL', credential_version: 2, auth_version: 2 });
+      await expect(repository.readIdentity(await digestToken(attackerSession.cookie.split('=', 2)[1]!), now)).resolves.toBeNull();
+
+      const repeatedReset = await post('/api/v1/auth/password-reset/confirm', {
+        token: resetMail.token, new_password: ownerPassword, new_password_confirmation: ownerPassword,
+      }, `${anonymousCookie}; ${attackerSession.cookie}`, anonymousCsrf.csrf_token);
+      expect(repeatedReset.status).toBe(400);
+      const oldPasswordLogin = await post('/api/v1/auth/login', { email: 'victim@example.test', password: attackerPassword },
+        anonymousCookie, anonymousCsrf.csrf_token);
+      expect(oldPasswordLogin.status).toBe(401);
+
+      const ownerSession = await login('victim@example.test', ownerPassword);
+      expect(ownerSession.body.user.status).toBe('PENDING_EMAIL');
+      const oldLink = await post('/api/v1/auth/email-verification/confirm', { token: oldVerifyMail.token },
+        `${anonymousCookie}; ${ownerSession.cookie}`, ownerSession.csrfToken);
+      expect(oldLink.status).toBe(400);
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [victimId]))
+        .resolves.toMatchObject({ status: 'PENDING_EMAIL' });
+
+      now += 60_001;
+      const newVerifyRequest = await post('/api/v1/auth/email-verification/request', {},
+        `${anonymousCookie}; ${ownerSession.cookie}`, ownerSession.csrfToken);
+      expect(newVerifyRequest.status).toBe(202);
+      const newVerifyMail = await actionMail(victimId, 'VERIFY_EMAIL');
+      const wrongPurpose = await post('/api/v1/auth/password-reset/confirm', {
+        token: newVerifyMail.token, new_password: ownerPassword, new_password_confirmation: ownerPassword,
+      }, anonymousCookie, anonymousCsrf.csrf_token);
+      expect(wrongPurpose.status).toBe(400);
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [victimId]))
+        .resolves.toMatchObject({ status: 'PENDING_EMAIL' });
+
+      const confirmed = await post('/api/v1/auth/email-verification/confirm', { token: newVerifyMail.token },
+        `${anonymousCookie}; ${ownerSession.cookie}`, ownerSession.csrfToken);
+      expect(confirmed.status).toBe(200);
+      const confirmedBody = await confirmed.json() as { csrf_token: string; user: { id: string; status: string } };
+      expect(confirmedBody.user).toMatchObject({ id: victimId, status: 'ACTIVE' });
+      const verifiedCookie = confirmed.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!verifiedCookie) throw new Error('expected verification to rotate the session cookie');
+      expect(verifiedCookie).not.toBe(ownerSession.cookie);
+      await expect(repository.readIdentity(await digestToken(ownerSession.cookie.split('=', 2)[1]!), now)).resolves.toBeNull();
+
+      const repeatedVerify = await post('/api/v1/auth/email-verification/confirm', { token: newVerifyMail.token },
+        `${anonymousCookie}; ${verifiedCookie}`, confirmedBody.csrf_token);
+      expect(repeatedVerify.status).toBe(400);
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [victimId]))
+        .resolves.toMatchObject({ status: 'ACTIVE' });
+
+      const changedPassword = 'owner-final-password';
+      const changed = await post('/api/v1/auth/password/change', {
+        current_password: ownerPassword, new_password: changedPassword, new_password_confirmation: changedPassword,
+      }, `${anonymousCookie}; ${verifiedCookie}`, confirmedBody.csrf_token);
+      expect(changed.status).toBe(204);
+      expect(changed.headers.get('set-cookie')).toMatch(/Max-Age=0/u);
+      await expect(database.first<MysqlRow>(`SELECT status, credential_version, auth_version, email_verified_at
+        FROM auth_users WHERE id = ?`, [victimId])).resolves.toMatchObject({
+        status: 'ACTIVE', credential_version: 3, auth_version: 3,
+      });
+      await expect(repository.readIdentity(await digestToken(verifiedCookie.split('=', 2)[1]!), now)).resolves.toBeNull();
+      const actionEvents = await database.all<MysqlRow>(`SELECT event FROM auth_security_events
+        WHERE user_id = ? AND event IN ('EMAIL_VERIFIED', 'PASSWORD_RESET', 'PASSWORD_CHANGE') ORDER BY id`, [victimId]);
+      expect(actionEvents.map((row) => row.event)).toEqual(['PASSWORD_RESET', 'EMAIL_VERIFIED', 'PASSWORD_CHANGE']);
+      expect(fetchCalls).toBe(0);
+
+      now = baseTime + 60 * 60 * 1000 + 1;
+      const boundaryResetCsrfResponse = await app.request('/api/v1/auth/csrf', {
+        headers: { origin: 'https://lastro.example' },
+      });
+      const boundaryResetCsrf = await boundaryResetCsrfResponse.json() as { csrf_token: string };
+      const boundaryResetCookie = boundaryResetCsrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!boundaryResetCookie) throw new Error('expected fresh anonymous CSRF cookie for boundary reset');
+      const boundaryResetRequest = await post('/api/v1/auth/password-reset/request', { email: 'victim@example.test' },
+        boundaryResetCookie, boundaryResetCsrf.csrf_token);
+      expect(boundaryResetRequest.status).toBe(202);
+      const boundaryResetMail = await actionMail(victimId, 'RESET_PASSWORD');
+      const boundaryResetAction = await database.first<MysqlRow>(`SELECT created_at, expires_at
+        FROM auth_action_tokens WHERE token_digest = ?`, [boundaryResetMail.actionDigest]);
+      const resetExpiry = Number(boundaryResetAction?.expires_at);
+      expect(resetExpiry - Number(boundaryResetAction?.created_at)).toBe(30 * 60 * 1000);
+      now = resetExpiry;
+      const boundaryCsrfResponse = await app.request('/api/v1/auth/csrf', {
+        headers: { origin: 'https://lastro.example', cookie: boundaryResetCookie },
+      });
+      const boundaryCsrf = await boundaryCsrfResponse.json() as { csrf_token: string };
+      const expiredReset = await post('/api/v1/auth/password-reset/confirm', {
+        token: boundaryResetMail.token, new_password: 'another-owner-password',
+        new_password_confirmation: 'another-owner-password',
+      }, boundaryResetCookie, boundaryCsrf.csrf_token);
+      expect(expiredReset.status).toBe(400);
+      await expect(database.first<MysqlRow>('SELECT consumed_at FROM auth_action_tokens WHERE token_digest = ?', [boundaryResetMail.actionDigest]))
+        .resolves.toEqual({ consumed_at: null });
+      await expect(database.first<MysqlRow>('SELECT credential_version FROM auth_users WHERE id = ?', [victimId]))
+        .resolves.toMatchObject({ credential_version: 3 });
+
+      const otherCreatedAt = await database.first<MysqlRow>('SELECT created_at FROM auth_users WHERE id = ?', [otherId]);
+      const otherAction = await database.first<MysqlRow>('SELECT expires_at FROM auth_action_tokens WHERE token_digest = ?', [otherVerifyMail.actionDigest]);
+      const verifyExpiry = Number(otherAction?.expires_at);
+      expect(verifyExpiry - Number(otherCreatedAt?.created_at)).toBe(24 * 60 * 60 * 1000);
+      now = verifyExpiry;
+      const expiredVerify = await post('/api/v1/auth/email-verification/confirm', { token: otherVerifyMail.token },
+        `${anonymousCookie}; ${otherSession.cookie}`, otherSession.csrfToken);
+      expect(expiredVerify.status).toBe(400);
+      await expect(database.first<MysqlRow>('SELECT consumed_at FROM auth_action_tokens WHERE token_digest = ?', [otherVerifyMail.actionDigest]))
+        .resolves.toEqual({ consumed_at: null });
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [otherId]))
+        .resolves.toMatchObject({ status: 'PENDING_EMAIL' });
+
+      await database.run('UPDATE auth_users SET status = ? WHERE id = ?', ['DISABLED', otherId]);
+      const disabledCsrfResponse = await app.request('/api/v1/auth/csrf', { headers: { origin: 'https://lastro.example' } });
+      const disabledCsrf = await disabledCsrfResponse.json() as { csrf_token: string };
+      const disabledCookie = disabledCsrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!disabledCookie) throw new Error('expected fresh anonymous CSRF cookie');
+      const unknownReset = await post('/api/v1/auth/password-reset/request', { email: 'still-missing@example.test' },
+        disabledCookie, disabledCsrf.csrf_token);
+      const disabledReset = await post('/api/v1/auth/password-reset/request', { email: 'other@example.test' },
+        disabledCookie, disabledCsrf.csrf_token);
+      expect(unknownReset.status).toBe(202);
+      expect(disabledReset.status).toBe(202);
+      expect(await disabledReset.json()).toEqual(await unknownReset.json());
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_mail_outbox WHERE user_id = ?', [otherId]))
+        .resolves.toMatchObject({ count: 1 });
     });
   }, 120_000);
 });

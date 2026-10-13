@@ -24,8 +24,8 @@
 | 3 | complete | 2c26a92..8e16202 | 12unit/1真实MySQL，0skip；type/lint；fix无SQL重跑 | 独立初审PASS；管理人补验收fix1 fresh复审PASS |
 | 4 | complete | 8e16202..e0fdc21 | 22focused/2真MySQL0skip/type/lint，fault模拟 | 初审经补查改1Important，fix1复审PASS |
 | 5 | complete | e0fdc21..9fdf74b | 39focused/3REQUIRE MySQL，0skip/type/lint | 初审1Important，fix1 fresh Spec PASS/quality APPROVE |
-| 6 | complete | base 9fdf74b；本次feature提交 | 23focused/4REQUIRE MySQL0skip/type/lint | 独立Spec PASS/quality APPROVE，无Critical/Important |
-| 7 | 未开始 | — | — | — |
+| 6 | complete | 9fdf74b..7c1b6f7 | 23focused/4REQUIRE MySQL0skip/type/lint | 独立Spec PASS/quality APPROVE，无Critical/Important |
+| 7 | complete | base 7c1b6f7；本次feature提交 | 42focused；fix12focused/5REQUIRE MySQL0skip/type/lint | 1Important/1Minor，fix1 fresh Spec PASS/quality APPROVE |
 | 8 | 未开始 | — | — | — |
 | 9 | 未开始 | — | — | — |
 | 10 | 未开始 | — | — | — |
@@ -253,7 +253,7 @@ Task4 commit e0fdc217673d31710cc685efab8a53a767a2143c。Task5开始，fresh Luna
 
 Ruling: 缺sender时密文保存投递intent，首次HTTP前按lease及attempt_count=0 CAS冻结完整body到现有sealed字段，随后同job永远复用body/key；无sender/APIkey仅暂停保留密文 — 排队通知不得回滚密码变更且供应商幂等要求完整body一致 — 若错需内部payload契约调整，不新增schema或虚构邮箱。
 
-Task5前置接口补齐：同意可选AuthConfig.mailDelivery: MailDeliveryConfig={apiKey:string|null;from:string|null;replyTo:string|null}，缺项暂停投递而不破坏core login；prepare动作输入由调用方传精确expiresAt，通知无token默认24h。理由是原Task仅函数名未定义shape，Task6/7消费最终导出契约；无公开wire/数据库schema变化。
+Ruling: Task5前置接口补齐，采用可选AuthConfig.mailDelivery: MailDeliveryConfig={apiKey:string|null;from:string|null;replyTo:string|null}，缺项暂停投递而不破坏core login；prepare动作输入由调用方传精确expiresAt，通知无token默认24h。理由是原Task仅函数名未定义shape，Task6/7消费最终导出契约；无公开wire/数据库schema变化。
 
 Task5 RED（代理报告）：auth-mail.test.ts指定Vitest exit1，新增mail模块缺失；预期模板/官方fragment链接/昵称转义/通知无token及24h行为，未声称行为实现通过。
 
@@ -290,3 +290,19 @@ Task6阶段GREEN（代理报告）：完整REQUIRE MySQL4pass0skip，新增注�
 Task6最终报告已读：23focused/4REQUIRE MySQL0skip/type/lint/diff。顺序重复注册及outbox注入ER_DUP_ENTRY后的真实事务rollback已测，真实同邮箱并发仍Task14；avatar暂415，AUTH-01未标全。已生成七文件diff并派task6_review fresh6.1-sol/high，尚未提交。
 
 Task 6: complete（feat: add email account registration；23focused/4REQUIRE MySQL0skip/type/lint/diff；fresh独立review PASS，顺序duplicate/真实rollback证据，真竞争Task14及头像Task8明确待验收）。
+
+Task6 commit 7c1b6f796cac316b8107b86eef337888d77f96a1。Task7开始fresh单Luna/max，执行VERIFY→改密→RESET；会话helper最小复用允许，无后续任务/外部操作。
+
+浏览器能力预检（非头像GREEN）：Playwright MCP缺/opt/google/chrome/chrome，about:blank/evaluate初始化均失败。CUA IAB可创建空页；data: fixture导航被URL安全策略拒绝，仅HTTP/HTTPS允许，未产生WebP结果，临时空页已关闭。不绕过该导航或用RawCDP/alternate surface执行受阻动作；后续以实际本地HTTP开发页面/真实UI验证头像，当前不声称browser codec通过。此不阻塞Task7服务端开发。
+
+Ruling: confirmReset服务内部返回changedUserId，router仅当先前成功authenticate的当前Cookie属同用户时clear；无/失效/其他用户Cookie不清，changedUserId不进204公开回包 — 匿名恢复不应破坏无关网站身份，也不能提升RESET为通用登录授权 — 若错需内部返回类型适配，无schema/公开wire变更。复用VERIFY查询必须用户锁先行、遵守phase guard，空/失效候选需保留新建动作合法顺序，具体冲突再定位。
+
+Task7阶段证据（代理报告）：关键RED reset/request placeholder503预期统一202；新增MySQL生命周期选例GREEN，2次中间失败为断言对象/匿名CSRF随测试时钟过期的fixture错误，根因修正。完整REQUIRE auth-account-flow最终5pass0skip，涵盖夺回→新密码登录→新VERIFY→改密撤销及30min/24h边界，旧4例全pass。type/lint/diff exit0，待最终自查及独立review，不把模拟/选例当真竞争。
+
+Task7最终自查报告已读：42focused（17+25）/5REQUIRE MySQL0skip/type/lint/diff，真实race与barrier未测留Task14。生成五文件diff；管理人补查reuse nextAt=expiresAt无法再领取可能被错误复用、SELECT全sealed payload大载荷两点交独立review验证，不先猜结论。
+
+Task7 task7_review：Spec FAIL/quality REQUEST CHANGES，1Important/P2：401/403暂停nextAt=expiry的PENDING job仍被readReusableActionMail复用，202不新建而永不可claim；只读内存适配器复现，管理人接受。1Minor/P3：reuse两次SELECT完整ciphertext不必要，应metadata存在性投影；未测真实Free CPU、不声称超标。其他授权/一次性/版本/Cookie/事务/审计无阻塞；fix1原Luna仅repo与现有flow回归，暂不进入Task8。
+
+Task7 fix1代理证据：F1真库RED证明旧暂停job仍reuse action/job count1；GREEN新建count2，正常next=now+5m<expiry第二次仍reuse；401/403状态是测试SQL模拟，不是实际providerHTTP。两处metadata投影不读cipher/IV/key/provider字段，无新schema/index。完整REQUIRE MySQL5pass0skip、12focused/type/targetedlint/diff exit0，无CPU benchmark。生成仅repo/flow scoped diff，待fresh复审。
+
+Task 7: complete（feat: add account verification and password recovery；完整MySQL5pass0skip，42focused初验/12focused fix；独立review F1/F2均ADDRESSED、fresh复审PASS）。真实竞争/CPU未测，401模拟边界明确；不擅自升级账号邮箱或自动登录恢复身份。
