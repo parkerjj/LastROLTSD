@@ -1,5 +1,5 @@
 import type { AppEnv } from '../env';
-import { AuthFailure, type AuthBindings, type AuthConfig, type DisabledAuthConfig, type EnabledAuthConfig } from './types';
+import { AuthFailure, type AuthBindings, type AuthConfig, type DisabledAuthConfig, type EnabledAuthConfig, type MailDeliveryConfig } from './types';
 
 const UNAVAILABLE_MESSAGE = '账号服务暂不可用';
 
@@ -35,6 +35,26 @@ function isEnabled(value: string | undefined): boolean {
 function requiredValue(value: string | undefined): string {
   if (typeof value !== 'string' || value.length === 0) throw unavailable();
   return value;
+}
+
+function optionalMailApiKey(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized && normalized.length <= 512 && !/\s/u.test(normalized) ? normalized : null;
+}
+
+function optionalMailbox(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized || normalized.length > 320 || /[\r\n]/u.test(normalized)) return null;
+  const address = /^(?:[^<>\r\n]{1,120}\s+)?<[^<>\s@]+@[^<>\s@]+>$|^[^<>\s@]+@[^<>\s@]+$/u;
+  return address.test(normalized) ? normalized : null;
+}
+
+function mailDeliveryConfig(env: AppEnv & AuthBindings): MailDeliveryConfig {
+  return {
+    apiKey: optionalMailApiKey(env.RESEND_API_KEY),
+    from: optionalMailbox(env.MAIL_FROM),
+    replyTo: optionalMailbox(env.MAIL_REPLY_TO),
+  };
 }
 
 function decodeSecret(value: string | undefined): Uint8Array {
@@ -125,6 +145,7 @@ export function resolveAuthConfig(env: AppEnv & AuthBindings): AuthConfig {
     mailPayloadKeys,
     currentPasswordKeyVersion,
     currentMailPayloadKeyVersion,
+    mailDelivery: mailDeliveryConfig(env),
   };
   return config;
 }

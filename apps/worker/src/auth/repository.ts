@@ -7,9 +7,12 @@ import type {
   AuthIdentity,
   ClaimedMailJob,
   CredentialSnapshot,
+  MailAttemptContext,
   MailAvailability,
+  MailReservation,
   NewMailJob,
   PasswordMaterial,
+  SealedMailPayload,
   UserId,
 } from './types';
 
@@ -27,6 +30,8 @@ const DAY_MILLISECONDS = 86_400_000;
 const ZERO_RATE_KEY_DIGEST = new Uint8Array(32);
 const MAIL_DAILY_LIMIT = 100;
 const MAIL_MONTHLY_LIMIT = 3_000;
+const MAIL_MAX_ATTEMPTS = 4;
+const MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 export interface UserRecord {
   id: UserId;
@@ -128,13 +133,34 @@ export interface AuthTx {
   appendEvent(input: AuthSecurityEventInput): Promise<void>;
 }
 
-export interface AuthRepository {
+export type MailFinishResult =
+  | { status: 'sent'; providerMessageId: string; observedAt: number }
+  | { status: 'retry'; errorCode: string; nextAttemptAt: number; observedAt: number }
+  | { status: 'paused'; errorCode: string; nextAttemptAt: number; observedAt: number }
+  | { status: 'failed'; errorCode: string; observedAt: number }
+  | { status: 'release'; observedAt: number };
+
+export interface MailRepository {
+  claimOneMail(now: number, leaseMs: number): Promise<ClaimedMailJob | null>;
+  freezeMailPayload(id: string, leaseId: string, expected: SealedMailPayload, frozen: SealedMailPayload, observedAt: number): Promise<boolean>;
+  finishMail(id: string, leaseId: string, result: MailFinishResult): Promise<boolean>;
+  reserveMailAttempt(id: string, leaseId: string, now: () => number): Promise<MailReservation>;
+  readMailAvailability(now: number): Promise<MailAvailability>;
+  recordProviderQuota(
+    id: string,
+    leaseId: string,
+    kind: 'daily' | 'monthly',
+    attempt: MailAttemptContext,
+    observedAt: number,
+  ): Promise<{ pauseRecorded: boolean; jobUpdated: boolean }>;
+}
+
+export interface AuthRepository extends MailRepository {
   readCredentialByEmail(emailNormalized: string): Promise<CredentialSnapshot | null>;
   readProfile(userId: UserId): Promise<AccountProfile | null>;
   readIdentity(sessionDigest: Uint8Array, now: number): Promise<LiveAuthIdentity | null>;
   transaction<T>(work: (tx: AuthTx) => Promise<T>): Promise<T>;
   readActionSnapshot(tokenDigest: Uint8Array): Promise<ActionSnapshot | null>;
-  readMailAvailability(now: number): Promise<MailAvailability>;
   consumeAuthRateLimits(rules: readonly AuthRateLimitRule[], now: () => number): Promise<{ allowed: boolean; retryAfter: number }>;
   readAvatar(userId: UserId): Promise<{ base64: string | null; version: number } | null>;
 }
@@ -144,6 +170,42 @@ interface MailLimitRow extends MysqlRow {
   request_count: unknown;
   next_allowed_at: unknown;
   expires_at: unknown;
+}
+
+interface MailOutboxRow extends MysqlRow {
+  id: unknown;
+  action_digest: unknown;
+  user_id: unknown;
+  purpose: unknown;
+  payload_ciphertext: unknown;
+  payload_iv: unknown;
+  payload_key_version: unknown;
+  priority: unknown;
+  state: unknown;
+  lease_id: unknown;
+  lease_until: unknown;
+  attempt_count: unknown;
+  next_attempt_at: unknown;
+  created_at: unknown;
+  expires_at: unknown;
+  first_attempt_at: unknown;
+  provider_message_id: unknown;
+  last_error_code: unknown;
+}
+
+interface MailUserRow extends MysqlRow {
+  email: unknown;
+  status: unknown;
+  credential_version: unknown;
+}
+
+interface MailActionRow extends MysqlRow {
+  purpose: unknown;
+  email_snapshot: unknown;
+  credential_version: unknown;
+  expires_at: unknown;
+  consumed_at: unknown;
+  revoked_at: unknown;
 }
 
 interface CredentialRow extends MysqlRow {
@@ -186,6 +248,9 @@ const USER_COLUMNS = `CAST(id AS CHAR) AS id, email, email_normalized, display_n
   email_verified_at, credential_version, auth_version, avatar_version, created_at, updated_at`;
 const CREDENTIAL_COLUMNS = `CAST(u.id AS CHAR) AS user_id, u.status, u.credential_version, u.auth_version,
   c.scheme, c.salt, c.digest, c.key_version`;
+const MAIL_OUTBOX_COLUMNS = `id, action_digest, CAST(user_id AS CHAR) AS user_id, purpose, payload_ciphertext,
+  payload_iv, payload_key_version, priority, state, lease_id, lease_until, attempt_count, next_attempt_at,
+  created_at, expires_at, first_attempt_at, provider_message_id, last_error_code`;
 
 export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryOptions = {}): AuthRepository {
   const mailDailyLimit = positiveInteger(options.mailDailyLimit ?? MAIL_DAILY_LIMIT, 'mailDailyLimit');
@@ -262,37 +327,27 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
     },
 
     async readMailAvailability(now) {
-      const currentTime = timestampValue(now, 'now');
-      const dayBucketStart = Math.floor(currentTime / DAY_MILLISECONDS) * DAY_MILLISECONDS;
-      const nextDayStart = dayBucketStart + DAY_MILLISECONDS;
-      const date = new Date(currentTime);
-      if (!Number.isFinite(date.getTime())) throw new Error('now must be a valid timestamp');
-      const monthBucketStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-      const rows = await db.all<MailLimitRow>(`SELECT scope, request_count, next_allowed_at, expires_at
-        FROM auth_rate_limits
-        WHERE key_digest = ?
-          AND ((scope = ? AND bucket_start = ?)
-            OR (scope = ? AND bucket_start = ?)
-            OR (scope = ? AND bucket_start = ?)
-            OR (scope = ? AND bucket_start = ?))`, [
-        ZERO_RATE_KEY_DIGEST,
-        'mail-budget-daily', dayBucketStart,
-        'mail-budget-monthly', monthBucketStart,
-        'mail-provider-daily', dayBucketStart,
-        'mail-provider-monthly', monthBucketStart,
-      ]);
-      const byScope = new Map(rows.map((row) => [requiredString(row.scope, 'scope'), row]));
-      const monthlyBudget = byScope.get('mail-budget-monthly');
-      const monthlyProvider = byScope.get('mail-provider-monthly');
-      if (countValue(monthlyBudget) >= mailMonthlyLimit || providerPauseActive(monthlyProvider, currentTime)) {
-        return { code: 'MAIL_MONTHLY_QUOTA', retry_at: null };
-      }
-      const dailyBudget = byScope.get('mail-budget-daily');
-      const dailyProvider = byScope.get('mail-provider-daily');
-      if (countValue(dailyBudget) >= mailDailyLimit || providerPauseActive(dailyProvider, currentTime)) {
-        return { code: 'MAIL_DAILY_QUOTA', retry_at: nextDayStart };
-      }
-      return { code: 'AVAILABLE', retry_at: null };
+      return readMailAvailability(db, mailDailyLimit, mailMonthlyLimit, now);
+    },
+
+    async claimOneMail(now, leaseMs) {
+      return claimOneMail(db, mailDailyLimit, mailMonthlyLimit, now, leaseMs);
+    },
+
+    async freezeMailPayload(id, leaseId, expected, frozen, observedAt) {
+      return freezeMailPayload(db, id, leaseId, expected, frozen, observedAt);
+    },
+
+    async finishMail(id, leaseId, result) {
+      return finishMail(db, id, leaseId, result);
+    },
+
+    async reserveMailAttempt(id, leaseId, getNow) {
+      return reserveMailAttempt(db, id, leaseId, getNow, mailDailyLimit, mailMonthlyLimit);
+    },
+
+    async recordProviderQuota(id, leaseId, kind, attempt, observedAt) {
+      return recordProviderQuota(db, id, leaseId, kind, attempt, observedAt);
     },
 
     async consumeAuthRateLimits(rules, getNow) {
@@ -670,6 +725,549 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
       if (result.affectedRows !== 1) throw new Error('auth security event was not inserted');
     },
   };
+}
+
+interface MailBuckets {
+  dayBucketStart: number;
+  nextDayStart: number;
+  monthBucketStart: number;
+  nextMonthStart: number;
+}
+
+interface MailRateEntry {
+  scope: 'mail-budget-daily' | 'mail-budget-monthly' | 'mail-provider-daily' | 'mail-provider-monthly';
+  bucketStart: number;
+  expiresAt: number;
+}
+
+function mailBuckets(value: number): MailBuckets {
+  const currentTime = timestampValue(value, 'now');
+  const date = new Date(currentTime);
+  if (!Number.isFinite(date.getTime())) throw new Error('now must be a valid timestamp');
+  const dayBucketStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const monthBucketStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  return {
+    dayBucketStart,
+    nextDayStart: timestampValue(dayBucketStart + DAY_MILLISECONDS, 'next day'),
+    monthBucketStart,
+    nextMonthStart: timestampValue(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1), 'next month'),
+  };
+}
+
+async function readMailAvailability(
+  db: MysqlDatabase,
+  mailDailyLimit: number,
+  mailMonthlyLimit: number,
+  now: number,
+): Promise<MailAvailability> {
+  const currentTime = timestampValue(now, 'now');
+  const buckets = mailBuckets(currentTime);
+  const rows = await db.all<MailLimitRow>(`SELECT scope, request_count, next_allowed_at, expires_at
+    FROM auth_rate_limits
+    WHERE key_digest = ?
+      AND ((scope = ? AND bucket_start = ?)
+        OR (scope = ? AND bucket_start = ?)
+        OR (scope = ? AND bucket_start = ?)
+        OR (scope = ? AND bucket_start = ?))`, [
+    ZERO_RATE_KEY_DIGEST,
+    'mail-budget-daily', buckets.dayBucketStart,
+    'mail-budget-monthly', buckets.monthBucketStart,
+    'mail-provider-daily', buckets.dayBucketStart,
+    'mail-provider-monthly', buckets.monthBucketStart,
+  ]);
+  const byScope = new Map(rows.map((row) => [requiredString(row.scope, 'scope'), row]));
+  if (countValue(byScope.get('mail-budget-monthly')) >= mailMonthlyLimit
+    || providerPauseActive(byScope.get('mail-provider-monthly'), currentTime)) {
+    return { code: 'MAIL_MONTHLY_QUOTA', retry_at: null };
+  }
+  if (countValue(byScope.get('mail-budget-daily')) >= mailDailyLimit
+    || providerPauseActive(byScope.get('mail-provider-daily'), currentTime)) {
+    return { code: 'MAIL_DAILY_QUOTA', retry_at: buckets.nextDayStart };
+  }
+  return { code: 'AVAILABLE', retry_at: null };
+}
+
+async function claimOneMail(
+  db: MysqlDatabase,
+  mailDailyLimit: number,
+  mailMonthlyLimit: number,
+  now: number,
+  leaseMs: number,
+): Promise<ClaimedMailJob | null> {
+  const currentTime = timestampValue(now, 'now');
+  const leaseDuration = positiveInteger(leaseMs, 'leaseMs');
+  const availability = await readMailAvailability(db, mailDailyLimit, mailMonthlyLimit, currentTime);
+  if (availability.code !== 'AVAILABLE') return null;
+
+  return db.transaction(async (transactionDb) => {
+    const expired = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+      FROM auth_mail_outbox
+      WHERE expires_at <= ?
+        AND (state = 'PENDING' OR (state = 'CLAIMED' AND lease_until <= ?))
+      ORDER BY expires_at, id
+      LIMIT 1 FOR UPDATE SKIP LOCKED`, [currentTime, currentTime]);
+    if (expired) {
+      await markMailTerminal(transactionDb, requiredString(expired.id, 'id'), 'CANCELLED', 'MAIL_EXPIRED');
+    }
+
+    const firstAttemptCutoff = Math.max(0, currentTime - MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS);
+    for (const priority of [0, 1] as const) {
+      const pending = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+        FROM auth_mail_outbox
+        WHERE state = 'PENDING' AND priority = ? AND next_attempt_at <= ? AND expires_at > ?
+          AND attempt_count < ? AND (first_attempt_at IS NULL OR first_attempt_at > ?)
+          AND payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL
+        ORDER BY next_attempt_at, id
+        LIMIT 1 FOR UPDATE SKIP LOCKED`, [priority, currentTime, currentTime, MAIL_MAX_ATTEMPTS, firstAttemptCutoff]);
+      if (pending) return claimMailRow(transactionDb, pending, 'PENDING', currentTime, leaseDuration);
+
+      const expiredLease = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+        FROM auth_mail_outbox
+        WHERE state = 'CLAIMED' AND priority = ? AND lease_until <= ? AND expires_at > ?
+          AND attempt_count < ? AND (first_attempt_at IS NULL OR first_attempt_at > ?)
+          AND payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL
+        ORDER BY lease_until, id
+        LIMIT 1 FOR UPDATE SKIP LOCKED`, [priority, currentTime, currentTime, MAIL_MAX_ATTEMPTS, firstAttemptCutoff]);
+      if (!expiredLease) continue;
+      return claimMailRow(transactionDb, expiredLease, 'CLAIMED', currentTime, leaseDuration);
+    }
+    return null;
+  });
+}
+
+async function claimMailRow(
+  db: MysqlDatabase,
+  row: MailOutboxRow,
+  previousState: 'PENDING' | 'CLAIMED',
+  now: number,
+  leaseMs: number,
+): Promise<ClaimedMailJob | null> {
+  const id = requiredString(row.id, 'id');
+  const leaseId = crypto.randomUUID();
+  const leaseUntil = timestampValue(now + leaseMs, 'leaseUntil');
+  const result = await db.run(`UPDATE auth_mail_outbox
+    SET state = 'CLAIMED', lease_id = ?, lease_until = ?
+    WHERE id = ? AND state = ?`, [leaseId, leaseUntil, id, previousState]);
+  if (result.affectedRows !== 1) return null;
+  return mapClaimedMailJob({ ...row, state: 'CLAIMED', lease_id: leaseId, lease_until: leaseUntil });
+}
+
+async function markMailTerminal(
+  db: MysqlDatabase,
+  id: string,
+  state: 'FAILED' | 'CANCELLED',
+  errorCode: string,
+): Promise<void> {
+  await db.run(`UPDATE auth_mail_outbox
+    SET state = ?, lease_id = NULL, lease_until = NULL, payload_ciphertext = NULL, payload_iv = NULL, last_error_code = ?
+    WHERE id = ? AND state IN ('PENDING', 'CLAIMED')`, [state, errorCode, id]);
+}
+
+function mapClaimedMailJob(row: MailOutboxRow): ClaimedMailJob {
+  const state = requiredString(row.state, 'state');
+  if (state !== 'CLAIMED') throw new Error('invalid auth mail state');
+  const priority = numberValue(row.priority, 'priority');
+  if (priority !== 0 && priority !== 1) throw new Error('invalid auth mail priority');
+  const purpose = requiredString(row.purpose, 'purpose');
+  if (purpose !== 'VERIFY_EMAIL' && purpose !== 'RESET_PASSWORD' && purpose !== 'PASSWORD_CHANGED') {
+    throw new Error('invalid auth mail purpose');
+  }
+  return {
+    id: requiredString(row.id, 'id'),
+    actionDigest: nullableByteArrayValue(row.action_digest, 'action_digest'),
+    userId: row.user_id === null ? null : requiredString(row.user_id, 'user_id'),
+    purpose,
+    priority,
+    createdAt: numberValue(row.created_at, 'created_at'),
+    expiresAt: numberValue(row.expires_at, 'expires_at'),
+    payloadCiphertext: requiredString(row.payload_ciphertext, 'payload_ciphertext'),
+    payloadIv: requiredString(row.payload_iv, 'payload_iv'),
+    payloadKeyVersion: requiredString(row.payload_key_version, 'payload_key_version'),
+    state: 'CLAIMED',
+    leaseId: requiredString(row.lease_id, 'lease_id'),
+    leaseUntil: numberValue(row.lease_until, 'lease_until'),
+    attemptCount: numberValue(row.attempt_count, 'attempt_count'),
+    nextAttemptAt: numberValue(row.next_attempt_at, 'next_attempt_at'),
+    firstAttemptAt: nullableNumberValue(row.first_attempt_at, 'first_attempt_at'),
+    providerMessageId: row.provider_message_id === null ? null : requiredString(row.provider_message_id, 'provider_message_id'),
+    lastErrorCode: row.last_error_code === null ? null : requiredString(row.last_error_code, 'last_error_code'),
+  };
+}
+
+async function freezeMailPayload(
+  db: MysqlDatabase,
+  id: string,
+  leaseId: string,
+  expected: SealedMailPayload,
+  frozen: SealedMailPayload,
+  observedAt: number,
+): Promise<boolean> {
+  assertSealedMailPayload(expected);
+  assertSealedMailPayload(frozen);
+  const result = await db.run(`UPDATE auth_mail_outbox
+    SET payload_ciphertext = ?, payload_iv = ?, payload_key_version = ?
+    WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ? AND attempt_count = 0
+      AND payload_ciphertext = ? AND payload_iv = ? AND payload_key_version = ?`, [
+    frozen.payloadCiphertext, frozen.payloadIv, frozen.payloadKeyVersion,
+    id, leaseId, timestampValue(observedAt, 'observedAt'),
+    expected.payloadCiphertext, expected.payloadIv, expected.payloadKeyVersion,
+  ]);
+  return result.affectedRows === 1;
+}
+
+function assertSealedMailPayload(payload: SealedMailPayload): void {
+  if (!payload || typeof payload.payloadCiphertext !== 'string' || payload.payloadCiphertext.length < 24
+    || payload.payloadCiphertext.length > 16_384
+    || !/^[A-Za-z0-9+/]+={0,2}$/u.test(payload.payloadCiphertext)
+    || typeof payload.payloadIv !== 'string' || !/^[A-Za-z0-9+/]{16}$/u.test(payload.payloadIv)
+    || typeof payload.payloadKeyVersion !== 'string'
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$/u.test(payload.payloadKeyVersion)) {
+    throw new Error('invalid sealed auth mail payload');
+  }
+}
+
+async function finishMail(db: MysqlDatabase, id: string, leaseId: string, result: MailFinishResult): Promise<boolean> {
+  const observedAt = timestampValue(result.observedAt, 'observedAt');
+  return db.transaction(async (transactionDb) => {
+    const row = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+      FROM auth_mail_outbox
+      WHERE id = ? AND state = 'CLAIMED' AND lease_id = ?
+      FOR UPDATE`, [id, leaseId]);
+    if (!row || numberValue(row.lease_until, 'lease_until') <= observedAt) return false;
+
+    if (result.status === 'sent') {
+      if (typeof result.providerMessageId !== 'string' || result.providerMessageId.length < 1 || result.providerMessageId.length > 191) {
+        throw new Error('invalid mail provider message id');
+      }
+      const updated = await transactionDb.run(`UPDATE auth_mail_outbox
+        SET state = 'SENT', lease_id = NULL, lease_until = NULL, provider_message_id = ?, last_error_code = NULL,
+            payload_ciphertext = NULL, payload_iv = NULL
+        WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [
+        result.providerMessageId, id, leaseId, observedAt,
+      ]);
+      return updated.affectedRows === 1;
+    }
+
+    if (result.status === 'failed') {
+      assertMailErrorCode(result.errorCode);
+      const updated = await transactionDb.run(`UPDATE auth_mail_outbox
+        SET state = 'FAILED', lease_id = NULL, lease_until = NULL, last_error_code = ?,
+            payload_ciphertext = NULL, payload_iv = NULL
+        WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [result.errorCode, id, leaseId, observedAt]);
+      return updated.affectedRows === 1;
+    }
+
+    const expiresAt = numberValue(row.expires_at, 'expires_at');
+    const attemptCount = numberValue(row.attempt_count, 'attempt_count');
+    const firstAttemptAt = nullableNumberValue(row.first_attempt_at, 'first_attempt_at');
+    if (result.status === 'retry') assertMailErrorCode(result.errorCode);
+    if (result.status === 'paused') assertMailErrorCode(result.errorCode);
+    const nextAttemptAt = result.status === 'release'
+      ? observedAt
+      : Math.min(timestampValue(result.nextAttemptAt, 'nextAttemptAt'), expiresAt);
+    const retryWindowExpired = firstAttemptAt !== null
+      && (observedAt - firstAttemptAt >= MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS
+        || nextAttemptAt - firstAttemptAt >= MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS);
+    const terminal = expiresAt <= observedAt
+      || (result.status === 'retry' && (attemptCount >= MAIL_MAX_ATTEMPTS || retryWindowExpired || nextAttemptAt >= expiresAt));
+
+    const updated = terminal
+      ? await transactionDb.run(`UPDATE auth_mail_outbox
+          SET state = ?, lease_id = NULL, lease_until = NULL, last_error_code = ?,
+              payload_ciphertext = NULL, payload_iv = NULL
+          WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [
+        expiresAt <= observedAt ? 'CANCELLED' : 'FAILED',
+        expiresAt <= observedAt ? 'MAIL_EXPIRED' : result.status === 'retry' ? result.errorCode : 'MAIL_RETRY_WINDOW_EXPIRED',
+        id, leaseId, observedAt,
+      ])
+      : await transactionDb.run(`UPDATE auth_mail_outbox
+          SET state = 'PENDING', lease_id = NULL, lease_until = NULL, next_attempt_at = ?,
+              last_error_code = ?
+          WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [
+        nextAttemptAt,
+        result.status === 'release' ? row.last_error_code : result.errorCode,
+        id, leaseId, observedAt,
+      ]);
+    return updated.affectedRows === 1;
+  });
+}
+
+function assertMailErrorCode(value: string): void {
+  if (!/^[A-Z0-9_-]{1,64}$/u.test(value)) throw new Error('invalid auth mail error code');
+}
+
+interface MailAuthSnapshotRow extends MysqlRow {
+  user_id: unknown;
+  action_digest: unknown;
+}
+
+async function reserveMailAttempt(
+  db: MysqlDatabase,
+  id: string,
+  leaseId: string,
+  getNow: () => number,
+  mailDailyLimit: number,
+  mailMonthlyLimit: number,
+): Promise<MailReservation> {
+  const snapshot = await db.first<MailAuthSnapshotRow>(`SELECT CAST(user_id AS CHAR) AS user_id, action_digest
+    FROM auth_mail_outbox WHERE id = ? LIMIT 1`, [id]);
+  if (!snapshot) return { status: 'stale' };
+  const snapshotUserId = snapshot.user_id === null ? null : requiredString(snapshot.user_id, 'user_id');
+  const snapshotActionDigest = nullableByteArrayValue(snapshot.action_digest, 'action_digest');
+
+  return db.transaction(async (transactionDb) => {
+    const user = snapshotUserId === null ? null : await transactionDb.first<MailUserRow>(`SELECT email, status, credential_version
+      FROM auth_users WHERE id = ? FOR UPDATE`, [snapshotUserId]);
+    const action = snapshotActionDigest && user
+      ? await transactionDb.first<MailActionRow>(`SELECT purpose, email_snapshot, credential_version, expires_at, consumed_at, revoked_at
+          FROM auth_action_tokens
+          WHERE token_digest = ? AND user_id = ?
+          FOR UPDATE`, [snapshotActionDigest, snapshotUserId])
+      : null;
+    const job = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+      FROM auth_mail_outbox
+      WHERE id = ? AND state = 'CLAIMED' AND lease_id = ?
+      FOR UPDATE`, [id, leaseId]);
+    if (!job) return { status: 'stale' };
+
+    const lockedUserId = job.user_id === null ? null : requiredString(job.user_id, 'user_id');
+    const actionDigest = nullableByteArrayValue(job.action_digest, 'action_digest');
+    if (lockedUserId !== snapshotUserId || !sameNullableBytes(actionDigest, snapshotActionDigest)) {
+      return releaseClaim(transactionDb, id, leaseId, timestampValue(getNow(), 'now'));
+    }
+
+    const firstNow = timestampValue(getNow(), 'now');
+    if (numberValue(job.lease_until, 'lease_until') <= firstNow) return { status: 'stale' };
+    const purpose = requiredString(job.purpose, 'purpose');
+    const jobExpiresAt = numberValue(job.expires_at, 'expires_at');
+    if (!isMailAuthorizationValid(user, action, actionDigest, purpose, jobExpiresAt, firstNow)) {
+      await terminalizeClaimedMail(transactionDb, id, leaseId, 'CANCELLED', 'MAIL_AUTHORIZATION_INVALID');
+      return { status: 'exhausted' };
+    }
+
+    const rateBuckets = mailBuckets(firstNow);
+    const entries = mailRateEntries(rateBuckets);
+    await ensureMailRateRows(transactionDb, entries);
+    const rateRows = await lockMailRateRows(transactionDb, entries);
+    const currentNow = timestampValue(getNow(), 'now');
+    const currentBuckets = mailBuckets(currentNow);
+    if (currentBuckets.dayBucketStart !== rateBuckets.dayBucketStart
+      || currentBuckets.monthBucketStart !== rateBuckets.monthBucketStart) {
+      return releaseClaim(transactionDb, id, leaseId, currentNow);
+    }
+    if (numberValue(job.lease_until, 'lease_until') <= currentNow) return { status: 'stale' };
+    if (jobExpiresAt <= currentNow) {
+      await terminalizeClaimedMail(transactionDb, id, leaseId, 'CANCELLED', 'MAIL_EXPIRED');
+      return { status: 'exhausted' };
+    }
+    if (!isMailAuthorizationValid(user, action, actionDigest, purpose, jobExpiresAt, currentNow)) {
+      await terminalizeClaimedMail(transactionDb, id, leaseId, 'CANCELLED', 'MAIL_AUTHORIZATION_INVALID');
+      return { status: 'exhausted' };
+    }
+
+    const attemptCount = numberValue(job.attempt_count, 'attempt_count');
+    const firstAttemptAt = nullableNumberValue(job.first_attempt_at, 'first_attempt_at');
+    if (attemptCount >= MAIL_MAX_ATTEMPTS
+      || (firstAttemptAt !== null && currentNow - firstAttemptAt >= MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS)) {
+      await terminalizeClaimedMail(transactionDb, id, leaseId, 'FAILED', 'MAIL_ATTEMPTS_EXHAUSTED');
+      return { status: 'exhausted' };
+    }
+
+    const monthlyBudget = rateRows.get(rateRowId('mail-budget-monthly', rateBuckets.monthBucketStart));
+    const monthlyProvider = rateRows.get(rateRowId('mail-provider-monthly', rateBuckets.monthBucketStart));
+    if (countValue(monthlyBudget) >= mailMonthlyLimit) {
+      await writeLocalBudgetPause(transactionDb, 'mail-budget-monthly', rateBuckets.monthBucketStart, rateBuckets.nextMonthStart);
+      await terminalizeClaimedMail(transactionDb, id, leaseId, 'FAILED', 'MAIL_MONTHLY_QUOTA');
+      return { status: 'quota' };
+    }
+    if (providerPauseActive(monthlyProvider, currentNow)) {
+      const nextAttemptAt = Math.max(currentNow, numberValue(monthlyProvider!.next_allowed_at, 'next_allowed_at'));
+      return releaseClaim(transactionDb, id, leaseId, nextAttemptAt, 'MAIL_MONTHLY_QUOTA');
+    }
+
+    const dailyBudget = rateRows.get(rateRowId('mail-budget-daily', rateBuckets.dayBucketStart));
+    const dailyProvider = rateRows.get(rateRowId('mail-provider-daily', rateBuckets.dayBucketStart));
+    if (countValue(dailyBudget) >= mailDailyLimit) {
+      await writeLocalBudgetPause(transactionDb, 'mail-budget-daily', rateBuckets.dayBucketStart, rateBuckets.nextDayStart);
+      await terminalizeClaimedMail(transactionDb, id, leaseId, 'FAILED', 'MAIL_DAILY_QUOTA');
+      return { status: 'quota' };
+    }
+    if (providerPauseActive(dailyProvider, currentNow)) {
+      const nextAttemptAt = Math.max(currentNow, numberValue(dailyProvider!.next_allowed_at, 'next_allowed_at'));
+      return releaseClaim(transactionDb, id, leaseId, nextAttemptAt, 'MAIL_DAILY_QUOTA');
+    }
+
+    const updated = await transactionDb.run(`UPDATE auth_mail_outbox
+      SET attempt_count = attempt_count + 1, first_attempt_at = COALESCE(first_attempt_at, ?)
+      WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ? AND attempt_count < ?`, [
+      currentNow, id, leaseId, currentNow, MAIL_MAX_ATTEMPTS,
+    ]);
+    if (updated.affectedRows !== 1) return { status: 'stale' };
+    await incrementMailBudget(transactionDb, 'mail-budget-daily', rateBuckets.dayBucketStart);
+    await incrementMailBudget(transactionDb, 'mail-budget-monthly', rateBuckets.monthBucketStart);
+    return {
+      status: 'reserved',
+      attempt: {
+        reservedAt: currentNow,
+        dayBucketStart: rateBuckets.dayBucketStart,
+        monthBucketStart: rateBuckets.monthBucketStart,
+      },
+    };
+  });
+}
+
+function isMailAuthorizationValid(
+  user: MailUserRow | null,
+  action: MailActionRow | null,
+  actionDigest: Uint8Array | null,
+  purpose: string,
+  jobExpiresAt: number,
+  now: number,
+): boolean {
+  if (!user || requiredString(user.status, 'status') === 'DISABLED') return false;
+  if (actionDigest === null) return purpose === 'PASSWORD_CHANGED';
+  if (purpose !== 'VERIFY_EMAIL' && purpose !== 'RESET_PASSWORD') return false;
+  if (!action) return false;
+  return requiredString(action.purpose, 'purpose') === purpose
+    && requiredString(action.email_snapshot, 'email_snapshot') === requiredString(user.email, 'email')
+    && numberValue(action.credential_version, 'credential_version') === numberValue(user.credential_version, 'credential_version')
+    && numberValue(action.expires_at, 'expires_at') === jobExpiresAt
+    && numberValue(action.expires_at, 'expires_at') > now
+    && action.consumed_at === null
+    && action.revoked_at === null
+    && (purpose !== 'VERIFY_EMAIL' || requiredString(user.status, 'status') === 'PENDING_EMAIL');
+}
+
+async function releaseClaim(
+  db: MysqlDatabase,
+  id: string,
+  leaseId: string,
+  nextAttemptAt: number,
+  errorCode?: string,
+): Promise<MailReservation> {
+  const result = await db.run(`UPDATE auth_mail_outbox
+    SET state = 'PENDING', lease_id = NULL, lease_until = NULL, next_attempt_at = ?, last_error_code = ?
+    WHERE id = ? AND state = 'CLAIMED' AND lease_id = ?`, [
+    timestampValue(nextAttemptAt, 'nextAttemptAt'), errorCode ?? null, id, leaseId,
+  ]);
+  return result.affectedRows === 1 ? { status: errorCode ? 'quota' : 'stale' } : { status: 'stale' };
+}
+
+async function terminalizeClaimedMail(
+  db: MysqlDatabase,
+  id: string,
+  leaseId: string,
+  state: 'FAILED' | 'CANCELLED',
+  errorCode: string,
+): Promise<void> {
+  await db.run(`UPDATE auth_mail_outbox
+    SET state = ?, lease_id = NULL, lease_until = NULL, payload_ciphertext = NULL, payload_iv = NULL, last_error_code = ?
+    WHERE id = ? AND state = 'CLAIMED' AND lease_id = ?`, [state, errorCode, id, leaseId]);
+}
+
+function mailRateEntries(buckets: MailBuckets): MailRateEntry[] {
+  const entries: MailRateEntry[] = [
+    { scope: 'mail-budget-daily', bucketStart: buckets.dayBucketStart, expiresAt: buckets.nextDayStart + DAY_MILLISECONDS },
+    { scope: 'mail-budget-monthly', bucketStart: buckets.monthBucketStart, expiresAt: buckets.nextMonthStart + DAY_MILLISECONDS },
+    { scope: 'mail-provider-daily', bucketStart: buckets.dayBucketStart, expiresAt: buckets.nextDayStart + DAY_MILLISECONDS },
+    { scope: 'mail-provider-monthly', bucketStart: buckets.monthBucketStart, expiresAt: buckets.nextMonthStart + DAY_MILLISECONDS },
+  ];
+  return entries.sort((left, right) => compareAscii(left.scope, right.scope));
+}
+
+async function ensureMailRateRows(db: MysqlDatabase, entries: readonly MailRateEntry[]): Promise<void> {
+  for (const entry of entries) {
+    await db.run(`INSERT INTO auth_rate_limits
+        (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
+      VALUES (?, ?, ?, 0, 0, ?)
+      ON DUPLICATE KEY UPDATE request_count = request_count`, [
+      entry.scope, ZERO_RATE_KEY_DIGEST, entry.bucketStart, entry.expiresAt,
+    ]);
+  }
+}
+
+async function lockMailRateRows(db: MysqlDatabase, entries: readonly MailRateEntry[]): Promise<Map<string, MailLimitRow>> {
+  const records = new Map<string, MailLimitRow>();
+  for (const entry of entries) {
+    const row = await db.first<MailLimitRow>(`SELECT scope, request_count, next_allowed_at, expires_at
+      FROM auth_rate_limits
+      WHERE scope = ? AND key_digest = ? AND bucket_start = ?
+      FOR UPDATE`, [entry.scope, ZERO_RATE_KEY_DIGEST, entry.bucketStart]);
+    if (!row) throw new Error('mail rate row missing after lock');
+    records.set(rateRowId(entry.scope, entry.bucketStart), row);
+  }
+  return records;
+}
+
+function rateRowId(scope: string, bucketStart: number): string {
+  return `${scope}\0${bucketStart}`;
+}
+
+async function incrementMailBudget(db: MysqlDatabase, scope: 'mail-budget-daily' | 'mail-budget-monthly', bucketStart: number): Promise<void> {
+  const result = await db.run(`UPDATE auth_rate_limits
+    SET request_count = request_count + 1
+    WHERE scope = ? AND key_digest = ? AND bucket_start = ?`, [scope, ZERO_RATE_KEY_DIGEST, bucketStart]);
+  if (result.affectedRows !== 1) throw new Error('mail budget row missing after reservation');
+}
+
+async function writeLocalBudgetPause(
+  db: MysqlDatabase,
+  scope: 'mail-budget-daily' | 'mail-budget-monthly',
+  bucketStart: number,
+  retryAt: number,
+): Promise<void> {
+  const nextAllowedAt = timestampValue(retryAt, 'retryAt');
+  await db.run(`UPDATE auth_rate_limits
+    SET next_allowed_at = ?, expires_at = ?
+    WHERE scope = ? AND key_digest = ? AND bucket_start = ?`, [
+    nextAllowedAt, timestampValue(nextAllowedAt + DAY_MILLISECONDS, 'pause expiresAt'), scope, ZERO_RATE_KEY_DIGEST, bucketStart,
+  ]);
+}
+
+async function recordProviderQuota(
+  db: MysqlDatabase,
+  id: string,
+  leaseId: string,
+  kind: 'daily' | 'monthly',
+  attempt: MailAttemptContext,
+  observedAt: number,
+): Promise<{ pauseRecorded: boolean; jobUpdated: boolean }> {
+  const responseAt = timestampValue(observedAt, 'observedAt');
+  const reservedAt = timestampValue(attempt.reservedAt, 'reservedAt');
+  const buckets = mailBuckets(reservedAt);
+  if (attempt.dayBucketStart !== buckets.dayBucketStart || attempt.monthBucketStart !== buckets.monthBucketStart) {
+    throw new Error('mail attempt buckets do not match reservation time');
+  }
+  const scope = kind === 'daily' ? 'mail-provider-daily' : 'mail-provider-monthly';
+  const bucketStart = kind === 'daily' ? buckets.dayBucketStart : buckets.monthBucketStart;
+  const nextAllowedAt = kind === 'daily' ? buckets.nextDayStart : buckets.nextMonthStart;
+  const expiresAt = timestampValue(nextAllowedAt + DAY_MILLISECONDS, 'provider pause expiresAt');
+  const errorCode = kind === 'daily' ? 'MAIL_DAILY_QUOTA' : 'MAIL_MONTHLY_QUOTA';
+
+  return db.transaction(async (transactionDb) => {
+    const jobResult = await transactionDb.run(`UPDATE auth_mail_outbox
+      SET state = 'FAILED', lease_id = NULL, lease_until = NULL, last_error_code = ?,
+          payload_ciphertext = NULL, payload_iv = NULL
+      WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [errorCode, id, leaseId, responseAt]);
+    await transactionDb.run(`INSERT INTO auth_rate_limits
+        (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
+      VALUES (?, ?, ?, 0, ?, ?) AS incoming
+      ON DUPLICATE KEY UPDATE
+        next_allowed_at = GREATEST(auth_rate_limits.next_allowed_at, incoming.next_allowed_at),
+        expires_at = GREATEST(auth_rate_limits.expires_at, incoming.expires_at)`, [
+      scope, ZERO_RATE_KEY_DIGEST, bucketStart, nextAllowedAt, expiresAt,
+    ]);
+    return { pauseRecorded: true, jobUpdated: jobResult.affectedRows === 1 };
+  });
+}
+
+function sameNullableBytes(left: Uint8Array | null, right: Uint8Array | null): boolean {
+  if (left === null || right === null) return left === right;
+  return digestKey(left) === digestKey(right);
+}
+
+function nullableByteArrayValue(value: unknown, name: string): Uint8Array | null {
+  return value == null ? null : byteArrayValue(value, name);
 }
 
 function mapUser(row: UserRow): UserRecord {

@@ -22,8 +22,8 @@
 | 1 | complete | f22aaa9..3b18249 | 18pass0skip/typecheck/targeted lint；见报告 | 初审1 Important，fix1复审Spec/quality Approve |
 | 2 | complete | 3b18249..2c26a92 | 7unit/1真实MySQL，均0skip；migration/typecheck/lint exit0 | 初审1Important/2Minor，fix1全部ADDRESSED；Spec/quality Approve |
 | 3 | complete | 2c26a92..8e16202 | 12unit/1真实MySQL，0skip；type/lint；fix无SQL重跑 | 独立初审PASS；管理人补验收fix1 fresh复审PASS |
-| 4 | complete | base 8e16202；本次feature提交 | 22focused/2真MySQL0skip/type/lint，fault模拟 | 初审经补查改1Important，fix1复审PASS |
-| 5 | 未开始 | — | — | — |
+| 4 | complete | 8e16202..e0fdc21 | 22focused/2真MySQL0skip/type/lint，fault模拟 | 初审经补查改1Important，fix1复审PASS |
+| 5 | complete | base e0fdc21；本次feature提交 | 39focused/3REQUIRE MySQL，0skip/type/lint | 初审1Important，fix1 fresh Spec PASS/quality APPROVE |
 | 6 | 未开始 | — | — | — |
 | 7 | 未开始 | — | — | — |
 | 8 | 未开始 | — | — | — |
@@ -248,3 +248,29 @@ Task4初审PASS因管理人补传漏掉Spec§10的审计要求后被reviewer修�
 Task4 fix1：三成功状态事务内append security events，当前logout仅实际revoke；audit故障不发/清Cookie并模拟事务rollback。22focused/type/lint/diff exit0；REQUIRE MySQL8.4.5 2pass0skip、LOGIN/LOGOUT_ALL事件实际持久。audit故障是模拟，未真实DB失败注入；scoped复审待结论。
 
 Task 4: complete（feat: add rolling account sessions；22focused/2REQUIRE MySQL0skip；audit fix1独立review PASS）。
+
+Task4 commit e0fdc217673d31710cc685efab8a53a767a2143c。Task5开始，fresh Luna/max 单写代理。
+
+Ruling: 缺sender时密文保存投递intent，首次HTTP前按lease及attempt_count=0 CAS冻结完整body到现有sealed字段，随后同job永远复用body/key；无sender/APIkey仅暂停保留密文 — 排队通知不得回滚密码变更且供应商幂等要求完整body一致 — 若错需内部payload契约调整，不新增schema或虚构邮箱。
+
+Task5前置接口补齐：同意可选AuthConfig.mailDelivery: MailDeliveryConfig={apiKey:string|null;from:string|null;replyTo:string|null}，缺项暂停投递而不破坏core login；prepare动作输入由调用方传精确expiresAt，通知无token默认24h。理由是原Task仅函数名未定义shape，Task6/7消费最终导出契约；无公开wire/数据库schema变化。
+
+Task5 RED（代理报告）：auth-mail.test.ts指定Vitest exit1，新增mail模块缺失；预期模板/官方fragment链接/昵称转义/通知无token及24h行为，未声称行为实现通过。
+
+Task5阶段证据（代理报告，待管理人核验）：tsc-b exit0；mail/repository/session/security共33pass0skip。唯一专用MySQL流程验证进行中，未提交/未review。
+
+Task5真库首次跨日断言失败根因：fixture Date.UTC秒参数错误使用59_000，boundary实际落入queryNow同一UTC日；管理人读测试确认，并指出oldPause须按attempt.dayBucketStart查、日边界断言须从bucket起点算。Luna修正测试并移除诊断，无修改正确产品逻辑迁就错误期望；待GREEN证据。
+
+Task5管理人补查：409 concurrent_idempotent_requests须有限同key/body重试；invalid_idempotent_request永久失败。401/403按计划配置暂停，管理人曾建议5min后有限HTTP重试但当即撤回：复查配置不等于向未修复凭据持续发HTTP；允许原任务暂停到TTL，配置恢复后主动新动作，或代理先提出无需新schema的配置变化条件恢复。不为此扩架构。
+
+Task5局部验证代理报告：真库按name筛选1pass2skip（非全suite绿色），含旧lease quota与4次crash；focused单测39pass0skip。后续accepted-before-finish测试类型错误已修，待编译及最后完整REQUIRE flow suite0skip；管理人明确不接受将筛选skip描述为全门禁通过，不继续扩用例。
+
+Task5最终代理报告：39focusedpass0skip/typecheck/targetedlint/diffcheck exit0；完整REQUIRE MySQL8.4.5 auth-account-flow3pass0skip（先前name筛选1pass2skip单独保留），所有外部fetch为fake。已生成Task5六文件diff并派fresh task5_review（6.1-sol/high），尚未提交。401/403暂停到TTL、配置恢复需主动新动作限制交review核对，不自动重复HTTP。
+
+Task5 independent task5_review：Spec FAIL/quality REQUEST CHANGES，1Important：过期/耗尽任务终结后return null让ready积压饥饿（repo811/837/841），只读复现31次claim空、ready查询0次。管理人已源码确认，接受finding；预算/lease/稳定body/迟到周期无新阻塞。fix1交原Luna，最小有界领取修复，不进入Task6。
+
+Ruling: 预算锁等待跨UTC周期允许同短事务仅提交旧bucket零值行初始化与本lease CAS释放后返回stale，而不强制SQL rollback — reviewer核对该分支在次数/预算递增前，零值行等价缺行、不覆盖已有计数/暂停/密文/历史，不发HTTP且下一tick完整再校验 — 若错仅产生额外可清理零值行；不放宽发送额度或授权。独立补核查不新增Spec/质量缺陷，仍须修领取饥饿Important。
+
+Task5 fix1代理证据：真实RED复现过期任务后有效lateJob未领取；GREEN完整REQUIRE MySQL3pass0skip，过期+有效同tick领取、耗尽priority0不挡有效priority1；39focused/type/lint/diff exit0。expiredLease SQL排除attempt4/24h，残留密文终结由Task13有界清理负责；管理人生成仅repo/flow scoped diff，待fresh复审。
+
+Task 5: complete（feat: add transactional account mail outbox；39focused/3REQUIRE MySQL0skip/type/lint/diff；独立初审领取阻塞已fix1，fresh复审PASS，无新Critical/Important）。401/403原任务暂停至TTL、恢复配置后主动新动作；不自动重启失败/耗尽任务。真实并发集中Task14、Cron清理Task13、生产邮件/完整Free CPU未验证。

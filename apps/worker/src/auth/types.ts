@@ -62,6 +62,12 @@ export interface AuthRuntime {
   fetch: typeof globalThis.fetch;
 }
 
+export interface MailDeliveryConfig {
+  apiKey: string | null;
+  from: string | null;
+  replyTo: string | null;
+}
+
 export interface MailPayloadContext {
   mailId: string;
   purpose: MailPurpose;
@@ -97,6 +103,9 @@ export interface AuthBindings {
   AUTH_MAIL_PAYLOAD_KEY_VERSION?: string | undefined;
   AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION?: string | undefined;
   AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET?: string | undefined;
+  RESEND_API_KEY?: string | undefined;
+  MAIL_FROM?: string | undefined;
+  MAIL_REPLY_TO?: string | undefined;
 }
 
 interface AuthConfigKeyVersions {
@@ -104,6 +113,7 @@ interface AuthConfigKeyVersions {
   mailPayloadKeys: ReadonlyMap<string, Uint8Array>;
   currentPasswordKeyVersion: string;
   currentMailPayloadKeyVersion: string;
+  mailDelivery?: MailDeliveryConfig;
 }
 
 export interface DisabledAuthConfig extends AuthConfigKeyVersions {

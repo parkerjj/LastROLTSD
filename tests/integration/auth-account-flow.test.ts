@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createAuthRepository, type NewAuthUser } from '../../apps/worker/src/auth/repository';
-import type { AuthRateLimitRule, PasswordMaterial } from '../../apps/worker/src/auth/types';
+import { resolveAuthConfig } from '../../apps/worker/src/auth/config';
+import { createOpaqueToken, digestToken, openMailPayload, sealMailPayload } from '../../apps/worker/src/auth/crypto';
+import { prepareActionMail, preparePasswordChangedMail } from '../../apps/worker/src/auth/mail';
+import type { AuthBindings, AuthRateLimitRule, PasswordMaterial } from '../../apps/worker/src/auth/types';
 import type { MysqlRow } from '../../apps/worker/src/db/mysql-client';
+import type { AppEnv } from '../../apps/worker/src/env';
 import { consumeAuthRateLimit } from '../../apps/worker/src/auth/rate-limit';
 import { withAuthTestDatabase } from '../helpers/auth-mysql';
 
@@ -18,7 +22,224 @@ const CREDENTIAL: PasswordMaterial = {
   scheme: 'hmac-sha256-v1', salt: new Uint8Array(16), digest: new Uint8Array(32), keyVersion: 'v1',
 };
 
+function testSecret(fill: number): string {
+  const bytes = new Uint8Array(32).fill(fill);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function testAuthConfig() {
+  const env: AppEnv & AuthBindings = {
+    ENVIRONMENT: 'test', BUILD_VERSION: 'test', MAX_BODY_BYTES: 8192,
+    MYSQL_URL: 'mysql://auth:local@127.0.0.1/lastro_test',
+    AUTH_ENABLED: 'true', AUTH_SITE_URL: 'https://lastro.example',
+    AUTH_PASSWORD_SECRET: testSecret(1), AUTH_CSRF_SECRET: testSecret(2),
+    AUTH_RATE_SECRET: testSecret(3), AUTH_MAIL_PAYLOAD_SECRET: testSecret(4),
+  };
+  return resolveAuthConfig(env);
+}
+
 describe('real MySQL account schema and repository', () => {
+  it.skipIf(!runMysqlTests)('claims, reserves and finishes with lease CAS, shared budget and late old-cycle quota isolation', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.UTC(2026, 9, 9, 10);
+      const dayMilliseconds = 86_400_000;
+      const repository = createAuthRepository(database, { mailDailyLimit: 3, mailMonthlyLimit: 20 });
+      const config = testAuthConfig();
+      const userId = await repository.transaction(async (tx) => {
+        const user = await tx.insertUser({
+          email: 'task5@example.test', emailNormalized: 'task5@example.test', displayName: 'Task Five', createdAt: now,
+        });
+        await tx.insertCredential(user.id, CREDENTIAL);
+        return user.id;
+      });
+      const jobs = await Promise.all(['001', '002', '003'].map((suffix) => preparePasswordChangedMail({
+        mailId: `123e4567-e89b-12d3-a456-426614174${suffix}`,
+        userId, email: 'task5@example.test', displayName: 'Task Five', createdAt: now,
+      }, config)));
+      await repository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        for (const job of jobs) await tx.insertMailJob(job);
+      });
+
+      const first = await repository.claimOneMail(now, 30_000);
+      const second = await repository.claimOneMail(now, 30_000);
+      const third = await repository.claimOneMail(now, 30_000);
+      expect([first?.id, second?.id, third?.id]).toEqual(jobs.map((job) => job.id));
+      if (!first || !second || !third) throw new Error('expected three claimed jobs');
+
+      const frozen = await sealMailPayload(JSON.stringify({
+        from: 'LTSD <auth@example.test>', to: ['task5@example.test'], subject: '安全通知', html: '<p>通知</p>', text: '通知',
+      }), { mailId: first.id, purpose: 'PASSWORD_CHANGED' }, config);
+      expect(await repository.freezeMailPayload(first.id, first.leaseId, first, frozen, now)).toBe(true);
+      expect(await repository.reserveMailAttempt(first.id, first.leaseId, () => now)).toMatchObject({ status: 'reserved' });
+      expect(await repository.finishMail(first.id, first.leaseId, {
+        status: 'retry', errorCode: 'MAIL_RATE_LIMIT', nextAttemptAt: now + 1_000, observedAt: now + 1,
+      })).toBe(true);
+
+      const reclaimed = await repository.claimOneMail(now + 2_000, 30_000);
+      expect(reclaimed?.id).toBe(first.id);
+      if (!reclaimed) throw new Error('expected the retry job to be reclaimed');
+      expect(await openMailPayload(reclaimed, { mailId: reclaimed.id, purpose: reclaimed.purpose }, config)).toBe(
+        JSON.stringify({ from: 'LTSD <auth@example.test>', to: ['task5@example.test'], subject: '安全通知', html: '<p>通知</p>', text: '通知' }),
+      );
+      expect(await repository.finishMail(first.id, first.leaseId, {
+        status: 'sent', providerMessageId: 'stale-provider-id', observedAt: now + 2_001,
+      })).toBe(false);
+
+      expect(await repository.reserveMailAttempt(reclaimed.id, reclaimed.leaseId, () => now + 2_000)).toMatchObject({ status: 'reserved' });
+      expect(await repository.reserveMailAttempt(second.id, second.leaseId, () => now + 3_000)).toMatchObject({ status: 'reserved' });
+      expect(await repository.reserveMailAttempt(third.id, third.leaseId, () => now + 4_000)).toEqual({ status: 'quota' });
+      expect(await repository.finishMail(reclaimed.id, reclaimed.leaseId, {
+        status: 'sent', providerMessageId: 'provider-accepted-id', observedAt: now + 5_000,
+      })).toBe(true);
+      await expect(repository.readMailAvailability(now + 5_000)).resolves.toEqual({
+        code: 'MAIL_DAILY_QUOTA', retry_at: Date.UTC(2026, 9, 10),
+      });
+      const terminalQuota = await database.first<MysqlRow>(`SELECT state, last_error_code, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [third.id]);
+      expect(terminalQuota).toMatchObject({ state: 'FAILED', last_error_code: 'MAIL_DAILY_QUOTA', payload_ciphertext: null });
+      await expect(database.first<MysqlRow>('SELECT status FROM auth_users WHERE id = ?', [userId])).resolves.toMatchObject({ status: 'PENDING_EMAIL' });
+
+      const oldDayStart = Date.UTC(2026, 9, 10);
+      const boundary = Date.UTC(2026, 9, 10, 23, 59, 59);
+      const nextDay = Date.UTC(2026, 9, 11);
+      const lateJob = await preparePasswordChangedMail({
+        mailId: '123e4567-e89b-12d3-a456-426614174004',
+        userId, email: 'task5@example.test', displayName: 'Task Five', createdAt: boundary,
+      }, config);
+      await repository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.insertMailJob(lateJob);
+      });
+      const lateClaim = await repository.claimOneMail(boundary, 1_000);
+      expect(lateClaim?.id).toBe(lateJob.id);
+      if (!lateClaim) throw new Error('expected the boundary job to be claimed');
+      const lateAttempt = await repository.reserveMailAttempt(lateClaim.id, lateClaim.leaseId, () => boundary);
+      expect(lateAttempt).toMatchObject({ status: 'reserved', attempt: {
+        reservedAt: boundary, dayBucketStart: oldDayStart, monthBucketStart: Date.UTC(2026, 9, 1),
+      } });
+      if (lateAttempt.status !== 'reserved') throw new Error('expected boundary reservation');
+      const nextPeriodClaim = await repository.claimOneMail(nextDay + 1_000, 30_000);
+      expect(nextPeriodClaim?.id).toBe(lateJob.id);
+      if (!nextPeriodClaim) throw new Error('expected the expired provider lease to be reclaimed');
+      await expect(repository.recordProviderQuota(lateClaim.id, lateClaim.leaseId, 'daily', lateAttempt.attempt, nextDay + 2_000))
+        .resolves.toEqual({ pauseRecorded: true, jobUpdated: false });
+      const lateJobState = await database.first<MysqlRow>(`SELECT state, lease_id, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [lateJob.id]);
+      expect(lateJobState).toMatchObject({ state: 'CLAIMED', lease_id: nextPeriodClaim.leaseId });
+      expect(lateJobState?.payload_ciphertext).not.toBeNull();
+      expect(await repository.finishMail(lateJob.id, nextPeriodClaim.leaseId, {
+        status: 'failed', errorCode: 'MAIL_TEST_DONE', observedAt: nextDay + 3_000,
+      })).toBe(true);
+      await expect(repository.readMailAvailability(nextDay + 3_000)).resolves.toEqual({ code: 'AVAILABLE', retry_at: null });
+      const oldPause = await database.first<MysqlRow>(`SELECT next_allowed_at FROM auth_rate_limits
+        WHERE scope = ? AND key_digest = ? AND bucket_start = ?`, ['mail-provider-daily', new Uint8Array(32), oldDayStart]);
+      expect(Number(oldPause?.next_allowed_at)).toBe(nextDay);
+      expect(oldDayStart + dayMilliseconds).toBe(nextDay);
+
+      const retryRepository = createAuthRepository(database, { mailDailyLimit: 10, mailMonthlyLimit: 20 });
+      const crashCreatedAt = nextDay + 2_000;
+      const crashJob = await preparePasswordChangedMail({
+        mailId: '123e4567-e89b-12d3-a456-426614174005',
+        userId, email: 'task5@example.test', displayName: 'Task Five', createdAt: crashCreatedAt,
+      }, config);
+      await retryRepository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.insertMailJob(crashJob);
+      });
+      const readyCreatedAt = crashCreatedAt + 1;
+      const readyExpiresAt = readyCreatedAt + 30 * 60 * 1000;
+      const readyToken = createOpaqueToken();
+      const readyActionDigest = await digestToken(readyToken);
+      const readyJob = await prepareActionMail({
+        mailId: '123e4567-e89b-12d3-a456-426614174007', actionDigest: readyActionDigest, userId,
+        email: 'task5@example.test', displayName: 'Task Five', token: readyToken,
+        purpose: 'RESET_PASSWORD', createdAt: readyCreatedAt, expiresAt: readyExpiresAt,
+      }, config);
+      await retryRepository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.insertAction({
+          tokenDigest: readyActionDigest, userId, purpose: 'RESET_PASSWORD', emailSnapshot: 'task5@example.test',
+          credentialVersion: 1, createdAt: readyCreatedAt, expiresAt: readyExpiresAt,
+        });
+        await tx.insertMailJob(readyJob);
+      });
+      let crashAt = crashCreatedAt;
+      let stableCiphertext: string | null = null;
+      let firstReservedAt: number | null = null;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const claim = await retryRepository.claimOneMail(crashAt, 30_000);
+        expect(claim?.id).toBe(crashJob.id);
+        if (!claim) throw new Error('expected the crashed task to be reclaimed');
+        if (attempt === 0) {
+          const crashBody = await sealMailPayload(JSON.stringify({
+            from: 'LTSD <auth@example.test>', to: ['task5@example.test'], subject: '安全通知', html: '<p>通知</p>', text: '通知',
+          }), { mailId: claim.id, purpose: 'PASSWORD_CHANGED' }, config);
+          expect(await retryRepository.freezeMailPayload(claim.id, claim.leaseId, claim, crashBody, crashAt)).toBe(true);
+          stableCiphertext = crashBody.payloadCiphertext;
+        } else {
+          expect(claim.payloadCiphertext).toBe(stableCiphertext);
+        }
+        const reservation = await retryRepository.reserveMailAttempt(claim.id, claim.leaseId, () => crashAt);
+        expect(reservation.status).toBe('reserved');
+        if (reservation.status !== 'reserved') throw new Error('expected crash attempt reservation');
+        if (firstReservedAt === null) firstReservedAt = reservation.attempt.reservedAt;
+        crashAt += 31_000;
+      }
+      const readyClaim = await retryRepository.claimOneMail(crashAt, 30_000);
+      expect(readyClaim?.id).toBe(readyJob.id);
+      if (!readyClaim) throw new Error('expected ready priority-one mail after exhausted priority-zero lease');
+      expect(await retryRepository.finishMail(readyClaim.id, readyClaim.leaseId, {
+        status: 'failed', errorCode: 'MAIL_TEST_DONE', observedAt: crashAt + 1,
+      })).toBe(true);
+      const crashState = await database.first<MysqlRow>(`SELECT state, attempt_count, first_attempt_at, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [crashJob.id]);
+      expect(crashState).toMatchObject({ state: 'CLAIMED' });
+      expect(crashState?.payload_ciphertext).not.toBeNull();
+      expect(Number(crashState?.attempt_count)).toBe(4);
+      expect(Number(crashState?.first_attempt_at)).toBe(firstReservedAt);
+      const crashBudget = await database.first<MysqlRow>(`SELECT request_count FROM auth_rate_limits
+        WHERE scope = ? AND key_digest = ? AND bucket_start = ?`, ['mail-budget-daily', new Uint8Array(32), nextDay]);
+      expect(Number(crashBudget?.request_count)).toBe(4);
+
+      const actionCreatedAt = Date.UTC(2026, 10, 1, 12);
+      const actionExpiresAt = actionCreatedAt + dayMilliseconds;
+      const actionToken = createOpaqueToken();
+      const actionDigest = await digestToken(actionToken);
+      const invalidatedActionJob = await prepareActionMail({
+        mailId: '123e4567-e89b-12d3-a456-426614174006', actionDigest, userId,
+        email: 'task5@example.test', displayName: 'Task Five', token: actionToken,
+        purpose: 'RESET_PASSWORD', createdAt: actionCreatedAt, expiresAt: actionExpiresAt,
+      }, config);
+      await retryRepository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.insertAction({
+          tokenDigest: actionDigest, userId, purpose: 'RESET_PASSWORD', emailSnapshot: 'task5@example.test',
+          credentialVersion: 1, createdAt: actionCreatedAt, expiresAt: actionExpiresAt,
+        });
+        await tx.insertMailJob(invalidatedActionJob);
+      });
+      const invalidatedActionClaim = await retryRepository.claimOneMail(actionCreatedAt, 30_000);
+      expect(invalidatedActionClaim?.id).toBe(invalidatedActionJob.id);
+      if (!invalidatedActionClaim) throw new Error('expected the action mail to be claimed');
+      await retryRepository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        await tx.saveCredential(userId, { ...CREDENTIAL, digest: new Uint8Array(32).fill(77) }, 2, actionCreatedAt + 1);
+      });
+      await expect(retryRepository.reserveMailAttempt(
+        invalidatedActionClaim.id, invalidatedActionClaim.leaseId, () => actionCreatedAt + 2,
+      )).resolves.toEqual({ status: 'exhausted' });
+      const invalidatedActionState = await database.first<MysqlRow>(`SELECT state, attempt_count, last_error_code, payload_ciphertext
+        FROM auth_mail_outbox WHERE id = ?`, [invalidatedActionJob.id]);
+      expect(invalidatedActionState).toMatchObject({
+        state: 'CANCELLED', attempt_count: 0, last_error_code: 'MAIL_AUTHORIZATION_INVALID', payload_ciphertext: null,
+      });
+      await expect(retryRepository.readMailAvailability(actionCreatedAt + 2)).resolves.toEqual({ code: 'AVAILABLE', retry_at: null });
+    });
+  }, 120_000);
+
   it.skipIf(!runMysqlTests)('returns the live session expiry and renews without shortening or oversaving activity', async () => {
     await withAuthTestDatabase(async ({ database }) => {
       const repository = createAuthRepository(database);
