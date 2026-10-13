@@ -27,8 +27,8 @@
 | 6 | complete | 9fdf74b..7c1b6f7 | 23focused/4REQUIRE MySQL0skip/type/lint | 独立Spec PASS/quality APPROVE，无Critical/Important |
 | 7 | complete | 7c1b6f7..eac6440 | 42focused；fix12focused/5REQUIRE MySQL0skip/type/lint | 1Important/1Minor，fix1 fresh Spec PASS/quality APPROVE |
 | 8 | complete | eac6440..0c44a2a | fix33focused/6REQUIRE MySQL0skip/type/lint，browser两fixture | 3Important+2Minor，fix1 Spec PASS/quality APPROVE；VP8L缺口明示 |
-| 9 | complete | base 0c44a2a；本条提交 | 30targeted/92auth-health0skip/type/lint/diff；无SQL未重跑真库 | fresh独立Spec PASS/quality APPROVE，无Critical/Important |
-| 10 | 未开始 | — | — | — |
+| 9 | complete | 0c44a2a..d5f8e17 | 30targeted/92auth-health0skip/type/lint/diff；无SQL未重跑真库 | fresh独立Spec PASS/quality APPROVE，无Critical/Important |
+| 10 | complete | base d5f8e17；本条提交 | fix12focused0skip/type/lint/diff，JSDOM非browser | I1 ADDRESSED；fresh复审Spec PASS/quality APPROVE |
 | 11 | 未开始 | — | — | — |
 | 12 | 未开始 | — | — | — |
 | 13 | 未开始 | — | — | — |
@@ -331,3 +331,22 @@ Task9自查已核对：真实入口路由、auth raw绑定透传/lazy核心与�
 
 Task 9: complete（feat: wire account routes into Worker lifecycle；30targeted/92auth-health0skip/type/lint/diff；独立Spec PASS/quality APPROVE，无Critical/Important）。管理人核对报告、源码关键diff与fresh diffcheck；公开无新增鉴权，真库/邮件/Free CPU未测不标通过。后续Task13必须从AuthConfig共用预算。
 Ruling: 保留旧 staging/production MYSQL/CURSOR/GUESTBOOK 全局校验，仅在账号命名空间将其异常映射已知503/未知404/OPTIONS204 — 符合账号稳定JSON失败且不放宽现有公开部署校验 — 若错需局部错误映射修正，不伪造环境或secret。auth预算正整数仅可降低至默认100/3000以内，零与提高额度不隐式启用。
+
+Task9 commit d5f8e17。Task10开始fresh单Luna/max；同页面共享AuthApi/Store、CSRF两mode与generation保护、仅明确身份变更广播，后续页面消费清旧稿信号；不接游戏credentials，不提前扩到Task11/12。
+
+Task10关键行为RED（代理报告）：auth-nav1failed，既有导航缺独立data-auth-nav槽，原/accounts仍保留；非missing import/编译错误。允许styles.css仅局部账号槽/头像/长昵称截断及移动断点，不改全站布局；实际mobile证据留Task14。AuthApi/Store关键行为测试继续，未提交。
+
+Task10管理人源码补查退出竞态：logout捕获generation后等待，先前me先resolve/adopt使generation增加，logout204后clear被跳过而残留显示身份。Luna确认接受，用deferred固定旧me→logout204顺序补现有最小失败测试；退出意图须淘汰旧read，期间显式新login需以实际Cookiereconcile，不覆盖新身份。待RED/GREEN与独立review，不算已修复。
+
+Task10补查两项真实RED已复现（代理报告）：deferred旧me先返回/logout后仍active；收到广播logout→reconcile/me401再广播一次，count2预期1。内部clear需区分接收来源，不能反广播。另refresh测试未越1h节流修成显式force后通过，为fixture/调用期望问题，非生产缺陷；未扩大用例矩阵。
+
+Task10最终自查报告已核对：11focused0skip/type/targetedlint/diff exit0；两并发RED修复转绿，same-page单例+身份变更clearDrafts事件供Task11消费。所有auth源码Storage/console/track搜索无命中，CSS仅局部导航；JSDOM菜单不是实际mobile。生成9文件diff并派fresh task10_review，未提交/未真库rerun。中间类型检查mock cast/测试logout后DELETE顺序/跨realm Element问题准确修正，不改变产品去迁就测试。
+
+Task10独立review确定1Important：reconcile in-flight期间后续broadcast复用旧Promise，未invalidate/dirty；reviewer运行真实AuthApi+AuthStore内存适配器确定性复现server B/store A/旧草稿未清、meCalls1。管理人源码确认接受（旧CSRF可阻止误写，仍违反身份同步/清稿契约）；fix1原Luna仅store/既有测试，以有界合并与后续最新查询修复，尚未进入Task11。其他已修竞态独立核对符合，最终report待落盘。
+
+Task10最终独立report已读：Spec FAIL/quality REQUEST CHANGES仅I1 Important。旧两竞态独立名称过滤2pass/3skip（不是完整11测试重跑）；内存probe无网络/DB，输出旧A与draft确认I1；diffcheck fresh exit0。报告落盘后通知Luna完整读取再修复，DOM/移动键盘真实证据缺口不误标通过。
+
+Task10 fix1报告已核对：新deferred RED1fail5名称skip→聚焦1pass5名称skip；完整12pass0skip/type/lint/diff exit0。generation invalidation+API revision清旧token、单dirty位串行latestquery，失败本身不retry、不回发。管理人疑同session清API后不恢复，经真实AuthApi.me revision guard源码核对已自动恢复，撤回假设、不为fake API差异加产品补丁/机械测试。两文件scoped diff已生成（no-index exit1仅表示存在差异），派fresh task10_fix_review，待结论再提交。
+
+Task 10: complete（feat: add browser account state and navigation；12focused0skip/type/lint/diff，独立I1 ADDRESSED/Spec PASS/quality APPROVE，无Critical/Important）。复审独立过滤3pass3skip，真实AuthApi+Store内存probe验证I1 burst合并两次me/B清稿、same-session恢复0误清稿、newlogin/退出迟到隔离、503不自动retry与不更新期限；非实际browser Cookie/页面/Crop/CPU。管理人完整读结论和源码修复、fresh diffcheck核对后提交。
+Ruling: reconcile每次真实身份信号使旧generation/API revision失效，后续信号用一个dirty位串行查询最新Cookie，失败本身不触发重试 — 避免旧身份响应覆盖跨标签切换且仍合并请求 — 若错会产生错误展示/旧稿，服务端CSRF仍授权边界；不自动重放写，不回发通知，不扩框架/Storage。

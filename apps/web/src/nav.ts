@@ -1,3 +1,5 @@
+import { mountAuthNav } from './auth/nav';
+
 export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors";
 
 interface NavEntry {
@@ -60,6 +62,8 @@ const EXTERNAL_ENTRIES: ReadonlyArray<{
   },
 ];
 
+const mountedNavs = new WeakSet<HTMLElement>();
+
 /**
  * 渲染站点主导航：站内页面（分段架）+ 外链（次级样式）。
  * 搜索页自身的「搜索市场」链接使用页内锚点 #search。
@@ -88,6 +92,7 @@ export function siteNavMarkup(active: SitePage): string {
         <span class="nav-sep" aria-hidden="true"></span>
         ${externals}
       </div>
+      <div class="auth-nav-slot" data-auth-nav aria-label="账号入口"></div>
     </nav>`;
 }
 
@@ -98,6 +103,11 @@ export function mountSiteNav(root: ParentNode = document): void {
   const nav = root.querySelector<HTMLElement>(".site-nav");
   const toggle = root.querySelector<HTMLButtonElement>(".nav-toggle");
   if (!nav || !toggle) return;
+  if (mountedNavs.has(nav)) {
+    mountAuthNav(root);
+    return;
+  }
+  mountedNavs.add(nav);
 
   const setOpen = (open: boolean): void => {
     nav.classList.toggle("is-open", open);
@@ -109,11 +119,13 @@ export function mountSiteNav(root: ParentNode = document): void {
     }
   };
 
+  const ElementConstructor = nav.ownerDocument.defaultView?.Element;
+
   toggle.addEventListener("click", () => {
     setOpen(!nav.classList.contains("is-open"));
   });
   nav.addEventListener("click", (event) => {
-    if (event.target instanceof Element && event.target.closest("a"))
+    if (ElementConstructor && event.target instanceof ElementConstructor && event.target.closest("a"))
       setOpen(false);
   });
 
@@ -128,4 +140,6 @@ export function mountSiteNav(root: ParentNode = document): void {
     };
     desktopQuery.addEventListener("change", closeOnDesktop);
   }
+
+  mountAuthNav(root);
 }
