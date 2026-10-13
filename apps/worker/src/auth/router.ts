@@ -3,6 +3,7 @@ import type { MysqlDatabase } from '../db/mysql-client';
 import type { AppEnv } from '../env';
 import { jsonError, requestId } from '../middleware/errors';
 import { readAuthJson } from './body';
+import { avatarResponse } from './avatar';
 import { assertCsrf, assertTrustedWriteOrigin, issueCsrf } from './csrf';
 import { resolveAuthConfig } from './config';
 import { createAccountService } from './account-service';
@@ -75,6 +76,23 @@ async function readEmptyAuthBody(request: Request): Promise<void> {
   if (Object.keys(body).length !== 0) throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
 }
 
+async function requireBodylessAuthRequest(request: Request): Promise<void> {
+  if (!request.body) return;
+  const reader = request.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      if (value.byteLength > 0) {
+        await reader.cancel();
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求不应包含正文');
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 function tooManyRequests(c: any, retryAfter: number): Response {
   const response = jsonFailure(c, 'AUTH_RATE_LIMITED', '请求过于频繁，请稍后重试', 429);
   response.headers.set('retry-after', String(retryAfter));
@@ -105,6 +123,14 @@ async function sensitiveRateRules(
     })),
     { kind: 'window', scope: ipLimit.scope, keyDigest: ipDigest, limit: ipLimit.limit, windowMs: ipLimit.windowMs },
   ];
+}
+
+async function profileRateRules(config: EnabledAuthConfig, sessionToken: string): Promise<AuthRateLimitRule[]> {
+  const keyDigest = await authRateLimitKey(config.rateSecret, 'session', sessionToken);
+  const limit = AUTH_RATE_LIMITS.profilePerSession;
+  return [{
+    kind: 'window', scope: limit.scope, keyDigest, limit: limit.limit, windowMs: limit.windowMs,
+  }];
 }
 
 async function mailRequestRateRules(
@@ -171,6 +197,8 @@ export function registerAuthRoutes(
     '/api/v1/auth/password/change',
     '/api/v1/auth/password-reset/request',
     '/api/v1/auth/password-reset/confirm',
+    '/api/v1/account/profile',
+    '/api/v1/account/avatar',
   ]);
 
   app.get('/api/v1/auth/csrf', async (c) => {
@@ -196,16 +224,15 @@ export function registerAuthRoutes(
       if (Object.keys(body).some((field) => !['email', 'password', 'password_confirmation', 'display_name', 'avatar_base64'].includes(field))) {
         throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
       }
-      if (Object.prototype.hasOwnProperty.call(body, 'avatar_base64')) {
-        throw new AuthFailure('AUTH_AVATAR_UNSUPPORTED', 415, '注册暂不支持上传头像，请稍后在账号设置中添加');
-      }
 
       const emailInput = body.email;
       const passwordInput = body.password;
       const confirmationInput = body.password_confirmation;
       const displayNameInput = body.display_name;
+      const avatarBase64Input = body.avatar_base64;
       if (typeof emailInput !== 'string' || typeof passwordInput !== 'string'
-        || typeof confirmationInput !== 'string' || typeof displayNameInput !== 'string') {
+        || typeof confirmationInput !== 'string' || typeof displayNameInput !== 'string'
+        || (avatarBase64Input !== undefined && typeof avatarBase64Input !== 'string')) {
         throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
       }
 
@@ -236,6 +263,7 @@ export function registerAuthRoutes(
         password,
         password_confirmation: password,
         display_name: displayName,
+        ...(typeof avatarBase64Input === 'string' ? { avatar_base64: avatarBase64Input } : {}),
         requestId: requestId(c.req.raw),
       });
       return c.json(response, 202, { 'cache-control': 'no-store' });
@@ -491,6 +519,76 @@ export function registerAuthRoutes(
     }
   });
 
+  app.patch('/api/v1/account/profile', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (Object.keys(body).some((field) => field !== 'display_name')) {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      }
+      if (typeof body.display_name !== 'string') throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+
+      const sessions = createSessionService(repository, config, authRuntime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      const rules = await profileRateRules(config, identity.sessionToken);
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const user = await createAccountService(repository, config, authRuntime)
+        .updateDisplayName(identity, body.display_name, requestId(c.req.raw));
+      return c.json({ user }, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.put('/api/v1/account/avatar', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      const body = await readAuthJson(c.req.raw, AVATAR_JSON_LIMIT);
+      if (Object.keys(body).some((field) => field !== 'avatar_base64')) {
+        throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求字段无效');
+      }
+      if (typeof body.avatar_base64 !== 'string') throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
+
+      const sessions = createSessionService(repository, config, authRuntime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      const rules = await profileRateRules(config, identity.sessionToken);
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const user = await createAccountService(repository, config, authRuntime)
+        .setAvatar(identity, body.avatar_base64, requestId(c.req.raw));
+      return c.json({ user }, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.delete('/api/v1/account/avatar', async (c) => {
+    const config = enabledConfig(env);
+    if (!config || !repository) return unavailable(c);
+    try {
+      await requireBodylessAuthRequest(c.req.raw);
+      const sessions = createSessionService(repository, config, authRuntime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
+      const rules = await profileRateRules(config, identity.sessionToken);
+      const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
+      if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
+
+      const user = await createAccountService(repository, config, authRuntime)
+        .setAvatar(identity, null, requestId(c.req.raw));
+      return c.json({ user }, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
   for (const route of PLACEHOLDER_ROUTES) {
     if (implementedRoutePaths.has(route.path)) continue;
     app.on([route.method], route.path, async (c) => {
@@ -510,9 +608,14 @@ export function registerAuthRoutes(
     });
   }
 
-  app.get('/api/v1/users/:id/avatar', (c) => {
+  app.get('/api/v1/users/:id/avatar', async (c) => {
     if (!/^[1-9]\d{0,19}$/u.test(c.req.param('id'))) return notFound(c);
-    return unavailable(c);
+    if (!database || !repository || !enabledConfig(env)) return unavailable(c);
+    try {
+      return await avatarResponse(c.req.param('id'), c.req.query('v') ?? null, repository);
+    } catch (error) {
+      return routeFailure(c, error);
+    }
   });
 
   const options = (c: any) => knownPath(c.req.path)

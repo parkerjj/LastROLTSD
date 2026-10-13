@@ -186,13 +186,13 @@ describe('account CSRF and route security', () => {
       headers: { origin: 'https://lastro.example', 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'player@example.test', password: '12345', password_confirmation: '12345', display_name: 'Player', avatar_base64: 'A'.repeat(12_000) }),
     });
-    expect(largeRegister.status).toBe(415);
+    expect(largeRegister.status).toBe(403);
     const largeAvatar = await app.request('/api/v1/account/avatar', {
       method: 'PUT',
       headers: { origin: 'https://lastro.example', 'content-type': 'application/json' },
       body: JSON.stringify({ avatar_base64: 'A'.repeat(12_000) }),
     });
-    expect(largeAvatar.status).toBe(503);
+    expect(largeAvatar.status).toBe(401);
     const largeLogin = await app.request('/api/v1/auth/login', {
       method: 'POST',
       headers: { origin: 'https://lastro.example', 'content-type': 'application/json' },

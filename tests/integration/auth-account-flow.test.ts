@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { Hono } from 'hono';
 import { createAuthRepository, type NewAuthUser } from '../../apps/worker/src/auth/repository';
 import { resolveAuthConfig } from '../../apps/worker/src/auth/config';
 import { createOpaqueToken, digestToken, openMailPayload, sealMailPayload } from '../../apps/worker/src/auth/crypto';
 import { prepareActionMail, preparePasswordChangedMail } from '../../apps/worker/src/auth/mail';
 import { registerAuthRoutes } from '../../apps/worker/src/auth/router';
-import type { ActionPurpose, AuthBindings, AuthRateLimitRule, NewMailJob, PasswordMaterial } from '../../apps/worker/src/auth/types';
+import type { AccountProfile, ActionPurpose, AuthBindings, AuthRateLimitRule, NewMailJob, PasswordMaterial } from '../../apps/worker/src/auth/types';
 import { MysqlDatabaseError, type MysqlDatabase, type MysqlRow } from '../../apps/worker/src/db/mysql-client';
 import type { AppEnv } from '../../apps/worker/src/env';
 import { consumeAuthRateLimit } from '../../apps/worker/src/auth/rate-limit';
@@ -17,6 +18,10 @@ const AUTH_TABLES = [
   'auth_action_tokens', 'auth_avatars', 'auth_credentials', 'auth_mail_outbox',
   'auth_rate_limits', 'auth_security_events', 'auth_sessions', 'auth_users',
 ];
+const BROWSER_AVATAR_BYTES = readFileSync(new URL('../fixtures/auth/avatar-256-browser.webp', import.meta.url));
+const DEFAULT_AVATAR_BYTES = readFileSync(new URL('../fixtures/auth/default-avatar-256-browser.webp', import.meta.url));
+const BROWSER_AVATAR_BASE64 = BROWSER_AVATAR_BYTES.toString('base64');
+const DEFAULT_AVATAR_BASE64 = DEFAULT_AVATAR_BYTES.toString('base64');
 const FIRST_USER: NewAuthUser = {
   email: 'first@example.test', emailNormalized: 'first@example.test', displayName: 'First', createdAt: 1_800_000_000_000,
 };
@@ -54,6 +59,24 @@ function failOutboxInserts(database: MysqlDatabase): MysqlDatabase {
       if (/^\s*INSERT INTO auth_mail_outbox\b/iu.test(sql)) {
         const duplicate = Object.assign(new Error('duplicate key'), { code: 'ER_DUP_ENTRY', errno: 1062 });
         throw new MysqlDatabaseError(duplicate, 'insert:auth_mail_outbox');
+      }
+      return current.run(sql, values);
+    },
+    transaction: <T>(work: (transaction: MysqlDatabase) => Promise<T>) =>
+      current.transaction((transaction) => work(wrap(transaction))),
+    healthcheck: () => current.healthcheck(),
+    close: () => current.close(),
+  });
+  return wrap(database);
+}
+
+function failAvatarAuditWrites(database: MysqlDatabase): MysqlDatabase {
+  const wrap = (current: MysqlDatabase): MysqlDatabase => ({
+    all: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => current.all<T>(sql, values),
+    first: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => current.first<T>(sql, values),
+    run: async (sql: string, values?: readonly unknown[]) => {
+      if (/^\s*INSERT INTO auth_security_events\b/iu.test(sql) && values?.[1] === 'AVATAR_UPDATED') {
+        throw new Error('simulated avatar audit write failure');
       }
       return current.run(sql, values);
     },
@@ -128,6 +151,9 @@ describe('real MySQL account schema and repository', () => {
         .toMatchObject({ count: 1 });
       expect(await database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_mail_outbox WHERE user_id = ?', [user?.id]))
         .toMatchObject({ count: 1 });
+      expect(await database.first<MysqlRow>(`SELECT COUNT(*) AS count FROM auth_security_events
+        WHERE user_id = ? AND event = 'AVATAR_UPDATED'`, [user?.id]))
+        .toMatchObject({ count: 0 });
       expect(fetchCalls).toBe(0);
 
       const failingApp = new Hono();
@@ -145,15 +171,140 @@ describe('real MySQL account schema and repository', () => {
           'x-csrf-token': failingCsrf.csrf_token, cookie: failingCookie,
         },
         body: JSON.stringify({
-          email: 'rollback@example.test', password: '12345', password_confirmation: '12345', display_name: 'Rollback',
+          email: 'rollback@example.test', password: '12345', password_confirmation: '12345',
+          display_name: 'Rollback', avatar_base64: BROWSER_AVATAR_BASE64,
         }),
       });
       expect(rolledBack.status).toBe(503);
       expect(await database.first<MysqlRow>('SELECT id FROM auth_users WHERE email_normalized = ?', ['rollback@example.test']))
         .toBeNull();
+      expect(await database.first<MysqlRow>(`SELECT COUNT(*) AS count FROM auth_avatars AS a
+        INNER JOIN auth_users AS u ON u.id = a.user_id WHERE u.email_normalized = ?`, ['rollback@example.test']))
+        .toMatchObject({ count: 0 });
+      expect(await database.first<MysqlRow>(`SELECT COUNT(*) AS count FROM auth_security_events WHERE event = 'AVATAR_UPDATED'`))
+        .toMatchObject({ count: 0 });
       expect(await database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_security_events WHERE event = ?', ['REGISTER']))
         .toMatchObject({ count: 1 });
       expect(fetchCalls).toBe(0);
+    });
+  }, 120_000);
+
+  it.skipIf(!runMysqlTests)('registers, edits, replaces, deletes and publicly serves only the current avatar atomically', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.UTC(2026, 9, 13, 12);
+      const runtime = {
+        now: () => now,
+        fetch: (async () => new Response('{}', { status: 200 })) as typeof globalThis.fetch,
+      };
+      const app = new Hono();
+      registerAuthRoutes(app, testAuthBindings(), database, runtime);
+
+      const csrfResponse = await app.request('/api/v1/auth/csrf', {
+        headers: { origin: 'https://lastro.example' },
+      });
+      const anonymousCsrf = await csrfResponse.json() as { csrf_token: string };
+      const anonymousCookie = csrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!anonymousCookie) throw new Error('expected anonymous CSRF cookie');
+      const anonymousHeaders = {
+        origin: 'https://lastro.example', 'content-type': 'application/json',
+        cookie: anonymousCookie, 'x-csrf-token': anonymousCsrf.csrf_token,
+      };
+      const password = 'browser-avatar-password';
+      const registered = await app.request('/api/v1/auth/register', {
+        method: 'POST', headers: { ...anonymousHeaders, 'cf-ray': 'avatar-registration-request' },
+        body: JSON.stringify({
+          email: 'avatar@example.test', password, password_confirmation: password,
+          display_name: 'Avatar Owner', avatar_base64: DEFAULT_AVATAR_BASE64,
+        }),
+      });
+      expect(registered.status).toBe(202);
+      expect(registered.headers.get('set-cookie')).toBeNull();
+      const userRow = await database.first<MysqlRow>(`SELECT CAST(id AS CHAR) AS id, avatar_version, status
+        FROM auth_users WHERE email_normalized = ?`, ['avatar@example.test']);
+      if (typeof userRow?.id !== 'string') throw new Error('expected registered avatar owner');
+      const userId = userRow.id;
+      const registeredAvatarVersion = Number(userRow.avatar_version);
+      await expect(database.first<MysqlRow>('SELECT avatar_base64 FROM auth_avatars WHERE user_id = ?', [userId]))
+        .resolves.toEqual({ avatar_base64: DEFAULT_AVATAR_BASE64 });
+      await expect(database.first<MysqlRow>(`SELECT event, request_id, reason FROM auth_security_events
+        WHERE user_id = ? AND event = 'AVATAR_UPDATED'`, [userId])).resolves.toEqual({
+        event: 'AVATAR_UPDATED', request_id: 'avatar-registration-request',
+        reason: `avatar_version=${registeredAvatarVersion}`,
+      });
+
+      const login = await app.request('/api/v1/auth/login', {
+        method: 'POST', headers: anonymousHeaders,
+        body: JSON.stringify({ email: 'avatar@example.test', password }),
+      });
+      expect(login.status).toBe(200);
+      const loginBody = await login.json() as { csrf_token: string; user: AccountProfile };
+      expect(loginBody.user).toMatchObject({ id: userId, status: 'PENDING_EMAIL', has_avatar: true });
+      expect(Object.hasOwn(loginBody.user, 'avatar_base64')).toBe(false);
+      const sessionCookie = login.headers.get('set-cookie')?.split(';', 1)[0];
+      if (!sessionCookie) throw new Error('expected authenticated session cookie');
+      const sessionHeaders = {
+        origin: 'https://lastro.example', 'content-type': 'application/json',
+        cookie: sessionCookie, 'x-csrf-token': loginBody.csrf_token, 'cf-ray': 'avatar-profile-request',
+      };
+
+      const renamed = await app.request('/api/v1/account/profile', {
+        method: 'PATCH', headers: sessionHeaders,
+        body: JSON.stringify({ display_name: 'Avatar Main' }),
+      });
+      expect(renamed.status).toBe(200);
+      const renamedUser = (await renamed.json() as { user: AccountProfile }).user;
+      expect(renamedUser).toMatchObject({ display_name: 'Avatar Main', has_avatar: true });
+      expect(Object.hasOwn(renamedUser, 'avatar_base64')).toBe(false);
+      await expect(database.first<MysqlRow>(`SELECT request_id FROM auth_security_events
+        WHERE user_id = ? AND event = 'DISPLAY_NAME_UPDATED'`, [userId])).resolves.toEqual({
+        request_id: 'avatar-profile-request',
+      });
+
+      const failingApp = new Hono();
+      registerAuthRoutes(failingApp, testAuthBindings(), failAvatarAuditWrites(database), runtime);
+      const rolledBackAvatar = await failingApp.request('/api/v1/account/avatar', {
+        method: 'PUT', headers: sessionHeaders,
+        body: JSON.stringify({ avatar_base64: BROWSER_AVATAR_BASE64 }),
+      });
+      expect(rolledBackAvatar.status).toBe(503);
+      await expect(database.first<MysqlRow>(`SELECT u.avatar_version, a.avatar_base64
+        FROM auth_users AS u INNER JOIN auth_avatars AS a ON a.user_id = u.id WHERE u.id = ?`, [userId]))
+        .resolves.toEqual({ avatar_version: registeredAvatarVersion, avatar_base64: DEFAULT_AVATAR_BASE64 });
+
+      const replaced = await app.request('/api/v1/account/avatar', {
+        method: 'PUT', headers: sessionHeaders,
+        body: JSON.stringify({ avatar_base64: BROWSER_AVATAR_BASE64 }),
+      });
+      expect(replaced.status).toBe(200);
+      const replacedUser = (await replaced.json() as { user: AccountProfile }).user;
+      expect(replacedUser).toMatchObject({ has_avatar: true, avatar_version: registeredAvatarVersion + 1 });
+      expect(Object.hasOwn(replacedUser, 'avatar_base64')).toBe(false);
+      await expect(database.first<MysqlRow>('SELECT avatar_base64 FROM auth_avatars WHERE user_id = ?', [userId]))
+        .resolves.toEqual({ avatar_base64: BROWSER_AVATAR_BASE64 });
+
+      const staleAvatarUrl = await app.request(`/api/v1/users/${userId}/avatar?v=${registeredAvatarVersion}`);
+      expect(staleAvatarUrl.status).toBe(200);
+      expect(staleAvatarUrl.headers.get('content-type')).toBe('image/webp');
+      expect(Array.from(new Uint8Array(await staleAvatarUrl.arrayBuffer()))).toEqual(Array.from(BROWSER_AVATAR_BYTES));
+
+      const deleted = await app.request('/api/v1/account/avatar', {
+        method: 'DELETE',
+        headers: { origin: 'https://lastro.example', cookie: sessionCookie, 'x-csrf-token': loginBody.csrf_token },
+      });
+      expect(deleted.status).toBe(200);
+      const deletedUser = (await deleted.json() as { user: AccountProfile }).user;
+      expect(deletedUser).toMatchObject({
+        has_avatar: false, avatar_version: registeredAvatarVersion + 2,
+        avatar_url: `/api/v1/users/${userId}/avatar?v=${registeredAvatarVersion + 2}`,
+      });
+      await expect(database.first<MysqlRow>('SELECT user_id FROM auth_avatars WHERE user_id = ?', [userId]))
+        .resolves.toBeNull();
+
+      const defaultResponse = await app.request(`/api/v1/users/${userId}/avatar?v=${registeredAvatarVersion}`);
+      expect(defaultResponse.status).toBe(200);
+      expect(Array.from(new Uint8Array(await defaultResponse.arrayBuffer()))).toEqual(Array.from(DEFAULT_AVATAR_BYTES));
+      expect((await app.request('/api/v1/auth/me', { headers: { origin: 'https://lastro.example', cookie: sessionCookie } })).status)
+        .toBe(200);
     });
   }, 120_000);
 

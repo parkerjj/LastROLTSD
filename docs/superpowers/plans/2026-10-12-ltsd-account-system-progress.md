@@ -25,8 +25,8 @@
 | 4 | complete | 8e16202..e0fdc21 | 22focused/2真MySQL0skip/type/lint，fault模拟 | 初审经补查改1Important，fix1复审PASS |
 | 5 | complete | e0fdc21..9fdf74b | 39focused/3REQUIRE MySQL，0skip/type/lint | 初审1Important，fix1 fresh Spec PASS/quality APPROVE |
 | 6 | complete | 9fdf74b..7c1b6f7 | 23focused/4REQUIRE MySQL0skip/type/lint | 独立Spec PASS/quality APPROVE，无Critical/Important |
-| 7 | complete | base 7c1b6f7；本次feature提交 | 42focused；fix12focused/5REQUIRE MySQL0skip/type/lint | 1Important/1Minor，fix1 fresh Spec PASS/quality APPROVE |
-| 8 | 未开始 | — | — | — |
+| 7 | complete | 7c1b6f7..eac6440 | 42focused；fix12focused/5REQUIRE MySQL0skip/type/lint | 1Important/1Minor，fix1 fresh Spec PASS/quality APPROVE |
+| 8 | complete | base eac6440；本次feature提交 | fix33focused/6REQUIRE MySQL0skip/type/lint，browser两fixture | 3Important+2Minor，fix1 Spec PASS/quality APPROVE；VP8L缺口明示 |
 | 9 | 未开始 | — | — | — |
 | 10 | 未开始 | — | — | — |
 | 11 | 未开始 | — | — | — |
@@ -306,3 +306,21 @@ Task7 task7_review：Spec FAIL/quality REQUEST CHANGES，1Important/P2：401/403
 Task7 fix1代理证据：F1真库RED证明旧暂停job仍reuse action/job count1；GREEN新建count2，正常next=now+5m<expiry第二次仍reuse；401/403状态是测试SQL模拟，不是实际providerHTTP。两处metadata投影不读cipher/IV/key/provider字段，无新schema/index。完整REQUIRE MySQL5pass0skip、12focused/type/targetedlint/diff exit0，无CPU benchmark。生成仅repo/flow scoped diff，待fresh复审。
 
 Task 7: complete（feat: add account verification and password recovery；完整MySQL5pass0skip，42focused初验/12focused fix；独立review F1/F2均ADDRESSED、fresh复审PASS）。真实竞争/CPU未测，401模拟边界明确；不擅自升级账号邮箱或自动登录恢复身份。
+
+Task7 commit eac644053e04518611544a0e3ceb7c5c257fdfef。Task8开始fresh单Luna/max，本人昵称/头像及注册头像原子接入；browser按正常本地HTTP UI验证，不使用受阻data导航/绕过策略，不因Playwright全局Chrome缺失伪造证据。
+
+Task8 browser阶段证据（代理报告）：正常本地HTTP合成图UI在CUA IAB生成并解码两张256×256静态WebP，account2400B/default2376B，页面MIME=image/webp，仅写tests/fixtures/auth白名单文件名。UA/来源metadata整理中，backend RED/权限/size验证未完成；不使用此前受阻data导航，不声称实际前端Crop UI/Free CPU通过。
+
+Task8最终report已读：RED5fail/2pass（415旧注册、缺profile方法、GET503），修一处测试TS语法后仍同RED；GREEN32focused/6REQUIRE MySQL0skip/type/lint/diff。带头像注册outbox/audit故障为wrapper注入、真实DB查询证实rollback；browserChrome155两genuine VP8X/VP8+ICCP 256×256 fixtures，32KiB合法metadata边界和坏样本区分；VP8L头无独立有效fixture，不称完全解码/真实CPU。生成十文件diff；字段size415 vs planned413交独立review核实。
+
+Task8 task8_review：SpecFAIL/qualityREQUEST CHANGES，3Important/P2：字段超限413/基础Base64格式400契约；VP8.show_frame/profile/firstpartition越界头被接受（官方libwebp轻量VP8GetInfo与只读真实fixture变异复现）；注册初始头像缺动作/version审计。管理人接受最小修复，权限/原子/公开缓存无其他阻塞；VP8L正向fixture未测与CPU未测边界明确。Fix1交原Luna，不进入Task9。
+
+Task8 fix1同意顺带最小解决原review两个非阻断直接相关项：公开v可选合法非负十进制格式（仍只返回当前图）；profile/setAvatar兼容可选第三requestId参、router用现有helper关联审计，不扩AuthRuntime或旧模块。接口shape由Luna明确后记录；VP8L有效browser样本尚未独立测，官方位公式静态核对正确，保留Task12/14必要补证，不机械要求每codec组合/全解码。
+
+Task8 fix1代理最终证据：F1格式400/字段413/结构415；F2VP8 profile/show/partition轻量bounds；F3注册带图动作/version/requestID事件同Tx无图片；两个备注optional第三requestId/v数字格式已补。33focused/6REQUIRE MySQL0skip(102.9s)/type/lint/diff exit0；VP8L独立正向fixture未补仍明示。生成七文件scopedfixdiff，待fresh复审，无提交。
+
+## 2026-10-13 复审额度恢复
+Task8 fix1 reviewer因usage limit终止，提示15:23恢复；无PASS结论。用户明确“继续”。管理人12:45:35 UTC（Tallinn15:45）核对ordinaryUsageAllowed=true、primary used0%、weekly used16%，恢复同reviewer6.1-sol/high；无购买/使用reset credits/模型替换。分支及未提交Task8所有改动保留，复审完成才提交/进入Task9。
+
+Task 8: complete（feat: add editable account profile and WebP avatars；33focused/6REQUIRE MySQL0skip/type/lint/diff，真实browser产物VP8X/VP8+ICCP；3Important ADDRESSED，复审PASS）。AUTH-01注册头像已原子接入；VP8L正向样本与实际Worker CPU未测，前端Crop/mobile仍Task12/14。
+Ruling: profile/setAvatar审计增加兼容可选第三requestId参数，router传既有请求关联helper；v只接受有界数字字符串而仍取当前图 — 修原review直接相关可观测性/格式备注，不改变权限/历史图片语义 — 若错仅内部签名/非法query错误适配，原两参数调用兼容。

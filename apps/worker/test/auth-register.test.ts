@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { registerAuthRoutes } from '../src/auth/router';
+import { readFileSync } from 'node:fs';
+import { resolveAuthConfig } from '../src/auth/config';
+import { createAccountService } from '../src/auth/account-service';
 import type { AuthBindings } from '../src/auth/types';
+import type { AuthRepository, AuthSecurityEventInput, AuthTx } from '../src/auth/repository';
 import type { AppEnv } from '../src/env';
-import type { MysqlDatabase } from '../src/db/mysql-client';
 
 function standardBase64(fill: number): string {
   const bytes = new Uint8Array(32).fill(fill);
@@ -23,30 +25,79 @@ function bindings(): AppEnv & AuthBindings {
 }
 
 describe('account registration', () => {
-  it('rejects the unsupported registration avatar explicitly', async () => {
-    const app = new Hono();
-    registerAuthRoutes(app, bindings(), {} as MysqlDatabase, { now: () => 1_000, fetch: globalThis.fetch });
-
-    const csrfResponse = await app.request('/api/v1/auth/csrf', {
-      headers: { origin: 'https://lastro.example' },
-    });
-    const csrf = await csrfResponse.json() as { csrf_token: string };
-    const cookie = csrfResponse.headers.get('set-cookie')?.split(';', 1)[0];
-    const response = await app.request('/api/v1/auth/register', {
-      method: 'POST',
-      headers: {
-        origin: 'https://lastro.example',
-        'content-type': 'application/json',
-        'x-csrf-token': csrf.csrf_token,
-        ...(cookie ? { cookie } : {}),
+  it('stores a browser-generated WebP inside registration before outbox and audit writes', async () => {
+    const avatarBase64 = readFileSync(new URL('../../../tests/fixtures/auth/avatar-256-browser.webp', import.meta.url)).toString('base64');
+    const calls: string[] = [];
+    const auditEvents: AuthSecurityEventInput[] = [];
+    let storedAvatar: { userId: string; base64: string | null } | null = null;
+    const user = {
+      id: '10000', email: 'pilot@example.test', emailNormalized: 'pilot@example.test', displayName: 'Pilot',
+      status: 'PENDING_EMAIL', emailVerifiedAt: null, credentialVersion: 1, authVersion: 1,
+      avatarVersion: 0, createdAt: 1_000, updatedAt: 1_000,
+    };
+    const transaction = async <T>(work: (tx: AuthTx) => Promise<T>): Promise<T> => {
+      calls.push('transaction:start');
+      const result = await work({
+        insertUser: async () => { calls.push('insertUser'); return user; },
+        insertCredential: async () => { calls.push('insertCredential'); },
+        insertAction: async () => { calls.push('insertAction'); },
+        saveAvatar: async (userId: string, base64: string | null) => {
+          calls.push('saveAvatar');
+          storedAvatar = { userId, base64 };
+        },
+        insertMailJob: async () => { calls.push('insertMailJob'); },
+        appendEvent: async (input: AuthSecurityEventInput) => {
+          calls.push('appendEvent:' + input.event);
+          auditEvents.push(input);
+        },
+      } as unknown as AuthTx);
+      calls.push('transaction:commit');
+      return result;
+    };
+    const repository = {
+      readMailAvailability: async () => {
+        calls.push('readMailAvailability');
+        return { code: 'AVAILABLE', retry_at: null };
       },
-      body: JSON.stringify({
-        email: 'pilot@example.test', password: '12345', password_confirmation: '12345',
-        display_name: 'Pilot', avatar_base64: 'AA==',
-      }),
+      transaction,
+    } as unknown as AuthRepository;
+    const service = createAccountService(repository, resolveAuthConfig(bindings()), {
+      now: () => 1_000, fetch: globalThis.fetch,
     });
 
-    expect(response.status).toBe(415);
-    expect(await response.json()).toMatchObject({ error: { code: 'AUTH_AVATAR_UNSUPPORTED' } });
+    await expect(service.register({
+      email: 'pilot@example.test', password: '12345', password_confirmation: '12345',
+      display_name: 'Pilot', avatar_base64: avatarBase64, requestId: 'avatar-registration-request',
+    })).resolves.toEqual({
+      accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
+    });
+
+    expect(storedAvatar).toEqual({ userId: '10000', base64: avatarBase64 });
+    expect(calls).toEqual([
+      'readMailAvailability', 'transaction:start', 'insertUser', 'insertCredential', 'insertAction',
+      'saveAvatar', 'insertMailJob', 'appendEvent:REGISTER', 'appendEvent:AVATAR_UPDATED', 'transaction:commit',
+    ]);
+    expect(auditEvents).toEqual([
+      {
+        userId: '10000', event: 'REGISTER', requestId: 'avatar-registration-request',
+        result: 'SUCCESS', reason: null, createdAt: 1_000,
+      },
+      {
+        userId: '10000', event: 'AVATAR_UPDATED', requestId: 'avatar-registration-request',
+        result: 'SUCCESS', reason: 'avatar_version=1', createdAt: 1_000,
+      },
+    ]);
+    expect(JSON.stringify(auditEvents)).not.toContain(avatarBase64);
+  });
+
+  it('rejects a malformed registration avatar before touching the repository', async () => {
+    const service = createAccountService({} as AuthRepository, resolveAuthConfig(bindings()), {
+      now: () => 1_000, fetch: globalThis.fetch,
+    });
+
+    await expect(service.register({
+      email: 'pilot@example.test', password: '12345', password_confirmation: '12345',
+      display_name: 'Pilot', avatar_base64: 'AA==',
+    })).rejects.toMatchObject({ code: 'AUTH_AVATAR_UNSUPPORTED', status: 415 });
   });
 });
