@@ -1,7 +1,8 @@
 import { AuthApiError, type AuthApiClient } from './api';
+import { mountAvatarEditor, type AvatarEditor } from './avatar-editor';
 import { mountAuthNav } from './nav';
 import type { AuthStore, AuthStoreState } from './store';
-import type { AuthAcceptedResponse, MailAvailability } from './types';
+import type { AccountProfile, AuthAcceptedResponse, MailAvailability, RegisterInput } from './types';
 
 const AUTH_PATHS = new Set([
   '/register',
@@ -46,6 +47,14 @@ export function mountAuthPage(
   let pollOwnerEpoch = 0;
   let identityEpoch = 0;
   const cleanups: Cleanup[] = [];
+  let registerAvatarEditor: AvatarEditor | null = null;
+  let registerAvatarProcessing = false;
+  let accountAvatarEditor: AvatarEditor | null = null;
+  let accountAvatarEditorKey: string | null = null;
+  let accountAvatarSaving = false;
+  let accountHasStoredAvatar = false;
+  let accountAvatarSelected = false;
+  let accountAvatarProcessing = false;
   let renderState = (_state: Readonly<AuthStoreState>): void => undefined;
   const doc = root.ownerDocument;
 
@@ -91,6 +100,20 @@ export function mountAuthPage(
       delete name.dataset.dirty;
     }
     root.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ''; });
+    registerAvatarEditor?.reset();
+    registerAvatarEditor?.setDisabled(false);
+    const registerForm = root.querySelector<HTMLFormElement>('#register-form');
+    if (registerForm) submitButton(registerForm, false);
+    accountAvatarEditor?.destroy();
+    accountAvatarEditor = null;
+    accountAvatarEditorKey = null;
+    accountAvatarSaving = false;
+    accountAvatarSelected = false;
+    accountAvatarProcessing = false;
+    const deleteConfirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation');
+    if (deleteConfirmation) deleteConfirmation.hidden = true;
+    const avatarStatus = root.querySelector<HTMLElement>('#account-avatar-status');
+    if (avatarStatus) avatarStatus.textContent = '';
   };
 
   const unsubscribe = store.subscribe((state, event) => {
@@ -111,6 +134,17 @@ export function mountAuthPage(
   root.innerHTML = shell(page.title, page.content);
   mountAuthNav(root, store);
   wirePasswordToggles(root, listen);
+
+  const registerAvatarContainer = root.querySelector<HTMLElement>('#register-avatar-editor');
+  if (registerAvatarContainer) {
+    registerAvatarEditor = mountAvatarEditor(registerAvatarContainer, {
+      onChange: ({ processing }) => {
+        registerAvatarProcessing = processing;
+        const submit = root.querySelector<HTMLButtonElement>('#register-form button[type="submit"]');
+        if (submit) submit.disabled = processing;
+      },
+    });
+  }
 
   const visibilityChanged = (): void => {
     if (doc.visibilityState !== 'visible') stopPolling();
@@ -152,6 +186,12 @@ export function mountAuthPage(
     unavailable.hidden = true;
     profile.hidden = true;
     retry.hidden = true;
+    if (state.status !== 'pending' && state.status !== 'active') {
+      accountAvatarEditor?.destroy();
+      accountAvatarEditor = null;
+      accountAvatarEditorKey = null;
+      accountHasStoredAvatar = false;
+    }
     if (state.status === 'loading') {
       shell.textContent = '正在读取账号状态…';
       return;
@@ -182,11 +222,61 @@ export function mountAuthPage(
 
     const name = root.querySelector<HTMLInputElement>('#auth-display-name');
     if (name && !name.dataset.dirty) name.value = user.display_name;
+    renderAccountAvatar(user);
+    ensureAccountAvatarEditor(user);
+    const deleteAvatar = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    if (deleteAvatar) deleteAvatar.hidden = !user.has_avatar;
     const passwordLink = root.querySelector<HTMLElement>('#account-password-link');
     if (passwordLink) passwordLink.hidden = user.status !== 'ACTIVE';
     const pendingMessage = root.querySelector<HTMLElement>('#account-pending-message');
     if (pendingMessage) pendingMessage.hidden = user.status !== 'PENDING_EMAIL';
   };
+
+  function renderAccountAvatar(user: AccountProfile): void {
+    accountHasStoredAvatar = user.has_avatar;
+    const image = root.querySelector<HTMLImageElement>('#account-avatar-image');
+    if (image) {
+      image.hidden = !user.has_avatar;
+      image.alt = '账号头像';
+      image.src = user.avatar_url;
+    }
+    const placeholder = root.querySelector<HTMLElement>('#account-avatar-placeholder');
+    if (placeholder) {
+      placeholder.hidden = user.has_avatar;
+      placeholder.textContent = initials(user.display_name);
+    }
+    const remove = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    if (remove) remove.hidden = !user.has_avatar;
+  }
+
+  function updateAvatarActions(selected: boolean, processing: boolean): void {
+    accountAvatarSelected = selected;
+    accountAvatarProcessing = processing;
+    const save = root.querySelector<HTMLButtonElement>('#account-avatar-save');
+    if (save) save.disabled = !selected || processing || accountAvatarSaving;
+    const remove = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    if (remove) {
+      remove.hidden = !accountHasStoredAvatar;
+      remove.disabled = selected || processing || accountAvatarSaving;
+    }
+  }
+
+  function ensureAccountAvatarEditor(user: AccountProfile): void {
+    const container = root.querySelector<HTMLElement>('#account-avatar-editor');
+    if (!container) return;
+    const key = `${user.id}:${user.avatar_version}:${user.has_avatar ? user.avatar_url : ''}`;
+    if (accountAvatarEditor && accountAvatarEditorKey === key) return;
+    accountAvatarEditor?.destroy();
+    accountAvatarEditor = null;
+    accountAvatarEditorKey = key;
+    accountAvatarEditor = mountAvatarEditor(container, {
+      initialAvatarUrl: user.has_avatar ? user.avatar_url : null,
+      onChange: ({ selected, processing }) => {
+        if (active) updateAvatarActions(selected, processing);
+      },
+    });
+    accountAvatarEditor.setDisabled(accountAvatarSaving);
+  }
 
   const renderPasswordPage = (state: Readonly<AuthStoreState>): void => {
     const form = root.querySelector<HTMLFormElement>('#password-change-form');
@@ -288,15 +378,37 @@ export function mountAuthPage(
         setFormStatus(registerForm, '两次输入的密码不一致。');
         return;
       }
+      if (registerAvatarProcessing) {
+        setFormStatus(registerForm, '请等待图片读取完成后再注册。');
+        return;
+      }
+      const submittedEpoch = identityEpoch;
+      registerAvatarEditor?.setDisabled(true);
       submitButton(registerForm, true);
-      void api.register({ email, display_name: displayName, password, password_confirmation: confirmation })
-        .then((response) => {
-          if (!active) return;
+      void (async () => {
+        try {
+          const avatarBase64 = await (registerAvatarEditor?.getValue() ?? Promise.resolve(null));
+          if (!active || identityEpoch !== submittedEpoch) return;
+          const input: RegisterInput = { email, display_name: displayName, password, password_confirmation: confirmation };
+          if (avatarBase64 !== null) input.avatar_base64 = avatarBase64;
+          const response = await api.register(input);
+          if (!active || identityEpoch !== submittedEpoch) return;
           clearPasswordFields(registerForm);
+          registerAvatarEditor?.reset();
           setFormStatus(registerForm, acceptedMessage(response, 'register'));
-        })
-        .catch((error: unknown) => setFormStatus(registerForm, handleError(error, '注册暂未完成，请重试。')))
-        .finally(() => { if (active) submitButton(registerForm, false); });
+        } catch (error) {
+          if (!active || identityEpoch !== submittedEpoch) return;
+          const message = error instanceof DOMException && error.name === 'AbortError'
+            ? '图片已更改，请重新提交。'
+            : handleError(error, '注册暂未完成，请重试。');
+          setFormStatus(registerForm, message);
+        } finally {
+          if (active && identityEpoch === submittedEpoch) {
+            registerAvatarEditor?.setDisabled(false);
+            submitButton(registerForm, false);
+          }
+        }
+      })();
     });
   }
 
@@ -544,6 +656,91 @@ export function mountAuthPage(
     });
   }
 
+  const avatarSaveButton = root.querySelector<HTMLButtonElement>('#account-avatar-save');
+  if (avatarSaveButton) {
+    listen(avatarSaveButton, 'click', () => {
+      const userId = currentUserId();
+      const submittedEpoch = identityEpoch;
+      const editor = accountAvatarEditor;
+      if (!userId || !editor || accountAvatarSaving || avatarSaveButton.disabled) return;
+      accountAvatarSaving = true;
+      editor.setDisabled(true);
+      updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+      setText(root, '#account-avatar-status', '正在处理并保存头像…');
+      void (async () => {
+        try {
+          const avatarBase64 = await editor.getValue();
+          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+          if (avatarBase64 === null) {
+            setText(root, '#account-avatar-status', '请先选择要保存的头像。');
+            return;
+          }
+          const response = await api.setAvatar({ avatar_base64: avatarBase64 });
+          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+          renderAccountAvatar(response.user);
+          accountAvatarEditorKey = null;
+          ensureAccountAvatarEditor(response.user);
+          setText(root, '#account-avatar-status', '头像已保存。');
+          await store.reconcile();
+        } catch (error) {
+          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+          const message = error instanceof DOMException && error.name === 'AbortError'
+            ? '图片已更改，请重新保存。'
+            : handleError(error, '头像保存失败，请重试。');
+          setText(root, '#account-avatar-status', message);
+        } finally {
+          if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
+            accountAvatarSaving = false;
+            accountAvatarEditor?.setDisabled(false);
+            updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+          }
+        }
+      })();
+    });
+  }
+
+  const avatarDeleteButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+  const avatarDeleteConfirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation');
+  const avatarDeleteConfirmButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete-confirm');
+  const avatarDeleteCancelButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete-cancel');
+  if (avatarDeleteButton && avatarDeleteConfirmation && avatarDeleteConfirmButton && avatarDeleteCancelButton) {
+    listen(avatarDeleteButton, 'click', () => {
+      if (!avatarDeleteButton.disabled && accountHasStoredAvatar) avatarDeleteConfirmation.hidden = false;
+    });
+    listen(avatarDeleteCancelButton, 'click', () => {
+      avatarDeleteConfirmation.hidden = true;
+      avatarDeleteButton.focus();
+    });
+    listen(avatarDeleteConfirmButton, 'click', () => {
+      const userId = currentUserId();
+      const submittedEpoch = identityEpoch;
+      if (!userId || !accountHasStoredAvatar || accountAvatarSaving) return;
+      accountAvatarSaving = true;
+      accountAvatarEditor?.setDisabled(true);
+      updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+      setText(root, '#account-avatar-status', '正在删除头像…');
+      void api.deleteAvatar().then(async (response) => {
+        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+        renderAccountAvatar(response.user);
+        accountAvatarEditorKey = null;
+        ensureAccountAvatarEditor(response.user);
+        avatarDeleteConfirmation.hidden = true;
+        setText(root, '#account-avatar-status', '头像已删除。');
+        await store.reconcile();
+      }).catch((error: unknown) => {
+        if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
+          setText(root, '#account-avatar-status', handleError(error, '头像删除失败，请重试。'));
+        }
+      }).finally(() => {
+        if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
+          accountAvatarSaving = false;
+          accountAvatarEditor?.setDisabled(false);
+          updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+        }
+      });
+    });
+  }
+
   const passwordForm = root.querySelector<HTMLFormElement>('#password-change-form');
   if (passwordForm) {
     listen(passwordForm, 'submit', (event) => {
@@ -621,6 +818,11 @@ export function mountAuthPage(
     active = false;
     actionToken = null;
     stopPolling();
+    registerAvatarEditor?.destroy();
+    registerAvatarEditor = null;
+    accountAvatarEditor?.destroy();
+    accountAvatarEditor = null;
+    accountAvatarEditorKey = null;
     for (const cleanup of cleanups.splice(0)) cleanup();
     root.replaceChildren();
   };
@@ -659,6 +861,8 @@ function registerMarkup(): string {
       ${emailField()}
       <label for="auth-display-name">昵称/主要游戏角色名<input id="auth-display-name" name="display_name" autocomplete="nickname" required></label>
       <p class="auth-help">可填写常用游戏角色名，允许重名。</p>
+      <div id="register-avatar-editor"></div>
+      <p class="auth-help">头像会用于站内公开展示。</p>
       ${passwordField('auth-password', '密码', 'new-password')}
       ${passwordField('auth-password-confirmation', '确认密码', 'new-password')}
       <p class="auth-help">密码长度为 5–256 个字符；可使用粘贴和自动填充。</p>
@@ -731,6 +935,7 @@ function accountMarkup(): string {
     <section id="account-profile" hidden>
       <div class="auth-profile-summary">
         <span id="account-avatar-placeholder" class="auth-avatar-placeholder" aria-hidden="true"></span>
+        <img id="account-avatar-image" class="auth-avatar-profile-image" alt="账号头像" hidden>
         <dl>
           <div><dt>账号 ID</dt><dd id="account-id"></dd></div>
           <div><dt>Email</dt><dd id="account-email"></dd></div>
@@ -747,8 +952,22 @@ function accountMarkup(): string {
         <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
         <button type="submit">保存资料</button>
       </form>
+      <section class="auth-avatar-section" aria-labelledby="account-avatar-title">
+        <h2 id="account-avatar-title">头像</h2>
+        <p class="auth-help">头像会用于站内公开展示。图片只在本机裁剪，保存后仅保留压缩后的 WebP。</p>
+        <div id="account-avatar-editor"></div>
+        <div class="auth-avatar-actions">
+          <button id="account-avatar-save" type="button" disabled>保存头像</button>
+          <button id="account-avatar-delete" class="secondary-button" type="button" hidden>删除头像</button>
+          <div id="account-avatar-delete-confirmation" class="auth-avatar-delete-confirmation" hidden>
+            <span>删除当前头像？</span>
+            <button id="account-avatar-delete-confirm" type="button">确认删除</button>
+            <button id="account-avatar-delete-cancel" class="secondary-button" type="button">取消</button>
+          </div>
+        </div>
+        <p id="account-avatar-status" class="auth-status" role="status" aria-live="polite"></p>
+      </section>
       <p id="account-password-link" class="auth-links"><a href="/account/password">修改密码</a> · <a href="/forgot-password">忘记密码</a></p>
-      <p class="auth-help">头像设置将在后续版本开放。</p>
     </section>`;
 }
 

@@ -29,8 +29,8 @@
 | 8 | complete | eac6440..0c44a2a | fix33focused/6REQUIRE MySQL0skip/type/lint，browser两fixture | 3Important+2Minor，fix1 Spec PASS/quality APPROVE；VP8L缺口明示 |
 | 9 | complete | 0c44a2a..d5f8e17 | 30targeted/92auth-health0skip/type/lint/diff；无SQL未重跑真库 | fresh独立Spec PASS/quality APPROVE，无Critical/Important |
 | 10 | complete | d5f8e17..103db0d | fix12focused0skip/type/lint/diff，JSDOM非browser | I1 ADDRESSED；fresh复审Spec PASS/quality APPROVE |
-| 11 | complete | base 103db0d；本条提交 | 初验28focused/fix6pass0skip/type/lint/build/diff；HTML14本地头，JSDOM非browser | I1 ADDRESSED；fresh Spec PASS/quality APPROVE |
-| 12 | 未开始 | — | — | — |
+| 11 | complete | 103db0d..4384ea0 | 初验28focused/fix6pass0skip/type/lint/build/diff；HTML14本地头，JSDOM非browser | I1 ADDRESSED；fresh Spec PASS/quality APPROVE |
+| 12 | implementing | base 4384ea0 | 待验证 | 待独立review |
 | 13 | 未开始 | — | — | — |
 | 14 | 未开始 | — | — | — |
 | 15 | 未开始 | — | — | — |
@@ -374,3 +374,32 @@ Task 11: complete（feat: add account authentication and recovery pages；初验
 Ruling: 页面本人回调用本地identity-changed epoch连同UID挡旧响应，含同UID新session，显示态密码按稳定语义标记清而非input type — 保持跨标签草稿/新身份隔离 — 若错会保留旧密码或误清新显示身份；不暴露token/新增Storage/客户端鉴权。
 Ruling: 邮件检查只在主动受理后启动已有cycle，初始loading不锁未来请求；同身份事件/隐藏/quota/离页停，用户新申请可在页累计<3时重启且次数不reset — 修真实bootstrap与PENDING跨用户迁移问题，保留有界查询 — 不续期/自动重发，失效/失败仍靠server授权。
 Ruling: _headers真实SPA本地14路径已生效，不增加Worker-first或ASSETS覆写 — 最小改动且/accounts缓存对照不变 — 真实Free部署行为与CPU仍未来条件，不用本地mock/墙钟冒充。
+
+Task11 commit 4384ea06507819044e2b391cdbc5379379701784。Task12开始fresh单Luna/max；头像UI/注册资料集成、真实合成JPEG方向/PNG透明/WebP编码与PUTGET，专用lastroweb_auth_test独占且不生产/真实邮件，Cua正常localhost UI，不绕过受阻data导航，不以mockcodec冒充真实browser/FreeCPU。
+
+## 2026-10-13 第二次额度恢复
+Task12 writer及定点audit出现usage limit最终状态，提示Tallinn20:45恢复；未对Task12给完成结论。用户明确“继续”。管理人17:46:43UTC/Tallinn20:46核对ordinaryUsageAllowed=true、primary0%、weekly32%，恢复同Luna/max；无购买/reset credits/模型替换。当前权限改为workspace-write/network restricted且.git只读，后续必要本地测试/Git如被限制须具体最小授权审查，不用skip假称通过，不进行远端操作。
+
+Task12停止点证据（代理报告）：meaningful RED3项UI行为失败，2files9tests非missing import；初实现2files11tests GREEN。恢复时继续头像保存失败保留预览与A→B请求guard最少回归，type/browser/实际PUTGET尚未测，不标完成。已有pages/editor/tests修改保留，唯一本地writer；合成JPEG方向6/透明PNG/WebP源fixtures已生成。
+
+Ruling: 定点“相同CSRF迟到refresh推进revision并吞401”疑点已排除 — 实际私有setSessionCsrfIfCurrent有same-token guard；独立真实AuthApi+Store内存deferred exit0：同token refresh后revision1/随后401清anonymous至2，显式loginB后revision3/旧A401不清B — 没有产品/测试变更，不扩大其他竞争假说。audit动态输出与报告在quota最终错误前已完成；root收到quota错误状态不等于probe未执行，也不当作browser/SQL/CPU证据。仅补准确源码与行为依据，未重跑probe。
+
+## 2026-10-13 本地环境恢复
+用户继续后原项目路径不可访问；只读lsblk确认7A9F-F871仍为nvme0n1p5且未挂载，udisksctl正常挂载恢复原checkout。feat/ltsd-account-system、Task11 HEAD和Task12未提交文件均保留，没有stash/reset/新checkout；旧代理不存在，启动fresh Task12 Luna/max续接精确brief与已有改动。当前权限danger-full-access/never，以当前权限为准；没有申请远端权限或进行生产操作。
+
+Ruling: 当前浏览器连接工具不可用，改用应用已bundled Playwright与本机已安装Chrome155.0.8059.39，在自动临时独立profile下正常访问owned localhost HTTP做合成图UI验证 — 实际launch/close成功，无安装/项目依赖/用户profile/rawCDP，也不重试被拒data顶层导航 — 若工具行为不兼容需另列未测，不把mock/localwalltime冒称实际浏览器或Free CPU。此前旧Task8 fixture的HTTP验证不替代本次编辑器产物证据。
+
+Task12续接代理新增窄屏拖动关键回归：实际源图x=96、预期64的行为RED，按Canvas当前DOMRect宽高换算指针位移后GREEN；等待完整报告与浏览器证据，不提前验收。
+
+Ruling: 允许仅为Task8 VP8L正向缺口，用现有Sharp将真实Task12编辑器产物派生一个256静态lossless WebP fixture，再以正常HTTP浏览器解码和既有Worker检查补证 — 无新依赖或Worker图片codec，真实性与尺寸需实测 — 若成功只称真实encoder派生/browser-decoded，不称Canvas直接编码VP8L；失败则准确保留未测项。
+
+Task12真实浏览器RED：注册页面未发出register HTTP，状态为Window.fetch Illegal invocation；定位AuthApi constructor默认裸globalThis.fetch后以this.fetcher调用，模拟测试未要求Window receiver。不是codec/DB错误，禁止浏览器注入fetch绕过。
+Ruling: 扩Task12 scope仅auth/api.ts与auth-api.test.ts默认fetch receiver最小绑定修复，显式依赖注入兼容；独立review一并审 — 真浏览器阻断注册/登录/PUTGET，属于本功能必要修复 — 若错需构造器适配，不改CSRF/Store/服务器授权或其他公开API；Luna补窄回归并恢复测试globalfetch。
+
+Task12初验报告核对：3files22pass0skip/type/定向lint/build/diff exit0；Chrome155 desktop1280×900/mobile390×844（不是物理phone），JPEG EXIF6解码320×480，native三产物1172/5882/2600B全部256静态WebP、Hono/MySQL8.4.5 PUTGET200同字节；Sharp派生15392B VP8L直接PUTGET同字节/Chrome解码alpha补正向缺口。preview截图已保存并管理人查看JPEG，原始browserJSON/自动检查日志只当次toolstdout未另存，报告准确注明。Node原生ESM extensionless导入失败改已有vite-node、JPEG ArrowRight横向满宽被clamp改有余量ArrowDown，属于工具/测试诊断，不计产品RED。临时bridge/Vite停止，testDB清空重建9迁移，共享mysqld保留。生成11文件包交fresh独立review，未提交。
+
+Task12独立review SpecFAIL/QualityREQUEST CHANGES：I1 Important，同身份慢PUT期间可换图，旧success销毁新draft；只读jsdom deferred probe确认file未disabled/返回后新B清空。M1 Minor，注册缺公开展示用途提示。管理人源码确认接受I1；fix1原Luna整个editor交互冻结，含export/PUT/DELETE及注册提交，失败恢复编辑、身份清稿仍优先；最小兼容setDisabled方法允许，不增加新稿队列/Store/服务器，文案M1顺带修无需test。待RED/GREEN与fresh复审，不进入Task13。
+
+Task12 fix1报告核对：注册/同UIDpending头像freeze RED2fail18名称skip→GREEN2pass18名称skip，完整两files20pass0skip/type/定向lint/diff exit0。setDisabled兼容新增并guard file/zoom/pointer/keyboard/cancel；PUT/DELETE等待已有reconcile再解锁，新sameidentity editor继承busy，旧identity finally不解锁新稿；失败重试保留预览且file恢复enabled。M1提示已补，无文案测试。未改变codec/后端、不重跑browser/DB；生成四文件scopeddiff交fresh task12_fix_review，未提交。
+
+Task 12: complete（feat: add client-side avatar cropping；初验22focused0skip/fix20focused0skip/type/lint/build/diff，Chrome155实际三源编辑器/desktop-mobile viewport/keyboard-pointer、Hono/MySQL原字节PUTGET，VP8L派生补证）。独立I1/M1均ADDRESSED，fresh scoped SpecPASS/QualityAPPROVE，无新Critical/Important；管理人完整核对报告与fresh diffcheck后提交。修复freeze只mock控制流＋源码复审未真实browser复测，物理phone/其他browser/完整Worker入口/真实FreeCPU未测，证据边界未扩大。

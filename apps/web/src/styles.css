@@ -8595,6 +8595,157 @@ a.sponsor-honor-card:hover {
   font-weight: 900;
 }
 
+.auth-avatar-profile-image {
+  width: 58px;
+  height: 58px;
+  border: 1px solid var(--line-light);
+  border-radius: 50%;
+  background: #fffdf8;
+  object-fit: cover;
+}
+
+.auth-avatar-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.auth-avatar-section h2 {
+  margin: 0;
+  color: var(--forest-deep);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 1.25rem;
+}
+
+.auth-avatar-editor {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.auth-avatar-editor-preview {
+  position: relative;
+  width: min(100%, 256px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--line-light);
+  border-radius: 10px;
+  background: #eee8dc;
+}
+
+.auth-avatar-editor-current,
+.auth-avatar-editor-crop {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.auth-avatar-editor-crop {
+  touch-action: none;
+  cursor: grab;
+}
+
+.auth-avatar-editor-crop:active {
+  cursor: grabbing;
+}
+
+.auth-avatar-editor-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: .84rem;
+}
+
+.auth-avatar-editor-file {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  color: var(--ink);
+  font-size: .86rem;
+  font-weight: 800;
+}
+
+.auth-avatar-editor input[type="file"] {
+  max-width: 100%;
+  padding: 7px;
+  font-size: .82rem;
+}
+
+.auth-avatar-editor-zoom {
+  display: grid;
+  gap: 5px;
+  width: min(100%, 256px);
+  color: var(--ink);
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+.auth-avatar-editor input[type="range"] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--forest);
+}
+
+.auth-avatar-editor-cancel,
+.auth-avatar-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--forest);
+  border-radius: 7px;
+  background: var(--forest);
+  color: #f7f0e4;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.auth-avatar-editor-cancel,
+.auth-avatar-actions .secondary-button {
+  border-color: var(--line-light);
+  background: #f0e8da;
+  color: var(--ink);
+}
+
+.auth-avatar-editor-cancel:disabled,
+.auth-avatar-actions button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.auth-avatar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.auth-avatar-delete-confirmation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--tip-line);
+  border-radius: 8px;
+  background: var(--tip-soft);
+  color: var(--ink);
+  font-size: .82rem;
+}
+
+.auth-avatar-editor [hidden],
+.auth-avatar-delete-confirmation[hidden] {
+  display: none;
+}
+
 .auth-profile-summary dl {
   display: grid;
   gap: 9px;

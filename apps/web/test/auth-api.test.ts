@@ -29,6 +29,22 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('AuthApi', () => {
+  it('uses the global receiver for its default fetch transport', async () => {
+    const originalFetch = globalThis.fetch;
+    const receivers: unknown[] = [];
+    const fetchMock = function (this: unknown): Promise<Response> {
+      receivers.push(this);
+      return Promise.resolve(jsonResponse({ csrf_token: 'anonymous-token' }));
+    };
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+    try {
+      await new AuthApi().getCsrf();
+      expect(receivers[0]).toBe(globalThis);
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
+  });
+
   it('keeps anonymous and session CSRF separate and retries only an invalid anonymous write once', async () => {
     let csrfCount = 0;
     const calls: Array<{ path: string; init: RequestInit }> = [];

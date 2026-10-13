@@ -69,7 +69,7 @@ export class AuthApi implements AuthApiClient {
   private sessionRevisionValue = 0;
   private readonly sessionFailureListeners = new Set<AuthSessionFailureListener>();
 
-  constructor(private readonly fetcher: typeof globalThis.fetch = globalThis.fetch) {}
+  constructor(private readonly fetcher: typeof globalThis.fetch = globalThis.fetch.bind(globalThis)) {}
 
   get sessionRevision(): number {
     return this.sessionRevisionValue;
