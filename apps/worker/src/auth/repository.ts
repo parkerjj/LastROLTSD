@@ -32,6 +32,9 @@ const MAIL_DAILY_LIMIT = 100;
 const MAIL_MONTHLY_LIMIT = 3_000;
 const MAIL_MAX_ATTEMPTS = 4;
 const MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS = 24 * 60 * 60 * 1000;
+const AUTH_CLEANUP_SLOT_MILLISECONDS = 2 * 60_000;
+const AUTH_CLEANUP_BATCH_MAX = 50;
+const AUTH_CLEANUP_SLOT_COUNT = 8;
 
 export interface UserRecord {
   id: UserId;
@@ -167,6 +170,11 @@ export interface MailRepository {
   ): Promise<{ pauseRecorded: boolean; jobUpdated: boolean }>;
 }
 
+export type ClaimOneMailForTickResult =
+  | { kind: 'claimed'; job: ClaimedMailJob }
+  | { kind: 'cleaned' }
+  | { kind: 'idle' };
+
 export interface AuthRepository extends MailRepository {
   readCredentialByEmail(emailNormalized: string): Promise<CredentialSnapshot | null>;
   readProfile(userId: UserId): Promise<AccountProfile | null>;
@@ -175,6 +183,8 @@ export interface AuthRepository extends MailRepository {
   readActionSnapshot(tokenDigest: Uint8Array): Promise<ActionSnapshot | null>;
   consumeAuthRateLimits(rules: readonly AuthRateLimitRule[], now: () => number): Promise<{ allowed: boolean; retryAfter: number }>;
   readAvatar(userId: UserId): Promise<{ base64: string | null; version: number } | null>;
+  claimOneMailForTick(now: number, leaseMs: number): Promise<ClaimOneMailForTickResult>;
+  cleanupAuthBatch(now: number, limit: number): Promise<number>;
 }
 
 interface MailLimitRow extends MysqlRow {
@@ -361,6 +371,14 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
 
     async claimOneMail(now, leaseMs) {
       return claimOneMail(db, mailDailyLimit, mailMonthlyLimit, now, leaseMs);
+    },
+
+    async claimOneMailForTick(now, leaseMs) {
+      return claimOneMailForTick(db, mailDailyLimit, mailMonthlyLimit, now, leaseMs);
+    },
+
+    async cleanupAuthBatch(now, limit) {
+      return cleanupAuthBatch(db, now, limit);
     },
 
     async freezeMailPayload(id, leaseId, expected, frozen, observedAt) {
@@ -896,39 +914,143 @@ async function claimOneMail(
   if (availability.code !== 'AVAILABLE') return null;
 
   return db.transaction(async (transactionDb) => {
-    const expired = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
-      FROM auth_mail_outbox
-      WHERE expires_at <= ?
-        AND (state = 'PENDING' OR (state = 'CLAIMED' AND lease_until <= ?))
-      ORDER BY expires_at, id
-      LIMIT 1 FOR UPDATE SKIP LOCKED`, [currentTime, currentTime]);
-    if (expired) {
-      await markMailTerminal(transactionDb, requiredString(expired.id, 'id'), 'CANCELLED', 'MAIL_EXPIRED');
-    }
-
-    const firstAttemptCutoff = Math.max(0, currentTime - MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS);
-    for (const priority of [0, 1] as const) {
-      const pending = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
-        FROM auth_mail_outbox
-        WHERE state = 'PENDING' AND priority = ? AND next_attempt_at <= ? AND expires_at > ?
-          AND attempt_count < ? AND (first_attempt_at IS NULL OR first_attempt_at > ?)
-          AND payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL
-        ORDER BY next_attempt_at, id
-        LIMIT 1 FOR UPDATE SKIP LOCKED`, [priority, currentTime, currentTime, MAIL_MAX_ATTEMPTS, firstAttemptCutoff]);
-      if (pending) return claimMailRow(transactionDb, pending, 'PENDING', currentTime, leaseDuration);
-
-      const expiredLease = await transactionDb.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
-        FROM auth_mail_outbox
-        WHERE state = 'CLAIMED' AND priority = ? AND lease_until <= ? AND expires_at > ?
-          AND attempt_count < ? AND (first_attempt_at IS NULL OR first_attempt_at > ?)
-          AND payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL
-        ORDER BY lease_until, id
-        LIMIT 1 FOR UPDATE SKIP LOCKED`, [priority, currentTime, currentTime, MAIL_MAX_ATTEMPTS, firstAttemptCutoff]);
-      if (!expiredLease) continue;
-      return claimMailRow(transactionDb, expiredLease, 'CLAIMED', currentTime, leaseDuration);
-    }
-    return null;
+    await terminalizeOneExpiredMail(transactionDb, currentTime);
+    return claimReadyMail(transactionDb, currentTime, leaseDuration);
   });
+}
+
+async function claimOneMailForTick(
+  db: MysqlDatabase,
+  mailDailyLimit: number,
+  mailMonthlyLimit: number,
+  now: number,
+  leaseMs: number,
+): Promise<ClaimOneMailForTickResult> {
+  const currentTime = timestampValue(now, 'now');
+  const leaseDuration = positiveInteger(leaseMs, 'leaseMs');
+  const availability = await readMailAvailability(db, mailDailyLimit, mailMonthlyLimit, currentTime);
+
+  return db.transaction(async (transactionDb) => {
+    if (availability.code === 'AVAILABLE') {
+      const job = await claimReadyMail(transactionDb, currentTime, leaseDuration);
+      if (job) return { kind: 'claimed', job };
+    }
+
+    return await terminalizeOneExpiredMail(transactionDb, currentTime) ? { kind: 'cleaned' } : { kind: 'idle' };
+  });
+}
+
+async function claimReadyMail(
+  db: MysqlDatabase,
+  now: number,
+  leaseMs: number,
+): Promise<ClaimedMailJob | null> {
+  const firstAttemptCutoff = Math.max(0, now - MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS);
+  for (const priority of [0, 1] as const) {
+    const pending = await db.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+      FROM auth_mail_outbox
+      WHERE state = 'PENDING' AND priority = ? AND next_attempt_at <= ? AND expires_at > ?
+        AND attempt_count < ? AND (first_attempt_at IS NULL OR first_attempt_at > ?)
+        AND payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL
+      ORDER BY next_attempt_at, id
+      LIMIT 1 FOR UPDATE SKIP LOCKED`, [priority, now, now, MAIL_MAX_ATTEMPTS, firstAttemptCutoff]);
+    if (pending) return claimMailRow(db, pending, 'PENDING', now, leaseMs);
+
+    const expiredLease = await db.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+      FROM auth_mail_outbox
+      WHERE state = 'CLAIMED' AND priority = ? AND lease_until <= ? AND expires_at > ?
+        AND attempt_count < ? AND (first_attempt_at IS NULL OR first_attempt_at > ?)
+        AND payload_ciphertext IS NOT NULL AND payload_iv IS NOT NULL
+      ORDER BY lease_until, id
+      LIMIT 1 FOR UPDATE SKIP LOCKED`, [priority, now, now, MAIL_MAX_ATTEMPTS, firstAttemptCutoff]);
+    if (expiredLease) return claimMailRow(db, expiredLease, 'CLAIMED', now, leaseMs);
+  }
+  return null;
+}
+
+async function terminalizeOneExpiredMail(db: MysqlDatabase, now: number): Promise<boolean> {
+  const expired = await db.first<MailOutboxRow>(`SELECT ${MAIL_OUTBOX_COLUMNS}
+    FROM auth_mail_outbox
+    WHERE expires_at <= ?
+      AND (state = 'PENDING' OR (state = 'CLAIMED' AND lease_until <= ?))
+    ORDER BY expires_at, id
+    LIMIT 1 FOR UPDATE SKIP LOCKED`, [now, now]);
+  if (!expired) return false;
+
+  const attemptCount = numberValue(expired.attempt_count, 'attempt_count');
+  const firstAttemptAt = nullableNumberValue(expired.first_attempt_at, 'first_attempt_at');
+  const deliveryUnknown = attemptCount >= MAIL_MAX_ATTEMPTS
+    || (firstAttemptAt !== null && firstAttemptAt <= Math.max(0, now - MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS));
+  await markMailTerminal(db, requiredString(expired.id, 'id'), deliveryUnknown ? 'FAILED' : 'CANCELLED',
+    deliveryUnknown ? 'delivery_unknown' : 'MAIL_EXPIRED');
+  return true;
+}
+
+async function cleanupAuthBatch(db: MysqlDatabase, now: number, requestedLimit: number): Promise<number> {
+  const currentTime = timestampValue(now, 'now');
+  if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1) throw new Error('cleanup limit must be a positive integer');
+  const limit = Math.min(requestedLimit, AUTH_CLEANUP_BATCH_MAX);
+  const slot = Math.floor(currentTime / AUTH_CLEANUP_SLOT_MILLISECONDS) % AUTH_CLEANUP_SLOT_COUNT;
+  const firstAttemptCutoff = Math.max(0, currentTime - MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS);
+
+  switch (slot) {
+    case 0: {
+      const result = await db.run(`UPDATE auth_mail_outbox
+        SET state = CASE WHEN attempt_count >= ? OR (first_attempt_at IS NOT NULL AND first_attempt_at <= ?) THEN 'FAILED' ELSE 'CANCELLED' END,
+            lease_id = NULL, lease_until = NULL, payload_ciphertext = NULL, payload_iv = NULL,
+            last_error_code = CASE WHEN attempt_count >= ? OR (first_attempt_at IS NOT NULL AND first_attempt_at <= ?) THEN 'delivery_unknown' ELSE 'MAIL_EXPIRED' END
+        WHERE expires_at <= ? AND state IN ('PENDING', 'CLAIMED')
+          AND (state = 'PENDING' OR lease_until <= ?)
+        ORDER BY expires_at, id LIMIT ?`, [MAIL_MAX_ATTEMPTS, firstAttemptCutoff, MAIL_MAX_ATTEMPTS,
+        firstAttemptCutoff, currentTime, currentTime, limit]);
+      return result.affectedRows;
+    }
+    case 1: {
+      const result = await db.run(`UPDATE auth_mail_outbox
+        SET state = 'FAILED', lease_id = NULL, lease_until = NULL, payload_ciphertext = NULL, payload_iv = NULL,
+            last_error_code = 'delivery_unknown'
+        WHERE state = 'CLAIMED' AND lease_until <= ? AND attempt_count >= ?
+        ORDER BY lease_until, id LIMIT ?`, [currentTime, MAIL_MAX_ATTEMPTS, limit]);
+      return result.affectedRows;
+    }
+    case 2: {
+      const result = await db.run(`UPDATE auth_mail_outbox
+        SET state = 'FAILED', lease_id = NULL, lease_until = NULL, payload_ciphertext = NULL, payload_iv = NULL,
+            last_error_code = 'delivery_unknown'
+        WHERE state = 'CLAIMED' AND lease_until <= ? AND attempt_count < ? AND first_attempt_at <= ?
+        ORDER BY lease_until, id LIMIT ?`, [currentTime, MAIL_MAX_ATTEMPTS, firstAttemptCutoff, limit]);
+      return result.affectedRows;
+    }
+    case 3: {
+      const retentionCutoff = Math.max(0, currentTime - 30 * DAY_MILLISECONDS);
+      const result = await db.run(`DELETE FROM auth_mail_outbox
+        WHERE expires_at <= ? AND state IN ('SENT', 'FAILED', 'CANCELLED')
+        ORDER BY expires_at, id LIMIT ?`, [retentionCutoff, limit]);
+      return result.affectedRows;
+    }
+    case 4: {
+      const retentionCutoff = Math.max(0, currentTime - 7 * DAY_MILLISECONDS);
+      const result = await db.run(`DELETE FROM auth_action_tokens
+        WHERE expires_at <= ? ORDER BY expires_at, token_digest LIMIT ?`, [retentionCutoff, limit]);
+      return result.affectedRows;
+    }
+    case 5: {
+      const result = await db.run(`DELETE FROM auth_sessions
+        WHERE expires_at <= ? ORDER BY expires_at, token_digest LIMIT ?`, [currentTime, limit]);
+      return result.affectedRows;
+    }
+    case 6: {
+      const retentionCutoff = Math.max(0, currentTime - 90 * DAY_MILLISECONDS);
+      const result = await db.run(`DELETE FROM auth_security_events
+        WHERE created_at <= ? ORDER BY created_at, id LIMIT ?`, [retentionCutoff, limit]);
+      return result.affectedRows;
+    }
+    default: {
+      const result = await db.run(`DELETE FROM auth_rate_limits
+        WHERE expires_at <= ? ORDER BY expires_at LIMIT ?`, [currentTime, limit]);
+      return result.affectedRows;
+    }
+  }
 }
 
 async function claimMailRow(

@@ -26,6 +26,9 @@ import { registerPresenceRoute } from './routes/presence';
 import { registerIwaRoutes } from './routes/iwa';
 import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
+import { resolveAuthConfig } from './auth/config';
+import { createAuthRepository } from './auth/repository';
+import { runAuthJobTick } from './auth/jobs';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -117,6 +120,31 @@ export default {
   },
   async scheduled(event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
+    if (event.cron === '*/2 * * * *') {
+      let config;
+      try {
+        config = resolveAuthConfig(env);
+      } catch {
+        console.warn('lastroweb.auth_job_config_unavailable');
+        return;
+      }
+      if (!config.enabled) return;
+
+      const database = createMysqlDatabase(config.mysqlUrl);
+      try {
+        const repository = createAuthRepository(database, {
+          mailDailyLimit: config.mailDailyLimit,
+          mailMonthlyLimit: config.mailMonthlyLimit,
+        });
+        await runAuthJobTick(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
+      } catch {
+        console.error('lastroweb.auth_job_failed');
+        throw new Error('auth background job failed');
+      } finally {
+        await database.close();
+      }
+      return;
+    }
     if (!env.MYSQL_URL) return;
     const database = createMysqlDatabase(env.MYSQL_URL);
     try {

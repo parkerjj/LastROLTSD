@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { createAuthRepository, type NewAuthUser } from '../../apps/worker/src/auth/repository';
 import { resolveAuthConfig } from '../../apps/worker/src/auth/config';
 import { createOpaqueToken, digestToken, openMailPayload, sealMailPayload } from '../../apps/worker/src/auth/crypto';
+import { runAuthJobTick } from '../../apps/worker/src/auth/jobs';
 import { prepareActionMail, preparePasswordChangedMail } from '../../apps/worker/src/auth/mail';
 import { registerAuthRoutes } from '../../apps/worker/src/auth/router';
 import type { AccountProfile, ActionPurpose, AuthBindings, AuthRateLimitRule, NewMailJob, PasswordMaterial } from '../../apps/worker/src/auth/types';
@@ -1031,6 +1032,116 @@ describe('real MySQL account schema and repository', () => {
       expect(await disabledReset.json()).toEqual(await unknownReset.json());
       await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_mail_outbox WHERE user_id = ?', [otherId]))
         .resolves.toMatchObject({ count: 1 });
+    });
+  }, 120_000);
+
+  it.skipIf(!runMysqlTests)('sends one ready mail before cleanup, then caps a real indexed cleanup batch at fifty', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.UTC(2026, 9, 13, 12);
+      const slotMilliseconds = 2 * 60_000;
+      const slotCount = 8;
+      const currentSlot = Math.floor(now / slotMilliseconds);
+      const cycleStart = (currentSlot - (currentSlot % slotCount)) * slotMilliseconds;
+      const server = await database.first<MysqlRow>('SELECT VERSION() AS version');
+      expect(server?.version).toMatch(/^8\.4\.5(?:-|$)/u);
+      const sessionIndex = await database.first<MysqlRow>(`SELECT INDEX_NAME AS key_name FROM information_schema.statistics
+        WHERE table_schema = DATABASE() AND table_name = 'auth_sessions'
+          AND index_name = 'idx_auth_sessions_expiry' LIMIT 1`);
+      expect(sessionIndex).toEqual({ key_name: 'idx_auth_sessions_expiry' });
+      const outboxUserForeignKey = await database.first<MysqlRow>(`SELECT CONSTRAINT_NAME AS constraint_name
+        FROM information_schema.key_column_usage
+        WHERE table_schema = DATABASE() AND table_name = 'auth_mail_outbox'
+          AND column_name = 'user_id' AND referenced_table_name = 'auth_users' LIMIT 1`);
+      expect(outboxUserForeignKey).toEqual({ constraint_name: 'fk_auth_mail_outbox_user' });
+      const actionDigestForeignKey = await database.first<MysqlRow>(`SELECT CONSTRAINT_NAME AS constraint_name
+        FROM information_schema.key_column_usage
+        WHERE table_schema = DATABASE() AND table_name = 'auth_mail_outbox'
+          AND column_name = 'action_digest' AND referenced_table_name IS NOT NULL LIMIT 1`);
+      expect(actionDigestForeignKey).toBeNull();
+      const config = resolveAuthConfig({
+        ...testAuthBindings(), RESEND_API_KEY: 're_test-key', MAIL_FROM: 'LTSD <auth@example.test>',
+      });
+      const repository = createAuthRepository(database, {
+        mailDailyLimit: config.mailDailyLimit, mailMonthlyLimit: config.mailMonthlyLimit,
+      });
+      await database.run(`INSERT INTO auth_users
+        (id, email, email_normalized, display_name, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'PENDING_EMAIL', ?, ?)`, [
+        '10000', 'cleanup@example.test', 'cleanup@example.test', 'Cleanup', cycleStart - 90_000_000, cycleStart - 90_000_000,
+      ]);
+
+      const readyMail = await preparePasswordChangedMail({
+        mailId: '123e4567-e89b-12d3-a456-426614174082',
+        userId: '10000', email: 'cleanup@example.test', displayName: 'Cleanup', createdAt: now,
+      }, config);
+      const expiredMail = await preparePasswordChangedMail({
+        mailId: '123e4567-e89b-12d3-a456-426614174083',
+        userId: '10000', email: 'cleanup@example.test', displayName: 'Cleanup', createdAt: cycleStart - 90_000_000,
+      }, config);
+      const insertMail = async (mail: NewMailJob, expiresAt: number): Promise<void> => {
+        await database.run(`INSERT INTO auth_mail_outbox
+          (id, action_digest, user_id, purpose, payload_ciphertext, payload_iv, payload_key_version, priority, state,
+            lease_id, lease_until, attempt_count, next_attempt_at, created_at, expires_at, first_attempt_at,
+            provider_message_id, last_error_code)
+          VALUES (?, NULL, ?, ?, ?, ?, ?, 0, 'PENDING', NULL, NULL, 0, ?, ?, ?, NULL, NULL, NULL)`, [
+          mail.id, mail.userId, mail.purpose, mail.payloadCiphertext, mail.payloadIv, mail.payloadKeyVersion,
+          mail.createdAt, mail.createdAt, expiresAt,
+        ]);
+      };
+      await insertMail(readyMail, readyMail.expiresAt);
+      await insertMail(expiredMail, expiredMail.expiresAt);
+
+      const sessionRows = Array.from({ length: 51 }, (_, index) => [
+        new Uint8Array(32).fill(index + 1), '10000', 1, 1,
+        cycleStart - 90_000_000, cycleStart - 90_000_000, cycleStart - 1, null,
+      ] as const);
+      const placeholders = sessionRows.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+      await database.run(`INSERT INTO auth_sessions
+        (token_digest, user_id, credential_version, auth_version, created_at, last_seen_at, expires_at, revoked_at)
+        VALUES ${placeholders}`, sessionRows.flatMap((row) => [...row]));
+
+      const expiredIdentity = await repository.readIdentity(sessionRows[0]![0], cycleStart);
+      expect(expiredIdentity).toBeNull();
+
+      let fetchCalls = 0;
+      const runtime = {
+        now: () => now,
+        fetch: (async () => {
+          fetchCalls += 1;
+          return new Response(JSON.stringify({ id: 'email_auth_cleanup_1' }), { status: 200 });
+        }) as typeof globalThis.fetch,
+      };
+      const sent = await runAuthJobTick(repository, config, runtime);
+      expect(sent).toMatchObject({ kind: 'mail', result: 'sent' });
+      expect(fetchCalls).toBe(1);
+      await expect(database.first<MysqlRow>('SELECT state, payload_ciphertext FROM auth_mail_outbox WHERE id = ?', [readyMail.id]))
+        .resolves.toEqual({ state: 'SENT', payload_ciphertext: null });
+      await expect(database.first<MysqlRow>('SELECT state, payload_ciphertext FROM auth_mail_outbox WHERE id = ?', [expiredMail.id]))
+        .resolves.toEqual({ state: 'PENDING', payload_ciphertext: expiredMail.payloadCiphertext });
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_sessions WHERE user_id = ?', ['10000']))
+        .resolves.toMatchObject({ count: 51 });
+
+      const expiredCleanup = await runAuthJobTick(repository, config, runtime);
+      expect(expiredCleanup.kind).toBe('cleanup');
+      expect(fetchCalls).toBe(1);
+      await expect(database.first<MysqlRow>('SELECT state, last_error_code, payload_ciphertext FROM auth_mail_outbox WHERE id = ?', [expiredMail.id]))
+        .resolves.toEqual({ state: 'CANCELLED', last_error_code: 'MAIL_EXPIRED', payload_ciphertext: null });
+      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_sessions WHERE user_id = ?', ['10000']))
+        .resolves.toMatchObject({ count: 51 });
+
+      let maximumAffected = 0;
+      for (let slot = 0; slot < slotCount; slot += 1) {
+        const affected = await repository.cleanupAuthBatch(cycleStart + slot * slotMilliseconds, 51);
+        expect(affected).toBeLessThanOrEqual(50);
+        maximumAffected = Math.max(maximumAffected, affected);
+      }
+
+      const remaining = await database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_sessions WHERE user_id = ?', ['10000']);
+      expect(Number(remaining?.count)).toBe(1);
+      expect(maximumAffected).toBe(50);
+      await expect(repository.readIdentity(sessionRows[50]![0], cycleStart + slotCount * slotMilliseconds)).resolves.toBeNull();
+      await expect(database.first<MysqlRow>('SELECT CAST(id AS CHAR) AS id FROM auth_users WHERE id = ?', ['10000']))
+        .resolves.toEqual({ id: '10000' });
     });
   }, 120_000);
 });

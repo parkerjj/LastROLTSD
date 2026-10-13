@@ -2,6 +2,28 @@
 
 This document is the external contract for the OpenKore market adapter. The upload endpoint accepts only the approved protocol v2 contract. The server does not implement or accept an earlier upload protocol.
 
+## Account and authentication APIs
+
+Account authentication is enabled only when `AUTH_ENABLED=true` and its server configuration is valid. Account cookies and endpoints are separate from market upload credentials and game passwords. The account routes are:
+
+| Method and path | Access |
+| --- | --- |
+| `GET /api/v1/auth/csrf` | Anonymous CSRF bootstrap; returns `csrf_token` and an HttpOnly CSRF cookie |
+| `POST /api/v1/auth/register`, `POST /api/v1/auth/login` | Anonymous, CSRF-protected writes |
+| `GET /api/v1/auth/me` | Current session; a `PENDING_EMAIL` account receives `mail_availability` |
+| `POST /api/v1/auth/session/refresh`, `/api/v1/auth/logout`, `/api/v1/auth/logout-all` | Current session; refresh and logout-all require its session CSRF token |
+| `POST /api/v1/auth/email-verification/request`, `/api/v1/auth/email-verification/confirm` | Current account session; confirmation must use that same user's session |
+| `POST /api/v1/auth/password/change` | Current account session and current password |
+| `POST /api/v1/auth/password-reset/request`, `/api/v1/auth/password-reset/confirm` | Anonymous request; confirmation requires a one-use reset token and CSRF token |
+| `PATCH /api/v1/account/profile`, `PUT /api/v1/account/avatar`, `DELETE /api/v1/account/avatar` | Current account session and session CSRF token; only the caller's profile can be changed |
+| `GET /api/v1/users/:id/avatar` | Public avatar read; `v` is the avatar version used for cache invalidation |
+
+For browser writes, send `Origin` matching the configured `AUTH_SITE_URL` and the CSRF token in `X-CSRF-Token`. The anonymous token is paired with the CSRF cookie; after login, use the session-bound token returned by login or `/me`. Account writes reject missing or untrusted origins and cross-site fetches. The account namespace does not use the public market API's wildcard CORS rule. Authentication and mutation responses use `Cache-Control: no-store`.
+
+Unverified users can sign in as `PENDING_EMAIL`, read their own session, update their own display name/avatar, request verification again, and log out. Pending status does not grant verified-account status; the response keeps `mail_availability` visible so the client can explain delivery quotas. Registration and password-reset requests return the same accepted shape for existing and unknown email addresses and do not expose a user or mail-job identifier.
+
+JSON bodies for ordinary account operations are limited to 8 KiB. Registration and avatar writes are limited to 64 KiB. Passwords are 5–256 Unicode code points and are not trimmed; display names are trimmed to 1–32 code points. An avatar is plain Base64 for one static 256×256 WebP image, at most 32 KiB (43,692 Base64 characters); do not send a data URL, animation, or original image. GET only renders an action form; email verification or password reset consumes its one-use token on POST.
+
 ## Upload
 
 `POST /api/v1/market/upload` requires `Authorization: Bearer <source-api-key>`, `Content-Type: application/json`, and `Idempotency-Key: <snapshot_id/part_index>`. The authenticated API key determines `source_id`; a JSON `source_id` is never trusted. The body is limited to 512 KiB and each snapshot has at most 64 parts (indexes 0 through 63).

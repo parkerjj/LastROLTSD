@@ -14,7 +14,7 @@ import type {
   UserId,
 } from './types';
 
-const MAIL_LEASE_MILLISECONDS = 30_000;
+export const MAIL_LEASE_MILLISECONDS = 30_000;
 const MAIL_HTTP_TIMEOUT_MILLISECONDS = 5_000;
 const MAIL_MAX_BODY_BYTES = 8_192;
 const MAIL_MAX_ATTEMPTS = 4;
@@ -328,21 +328,9 @@ async function applyFinish(
 }
 
 export function createMailDispatcher(repository: MailRepository, config: AuthConfig, runtime: AuthRuntime) {
-  return {
-    async sendOne(now: number): Promise<'sent' | 'idle' | 'retry' | 'paused' | 'failed'> {
-      if (!config.enabled) return 'paused';
-      const apiKey = config.mailDelivery?.apiKey;
-      if (!apiKey) return 'paused';
-      const requestedAt = currentTime(now);
-      const availability = await repository.readMailAvailability(requestedAt);
-      if (availability.code !== 'AVAILABLE') return 'paused';
-
-      const job = await repository.claimOneMail(requestedAt, MAIL_LEASE_MILLISECONDS);
-      if (!job) {
-        const latestAvailability = await repository.readMailAvailability(currentTime(runtime.now()));
-        return latestAvailability.code === 'AVAILABLE' ? 'idle' : 'paused';
-      }
-
+  const apiKey = config.mailDelivery?.apiKey;
+  const sendClaimed = async (job: ClaimedMailJob): Promise<'sent' | 'retry' | 'paused' | 'failed'> => {
+      if (!config.enabled || !apiKey) return 'paused';
       const context = { mailId: job.id, purpose: job.purpose };
       let plaintext: string;
       try {
@@ -489,6 +477,22 @@ export function createMailDispatcher(repository: MailRepository, config: AuthCon
         status: 'failed', errorCode: response.status === 429 ? 'MAIL_PROVIDER_429_UNKNOWN' : 'MAIL_PROVIDER_REJECTED', observedAt,
       });
       return finished ? 'failed' : 'retry';
+  };
+
+  return {
+    async sendOne(now: number): Promise<'sent' | 'idle' | 'retry' | 'paused' | 'failed'> {
+      if (!config.enabled || !apiKey) return 'paused';
+      const requestedAt = currentTime(now);
+      const availability = await repository.readMailAvailability(requestedAt);
+      if (availability.code !== 'AVAILABLE') return 'paused';
+
+      const job = await repository.claimOneMail(requestedAt, MAIL_LEASE_MILLISECONDS);
+      if (!job) {
+        const latestAvailability = await repository.readMailAvailability(currentTime(runtime.now()));
+        return latestAvailability.code === 'AVAILABLE' ? 'idle' : 'paused';
+      }
+      return sendClaimed(job);
     },
+    sendClaimed,
   };
 }

@@ -403,3 +403,35 @@ Task12独立review SpecFAIL/QualityREQUEST CHANGES：I1 Important，同身份慢
 Task12 fix1报告核对：注册/同UIDpending头像freeze RED2fail18名称skip→GREEN2pass18名称skip，完整两files20pass0skip/type/定向lint/diff exit0。setDisabled兼容新增并guard file/zoom/pointer/keyboard/cancel；PUT/DELETE等待已有reconcile再解锁，新sameidentity editor继承busy，旧identity finally不解锁新稿；失败重试保留预览且file恢复enabled。M1提示已补，无文案测试。未改变codec/后端、不重跑browser/DB；生成四文件scopeddiff交fresh task12_fix_review，未提交。
 
 Task 12: complete（feat: add client-side avatar cropping；初验22focused0skip/fix20focused0skip/type/lint/build/diff，Chrome155实际三源编辑器/desktop-mobile viewport/keyboard-pointer、Hono/MySQL原字节PUTGET，VP8L派生补证）。独立I1/M1均ADDRESSED，fresh scoped SpecPASS/QualityAPPROVE，无新Critical/Important；管理人完整核对报告与fresh diffcheck后提交。修复freeze只mock控制流＋源码复审未真实browser复测，物理phone/其他browser/完整Worker入口/真实FreeCPU未测，证据边界未扩大。
+
+Task12 commit d355e343d04fdded213dbecf87a1010139371c1f。Task13开始fresh唯一Luna/max，*/2独立event/一封或一类清理≤50、共用预算、默认关闭Secret预检/docs；不执行远端workflow/配置Secrets/DNS/部署/真邮件。
+
+Task13公开官方文档只读核对（2026-10-13）：[Cloudflare limits](https://developers.cloudflare.com/workers/platform/limits/)仍Free HTTP/Cron完整10ms及Cron账户总5；[Resend errors](https://resend.com/docs/api-reference/errors)daily/monthly/rate_limit三个429类别区分；[account quotas](https://resend.com/docs/knowledge-base/account-quotas-and-limits)100/day3000/month与UTC日恢复、sent/received共享额度。没有查询用户实际套餐/剩余Cron或邮件余额，不当作生产条件已满足。
+
+Ruling: 增加Cron专用claimOneMailForTick返回claimed/cleaned/idle、优先ready，无ready才终结一expired；保留原claimOneMail兼容与ready不饥饿，共享内部领取SQL helper及mail发送体sendClaimed — 原null无法表示已经做expired cleanup，容易让单tick累加两类清理或清理再发信 — 若错影响任务归属/吞吐需内部适配，不改公开API或预算；cleaned映射cleanup且直接结束。缺邮件配置/预算仍可一个清理类别移除过期密文，不能领取发信或永久阻止清理；无global标记/循环drain。接口与关键MySQL证据待Luna实施/独立review。
+
+Ruling: production workflow增加显式请求启用与可信boolean preflight输出，默认false；仅五Auth/Resend秘密与站点/发信必要配置完整时允许true，deploy用输出显式覆盖AUTH_ENABLED，缺值warning且跳过空secret put — 只TOML默认false不能证明未来启用请求缺配置时仍安全关闭 — 若错影响未来发布配置需局部预检修正；本次仅本地编辑不执行workflow/remoteSecret，main触发规则不变。previous pair同样需完整，不能文档说保旧key而流程漏注入。
+
+Task13批准最小新增scripts/preflight-auth-deployment.mjs＋一个行为测试；纯resolveAuthDeploymentPreflight(input)只返回enabled/reasonCodes，CLI输出可信boolean及脱敏原因，不回显secret/地址/站点。与Worker当前32B Base64/独立key/版本/previous pair/预算/可信site/邮箱配置规则一致；不验证真实DNS或投递资格。workflow通过quoted env argv传公开vars，避免把变量直接插shell代码；previous secret只非空stdin、未配不delete。此为上项Ruling的具体实施范围，不新增production操作授权。
+
+Task13有效RED（代理报告）：AUTH_ENABLED=false的*/2原路径仍建pool，生命周期断言真实失败。预检4项行为GREEN。auth-jobs缺module与首轮真库cleanupAuthBatch尚无方法，分别为接口未落地，不计业务/SQL行为RED；管理人明确已有Cron真实RED可直接最小实现，不为技能逐条机械造骨架/重跑空方法。真库reset与全部9迁移已实际执行，最终SQL/边界/FK需REQUIRE GREEN才验收。
+
+Task13阶段GREEN（代理报告）：jobs/lifecycle/mail/preflight定向34pass。真实MySQL8.4.5执行至单mail优先、密文终结、八slot限量、session到期索引和FK证据；唯一失败为fixture SELECT id默认number却断言string，改显式CAST(id AS CHAR)后重跑，不改产品去迎合。管理人要求最终完整REQUIRE file0skip一次，过滤pass/名称skip不当作完整通过；尚未自查/独立review/提交。
+
+Task13最终检查阶段（代理报告）：完整REQUIRE auth-account-flow7pass0skip/exit0，MySQL8.4.5，一合并case ready优先/次tick expired密文清除/8slot一类/51 expired sessions只删50留1，outbox userFK且action_digest无FK，与现schema一致；helper finally关所有DBclients。tsc首轮test type import错误已修后exit0，eslint/docs58assertions exit0；等待最终自查/report与独立review，尚未提交。未跑远端Cron/workflow/邮件/CPU。
+
+Task13最终report完整读：35focused0skip/7完整REQUIRE MySQL0skip/type/lint/docs58/diff exit0；精确8slot TTL/索引/FK/兼容claim/sendClaimed与默认false/preflight/非空stdin接线已报告。preflight CLI未实际run、仅纯函数tests，workflow未运行；真实CPU/域名/Secrets/账户Cron与provider余额都未验。生成15file review包派fresh task13_review（Spec＋Quality），source停止，尚未提交。
+
+Task13管理人补独立CLI smoke（不是重复纯函数suite）：干净spawn env只有PATH/临时GITHUB_OUTPUT，两case默认未请求、请求true但缺配置均exit0/输出enabled=false；后者warning=true及仅MISSING_REQUIRED_SECRET/INVALID_CORE_SECRET/INVALID_AUTH_SITE_URL/INVALID_MAIL_FROM脱敏reason。临时output删除，无真实secret/配置/DB/remote操作。已传reviewer，精确修正“CLI未run”证据空白；完整开启CLI/实际GitHub workflow仍未跑，不能扩大结论。
+
+Task13独立review SpecFAIL/QualityREQUEST_CHANGES：1Important/P1 I1，core secret put会即时部署，key-version/publicvars到最终deploy才更新；轮换期间enabled旧v1绑定newkey，可永久错标新凭据，mail同风险。管理人核对当前YAML顺序与[官方Secret发布语义](https://developers.cloudflare.com/workers/configuration/secrets/#adding-secrets-to-your-project)接受。其余claim/cleanup/index/FK/预算/旧Cron/defaultfalse无阻塞，CPU/remoteworkflow未验不扩大结论。
+
+Ruling: account Secret写入前先完成AUTH_ENABLED=false发布屏障，后续secret put维持关闭，最后完整版本/材料/publicvars恢复预检开关；中途失败保持关闭 — 继续沿非空stdin方法又避免异步发布造成key版本错配，比改原子发布体系更小 — 成本为未来每次请求启用的发布有短账号维护窗口，公开站点仍可用；本次仅本地workflow/docs改动，绝不执行部署。Luna fix1限YAML/docs与一个有意义workflow顺序检查，没改服务端不重跑SQL。
+
+Task13 fix1报告完整核对：YAML added conditional关闭deploy在core/previous/Resend写前，最后完整mapping恢复；static顺序RED1fail4名称skip→完整preflight5pass0skip/type/lint/docs58/diff exit0。deployment/operations说明maintenance与manualrotation同序；屏障自身失败结果可能含糊但不继续put，需未来人工核对状态；屏障成功后任何后续失败保持关闭。没有执行Wrangler或remote、SQL/source未变未重复真库。四file scoped包交fresh task13_fix_review，未提交。
+
+Task13复审I1 ADDRESSED，限定SpecPASS/QualityAPPROVE，无新Critical/Important；管理人完整读report/fresh diffcheck。证据修正：最终完整mapping恢复deploy若已在远端成功但返回失败，线上也可能已经开启，不能只凭exit非0保证仍关闭；此时映射已完整，不再是I1错标窗口。任何发布结果含糊都需未来核对实际状态。本次没有实际发布验证。
+
+Task13 Minor（deferred，Task15文档修正）：deployment.md:81及operations.md:17把最终deploy失败仍关闭写得过于绝对。实现步骤失败停止正确、版本映射在最终命令完整；该措辞不影响Task14接口/安全竞争，Task15允许在这两段改为“secret put失败无恢复；最终发布失败/含糊须核对，不能仅凭退出码认定开启或关闭”，最终整分支review必须检查。不是静默忽略或把远端状态当已测。
+
+Task 13: complete（feat: configure bounded account background jobs；35focused0skip/7完整REQUIRE MySQL0skip/type/lint/docs58/diff，fixpreflight5pass0skip；独立I1修复＋fresh复审PASS）。账号关闭无新pool、独立*/2、单mail/单类≤50、TTL/FK/同预算、默认false预检/关闭发布屏障/docs均本地完成；上述一文档Minor留Task15明确修正，生产workflow/Cron/域名/Secrets/邮件/10ms未验。

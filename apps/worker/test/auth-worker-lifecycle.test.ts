@@ -61,7 +61,9 @@ function trackAuthPools(options: { failIdentity?: boolean; dailyCount?: number }
           ], []];
         }
         if (sql.includes('FROM auth_avatars AS a')) return [[{ avatar_base64: null, avatar_version: 0 }], []];
-        return [[], []];
+        return /^\s*(SELECT|SHOW)\b/iu.test(sql)
+          ? [[], []]
+          : [{ affectedRows: 0, insertId: 0 }, []];
       },
       async end() {
         pool.closeCalls += 1;
@@ -189,5 +191,30 @@ describe('Worker account request lifecycle', () => {
     expect(body).toContain('AUTH_UNAVAILABLE');
     expect(body).not.toContain('database unavailable');
     expect(pools[0]?.closeCalls).toBe(1);
+  });
+
+  it('does not open a database for the independent auth cron when account auth is disabled', async () => {
+    const pools = trackAuthPools();
+
+    await worker.scheduled(
+      { cron: '*/2 * * * *' } as ScheduledEvent,
+      authBindings({ AUTH_ENABLED: 'false' }),
+    );
+
+    expect(pools).toHaveLength(0);
+  });
+
+  it('runs one cleanup category without Resend and closes its independent cron pool once', async () => {
+    const pools = trackAuthPools();
+
+    await worker.scheduled(
+      { cron: '*/2 * * * *' } as ScheduledEvent,
+      authBindings({ AUTH_MAIL_DAILY_LIMIT: '25', AUTH_MAIL_MONTHLY_LIMIT: '700' }),
+    );
+
+    expect(pools).toHaveLength(1);
+    expect(pools[0]?.closeCalls).toBe(1);
+    expect(pools[0]?.queries.filter((sql) => /^(?:\s*UPDATE\s+auth_|\s*DELETE\s+FROM\s+auth_)/iu.test(sql))).toHaveLength(1);
+    expect(pools[0]?.queries.some((sql) => /\b(?:snapshots|shops|listings)\b/iu.test(sql))).toBe(false);
   });
 });
