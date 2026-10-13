@@ -28,8 +28,8 @@
 | 7 | complete | 7c1b6f7..eac6440 | 42focused；fix12focused/5REQUIRE MySQL0skip/type/lint | 1Important/1Minor，fix1 fresh Spec PASS/quality APPROVE |
 | 8 | complete | eac6440..0c44a2a | fix33focused/6REQUIRE MySQL0skip/type/lint，browser两fixture | 3Important+2Minor，fix1 Spec PASS/quality APPROVE；VP8L缺口明示 |
 | 9 | complete | 0c44a2a..d5f8e17 | 30targeted/92auth-health0skip/type/lint/diff；无SQL未重跑真库 | fresh独立Spec PASS/quality APPROVE，无Critical/Important |
-| 10 | complete | base d5f8e17；本条提交 | fix12focused0skip/type/lint/diff，JSDOM非browser | I1 ADDRESSED；fresh复审Spec PASS/quality APPROVE |
-| 11 | 未开始 | — | — | — |
+| 10 | complete | d5f8e17..103db0d | fix12focused0skip/type/lint/diff，JSDOM非browser | I1 ADDRESSED；fresh复审Spec PASS/quality APPROVE |
+| 11 | complete | base 103db0d；本条提交 | 初验28focused/fix6pass0skip/type/lint/build/diff；HTML14本地头，JSDOM非browser | I1 ADDRESSED；fresh Spec PASS/quality APPROVE |
 | 12 | 未开始 | — | — | — |
 | 13 | 未开始 | — | — | — |
 | 14 | 未开始 | — | — | — |
@@ -350,3 +350,27 @@ Task10 fix1报告已核对：新deferred RED1fail5名称skip→聚焦1pass5名�
 
 Task 10: complete（feat: add browser account state and navigation；12focused0skip/type/lint/diff，独立I1 ADDRESSED/Spec PASS/quality APPROVE，无Critical/Important）。复审独立过滤3pass3skip，真实AuthApi+Store内存probe验证I1 burst合并两次me/B清稿、same-session恢复0误清稿、newlogin/退出迟到隔离、503不自动retry与不更新期限；非实际browser Cookie/页面/Crop/CPU。管理人完整读结论和源码修复、fresh diffcheck核对后提交。
 Ruling: reconcile每次真实身份信号使旧generation/API revision失效，后续信号用一个dirty位串行查询最新Cookie，失败本身不触发重试 — 避免旧身份响应覆盖跨标签切换且仍合并请求 — 若错会产生错误展示/旧稿，服务端CSRF仍授权边界；不自动重放写，不回发通知，不扩框架/Storage。
+
+Task10 commit 103db0d6f76b63ebc04d741619e56680e77bf0ca。Task11开始fresh单Luna/max，依共享接口接七账号页面，令牌闭包清URL/无analytics/真实HTML安全头，保留游戏/accounts；头像仅占位到Task12，不提前Cron/DB竞争。
+
+Ruling: Task11成功profile PATCH后复用共享Store.reconcile安全同步一次me — 当前Store没有安全profile-adopt接口，避免新增setter/绕generation；该查询有意同步本人导航，不是组件重复bootstrap — 若错会额外查库或迟到显示错身份，页面仍需身份事件守卫，后续CPU按完整调用分别测。Task11 writer起初只找大写AGENTS遗漏小写agent.md，经管理人指出已补完整读取，未先改源码；历史D1/main覆盖依据再次明确。
+
+Task11初次RED命令2 suites/0tests因pages.ts缺失无法加载，管理人明确不算行为RED。Luna落export最小骨架后实际2files/8tests失败，包含七路径/表单/权限401503/token清URL/mainanalytics分流；poll用例安装JSDOM前访问document为fixture错误，先修再复测，不改产品迎合。已产生关键行为失败证据后实施，不要求逐页机械RED。
+
+Task11行为GREEN阶段（代理报告）：pages4/5、token3项pass，仅旧main在/register调用analytics/LA_COLLECT并进入search初始化真实失败，现最小调整main分流。管理人源码补查：type=password选择器遗漏显示后的type=text密码（身份清稿/成功/cleanup均需稳定语义标记）；subscribe在stopPolling const初始化前bootstrap同步emit的TDZ顺序；本人回调仅UID守卫无法防同UID新session/ABA变化后的旧改密响应清新Store。交Luna最小修正稳定字段、helper初始化、本地identity事件epoch，复用现有关键用例/一deferred顺序，不扩每操作矩阵；待证据，未标完成。
+
+Task11阶段GREEN（代理报告）：9pages/token与规定4文件28pass/type/webbuild exit0；旧catalog动态/静态import警告未改。已修上述稳定密码语义/epoch/初始化；公开202文案只受理/等待、不承诺送达，沿既有流程不新文案测试。真实HTML：Wrangler4.133.0 local8790（已读wrangler技能/官方staticassets文档）navigate GET七路径各含/无尾斜杠14项均200 text/html/no-store/no-referrer；/accounts对照200默认public max-age0 must-revalidate，无覆写，_headers在SPA fallback生效，不需Worker/wrangler改动。owned server已Ctrl-C关闭，共享MySQL未动；非远端/CPU。
+
+Task11管理人后续源码补查：真实bootstrap loading同步emit令pollingStopped永久true，后续PENDING主动受理仍无法startPolling（原mock初态pending掩盖）；交Luna在既有poll用例模拟loading→pending并最小修复用户主动启动条件，仍可见/最多3/隐藏或quota立停、不重发/续期、不重置计数绕上限。待真实RED/GREEN及最终report，不提前称完成。
+
+Task11最终report已读：真实AuthStore bootstrap RED首120s timer0预期1→修复GREEN，当前只终止已有cycle，identity变化即使两者PENDING也停旧cycle；新的主动申请可在页累计<3时重启，不resetcount。9pages/token及规定4files28pass/type/lint/webbuild/diff；HTML14variant既有实际证据不重跑。源码停止，六文件reviewdiff已生成并派fresh task11_review；无DB/Workerfallback/远端，未提交。JSDOM+mock API，poll captured timers+真实Store逻辑，不称实际browser/mobile/邮件/CPU通过。
+
+Task11独立review Spec FAIL/quality REQUEST CHANGES，只有1Important/P2：真实AuthStore.bootstrap me503→disabled，而/account隐藏retry；JSDOM+真实Store probe meCalls1/retryHiddentrue证实，原用例mock error掩盖。管理人当前源码确认接受，fix1仅pages/既有503测试，保留disabled信息/手动retry，禁止自动retry/重构；原文件留scoped diff，未进入Task12。
+Ruling: 不接受“ACTIVE错账号缺同页重登”初步疑点 — reviewer完整读真实Nav后已独立复现active同页logout→inline pendinglogin→主动confirm，token保留URL清，不需重复页面按钮或改Task10；此项已排除并记录，非静默忽略。真实Store reconcile轮询独立probe3自动me/0refresh/1request/no剩timer，通过但仍非browser/DB/CPU证据。
+
+Task11 fix1报告已核对：真实Store首503/disabled/no自动retry/me1 RED1fail5名称skip→用户click恢复PENDING/me2 GREEN；原auth-pages全file6pass0skip/type/定向lint/diff exit0。仅pages/既有测试，其他main/styles/_headers原证据不机械重跑。生成两文件scoped diff（no-index exit1为有差异）并派fresh task11_fix_review，未提交。
+
+Task 11: complete（feat: add account authentication and recovery pages；初验28focused/fix6pass0skip/type/lint/build/diff；HTML14variant本地真实no-store/no-referrer；独立I1 ADDRESSED/Spec PASS/quality APPROVE，无Critical/Important）。复审独立过滤1pass5名称skip/sourcehash一致，管理人报告/局部源码/fresh diffcheck核验后提交；browser mobile/keyboard/Crop/CPU仍未声称通过。
+Ruling: 页面本人回调用本地identity-changed epoch连同UID挡旧响应，含同UID新session，显示态密码按稳定语义标记清而非input type — 保持跨标签草稿/新身份隔离 — 若错会保留旧密码或误清新显示身份；不暴露token/新增Storage/客户端鉴权。
+Ruling: 邮件检查只在主动受理后启动已有cycle，初始loading不锁未来请求；同身份事件/隐藏/quota/离页停，用户新申请可在页累计<3时重启且次数不reset — 修真实bootstrap与PENDING跨用户迁移问题，保留有界查询 — 不续期/自动重发，失效/失败仍靠server授权。
+Ruling: _headers真实SPA本地14路径已生效，不增加Worker-first或ASSETS覆写 — 最小改动且/accounts缓存对照不变 — 真实Free部署行为与CPU仍未来条件，不用本地mock/墙钟冒充。
