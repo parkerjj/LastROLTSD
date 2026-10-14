@@ -487,3 +487,5 @@ Ruling: 保留本计划ignored工具workspace中的原始测试/bench日志、br
 Task 15: complete（本地bench14场景18samples/formatter1pass，ordinary552pass19skip，独立authREQUIRE10pass0skip178.26s/type/源码lint/migration5/docs58/build/diff；原lint366errors/FAIL仍精确保留）。整branch review＋唯一docfixwave＋fresh scoped复审通过，local功能AUTH01–11/AC来源已交付；真实CPU10ms/Secrets/DNS/Resend/Cron/remoteGHA/production备份迁移未验，默认关闭不变。管理人收尾元数据docs/diff验核后提交；没有push/mainmerge/deploy/生产DB或玩家发信。
 
 管理人实际收尾验证：归档独立review与更新final验收元数据后pnpm test:docs exit0/58assertions，原始log final-manager-docs.log；独立git diffcheckexit0。没有源码/SQL/浏览器变化，不重跑其已GREEN门禁。35条裁决均持久记录，rawworkspace保留供审阅；最终只本地提交。
+
+Task15 completion commit f41184a51f34b6111b0bd1363522789b77520652（docs: record account validation and deployment conditions）。提交仅10个Task15脚本/runner/最小docs/最终独立review归档/账本文件；staged diffcheckexit0。当前仍feat/ltsd-account-system，Task0–15本地全部完成，生产未验条件不变。最后一次纯账本提交将记录该真实hash，完成后保持clean本地分支，无push/mainmerge/deploy。
