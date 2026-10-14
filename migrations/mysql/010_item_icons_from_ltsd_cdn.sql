@@ -1,4 +1,4 @@
--- 010_item_icons_from_lastro_cdn.sql
+-- 010_item_icons_from_ltsd_cdn.sql
 -- 自定义道具与无图普通道具的图标改指自建图床 rodata.ltsd.ro（913 个 URL 经逐一探测 200 全覆盖）。
 -- URL 由 item_id 直接派生：small/{id}.png（透明小图）、large/{id}.bmp（原版大图）。
 -- 注意：必须 https，http 已被 Cloudflare 源站拒绝（522）。
