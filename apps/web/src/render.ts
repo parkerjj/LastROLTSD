@@ -979,16 +979,14 @@ function optionsChipsMarkup(item: ListingSearchResult): string {
     .join("");
 }
 
-function catalogItemIconUrl(itemId: number, name?: string): string {
-  // 数据库不区分道具类型，采用硬规则：名称以「卡片」结尾时统一使用 card.gif。
-  const file = String(name ?? "").endsWith("卡片") ? "card" : String(itemId);
-  return rmsAssetUrl(`items/small/${encodeURIComponent(file)}.gif`);
+function catalogItemIconUrl(itemId: number): string {
+  return rmsAssetUrl(`items/small/${itemId}.gif`);
 }
 
 function itemIconUrl(
-  item: Pick<ListingSearchResult, "itemId" | "itemName">,
+  item: Pick<ListingSearchResult, "itemId">,
 ): string {
-  return catalogItemIconUrl(item.itemId, item.itemName);
+  return catalogItemIconUrl(item.itemId);
 }
 
 function itemIconMarkup(item: ListingSearchResult): string {
@@ -1054,7 +1052,7 @@ function renderCatalogHistoryCard(
   rawDescription?: string,
 ): string {
   const name = item.name || `未知物品 #${item.itemId}`;
-  const icon = catalogItemIconUrl(item.itemId, name);
+  const icon = catalogItemIconUrl(item.itemId);
   const excerpt = rawDescription
     ? catalogDescriptionExcerpt(rawDescription)
     : "";
