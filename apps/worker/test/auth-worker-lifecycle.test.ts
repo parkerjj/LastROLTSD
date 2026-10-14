@@ -54,7 +54,7 @@ function trackAuthPools(options: { failIdentity?: boolean; dailyCount?: number }
             email_verified_at: null, created_at: 1_700_000_000_000, avatar_version: 0, has_avatar: 0,
           }], []];
         }
-        if (sql.includes('FROM auth_rate_limits')) {
+        if (/^\s*SELECT\b/iu.test(sql) && sql.includes('FROM auth_rate_limits')) {
           return [[
             { scope: 'mail-budget-daily', request_count: options.dailyCount ?? 0, next_allowed_at: 0, expires_at: Number.MAX_SAFE_INTEGER },
             { scope: 'mail-budget-monthly', request_count: 0, next_allowed_at: 0, expires_at: Number.MAX_SAFE_INTEGER },
@@ -205,6 +205,7 @@ describe('Worker account request lifecycle', () => {
   });
 
   it('runs one cleanup category without Resend and closes its independent cron pool once', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-14T10:07:31.000Z'));
     const pools = trackAuthPools();
 
     await worker.scheduled(
