@@ -94,8 +94,8 @@ afterEach(() => {
 });
 
 describe('auth pages', () => {
-  it('matches only the seven account paths and leaves the game monitor route alone', () => {
-    for (const path of ['/register', '/login', '/verify-email', '/forgot-password', '/reset-password', '/account', '/account/password']) {
+  it('matches account paths including check-email and leaves the game monitor route alone', () => {
+    for (const path of ['/register', '/login', '/check-email', '/verify-email', '/forgot-password', '/reset-password', '/account', '/account/password']) {
       expect(isAuthPage(path)).toBe(true);
       expect(isAuthPage(`${path}/`)).toBe(true);
     }
@@ -106,7 +106,13 @@ describe('auth pages', () => {
     const register = vi.spyOn(authApi, 'register').mockResolvedValue({
       accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
     });
+    const login = vi.spyOn(authApi, 'login').mockResolvedValue(session());
     const { dom, root, dispose } = mount('/register');
+    const navigate = vi.fn();
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { location: { assign: navigate } },
+    });
     try {
       const email = root.querySelector<HTMLInputElement>('#auth-email')!;
       const name = root.querySelector<HTMLInputElement>('#auth-display-name')!;
@@ -137,7 +143,14 @@ describe('auth pages', () => {
         password: '🙂'.repeat(256),
         password_confirmation: '🙂'.repeat(256),
       }));
-      await vi.waitFor(() => expect(root.textContent).toContain('已受理，正在等待发送'));
+      await vi.waitFor(() => expect(login).toHaveBeenCalledWith({
+        email: 'player@example.test', password: '🙂'.repeat(256),
+      }));
+      expect(register.mock.invocationCallOrder[0]!).toBeLessThan(login.mock.invocationCallOrder[0]!);
+      await vi.waitFor(() => expect(authStore.getState()).toMatchObject({
+        status: 'pending', user: { email: 'player@example.test' },
+      }));
+      expect(navigate).toHaveBeenCalledWith('/check-email');
       expect(password.value).toBe('');
       expect(password.type).toBe('password');
       expect(confirmation.value).toBe('');
@@ -150,7 +163,12 @@ describe('auth pages', () => {
     const register = vi.spyOn(authApi, 'register').mockResolvedValue({
       accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
     });
+    const login = vi.spyOn(authApi, 'login').mockResolvedValue(session());
     const { dom, root, dispose } = mount('/register');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { location: { assign: vi.fn() } },
+    });
     try {
       const editor = root.querySelector<HTMLElement>('#register-avatar-editor');
       expect(editor).not.toBeNull();
@@ -166,6 +184,9 @@ describe('auth pages', () => {
         display_name: '主号',
         password: 'password',
         password_confirmation: 'password',
+      }));
+      await vi.waitFor(() => expect(login).toHaveBeenCalledWith({
+        email: 'player@example.test', password: 'password',
       }));
     } finally {
       dispose();

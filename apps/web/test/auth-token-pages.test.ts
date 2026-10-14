@@ -107,7 +107,7 @@ describe('auth token pages', () => {
     }
   });
 
-  it('limits visible verification status polling to three reads without refreshing or resending', async () => {
+  it('shows the pending account email without resend or polling controls', async () => {
     const refreshSession = vi.fn(async () => ({ expires_at: 30_000, csrf_token: 'session-csrf' }));
     const storeApi: AuthStoreApi = {
       me: vi.fn(async () => session()),
@@ -123,8 +123,7 @@ describe('auth token pages', () => {
       accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
     });
     const reconcile = vi.spyOn(store, 'reconcile').mockResolvedValue();
-    const { dom, root, dispose } = mount('/verify-email', store);
-    Object.defineProperty(dom.window.document, 'visibilityState', { configurable: true, value: 'visible' });
+    const { dom, root, dispose } = mount('/verify-email#token=verify-secret', store);
     const scheduled: Array<() => void> = [];
     const originalSetTimeout = dom.window.setTimeout;
     dom.window.setTimeout = ((callback: TimerHandler, delay?: number) => {
@@ -135,16 +134,11 @@ describe('auth token pages', () => {
       await store.bootstrap();
       expect(store.getState().status).toBe('pending');
       const refreshCount = refreshSession.mock.calls.length;
-      root.querySelector<HTMLButtonElement>('#verify-request')!.click();
-      await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-      expect(scheduled).toHaveLength(1);
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        scheduled.shift()!();
-        await Promise.resolve();
-        await Promise.resolve();
-      }
-      expect(reconcile).toHaveBeenCalledTimes(3);
-      expect(request).toHaveBeenCalledTimes(1);
+      expect(root.querySelector('#verify-request')).toBeNull();
+      expect(root.querySelector('#verify-check')).toBeNull();
+      expect(root.querySelector<HTMLElement>('#verify-status')?.textContent).toContain('player@example.test');
+      expect(request).not.toHaveBeenCalled();
+      expect(reconcile).not.toHaveBeenCalled();
       expect(refreshSession).toHaveBeenCalledTimes(refreshCount);
       expect(scheduled).toHaveLength(0);
     } finally {

@@ -7,6 +7,7 @@ import type { AccountProfile, AuthAcceptedResponse, MailAvailability, RegisterIn
 const AUTH_PATHS = new Set([
   '/register',
   '/login',
+  '/check-email',
   '/verify-email',
   '/forgot-password',
   '/reset-password',
@@ -38,13 +39,6 @@ export function mountAuthPage(
     ? takeActionToken(pathname)
     : null;
   let active = true;
-  let pollTimer: number | undefined;
-  let pollCount = 0;
-  let pollingStopped = false;
-  let pollCycleActive = false;
-  let pollInFlight = false;
-  let pollUserId: string | null = null;
-  let pollOwnerEpoch = 0;
   let identityEpoch = 0;
   const cleanups: Cleanup[] = [];
   let registerAvatarEditor: AvatarEditor | null = null;
@@ -56,25 +50,6 @@ export function mountAuthPage(
   let accountAvatarSelected = false;
   let accountAvatarProcessing = false;
   let renderState = (_state: Readonly<AuthStoreState>): void => undefined;
-  const doc = root.ownerDocument;
-
-  const cancelPollTimer = (): void => {
-    if (pollTimer !== undefined) {
-      doc.defaultView?.clearTimeout(pollTimer);
-      pollTimer = undefined;
-    }
-  };
-
-  const stopPollCycle = (): void => {
-    pollCycleActive = false;
-    pollUserId = null;
-    cancelPollTimer();
-  };
-
-  const stopPolling = (): void => {
-    pollingStopped = true;
-    stopPollCycle();
-  };
 
   const listen = <K extends keyof HTMLElementEventMap>(
     target: HTMLElement,
@@ -83,13 +58,6 @@ export function mountAuthPage(
   ): void => {
     target.addEventListener(type, listener as EventListener);
     cleanups.push(() => target.removeEventListener(type, listener as EventListener));
-  };
-
-  const listenDocument = (type: 'visibilitychange' | 'pagehide', listener: EventListener): void => {
-    const target = type === 'pagehide' ? root.ownerDocument.defaultView : root.ownerDocument;
-    if (!target) return;
-    target.addEventListener(type, listener);
-    cleanups.push(() => target.removeEventListener(type, listener));
   };
 
   const clearDrafts = (): void => {
@@ -124,15 +92,16 @@ export function mountAuthPage(
       clearDrafts();
     }
     renderState(state);
-    const pollCycleStarted = pollCycleActive || pollTimer !== undefined || pollInFlight;
-    if (pathname === '/verify-email' && pollCycleStarted && (identityChanged || !canPoll(state))) stopPollCycle();
   });
   cleanups.push(unsubscribe);
 
   const page = pageMarkup(pathname);
   root.ownerDocument.title = `${page.title} · 露天商店.Ro`;
-  root.innerHTML = shell(page.title, page.content);
-  mountAuthNav(root, store);
+  root.innerHTML = pathname === '/check-email'
+    ? checkEmailShell(page.content)
+    : shell(page.title, page.content);
+  if (pathname === '/check-email') void store.bootstrap();
+  else mountAuthNav(root, store);
   wirePasswordToggles(root, listen);
 
   const registerAvatarContainer = root.querySelector<HTMLElement>('#register-avatar-editor');
@@ -145,12 +114,6 @@ export function mountAuthPage(
       },
     });
   }
-
-  const visibilityChanged = (): void => {
-    if (doc.visibilityState !== 'visible') stopPolling();
-  };
-  listenDocument('visibilitychange', visibilityChanged);
-  listenDocument('pagehide', stopPolling);
 
   const currentUserId = (): string | null => {
     const state = store.getState();
@@ -308,22 +271,15 @@ export function mountAuthPage(
     const login = root.querySelector<HTMLFormElement>('#verify-login-form');
     const actions = root.querySelector<HTMLElement>('#verify-session-actions');
     const confirm = root.querySelector<HTMLButtonElement>('#verify-confirm');
-    const request = root.querySelector<HTMLButtonElement>('#verify-request');
     const logout = root.querySelector<HTMLButtonElement>('#verify-logout');
-    if (!login || !actions || !confirm || !request || !logout) return;
+    if (!login || !actions || !confirm || !logout) return;
     login.hidden = true;
     actions.hidden = true;
     confirm.hidden = true;
-    request.hidden = true;
     logout.hidden = true;
 
     if (!actionToken) {
       setText(root, '#verify-status', '请重新打开邮件链接。');
-      if (state.status === 'pending') {
-        actions.hidden = false;
-        request.hidden = false;
-        renderMailAvailability(root.querySelector<HTMLElement>('#verify-mail-availability'), state.mailAvailability, 'verify');
-      }
       return;
     }
     if (state.status === 'loading') {
@@ -338,10 +294,8 @@ export function mountAuthPage(
     if (state.status === 'pending') {
       actions.hidden = false;
       confirm.hidden = false;
-      request.hidden = false;
       logout.hidden = false;
-      setText(root, '#verify-status', '登录成功。请确认这是邮箱对应的账号，再手动完成验证。');
-      renderMailAvailability(root.querySelector<HTMLElement>('#verify-mail-availability'), state.mailAvailability, 'verify');
+      setText(root, '#verify-status', `登录成功。请确认邮箱是 ${state.user.email}，再手动完成验证。`);
       return;
     }
     if (state.status === 'active') {
@@ -349,6 +303,18 @@ export function mountAuthPage(
       return;
     }
     setText(root, '#verify-status', state.message);
+  };
+
+  const renderCheckEmailState = (state: Readonly<AuthStoreState>): void => {
+    const email = state.status === 'pending' || state.status === 'active'
+      ? state.user.email
+      : state.status === 'disabled'
+        ? state.user?.email ?? null
+        : null;
+    const element = root.querySelector<HTMLElement>('#check-email-account-email');
+    if (!element) return;
+    element.textContent = email ? `当前账号邮箱：${email}` : '';
+    element.hidden = !email;
   };
 
   const retryButton = root.querySelector<HTMLButtonElement>('[data-auth-retry]');
@@ -386,16 +352,21 @@ export function mountAuthPage(
       registerAvatarEditor?.setDisabled(true);
       submitButton(registerForm, true);
       void (async () => {
+        let session: Awaited<ReturnType<typeof api.login>> | null = null;
         try {
           const avatarBase64 = await (registerAvatarEditor?.getValue() ?? Promise.resolve(null));
           if (!active || identityEpoch !== submittedEpoch) return;
           const input: RegisterInput = { email, display_name: displayName, password, password_confirmation: confirmation };
           if (avatarBase64 !== null) input.avatar_base64 = avatarBase64;
-          const response = await api.register(input);
+          await api.register(input);
           if (!active || identityEpoch !== submittedEpoch) return;
-          clearPasswordFields(registerForm);
-          registerAvatarEditor?.reset();
-          setFormStatus(registerForm, acceptedMessage(response, 'register'));
+          try {
+            session = await api.login({ email, password });
+          } catch {
+            if (!active || identityEpoch !== submittedEpoch) return;
+            setFormStatus(registerForm, '注册请求已受理，但自动登录失败。请在登录页面使用相同邮箱和密码重试。');
+            return;
+          }
         } catch (error) {
           if (!active || identityEpoch !== submittedEpoch) return;
           const message = error instanceof DOMException && error.name === 'AbortError'
@@ -408,6 +379,15 @@ export function mountAuthPage(
             submitButton(registerForm, false);
           }
         }
+        if (!active || !session) return;
+        if (identityEpoch !== submittedEpoch) {
+          void store.reconcile();
+          return;
+        }
+        store.setSession(session);
+        clearPasswordFields(registerForm);
+        registerAvatarEditor?.reset();
+        window.location.assign('/check-email');
       })();
     });
   }
@@ -432,7 +412,9 @@ export function mountAuthPage(
           return;
         }
         store.setSession(response);
-        setFormStatus(loginForm, response.user.status === 'PENDING_EMAIL' ? '登录成功，请验证邮箱后继续。' : '登录成功。');
+        setFormStatus(loginForm, response.user.status === 'PENDING_EMAIL'
+          ? '登录成功，但邮箱尚未验证，部分功能将受到限制。'
+          : '登录成功。');
       }).catch((error: unknown) => {
         if (active && identityEpoch === submittedEpoch) setFormStatus(loginForm, handleError(error, '邮箱或密码不正确，或账号暂不可用。'));
       })
@@ -497,50 +479,6 @@ export function mountAuthPage(
       verifyLogout.disabled = true;
       void store.logout().catch((error: unknown) => setText(root, '#verify-status', handleError(error, '退出失败，请重试。')))
         .finally(() => { if (active) verifyLogout.disabled = false; });
-    });
-  }
-
-  const verifyRequest = root.querySelector<HTMLButtonElement>('#verify-request');
-  if (verifyRequest) {
-    listen(verifyRequest, 'click', () => {
-      const userId = currentUserId();
-      const submittedEpoch = identityEpoch;
-      if (!userId || verifyRequest.disabled) return;
-      verifyRequest.disabled = true;
-      void api.requestEmailVerification().then((response) => {
-        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        if ('verified' in response) {
-          setText(root, '#verify-status', '当前账号已验证。');
-          stopPollCycle();
-          return;
-        }
-        setText(root, '#verify-status', acceptedMessage(response, 'verify'));
-        renderMailAvailability(root.querySelector<HTMLElement>('#verify-mail-availability'), response.mail_availability, 'verify');
-        if (response.mail_availability.code === 'AVAILABLE') {
-          if (doc.visibilityState === 'visible' && pollCount < 3) {
-            pollingStopped = false;
-            pollCycleActive = true;
-            pollUserId = userId;
-            pollOwnerEpoch = submittedEpoch;
-            startPolling();
-          }
-        } else {
-          stopPollCycle();
-        }
-      }).catch((error: unknown) => {
-        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        setText(root, '#verify-status', handleError(error, '验证邮件申请暂未完成，请重试。'));
-      }).finally(() => { if (active) verifyRequest.disabled = false; });
-    });
-  }
-
-  const verifyManualCheck = root.querySelector<HTMLButtonElement>('#verify-check');
-  if (verifyManualCheck) {
-    listen(verifyManualCheck, 'click', () => {
-      if (verifyManualCheck.disabled) return;
-      verifyManualCheck.disabled = true;
-      void store.reconcile().catch((error: unknown) => setText(root, '#verify-status', handleError(error, '检查失败，请重试。')))
-        .finally(() => { if (active) verifyManualCheck.disabled = false; });
     });
   }
 
@@ -783,41 +721,14 @@ export function mountAuthPage(
 
   if (pathname === '/account') renderState = renderAccountState;
   else if (pathname === '/account/password') renderState = renderPasswordPage;
+  else if (pathname === '/check-email') renderState = renderCheckEmailState;
   else if (pathname === '/verify-email') renderState = renderVerifyState;
   renderState(store.getState());
-
-  function startPolling(): void {
-    const userId = pollUserId;
-    const ownerEpoch = pollOwnerEpoch;
-    if (!pollCycleActive || !userId || pollingStopped || pollTimer !== undefined || pollCount >= 3
-      || doc.visibilityState !== 'visible' || identityEpoch !== ownerEpoch || currentUserId() !== userId
-      || !canPoll(store.getState())) return;
-    pollTimer = doc.defaultView!.setTimeout(() => {
-      pollTimer = undefined;
-      if (!active || !pollCycleActive || pollingStopped || doc.visibilityState !== 'visible' || pollCount >= 3
-        || identityEpoch !== ownerEpoch || currentUserId() !== userId || !canPoll(store.getState())) {
-        stopPollCycle();
-        return;
-      }
-      pollCount += 1;
-      pollInFlight = true;
-      void store.reconcile().finally(() => {
-        pollInFlight = false;
-        if (!active || !pollCycleActive || pollingStopped || identityEpoch !== ownerEpoch
-          || currentUserId() !== userId || !canPoll(store.getState()) || pollCount >= 3) {
-          stopPollCycle();
-          return;
-        }
-        startPolling();
-      });
-    }, 120_000);
-  }
 
   return () => {
     if (!active) return;
     active = false;
     actionToken = null;
-    stopPolling();
     registerAvatarEditor?.destroy();
     registerAvatarEditor = null;
     accountAvatarEditor?.destroy();
@@ -832,6 +743,7 @@ function pageMarkup(pathname: string): { title: string; content: string } {
   switch (pathname) {
     case '/register': return { title: '注册账号', content: registerMarkup() };
     case '/login': return { title: '登录账号', content: loginMarkup() };
+    case '/check-email': return { title: '检查邮箱', content: checkEmailMarkup() };
     case '/verify-email': return { title: '验证邮箱', content: verifyMarkup() };
     case '/forgot-password': return { title: '找回密码', content: forgotMarkup() };
     case '/reset-password': return { title: '重置密码', content: resetMarkup() };
@@ -853,6 +765,12 @@ function shell(title: string, content: string): string {
     </section></main>
     <footer class="site-footer auth-page-footer"><div class="page-width footer-inner"><a href="/">返回露天商店.Ro</a><span>账号密码只用于本站账号服务。</span></div></footer>
   </div>`;
+}
+
+function checkEmailShell(content: string): string {
+  return `<div class="auth-page"><main class="auth-main page-width"><section class="auth-card" aria-label="注册完成">
+    ${content}
+  </section></main></div>`;
 }
 
 function registerMarkup(): string {
@@ -892,13 +810,15 @@ function verifyMarkup(): string {
       <button type="submit">在此页登录</button>
     </form>
     <section id="verify-session-actions" class="auth-actions" hidden>
-      <div id="verify-mail-availability" class="auth-notice" aria-live="polite"></div>
       <button id="verify-confirm" type="button" hidden>确认邮箱验证</button>
-      <button id="verify-request" class="secondary-button" type="button" hidden>重新发送验证邮件</button>
-      <button id="verify-check" class="secondary-button" type="button">检查发送状态</button>
       <button id="verify-logout" class="auth-text-button" type="button" hidden>退出并使用其他账号登录</button>
     </section>
     <p class="auth-links"><a href="/login">登录</a> · <a href="/forgot-password">忘记密码</a></p>`;
+}
+
+function checkEmailMarkup(): string {
+  return `<p class="auth-intro">注册完成，请检查邮箱并完成验证</p>
+    <p id="check-email-account-email" class="auth-notice" hidden></p>`;
 }
 
 function forgotMarkup(): string {
@@ -1071,12 +991,6 @@ function formatMailAvailability(availability: MailAvailability, purpose: 'regist
       : '本月邮件发送额度已用完，请待额度恢复后重试；额度恢复后重新申请密码重置。';
   }
   return '';
-}
-
-function canPoll(state: Readonly<AuthStoreState>): boolean {
-  return state.status === 'pending'
-    && state.mailAvailability?.code !== 'MAIL_DAILY_QUOTA'
-    && state.mailAvailability?.code !== 'MAIL_MONTHLY_QUOTA';
 }
 
 function setText(root: ParentNode, selector: string, text: string): void {
