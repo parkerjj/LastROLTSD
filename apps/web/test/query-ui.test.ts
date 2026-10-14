@@ -98,6 +98,10 @@ describe('query UI rendering', () => {
     expect(buttons[0]?.querySelector('.hb-label')?.textContent).toBe('历史价格');
     // 卡片名称命中词高亮
     expect(element.querySelectorAll('.catalog-history-card mark')).toHaveLength(2);
+    // 静态目录无数据库图标：卡片沿用 card.gif（RMS 无按数字 ID 的卡片小图），普通道具按 ID 兜底
+    const icons = element.querySelectorAll<HTMLImageElement>('.catalog-history-card .chc-icon img');
+    expect(icons[0]?.getAttribute('src')).toBe('/api/v1/assets/items/small/card.gif?lastroweb=v3');
+    expect(icons[1]?.getAttribute('src')).toBe('/api/v1/assets/items/small/741.gif?lastroweb=v3');
   });
 
   it('builds the catalog history fallback from the item catalog only for empty query searches', () => {

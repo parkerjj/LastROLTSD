@@ -979,8 +979,12 @@ function optionsChipsMarkup(item: ListingSearchResult): string {
     .join("");
 }
 
-function catalogItemIconUrl(itemId: number): string {
-  return rmsAssetUrl(`items/small/${itemId}.gif`);
+function catalogItemIconUrl(itemId: number, name?: string): string {
+  // 主列表图标由数据库下发（010_card/010_item 迁移后恒有值）；此硬规则仅服务无数据库数据的
+  // 静态目录兜底卡（items.json 只有名称）：RMS 没有按数字 ID 命名的卡片小图，
+  // 数据库迁移帮不了该路径，故沿用「名称以卡片结尾 → card.gif」。
+  const file = String(name ?? "").endsWith("卡片") ? "card" : String(itemId);
+  return rmsAssetUrl(`items/small/${encodeURIComponent(file)}.gif`);
 }
 
 function itemIconUrl(
@@ -1052,7 +1056,7 @@ function renderCatalogHistoryCard(
   rawDescription?: string,
 ): string {
   const name = item.name || `未知物品 #${item.itemId}`;
-  const icon = catalogItemIconUrl(item.itemId);
+  const icon = catalogItemIconUrl(item.itemId, name);
   const excerpt = rawDescription
     ? catalogDescriptionExcerpt(rawDescription)
     : "";
