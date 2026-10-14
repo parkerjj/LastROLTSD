@@ -489,3 +489,15 @@ Task 15: complete（本地bench14场景18samples/formatter1pass，ordinary552pas
 管理人实际收尾验证：归档独立review与更新final验收元数据后pnpm test:docs exit0/58assertions，原始log final-manager-docs.log；独立git diffcheckexit0。没有源码/SQL/浏览器变化，不重跑其已GREEN门禁。35条裁决均持久记录，rawworkspace保留供审阅；最终只本地提交。
 
 Task15 completion commit f41184a51f34b6111b0bd1363522789b77520652（docs: record account validation and deployment conditions）。提交仅10个Task15脚本/runner/最小docs/最终独立review归档/账本文件；staged diffcheckexit0。当前仍feat/ltsd-account-system，Task0–15本地全部完成，生产未验条件不变。最后一次纯账本提交将记录该真实hash，完成后保持clean本地分支，无push/mainmerge/deploy。
+
+## 2026-10-14 用户授权远端整合
+
+用户在最终review通过后明确授权commit/push开发分支、先合并Development、再发起Development→main PR。此新授权覆盖此前仅本地分支限制；不自行合并PR或push main，main自动部署仍需由PR合并动作触发，本轮没有部署/生产SQL/Secrets/DNS/玩家邮件授权。
+
+feat/ltsd-account-system已提交且clean，17commits/HEAD3279856189a4a09cfc313859ffeea8191a092f76已push origin同名分支。fetch最新origin/Development=d97e88a（比原base新增7commits：退款计算与查询索引等），本地Development先ff再no-ff合并feature，merge commit e2ac8970f7d07d5b27a1fcf0170d6ef2bce1f914，无冲突/无stash/reset/不改用户文件。009_account_system.sql与已有009_read_query_indexes.sql保持原名，迁移器按完整name/checksum跟踪，排序后两个都可应用；不为编号前缀重写既有迁移历史。
+
+整合验证实际exit0：源码eslint/typecheck；ordinary93filespass6skip/554testspass19skip（新增Development既有测试使pass+2）；migration5pass0skip；docs58assertions；webbuild。完整auth REQUIRE两file10pass0skip168.91s/MySQL8.4.5/全部10migration，专用_testDB且fakeprovider，不碰生产。首次默认sandbox阻pnpm外部store-operation-lock，六命令均在进入检查前exit1；按已授权localcheck自动批准escalation后实际运行通过，未当最初失败为GREEN。原fulllint366 generated基线问题维持此前证据，源码lint重新pass；8既有市场realMySQL仍未跑，CPU/mail/Secrets/Cron等生产条件不变。
+
+额外提交范围gitdiffcheck origin/Development..HEAD发现pages.ts/avatar.ts各一个EOF空行，先前workspace-only diffcheck不覆盖既有提交，准确补记该区别。fresh Luna/max仅删两LF，workingtree diffcheck origin/Development exit0，rtrim字节不变，无逻辑变化/测试或SQL重跑；独立只读fresh复核待完成。最终Development推送/main PR尚未执行，完成后继续记实际结果。
+
+EOF清理独立fresh复核SpecPASS/QualityPASS，无新Critical/Important，逐字节HEAD对照仅各删一个LF，源码其余完全相同。管理人核对报告，整合版本全部必要检查通过，将提交3files（两EOF＋整合账本）并正常push Development，再创建main PR；不forcepush、不合并PR或触发main部署。

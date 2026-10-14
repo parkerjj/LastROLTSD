@@ -229,4 +229,3 @@ export async function avatarResponse(userId: UserId, version: string | null, rep
     },
   });
 }
-

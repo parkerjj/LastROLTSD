@@ -1109,4 +1109,3 @@ function formatTimestamp(value: number): string {
 function initials(displayName: string): string {
   return Array.from(displayName.trim())[0] ?? '用';
 }
-
