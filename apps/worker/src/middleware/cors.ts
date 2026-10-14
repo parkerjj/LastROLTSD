@@ -16,6 +16,12 @@ const PREFLIGHT_HEADERS = {
   'access-control-max-age': '86400',
 } as const;
 
+function isAccountPath(path: string): boolean {
+  return path === '/api/v1/auth' || path.startsWith('/api/v1/auth/')
+    || path === '/api/v1/account' || path.startsWith('/api/v1/account/')
+    || /^\/api\/v1\/users\/[^/]+\/avatar$/u.test(path);
+}
+
 // fetch 拿到的响应（如 ASSETS 兜底）headers 不可变；此时重建响应，避免 CORS 标注变成 500。
 export function withCorsHeaders(response: Response): Response {
   try {
@@ -30,6 +36,10 @@ export function withCorsHeaders(response: Response): Response {
 // 注意搜索热路径 fetchSearch 与 fetchUpload 绕过 Hono 路由，需单独调用 withCorsHeaders。
 export function registerCorsMiddleware(app: Hono<any>): void {
   app.use('/api/*', async (c, next) => {
+    if (isAccountPath(c.req.path)) {
+      await next();
+      return;
+    }
     if (c.req.method === 'OPTIONS') return c.newResponse(null, 204, PREFLIGHT_HEADERS);
     await next();
     c.res = withCorsHeaders(c.res);

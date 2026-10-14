@@ -1,0 +1,42 @@
+/register
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/register/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/login
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/login/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/verify-email
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/verify-email/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/forgot-password
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/forgot-password/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/reset-password
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/reset-password/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/account
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/account/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/account/password
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/account/password/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer

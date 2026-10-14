@@ -29,9 +29,38 @@ jobs:
       - run: pnpm test:migration
       - run: pnpm test:docs
 
+  verify-auth-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4.5
+        env:
+          MYSQL_ROOT_PASSWORD: task14-ci-root-only
+          MYSQL_DATABASE: lastroweb_auth_test
+          MYSQL_USER: lastroweb_auth_test
+          MYSQL_PASSWORD: task14-ci-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent --host=127.0.0.1 --user=root --password=task14-ci-root-only"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    env:
+      MYSQL_TEST_URL: mysql://lastroweb_auth_test:task14-ci-only@127.0.0.1:3306/lastroweb_auth_test
+      AUTH_TEST_DB_ALLOW_RESET: '1'
+      REQUIRE_AUTH_MYSQL_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run tests/integration/auth-account-flow.test.ts tests/integration/auth-account-races.test.ts --maxWorkers=1 --no-file-parallelism
+
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: verify
+    needs: [verify, verify-auth-mysql]
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -41,6 +70,27 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web build
+      - name: Preflight production account auth
+        id: auth-preflight
+        run: node scripts/preflight-auth-deployment.mjs
+        env:
+          AUTH_ENABLED_REQUEST: ${{ vars.AUTH_ENABLED }}
+          AUTH_SITE_URL: ${{ vars.AUTH_SITE_URL }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          MAIL_REPLY_TO: ${{ vars.MAIL_REPLY_TO }}
+          AUTH_PASSWORD_KEY_VERSION: ${{ vars.AUTH_PASSWORD_KEY_VERSION }}
+          AUTH_PASSWORD_PREVIOUS_KEY_VERSION: ${{ vars.AUTH_PASSWORD_PREVIOUS_KEY_VERSION }}
+          AUTH_MAIL_PAYLOAD_KEY_VERSION: ${{ vars.AUTH_MAIL_PAYLOAD_KEY_VERSION }}
+          AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION: ${{ vars.AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION }}
+          AUTH_MAIL_DAILY_LIMIT: ${{ vars.AUTH_MAIL_DAILY_LIMIT }}
+          AUTH_MAIL_MONTHLY_LIMIT: ${{ vars.AUTH_MAIL_MONTHLY_LIMIT }}
+          AUTH_PASSWORD_SECRET: ${{ secrets.AUTH_PASSWORD_SECRET }}
+          AUTH_PASSWORD_PREVIOUS_SECRET: ${{ secrets.AUTH_PASSWORD_PREVIOUS_SECRET }}
+          AUTH_CSRF_SECRET: ${{ secrets.AUTH_CSRF_SECRET }}
+          AUTH_RATE_SECRET: ${{ secrets.AUTH_RATE_SECRET }}
+          AUTH_MAIL_PAYLOAD_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_SECRET }}
+          AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       - name: Ensure production snapshot Queue exists
         shell: bash
         run: |
@@ -102,8 +152,78 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Deploy production Worker and web assets
-        run: pnpm exec wrangler deploy --env production --config wrangler.toml
+      - name: Publish auth-disabled rotation barrier
+        if: steps.auth-preflight.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec wrangler deploy --env production --config wrangler.toml --var "AUTH_ENABLED:false"
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set Worker account auth secrets
+        if: steps.auth-preflight.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          put_secret() {
+            local name="$1"
+            local value="$2"
+            if [[ -n "$value" ]]; then
+              printf '%s' "$value" | pnpm exec wrangler secret put "$name" --env production --config wrangler.toml
+            fi
+          }
+          put_secret AUTH_PASSWORD_SECRET "$AUTH_PASSWORD_SECRET"
+          put_secret AUTH_CSRF_SECRET "$AUTH_CSRF_SECRET"
+          put_secret AUTH_RATE_SECRET "$AUTH_RATE_SECRET"
+          put_secret AUTH_MAIL_PAYLOAD_SECRET "$AUTH_MAIL_PAYLOAD_SECRET"
+          put_secret RESEND_API_KEY "$RESEND_API_KEY"
+          put_secret AUTH_PASSWORD_PREVIOUS_SECRET "$AUTH_PASSWORD_PREVIOUS_SECRET"
+          put_secret AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET "$AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET"
+        env:
+          AUTH_PASSWORD_SECRET: ${{ secrets.AUTH_PASSWORD_SECRET }}
+          AUTH_CSRF_SECRET: ${{ secrets.AUTH_CSRF_SECRET }}
+          AUTH_RATE_SECRET: ${{ secrets.AUTH_RATE_SECRET }}
+          AUTH_MAIL_PAYLOAD_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          AUTH_PASSWORD_PREVIOUS_SECRET: ${{ secrets.AUTH_PASSWORD_PREVIOUS_SECRET }}
+          AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy production Worker and web assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_enabled="$AUTH_ENABLED"
+          deploy_args=(--var "AUTH_ENABLED:${auth_enabled}")
+          if [[ "$auth_enabled" == 'true' ]]; then
+            deploy_args+=(
+              --var "AUTH_SITE_URL:${AUTH_SITE_URL}"
+              --var "MAIL_FROM:${MAIL_FROM}"
+              --var "AUTH_PASSWORD_KEY_VERSION:${AUTH_PASSWORD_KEY_VERSION:-1}"
+              --var "AUTH_MAIL_PAYLOAD_KEY_VERSION:${AUTH_MAIL_PAYLOAD_KEY_VERSION:-1}"
+              --var "AUTH_MAIL_DAILY_LIMIT:${AUTH_MAIL_DAILY_LIMIT:-100}"
+              --var "AUTH_MAIL_MONTHLY_LIMIT:${AUTH_MAIL_MONTHLY_LIMIT:-3000}"
+            )
+            if [[ -n "${MAIL_REPLY_TO:-}" ]]; then deploy_args+=(--var "MAIL_REPLY_TO:${MAIL_REPLY_TO}"); fi
+            if [[ -n "${AUTH_PASSWORD_PREVIOUS_KEY_VERSION:-}" ]]; then
+              deploy_args+=(--var "AUTH_PASSWORD_PREVIOUS_KEY_VERSION:${AUTH_PASSWORD_PREVIOUS_KEY_VERSION}")
+            fi
+            if [[ -n "${AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION:-}" ]]; then
+              deploy_args+=(--var "AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION:${AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION}")
+            fi
+          fi
+          pnpm exec wrangler deploy --env production --config wrangler.toml "${deploy_args[@]}"
+        env:
+          AUTH_ENABLED: ${{ steps.auth-preflight.outputs.enabled }}
+          AUTH_SITE_URL: ${{ vars.AUTH_SITE_URL }}
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+          MAIL_REPLY_TO: ${{ vars.MAIL_REPLY_TO }}
+          AUTH_PASSWORD_KEY_VERSION: ${{ vars.AUTH_PASSWORD_KEY_VERSION }}
+          AUTH_PASSWORD_PREVIOUS_KEY_VERSION: ${{ vars.AUTH_PASSWORD_PREVIOUS_KEY_VERSION }}
+          AUTH_MAIL_PAYLOAD_KEY_VERSION: ${{ vars.AUTH_MAIL_PAYLOAD_KEY_VERSION }}
+          AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION: ${{ vars.AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION }}
+          AUTH_MAIL_DAILY_LIMIT: ${{ vars.AUTH_MAIL_DAILY_LIMIT }}
+          AUTH_MAIL_MONTHLY_LIMIT: ${{ vars.AUTH_MAIL_MONTHLY_LIMIT }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

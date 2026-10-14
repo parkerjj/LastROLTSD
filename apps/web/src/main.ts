@@ -37,18 +37,23 @@ import { mountClientPage } from "./client-page";
 import { mountSponsorPage } from "./sponsor-page";
 import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
+import { authApi } from "./auth/api";
+import { authStore } from "./auth/store";
+import { isAuthPage, mountAuthPage } from "./auth/pages";
 
-initAnalytics();
+const pathname = window.location.pathname;
+const authPage = isAuthPage(pathname);
+if (!authPage) initAnalytics();
 
 const root = document.querySelector<HTMLElement>("#app")!;
 if (!root) throw new Error("Missing app root");
 
-const isReleasePage = /^\/updates\/?$/u.test(window.location.pathname);
-const isGuestbookPage = /^\/guestbook\/?$/u.test(window.location.pathname);
-const isAccountsPage = /^\/accounts\/?$/u.test(window.location.pathname);
-const isPlayPage = /^\/play\/?$/u.test(window.location.pathname);
-const isClientPage = /^\/client\/?$/u.test(window.location.pathname);
-const isSponsorPage = /^\/sponsor\/?$/u.test(window.location.pathname);
+const isReleasePage = /^\/updates\/?$/u.test(pathname);
+const isGuestbookPage = /^\/guestbook\/?$/u.test(pathname);
+const isAccountsPage = /^\/accounts\/?$/u.test(pathname);
+const isPlayPage = /^\/play\/?$/u.test(pathname);
+const isClientPage = /^\/client\/?$/u.test(pathname);
+const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -1174,7 +1179,8 @@ function mountSearchPage(): void {
   void performSearch(initialState.filters);
 }
 
-if (isPlayPage) mountPlayPage(root);
+if (authPage) mountAuthPage(root, pathname, authApi, authStore);
+else if (isPlayPage) mountPlayPage(root);
 else if (isClientPage) mountClientPage(root);
 else if (isSponsorPage) mountSponsorPage(root);
 else if (isReleasePage) mountReleasePage(root);

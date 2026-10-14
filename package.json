@@ -15,6 +15,7 @@
     "typecheck": "tsc -b",
     "lint": "eslint . --max-warnings=0",
     "test:docs": "node scripts/check-docs.mjs",
+    "bench:auth-cpu": "node scripts/benchmark-auth-cpu.mjs",
     "catalog:import": "node scripts/catalog-import.mjs",
     "secrets:generate": "node scripts/generate-secrets.mjs",
     "db:mysql:source-seed": "node scripts/render-source-seed.mjs",
