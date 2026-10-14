@@ -50,7 +50,8 @@ describe('query UI rendering', () => {
     expect(element.querySelector('.js-prev-page')).not.toBeNull();
     expect(element.querySelector('.js-prev-page')?.hasAttribute('disabled')).toBe(true);
     // 第 2 页：区间从 21 开始，上一页可用
-    renderSearchResults(element, { items: [listing()], nextCursor: null }, { ...state, pageIndex: 1 });
+    // 卡片图标由数据库下发（010 迁移后服务端 itemIcon 恒有值），前端仅做 RMS 代理转换
+    renderSearchResults(element, { items: [listing({ itemIcon: 'https://file5s.ratemyserver.net/items/small/card.gif' })], nextCursor: null }, { ...state, pageIndex: 1 });
     expect(element.textContent).toContain('查看 21 – 21 个商品');
     expect(element.textContent).toContain('第 2 页');
     expect(element.querySelector('.js-prev-page')?.hasAttribute('disabled')).toBe(false);
@@ -62,6 +63,13 @@ describe('query UI rendering', () => {
     // 相对时间位于操作列内、价格历史按钮下方
     expect(element.querySelector('.mc-actions .mc-time')).not.toBeNull();
     expect(element.querySelector('.market-card > .mc-time')).toBeNull();
+  });
+
+  it('falls back to the per-id RMS proxy path when the server sends no itemIcon', () => {
+    const element = getResults();
+    // 数据库未配置图标时（理论上 011 后不应出现），前端按 item_id 拼小图路径兜底
+    renderSearchResults(element, { items: [listing()], nextCursor: null }, state);
+    expect(element.querySelector('.mc-icon img')?.getAttribute('src')).toBe('/api/v1/assets/items/small/1234.gif?lastroweb=v3');
   });
 
   it('appends catalog history suggestions below the empty panel', () => {
@@ -90,6 +98,10 @@ describe('query UI rendering', () => {
     expect(buttons[0]?.querySelector('.hb-label')?.textContent).toBe('历史价格');
     // 卡片名称命中词高亮
     expect(element.querySelectorAll('.catalog-history-card mark')).toHaveLength(2);
+    // 静态目录无数据库图标：卡片沿用 card.gif（RMS 无按数字 ID 的卡片小图），普通道具按 ID 兜底
+    const icons = element.querySelectorAll<HTMLImageElement>('.catalog-history-card .chc-icon img');
+    expect(icons[0]?.getAttribute('src')).toBe('/api/v1/assets/items/small/card.gif?lastroweb=v3');
+    expect(icons[1]?.getAttribute('src')).toBe('/api/v1/assets/items/small/741.gif?lastroweb=v3');
   });
 
   it('builds the catalog history fallback from the item catalog only for empty query searches', () => {
@@ -299,7 +311,7 @@ describe('query UI rendering', () => {
     expect(drawer.querySelector('.history-state h2')?.textContent).toBe('暂无可供查询的价格历史');
     expect(drawer.querySelector('.history-state-item-copy strong')?.textContent).toContain('波利卡片');
     expect(drawer.querySelector('.history-state-item-copy small')?.textContent).toContain('5001');
-    expect(drawer.querySelector('.history-state-item-icon img')?.getAttribute('src')).toContain('/api/v1/assets/');
+    expect(drawer.querySelector('.history-state-item-icon img')?.getAttribute('src')).toBe('/api/v1/assets/items/large/5001.gif?lastroweb=v3');
     expect(drawer.querySelector('.history-state > p')?.textContent).toContain('波利卡片');
     expect(drawer.querySelector('[data-retry-history]')?.textContent).toContain('重新查询');
     expect(drawer.querySelector('.history-state-detail')).toBeNull();

@@ -324,7 +324,8 @@ async function main() {
       tradePartner: boolVal(row['可交易给伴侣']),
       buyingStore: boolVal(row['可露天收购']),
       aliasName: strVal(row['AliasName(外观别名)']),
-      iconSmall: strVal(row['小图标URL']),
+      // RMS 没有按道具 ID 的卡片小图（items/small/{id}.gif 全部 404），卡片小图统一用通用 card.gif
+      iconSmall: typeCode === 'Card' ? 'https://file5s.ratemyserver.net/items/small/card.gif' : strVal(row['小图标URL']),
       iconLarge: strVal(row['大图标URL']),
       dvgUrl: strVal(row['dvg详情页']),
       sourceFile: strVal(row['rAthena来源文件']),
