@@ -12,17 +12,18 @@ const payload = { protocol_version: 2, client_run_id: 'run', snapshot_id: 'full-
     vendor_account_id: '123', vendor_name: 'Vendor', title: 'Shop', shop_type: 'sell', map_name: 'prontera', x: 1, y: 2, items: [] }] };
 
 function trackPools(fail = false) {
-  const pools: { closed: boolean }[] = [];
+  const pools: { closed: boolean; closeCalls: number }[] = [];
   vi.spyOn(mysql, 'createPool').mockImplementation(() => {
     const pool = {
       closed: false,
+      closeCalls: 0,
       on: vi.fn(),
       async execute(sql: string) {
         if (pool.closed) throw new Error('connection belongs to a completed request');
         if (fail) throw new Error('database unavailable');
         return [sql.startsWith('DELETE') ? { affectedRows: 0, insertId: 0 } : [{ healthy: 1 }], []];
       },
-      async end() { pool.closed = true; },
+      async end() { pool.closeCalls += 1; pool.closed = true; },
     };
     pools.push(pool);
     return pool as unknown as mysql.Pool;
@@ -115,7 +116,7 @@ describe('Worker MySQL connection ownership', () => {
       await expect(response.json()).resolves.toMatchObject({ db: 'ok' });
     }
     expect(pools).toHaveLength(4);
-    expect(pools.every((pool) => pool.closed)).toBe(true);
+    expect(pools.every((pool) => pool.closed && pool.closeCalls === 1)).toBe(true);
   });
 
   it('closes the pool even when a query fails', async () => {
@@ -125,6 +126,7 @@ describe('Worker MySQL connection ownership', () => {
     await expect(response.json()).resolves.toMatchObject({ db: 'error' });
     expect(pools).toHaveLength(1);
     expect(pools[0]?.closed).toBe(true);
+    expect(pools[0]?.closeCalls).toBe(1);
   });
 
   it.each([false, true])('closes scheduled job connections (query failure: %s)', async (fail) => {

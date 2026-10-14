@@ -25,6 +25,10 @@ import { registerMakingCookieRoute } from './routes/making-cookie';
 import { registerPresenceRoute } from './routes/presence';
 import { registerIwaRoutes } from './routes/iwa';
 import { registerSponsorRoutes } from './routes/sponsors';
+import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
+import { resolveAuthConfig } from './auth/config';
+import { createAuthRepository } from './auth/repository';
+import { runAuthJobTick } from './auth/jobs';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -53,6 +57,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
+  registerAuthRoutes(app, env, database);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
@@ -80,7 +85,14 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
 
 export default {
   async fetch(request: Request, bindings: Record<string, unknown>, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
-    const env = resolveAppEnv(bindings);
+    let env: AppEnv;
+    try {
+      env = resolveAppEnv(bindings);
+    } catch (error) {
+      const accountResponse = authEnvResolutionFailureResponse(request);
+      if (accountResponse) return accountResponse;
+      throw error;
+    }
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/api/v1/market/search' && env.MYSQL_URL) {
       return fetchSearch(request, url, env, context);
@@ -108,6 +120,31 @@ export default {
   },
   async scheduled(event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
+    if (event.cron === '*/2 * * * *') {
+      let config;
+      try {
+        config = resolveAuthConfig(env);
+      } catch {
+        console.warn('lastroweb.auth_job_config_unavailable');
+        return;
+      }
+      if (!config.enabled) return;
+
+      const database = createMysqlDatabase(config.mysqlUrl);
+      try {
+        const repository = createAuthRepository(database, {
+          mailDailyLimit: config.mailDailyLimit,
+          mailMonthlyLimit: config.mailMonthlyLimit,
+        });
+        await runAuthJobTick(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
+      } catch {
+        console.error('lastroweb.auth_job_failed');
+        throw new Error('auth background job failed');
+      } finally {
+        await database.close();
+      }
+      return;
+    }
     if (!env.MYSQL_URL) return;
     const database = createMysqlDatabase(env.MYSQL_URL);
     try {

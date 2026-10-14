@@ -10,6 +10,28 @@ ADMIN_SECRET=replace-with-local-admin-secret
 CURSOR_SECRET=replace-with-local-cursor-secret
 GUESTBOOK_RATE_SECRET=replace-with-at-least-32-character-secret
 
+# Account authentication stays disabled until explicitly enabled locally. Generate
+# four independent 32-byte base64 values in ignored .dev.vars; never use placeholders.
+AUTH_ENABLED=false
+AUTH_SITE_URL=http://localhost:5173
+AUTH_PASSWORD_SECRET=
+AUTH_PASSWORD_KEY_VERSION=1
+AUTH_PASSWORD_PREVIOUS_KEY_VERSION=
+AUTH_PASSWORD_PREVIOUS_SECRET=
+AUTH_CSRF_SECRET=
+AUTH_RATE_SECRET=
+AUTH_MAIL_PAYLOAD_SECRET=
+AUTH_MAIL_PAYLOAD_KEY_VERSION=1
+AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION=
+AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET=
+AUTH_MAIL_DAILY_LIMIT=100
+AUTH_MAIL_MONTHLY_LIMIT=3000
+# Resend is optional for local login; configure only for fake/local testing or a
+# deliberately authorized delivery setup. Do not send real player mail in tests.
+RESEND_API_KEY=
+MAIL_FROM="LTSD <no-reply@example.test>"
+MAIL_REPLY_TO=
+
 
 
 # Set this to the VPS MySQL 8 URL for local Worker development. Never commit a real URL.

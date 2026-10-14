@@ -30,8 +30,12 @@ pnpm exec wrangler dev --local
 - `GET /api/v1/market/listings/:id/history` — bounded price/quantity history
 - `GET /api/v1/options` — static option dictionary
 - `GET /api/health` — Worker and MySQL health
+- `/account`, `/register`, `/login` — player account pages; authentication is disabled by default
+- `/api/v1/auth/*`, `/api/v1/account/*` — player account API; authentication is disabled by default
 
 See [deployment](docs/deployment.md), [MySQL migration](docs/mysql-migration.md), [operations](docs/operations.md), and the [API contract](docs/api.md).
+
+The player account pages and API are implemented, but authentication remains disabled by default. See the [account operations](docs/operations.md#account-mail-and-cleanup) for enablement and CPU-verification conditions, along with the [account system specification](docs/superpowers/specs/2026-10-12-ltsd-account-system-design.md), reviewed [implementation plan](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan.md), [review record](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan-review.md), and [development handoff prompt](docs/superpowers/plans/2026-10-12-ltsd-account-system-development-prompt.md).
 
 ***
 
@@ -67,5 +71,9 @@ pnpm exec wrangler dev --local
 - `GET /api/v1/market/listings/:id/history` — 有上限的价格/数量历史
 - `GET /api/v1/options` — 静态词条字典
 - `GET /api/health` — Worker 与 MySQL 健康检查
+- `/account`、`/register`、`/login` — 玩家账号页面；认证默认关闭
+- `/api/v1/auth/*`、`/api/v1/account/*` — 玩家账号接口；认证默认关闭
 
 详见[部署文档](docs/deployment.md)、[MySQL 迁移](docs/mysql-migration.md)、[运维手册](docs/operations.md)与 [API 契约](docs/api.md)。
+
+玩家账号页面与API已实现，但认证默认关闭。启用与CPU验证条件见[账号运维说明](docs/operations.md#account-mail-and-cleanup)，设计见[账号系统规格](docs/superpowers/specs/2026-10-12-ltsd-account-system-design.md)，详细步骤见已审阅的[实施计划](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan.md)、[Review记录](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan-review.md)及[开发交接Prompt](docs/superpowers/plans/2026-10-12-ltsd-account-system-development-prompt.md)。
