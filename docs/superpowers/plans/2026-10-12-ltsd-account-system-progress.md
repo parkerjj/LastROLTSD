@@ -455,3 +455,35 @@ Task14 fix1首次完整REQUIRE：flow8/8、races第二case通过、第一case120
 Task14 fix1报告完整核对：actual committed INSERT actor绑定最终密码/败者false、0sessions；两种旧refresh均停lock前，另一client撤销/停用commit后释放，固定401/expiry不变/nullidentity；合并wrong-current/samepwd/双change唯一赢家与版本。RESET夹具改锁定user.email派生action/mail，barrier前失败abort/release并检查到达数；旧timeout未记录阶段，根因由源码与数据流推断，非历史trace。修复单case1pass1名称skip16.79s，最终两完整REQUIREfile10pass0skip165.69s/type/定向lint/diffexit0，runner/DB连接已退出。AC07完整双VERIFY乱序未动态验、AC27月UI为Websource边界已修。614行原review快照scoped包交fresh task14_fix1_review，未提交。
 
 Task 14: complete（test: enforce account MySQL races and acceptance；最终2完整REQUIREfile10pass0skip165.69s/type/lint/diff，Chrome155合成账号本地browser证据沿用）。fresh fix1复审SpecPASS/QualityAPPROVE，I1/I2/M1与AC11/夹具/barrier全部ADDRESSED，无新Critical/Important；管理人完整核对报告及新diffcheck，允许本地提交，仅CI＋两tests＋账本。公开数据fixture前后相等，CI REQUIRE新job只是本地配置尚未远端run。AC07双VERIFY乱序未动态测/production各条件照实保留。下一任务Task15全量门禁/近似bench/文档与最终整branchreview，不提前判上线。
+
+Task14 commit 6768f868fbaae4c87328492ed39c792c033722b1。Task15 fresh唯一Luna/max已派，精确brief允许bench/script/最小docs，完整Worker本地近似与FreecpuTime分开，全门禁＋validation/最后wholebranchreview；不得remote部署/生产操作，相关条件未验继续其余本地工作。
+
+2026-10-14用户继续：Task15上次Luna turn因usage limit失败，未留下Task15 source改动；只manager账本未提交。核对当前feat/ltsd-account-system/HEAD6768f86，保持已有修改，恢复原fresh-context Luna/max任务，model未替换。代理已确认恢复并开始读取精确brief/检查专用testDB；未重做Task14或重复已有验收。
+
+Task15阶段（代理报告）：report formatter Node单行为测试1pass/exit0，验证低localwall/CPU始终production budget UNVERIFIED、remote_cpu_ms=null、未知字段不序列化；初次module-not-found只是接口未落地，不称业务RED。runner拟使用完整default.fetch/scheduled、HTTP走createApp和真实MySQL，尚未运行。冷样本定义为Vitest首次dynamicimport Worker+首login，非新进程或确认coldisolate；管理人要求若称含导入则计时覆盖import至响应读取/DBclose，转换/初始化覆盖边界准确。本地热每调用保留newpool/close，定时前CSRF/合成fixture不计而需注明；不改产品，无remotecpu数据不验收Free。
+
+Task15首次完整入口bench failed，parent安全隐藏child输出；一次诊断定位avatar样本非2xx，再窄stage/status诊断确认401。管理人CodeGraph与runner主flow发现先改密(Pilot5→Pilot6)后仍用旧refreshedSession上传，服务器正确撤销，非WebP或产品问题。Luna最小移avatar至改密前，保持真实default.fetch/授权不变；不改产品/放宽校验，无效运行无完整指标不算GREEN。修正后完整14场景bench待验。
+
+Task15完整修正bench通过（管理人已读安全JSON）：Vitest1pass；14场景18 invocation samples（含2Cron），Node24.21.0/MySQL8.4.5/build6768f868，完整default.fetch/scheduled。冷首次moduleimport＋login单样本localCPU84.562ms/wall270.203ms，热login5sample localp50 5.715/max8.523ms；resetconfirm13.172ms/avatar32KiB12.631ms均1sample，作为本地风险而非远端Free超限结论。其余每场景1sample，p99只数学展示非统计保证；所有remote_cpu_ms=null/production budget UNVERIFIED。fake发送1封、cleanup50/实际body413成功；test前置CSRF/fixtures在测量外，Vitest/Node启动未纳入冷段，真实coldisolate未确认。永久validation待写实际门禁/review/条件，不擅自改product/付费/削校验。
+
+Task15全门禁首轮具体失败：静态命令wrapper误赋值zsh只读变量status，wrapperexit1，innerexit未准确捕获；原lint日志366errors/0warnings生成文件基线失败，source lint/type无报错但不能据silent称exit0。migration5pass/docs58/Nodeformatter1pass为日志证据，采集失败单独记，不将wrapper1算0。要求修捕获后必要补验，非无因机械重跑。ordinarytest实际exit1：113files(93pass/14fail/6skip)、552tests pass/19skip；14failed均自建ignored .superpowers旧original-*.test.ts归档相对import不存在，非产品行为失败。webbuildexit0。完整REQUIRE待验。
+
+Ruling: 管理人将本计划14个旧original-*.test.ts归档更名为同名.test.ts.snapshot，逐个核对字节相同，保留历史review与test-snapshot-rename-map.md映射，不改真实tests/Vitestconfig或删除原内容 — 它们是管理流程自造快照，不应被默认发现为执行用例，修本次全门禁实际失败而非屏蔽功能测试 — 成本是历史report的快照旧path须通过rename map定位，复审diff原始文本不变；相关ordinarytest必要重跑一次。
+
+Task15最终门禁阶段（管理人已核对日志摘要，exit采信代理直接捕获）：普通test归档更名后93filespass/6files skip、552tests pass/19skip/exit0；6skip files为authflow8/races2/bench1、既有mysql-upload-collation6/mysql-upload-session1/catalog-upload-search-flow1。前11由完整authREQUIRE10pass0skip178.26s/bench1pass另验，后8既有市场真库本轮未运行；不冒称全部SQL通过。源码ESLint/typecheckexit0；migration直接5pass0skip/exit0；docs直接58assertion/exit0；webbuildexit0且已有catalog动态静态import warning。原lint366errors/0warnings实际三个ignored .generated/mysql-lock-fix、mysql-upload-fix、mysql-worker-fix/index.js各122，wrapperexit1/原门禁FAIL。Task0账本单路径历史记录不据当前log逆推当时分布，validation需准确区别；未删除产物/改eslint忽略伪GREEN。diffcheck管理人exit0，等待report/文档冻结、wholebranchreview。
+
+Task15 report/validation已完整核对，code/source未改auth产品：CLI安全测试库guard/白名单report、完整default.fetch/scheduled14场景18samples、Node1testGREEN；AC01–29最终表追加具名actualevidence/limits、AUTH01–11映射、34rulings及所有skip/历史失败/部署状态含糊文案已收齐，新增doc相关58assertions及diffcheckexit0，SQL/build/ordinary未无因重跑。完整全branch18431行package（base8a2155f..HEAD6768f86＋Task15workingtree/4newfiles）交fresh final_branch_review 6.1-sol/high，read-only不得派代理/生产操作；最终整个分支Spec/Quality未判，Task15尚未commit/complete，生产10ms/Secrets/DNS/邮件/Cron等UNVERIFIED。
+
+最终整分支独立review完成：完整18431行包（review实际表述至包尾18430有效内容）、全部Spec/plan/moduleinteractions/34rulings/历史deferred及actuallogs已核对；SpecFAIL/QualityREQUEST CHANGES，1Important/P2 I1受控单用户停用/恢复说明缺失，2Minor/P3 README锚点和Ruling21将source/JSDOM误称browser。无其他源码Critical/Important。管理人核对Spec§6及audit§10接受I1：仅status恢复会复活旧cookie，只authVersion++不足以永久废旧动作；不能归远端生产条件。
+
+最终统一fixwave已派fresh唯一Luna/max，仅operations安全维护事务说明（user主键锁→DISABLED/auth_version++＋旧动作revoke＋持久audit，恢复按email_verified_at决定ACTIVE/PENDING，版本不回退/旧标记与任务不恢复、需新login/action）、两README锚点/validation证据来源，禁止新portal/API/产品code/schema/执行SQL或remote。纯doc只docs58/diff验收，等fresh scoped复审；已有SQL/ordinary/build未无因重跑，整个branch未自行通过。
+
+最终fixwave报告完整核对：仅operations单用户维护parameterized模板/README两锚点/validation Ruling21 source/JSDOM及维护证据边界。stringID主键锁，同事务auth_version++/永久revoke旧未消费动作/audit，失败/错误状态回滚，恢复按原email_verified_at且再++、不改密码/凭据版本/旧revoked或outbox结果，需新login/action；全站pause不代替用户ban。SQL未实际执行（含testDB），只schema/锁序文档核对，不冒称数据操作实测；docs58/diffexit0，无源码/CI/schema/test等变更，不重跑SQL/fullgate。195行scoped包交fresh final_fix_review 6.1-sol/high，待I1/M1/M2裁决，未提交/上线。
+
+最终fresh限定复审SpecPASS/QualityAPPROVE，I1/M1/M2全ADDRESSED，无新Critical/Important；管理人完整读报告并独立diffcheckexit0。原整branch其他模块/34裁决/历史deferred已整体核验且无源码阻塞，限定复审闭合全部findings，批准本地交付而非production。两份review原文归档项目docs final-review.md，保留初审FAIL与复审PASS的真实顺序。
+
+Ruling: 保留本计划ignored工具workspace中的原始测试/bench日志、browser证据、独立review及安全test-env helper，不执行技能默认删除 — 持久验收记录引用这些本地原始证据且用户要保留分支审阅，删除将使唯一raw记录与路径失效；永久汇总/最终review原文已进项目docs — 成本为少量本地ignored磁盘占用，raw日志不是Git可携带产物，历史测试快照已更名避免误发现；不删除用户其他文件/修改，不改变产品。
+
+Task 15: complete（本地bench14场景18samples/formatter1pass，ordinary552pass19skip，独立authREQUIRE10pass0skip178.26s/type/源码lint/migration5/docs58/build/diff；原lint366errors/FAIL仍精确保留）。整branch review＋唯一docfixwave＋fresh scoped复审通过，local功能AUTH01–11/AC来源已交付；真实CPU10ms/Secrets/DNS/Resend/Cron/remoteGHA/production备份迁移未验，默认关闭不变。管理人收尾元数据docs/diff验核后提交；没有push/mainmerge/deploy/生产DB或玩家发信。
+
+管理人实际收尾验证：归档独立review与更新final验收元数据后pnpm test:docs exit0/58assertions，原始log final-manager-docs.log；独立git diffcheckexit0。没有源码/SQL/浏览器变化，不重跑其已GREEN门禁。35条裁决均持久记录，rawworkspace保留供审阅；最终只本地提交。
