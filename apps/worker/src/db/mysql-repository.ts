@@ -1190,7 +1190,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
           JOIN shops ON shops.id = listings.shop_id
           WHERE listings.item_id = ? AND listing_events.observed_at >= ? AND listing_events.observed_at <= ?
             AND listing_events.sold_quantity > 0 AND shops.shop_type = 'sell'
-          ORDER BY listing_events.observed_at DESC, listing_events.id DESC`, [itemId, windowStart, windowEnd]),
+          ORDER BY listing_events.observed_at DESC, listing_events.id DESC LIMIT 30`, [itemId, windowStart, windowEnd]),
         db.all<Row>(`SELECT listing_events.listing_id, listing_events.observed_at, listing_events.to_price,
             listing_events.to_quantity, listing_events.event_type, listing_events.reason
           FROM listing_events JOIN listings ON listings.id = listing_events.listing_id
