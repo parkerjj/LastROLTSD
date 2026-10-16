@@ -386,7 +386,7 @@ function mountSearchPage(): void {
   function scrollToResults(): void {
     if (
       typeof window === "undefined" ||
-      !window.matchMedia?.("(max-width: 760px)").matches
+      !window.matchMedia?.("(max-width: 900px)").matches
     )
       return;
     const target = results.querySelector<HTMLElement>(".result-group");

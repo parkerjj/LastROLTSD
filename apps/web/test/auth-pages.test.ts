@@ -94,103 +94,15 @@ afterEach(() => {
 });
 
 describe('auth pages', () => {
-  it('matches account paths including check-email and leaves the game monitor route alone', () => {
-    for (const path of ['/register', '/login', '/check-email', '/verify-email', '/forgot-password', '/reset-password', '/account', '/account/password']) {
+  it('matches the retained account paths and leaves removed dialog routes and the game monitor route alone', () => {
+    for (const path of ['/verify-email', '/reset-password', '/account']) {
       expect(isAuthPage(path)).toBe(true);
       expect(isAuthPage(`${path}/`)).toBe(true);
     }
+    for (const removed of ['/register', '/login', '/check-email', '/forgot-password', '/account/password']) {
+      expect(isAuthPage(removed)).toBe(false);
+    }
     expect(isAuthPage('/accounts')).toBe(false);
-  });
-
-  it('requires a display name and matching password while allowing 256 emoji', async () => {
-    const register = vi.spyOn(authApi, 'register').mockResolvedValue({
-      accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
-    });
-    const login = vi.spyOn(authApi, 'login').mockResolvedValue(session());
-    const { dom, root, dispose } = mount('/register');
-    const navigate = vi.fn();
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      value: { location: { assign: navigate } },
-    });
-    try {
-      const email = root.querySelector<HTMLInputElement>('#auth-email')!;
-      const name = root.querySelector<HTMLInputElement>('#auth-display-name')!;
-      const password = root.querySelector<HTMLInputElement>('#auth-password')!;
-      const confirmation = root.querySelector<HTMLInputElement>('#auth-password-confirmation')!;
-      const form = root.querySelector<HTMLFormElement>('#register-form')!;
-      email.value = 'player@example.test';
-      password.value = '🙂'.repeat(256);
-      confirmation.value = password.value;
-      submit(dom, form);
-      await Promise.resolve();
-      expect(register).not.toHaveBeenCalled();
-
-      name.value = '  主号  ';
-      confirmation.value = '不一致的密码';
-      submit(dom, form);
-      await Promise.resolve();
-      expect(register).not.toHaveBeenCalled();
-
-      confirmation.value = password.value;
-      expect(password.maxLength).toBe(-1);
-      root.querySelector<HTMLButtonElement>('[data-password-toggle="auth-password"]')!.click();
-      expect(password.type).toBe('text');
-      submit(dom, form);
-      await vi.waitFor(() => expect(register).toHaveBeenCalledWith({
-        email: 'player@example.test',
-        display_name: '主号',
-        password: '🙂'.repeat(256),
-        password_confirmation: '🙂'.repeat(256),
-      }));
-      await vi.waitFor(() => expect(login).toHaveBeenCalledWith({
-        email: 'player@example.test', password: '🙂'.repeat(256),
-      }));
-      expect(register.mock.invocationCallOrder[0]!).toBeLessThan(login.mock.invocationCallOrder[0]!);
-      await vi.waitFor(() => expect(authStore.getState()).toMatchObject({
-        status: 'pending', user: { email: 'player@example.test' },
-      }));
-      expect(navigate).toHaveBeenCalledWith('/check-email');
-      expect(password.value).toBe('');
-      expect(password.type).toBe('password');
-      expect(confirmation.value).toBe('');
-    } finally {
-      dispose();
-    }
-  });
-
-  it('keeps registration avatar optional and submits only an edited Base64 value', async () => {
-    const register = vi.spyOn(authApi, 'register').mockResolvedValue({
-      accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
-    });
-    const login = vi.spyOn(authApi, 'login').mockResolvedValue(session());
-    const { dom, root, dispose } = mount('/register');
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      value: { location: { assign: vi.fn() } },
-    });
-    try {
-      const editor = root.querySelector<HTMLElement>('#register-avatar-editor');
-      expect(editor).not.toBeNull();
-      expect(editor?.querySelector<HTMLInputElement>('input[type="file"]')?.accept).toBe('image/jpeg,image/png,image/webp');
-
-      root.querySelector<HTMLInputElement>('#auth-email')!.value = 'player@example.test';
-      root.querySelector<HTMLInputElement>('#auth-display-name')!.value = '主号';
-      root.querySelector<HTMLInputElement>('#auth-password')!.value = 'password';
-      root.querySelector<HTMLInputElement>('#auth-password-confirmation')!.value = 'password';
-      submit(dom, root.querySelector<HTMLFormElement>('#register-form')!);
-      await vi.waitFor(() => expect(register).toHaveBeenCalledWith({
-        email: 'player@example.test',
-        display_name: '主号',
-        password: 'password',
-        password_confirmation: 'password',
-      }));
-      await vi.waitFor(() => expect(login).toHaveBeenCalledWith({
-        email: 'player@example.test', password: 'password',
-      }));
-    } finally {
-      dispose();
-    }
   });
 
   it('offers independent avatar save and delete actions on the account page', () => {
@@ -392,7 +304,7 @@ describe('auth pages', () => {
     }
   });
 
-  it('lets a pending user update their profile and keeps password change gated', async () => {
+  it('lets a pending user update their profile and hides the password change entry', async () => {
     authStore.setSession(session());
     const update = vi.spyOn(authApi, 'updateProfile').mockResolvedValue({ user: { ...session().user, display_name: '新昵称' } });
     const reconcile = vi.spyOn(authStore, 'reconcile').mockResolvedValue();
@@ -400,6 +312,7 @@ describe('auth pages', () => {
     try {
       expect(root.querySelector<HTMLFormElement>('#profile-form')).not.toBeNull();
       expect(root.textContent).toContain('待验证');
+      expect(root.querySelector<HTMLElement>('#account-password-link')?.hidden).toBe(true);
       const name = root.querySelector<HTMLInputElement>('#auth-display-name')!;
       name.value = '新昵称';
       submit(dom, root.querySelector<HTMLFormElement>('#profile-form')!);
@@ -408,15 +321,6 @@ describe('auth pages', () => {
     } finally {
       dispose();
     }
-
-    const passwordPage = mount('/account/password');
-    try {
-      expect(passwordPage.root.querySelector<HTMLFormElement>('#password-change-form')?.hidden).toBe(true);
-      expect(passwordPage.root.textContent).toContain('请先验证邮箱');
-      expect(passwordPage.root.querySelector('a[href="/forgot-password"]')).not.toBeNull();
-    } finally {
-      passwordPage.dispose();
-    }
   });
 
   it('shows a login guide for 401 account state and a manual retry for unavailable service', async () => {
@@ -424,7 +328,7 @@ describe('auth pages', () => {
     vi.spyOn(authStore, 'getState').mockReturnValue({ status: 'anonymous' });
     const anonymous = mount('/account');
     try {
-      expect(anonymous.root.querySelector('a[href="/login"]')).not.toBeNull();
+      expect(anonymous.root.querySelector('button[data-open-login]')).not.toBeNull();
     } finally {
       anonymous.dispose();
     }
@@ -462,33 +366,6 @@ describe('auth pages', () => {
     }
   });
 
-  it('does not clear a same-user session refreshed while a password change is pending', async () => {
-    authStore.setSession(session('ACTIVE'));
-    let finishChange!: () => void;
-    const change = vi.spyOn(authApi, 'changePassword').mockImplementation(() => new Promise((resolve) => {
-      finishChange = resolve;
-    }));
-    const clear = vi.spyOn(authStore, 'clear');
-    const { dom, root, dispose } = mount('/account/password');
-    try {
-      root.querySelector<HTMLInputElement>('#auth-current-password')!.value = 'oldpass';
-      root.querySelector<HTMLInputElement>('#auth-password')!.value = 'newpass';
-      root.querySelector<HTMLInputElement>('#auth-password-confirmation')!.value = 'newpass';
-      submit(dom, root.querySelector<HTMLFormElement>('#password-change-form')!);
-      await vi.waitFor(() => expect(change).toHaveBeenCalledTimes(1));
-
-      authStore.setSession({ ...session('ACTIVE'), csrf_token: 'new-session-csrf' });
-      finishChange();
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(clear).not.toHaveBeenCalled();
-      expect(authStore.getState().status).toBe('active');
-    } finally {
-      dispose();
-    }
-  });
-
   it('routes auth pages before analytics while keeping /accounts on its existing page', async () => {
     vi.doMock('../src/analytics', () => ({
       AnalyticsEvent: { Search: 'search', ItemHistory: 'history', MapOpen: 'map', QqGroupCopy: 'copy', AutocompleteSelect: 'select', CopyCommand: 'command' },
@@ -501,12 +378,12 @@ describe('auth pages', () => {
     }));
     vi.doMock('../src/accounts-page', () => ({ mountAccountsPage: mainMocks.mountAccountsPage }));
 
-    const auth = installDom('/register');
+    const auth = installDom('/account');
     await import('../src/main').catch(() => undefined);
     expect(mainMocks.initAnalytics).not.toHaveBeenCalled();
     expect(mainMocks.track).not.toHaveBeenCalled();
     expect(auth.dom.window.document.getElementById('LA_COLLECT')).toBeNull();
-    expect(mainMocks.mountAuthPage).toHaveBeenCalledWith(auth.root, '/register', expect.anything(), expect.anything());
+    expect(mainMocks.mountAuthPage).toHaveBeenCalledWith(auth.root, '/account', expect.anything(), expect.anything());
 
     vi.resetModules();
     vi.clearAllMocks();

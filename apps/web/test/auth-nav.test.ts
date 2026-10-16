@@ -61,10 +61,25 @@ describe('auth navigation', () => {
 
     const slot = dom.window.document.querySelector<HTMLElement>('[data-auth-nav]')!;
     expect(slot.textContent).toContain(nickname);
-    expect(slot.textContent).toContain('待验证');
+    expect(slot.textContent).toContain('邮箱待验证');
     expect(slot.querySelector('img[onerror]')).toBeNull();
-    expect(slot.querySelector('a[href="/account"]')).not.toBeNull();
-    expect(slot.querySelector('button[data-auth-logout]')).not.toBeNull();
+    expect(slot.querySelector('.account-trigger.signed-in')).not.toBeNull();
+    const panel = slot.querySelector<HTMLElement>('.account-panel')!;
+    expect(panel.querySelector('a[href="/account"]')).not.toBeNull();
+    expect(panel.querySelector('button[data-auth-logout]')).not.toBeNull();
+    // pending（邮箱未验证）不提供修改密码入口，与个人中心一致
+    expect(panel.querySelector('button[data-open-password]')).toBeNull();
+  });
+
+  it('renders the password change entry only for verified sessions', () => {
+    const dom = new JSDOM(`<div id="app">${siteNavMarkup('search')}</div>`, { url: 'http://localhost/' });
+    const store = new AuthStore(apiStub(), { broadcastChannel: null });
+    store.setSession(session('Player A', 'ACTIVE'));
+
+    mountAuthNav(dom.window.document.querySelector('#app')!, store);
+
+    const entry = dom.window.document.querySelector<HTMLButtonElement>('button[data-open-password]')!;
+    expect(entry.textContent).toContain('修改密码');
   });
 
   it('clears an expired session and tells the user to sign in again', async () => {
@@ -80,8 +95,47 @@ describe('auth navigation', () => {
     await vi.waitFor(() => expect(store.getState().status).toBe('anonymous'));
 
     const slot = root.querySelector<HTMLElement>('[data-auth-nav]')!;
-    expect(slot.querySelector('a[href="/login"]')).not.toBeNull();
+    expect(slot.querySelector('button[data-open-login]')).not.toBeNull();
     expect(slot.textContent).toContain('登录状态已失效，请重新登录');
+  });
+
+  it('mirrors panel visibility into aria-expanded and exposes the login item as a menuitem', async () => {
+    const dom = new JSDOM(`<div id="app">${siteNavMarkup('search')}</div>`, { url: 'http://localhost/' });
+    const api = apiStub();
+    const store = new AuthStore(api, { broadcastChannel: null });
+    const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+    mountAuthNav(root, store);
+
+    const trigger = await vi.waitFor(() => {
+      const found = root.querySelector<HTMLButtonElement>('.account-trigger');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    const loginItem = root.querySelector<HTMLButtonElement>('.account-panel-primary')!;
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(loginItem.getAttribute('role')).toBe('menuitem');
+
+    trigger.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }));
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    trigger.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('returns focus to the rebuilt anonymous trigger after logout', async () => {
+    const dom = new JSDOM(`<div id="app">${siteNavMarkup('search')}</div>`, { url: 'http://localhost/' });
+    const api = apiStub();
+    const store = new AuthStore(api, { broadcastChannel: null });
+    store.setSession(session('Player A'));
+    const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+    mountAuthNav(root, store);
+
+    root.querySelector<HTMLButtonElement>('[data-auth-logout]')!.click();
+    const anonymousTrigger = await vi.waitFor(() => {
+      const found = root.querySelector<HTMLButtonElement>('.account-trigger:not(.signed-in)');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(dom.window.document.activeElement).toBe(anonymousTrigger);
   });
 
   it('keeps the mobile menu keyboard-operable and avoids duplicate mount listeners', () => {

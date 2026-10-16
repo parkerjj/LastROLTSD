@@ -55,11 +55,6 @@ const EXTERNAL_ENTRIES: ReadonlyArray<{
     label: "代码仓库",
     icon: "ph-github-logo",
   },
-  {
-    href: "https://game.lastro.cn/?r=pc/news&nid=5",
-    label: "LastRO 官网",
-    icon: "ph-arrow-square-out",
-  },
 ];
 
 const mountedNavs = new WeakSet<HTMLElement>();
@@ -134,7 +129,7 @@ export function mountSiteNav(root: ParentNode = document): void {
       ? window.matchMedia.bind(window)
       : undefined;
   if (matchMedia) {
-    const desktopQuery = matchMedia("(min-width: 761px)");
+    const desktopQuery = matchMedia("(min-width: 901px)");
     const closeOnDesktop = (event: MediaQueryListEvent): void => {
       if (event.matches) setOpen(false);
     };

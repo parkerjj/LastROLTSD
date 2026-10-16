@@ -3,12 +3,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { authApi, AuthApiError } from '../src/auth/api';
 import { AuthStore, authStore, type AuthStoreApi } from '../src/auth/store';
 import type { AuthAcceptedResponse } from '../src/auth/types';
-import { mountAuthPage } from '../src/auth/pages';
+import { mountAuthDialogs } from '../src/auth/dialogs';
 
 let restoreDom: (() => void) | undefined;
 
 function mountRegister() {
-  const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost/register' });
+  const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost/' });
   const previousDocument = globalThis.document;
   const previousWindow = (globalThis as { window?: unknown }).window;
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
@@ -19,7 +19,6 @@ function mountRegister() {
     dom.window.close();
     restoreDom = undefined;
   };
-  const root = dom.window.document.querySelector<HTMLElement>('#app')!;
   const storeApi: AuthStoreApi = {
     me: vi.fn(async () => { throw new AuthApiError(401, 'AUTH_UNAUTHENTICATED', '请先登录'); }),
     refreshSession: vi.fn(async () => ({ expires_at: 30_000, csrf_token: 'session-csrf' })),
@@ -30,8 +29,14 @@ function mountRegister() {
     sessionRevision: 0,
   };
   const store = new AuthStore(storeApi, { broadcastChannel: null });
-  const dispose = mountAuthPage(root, '/register', authApi, store);
-  return { dom, root, store, dispose };
+  const dispose = mountAuthDialogs(dom.window.document, store, authApi);
+  const trigger = dom.window.document.createElement('button');
+  trigger.type = 'button';
+  trigger.dataset.openRegister = '';
+  dom.window.document.body.append(trigger);
+  trigger.click();
+  trigger.remove();
+  return { dom, root: dom.window.document.body as HTMLElement, store, dispose };
 }
 
 function installCanvasHarness(
@@ -64,11 +69,11 @@ function selectFile(dom: JSDOM, input: HTMLInputElement, file: File): void {
 }
 
 function fillRegistration(dom: JSDOM, root: HTMLElement): void {
-  root.querySelector<HTMLInputElement>('#auth-email')!.value = 'player@example.test';
-  root.querySelector<HTMLInputElement>('#auth-display-name')!.value = '主号';
-  root.querySelector<HTMLInputElement>('#auth-password')!.value = 'password';
-  root.querySelector<HTMLInputElement>('#auth-password-confirmation')!.value = 'password';
-  root.querySelector<HTMLFormElement>('#register-form')!.dispatchEvent(
+  root.querySelector<HTMLInputElement>('#dialogRegisterEmail')!.value = 'player@example.test';
+  root.querySelector<HTMLInputElement>('#dialogRegisterName')!.value = '主号';
+  root.querySelector<HTMLInputElement>('#dialogRegisterPassword')!.value = 'password';
+  root.querySelector<HTMLInputElement>('#dialogRegisterPasswordConfirmation')!.value = 'password';
+  root.querySelector<HTMLFormElement>('#dialog-register-form')!.dispatchEvent(
     new dom.window.Event('submit', { bubbles: true, cancelable: true }),
   );
 }
@@ -81,7 +86,6 @@ afterEach(() => {
 });
 
 it('mounts a keyboard-accessible square crop editor for optional registration avatars', () => {
-  vi.spyOn(authStore, 'bootstrap').mockResolvedValue();
   const { root, dispose } = mountRegister();
   try {
     const editor = root.querySelector<HTMLElement>('#register-avatar-editor');
@@ -100,6 +104,7 @@ it('moves and zooms the square crop and submits only bounded WebP Base64', async
   const register = vi.spyOn(authApi, 'register').mockImplementation(() => new Promise((resolve) => {
     finishRegister = resolve;
   }));
+  vi.spyOn(authApi, 'login').mockRejectedValue(new Error('自动登录不可用'));
   const { dom, root, dispose } = mountRegister();
   const canvas = installCanvasHarness(dom, (quality) => quality >= 0.7 ? 40_000 : 100);
   const close = vi.fn();
