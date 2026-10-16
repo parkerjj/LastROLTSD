@@ -2,17 +2,23 @@ import { AuthApiError, type AuthApiClient } from './api';
 import { mountAvatarEditor, type AvatarEditor } from './avatar-editor';
 import { mountAuthNav } from './nav';
 import type { AuthStore, AuthStoreState } from './store';
-import type { AccountProfile, AuthAcceptedResponse, MailAvailability, RegisterInput } from './types';
+import type { AccountProfile } from './types';
+import {
+  authErrorMessage,
+  clearPasswordFields,
+  formatTimestamp,
+  initials,
+  parseDisplayName,
+  renderMailAvailability,
+  setText,
+  validatePassword,
+  value,
+} from './utils';
 
 const AUTH_PATHS = new Set([
-  '/register',
-  '/login',
-  '/check-email',
   '/verify-email',
-  '/forgot-password',
   '/reset-password',
   '/account',
-  '/account/password',
 ]);
 
 type Cleanup = () => void;
@@ -41,8 +47,6 @@ export function mountAuthPage(
   let active = true;
   let identityEpoch = 0;
   const cleanups: Cleanup[] = [];
-  let registerAvatarEditor: AvatarEditor | null = null;
-  let registerAvatarProcessing = false;
   let accountAvatarEditor: AvatarEditor | null = null;
   let accountAvatarEditorKey: string | null = null;
   let accountAvatarSaving = false;
@@ -68,10 +72,6 @@ export function mountAuthPage(
       delete name.dataset.dirty;
     }
     root.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ''; });
-    registerAvatarEditor?.reset();
-    registerAvatarEditor?.setDisabled(false);
-    const registerForm = root.querySelector<HTMLFormElement>('#register-form');
-    if (registerForm) submitButton(registerForm, false);
     accountAvatarEditor?.destroy();
     accountAvatarEditor = null;
     accountAvatarEditorKey = null;
@@ -97,23 +97,9 @@ export function mountAuthPage(
 
   const page = pageMarkup(pathname);
   root.ownerDocument.title = `${page.title} · 露天商店.Ro`;
-  root.innerHTML = pathname === '/check-email'
-    ? checkEmailShell(page.content)
-    : shell(page.title, page.content);
-  if (pathname === '/check-email') void store.bootstrap();
-  else mountAuthNav(root, store);
+  root.innerHTML = shell(page.title, page.content);
+  mountAuthNav(root, store, api);
   wirePasswordToggles(root, listen);
-
-  const registerAvatarContainer = root.querySelector<HTMLElement>('#register-avatar-editor');
-  if (registerAvatarContainer) {
-    registerAvatarEditor = mountAvatarEditor(registerAvatarContainer, {
-      onChange: ({ processing }) => {
-        registerAvatarProcessing = processing;
-        const submit = root.querySelector<HTMLButtonElement>('#register-form button[type="submit"]');
-        if (submit) submit.disabled = processing;
-      },
-    });
-  }
 
   const currentUserId = (): string | null => {
     const state = store.getState();
@@ -131,11 +117,7 @@ export function mountAuthPage(
     form.setAttribute('aria-busy', String(busy));
   };
 
-  const handleError = (error: unknown, fallback: string): string => {
-    if (error instanceof AuthApiError && error.status === 401) return '登录状态已失效，请重新登录。';
-    if (error instanceof AuthApiError && error.status === 503) return '账号服务暂不可用，请重试。';
-    return error instanceof Error ? error.message : fallback;
-  };
+  const handleError = authErrorMessage;
 
   const renderAccountState = (state: Readonly<AuthStoreState>): void => {
     const shell = root.querySelector<HTMLElement>('#account-content');
@@ -241,32 +223,6 @@ export function mountAuthPage(
     accountAvatarEditor.setDisabled(accountAvatarSaving);
   }
 
-  const renderPasswordPage = (state: Readonly<AuthStoreState>): void => {
-    const form = root.querySelector<HTMLFormElement>('#password-change-form');
-    const guide = root.querySelector<HTMLElement>('#password-login-guide');
-    const pending = root.querySelector<HTMLElement>('#password-pending-guide');
-    const unavailable = root.querySelector<HTMLElement>('#password-unavailable');
-    if (!form || !guide || !pending || !unavailable) return;
-    form.hidden = true;
-    guide.hidden = true;
-    pending.hidden = true;
-    unavailable.hidden = true;
-    if (state.status === 'loading') {
-      unavailable.hidden = false;
-      setText(root, '#password-state-message', '正在读取账号状态…');
-    } else if (state.status === 'anonymous') {
-      guide.hidden = false;
-    } else if (state.status === 'pending') {
-      pending.hidden = false;
-      renderMailAvailability(root.querySelector<HTMLElement>('#password-mail-availability'), state.mailAvailability, 'verify');
-    } else if (state.status === 'active') {
-      form.hidden = false;
-    } else {
-      unavailable.hidden = false;
-      setText(root, '#password-state-message', state.message);
-    }
-  };
-
   const renderVerifyState = (state: Readonly<AuthStoreState>): void => {
     const login = root.querySelector<HTMLFormElement>('#verify-login-form');
     const actions = root.querySelector<HTMLElement>('#verify-session-actions');
@@ -305,121 +261,9 @@ export function mountAuthPage(
     setText(root, '#verify-status', state.message);
   };
 
-  const renderCheckEmailState = (state: Readonly<AuthStoreState>): void => {
-    const email = state.status === 'pending' || state.status === 'active'
-      ? state.user.email
-      : state.status === 'disabled'
-        ? state.user?.email ?? null
-        : null;
-    const element = root.querySelector<HTMLElement>('#check-email-account-email');
-    if (!element) return;
-    element.textContent = email ? `当前账号邮箱：${email}` : '';
-    element.hidden = !email;
-  };
-
   const retryButton = root.querySelector<HTMLButtonElement>('[data-auth-retry]');
   if (retryButton) {
     listen(retryButton, 'click', () => { void store.reconcile(); });
-  }
-
-  const registerForm = root.querySelector<HTMLFormElement>('#register-form');
-  if (registerForm) {
-    listen(registerForm, 'submit', (event) => {
-      event.preventDefault();
-      if (registerForm.getAttribute('aria-busy') === 'true') return;
-      const email = value(root, '#auth-email').trim();
-      const displayName = parseDisplayName(value(root, '#auth-display-name'));
-      const password = value(root, '#auth-password');
-      const confirmation = value(root, '#auth-password-confirmation');
-      if (!email || !displayName) {
-        setFormStatus(registerForm, '请填写邮箱和昵称/主要游戏角色名（1–32 个字符）。');
-        return;
-      }
-      const passwordError = validatePassword(password);
-      if (passwordError) {
-        setFormStatus(registerForm, passwordError);
-        return;
-      }
-      if (password !== confirmation) {
-        setFormStatus(registerForm, '两次输入的密码不一致。');
-        return;
-      }
-      if (registerAvatarProcessing) {
-        setFormStatus(registerForm, '请等待图片读取完成后再注册。');
-        return;
-      }
-      const submittedEpoch = identityEpoch;
-      registerAvatarEditor?.setDisabled(true);
-      submitButton(registerForm, true);
-      void (async () => {
-        let session: Awaited<ReturnType<typeof api.login>> | null = null;
-        try {
-          const avatarBase64 = await (registerAvatarEditor?.getValue() ?? Promise.resolve(null));
-          if (!active || identityEpoch !== submittedEpoch) return;
-          const input: RegisterInput = { email, display_name: displayName, password, password_confirmation: confirmation };
-          if (avatarBase64 !== null) input.avatar_base64 = avatarBase64;
-          await api.register(input);
-          if (!active || identityEpoch !== submittedEpoch) return;
-          try {
-            session = await api.login({ email, password });
-          } catch {
-            if (!active || identityEpoch !== submittedEpoch) return;
-            setFormStatus(registerForm, '注册请求已受理，但自动登录失败。请在登录页面使用相同邮箱和密码重试。');
-            return;
-          }
-        } catch (error) {
-          if (!active || identityEpoch !== submittedEpoch) return;
-          const message = error instanceof DOMException && error.name === 'AbortError'
-            ? '图片已更改，请重新提交。'
-            : handleError(error, '注册暂未完成，请重试。');
-          setFormStatus(registerForm, message);
-        } finally {
-          if (active && identityEpoch === submittedEpoch) {
-            registerAvatarEditor?.setDisabled(false);
-            submitButton(registerForm, false);
-          }
-        }
-        if (!active || !session) return;
-        if (identityEpoch !== submittedEpoch) {
-          void store.reconcile();
-          return;
-        }
-        store.setSession(session);
-        clearPasswordFields(registerForm);
-        registerAvatarEditor?.reset();
-        window.location.assign('/check-email');
-      })();
-    });
-  }
-
-  const loginForm = root.querySelector<HTMLFormElement>('#login-form');
-  if (loginForm) {
-    listen(loginForm, 'submit', (event) => {
-      event.preventDefault();
-      if (loginForm.getAttribute('aria-busy') === 'true') return;
-      const email = value(root, '#auth-email').trim();
-      const password = value(root, '#auth-password');
-      if (!email || !password) {
-        setFormStatus(loginForm, '请填写邮箱和密码。');
-        return;
-      }
-      const submittedEpoch = identityEpoch;
-      submitButton(loginForm, true);
-      void api.login({ email, password }).then((response) => {
-        if (!active) return;
-        if (identityEpoch !== submittedEpoch) {
-          void store.reconcile();
-          return;
-        }
-        store.setSession(response);
-        setFormStatus(loginForm, response.user.status === 'PENDING_EMAIL'
-          ? '登录成功，但邮箱尚未验证，部分功能将受到限制。'
-          : '登录成功。');
-      }).catch((error: unknown) => {
-        if (active && identityEpoch === submittedEpoch) setFormStatus(loginForm, handleError(error, '邮箱或密码不正确，或账号暂不可用。'));
-      })
-        .finally(() => { if (active) submitButton(loginForm, false); });
-    });
   }
 
   const verifyLoginForm = root.querySelector<HTMLFormElement>('#verify-login-form');
@@ -479,24 +323,6 @@ export function mountAuthPage(
       verifyLogout.disabled = true;
       void store.logout().catch((error: unknown) => setText(root, '#verify-status', handleError(error, '退出失败，请重试。')))
         .finally(() => { if (active) verifyLogout.disabled = false; });
-    });
-  }
-
-  const forgotForm = root.querySelector<HTMLFormElement>('#forgot-form');
-  if (forgotForm) {
-    listen(forgotForm, 'submit', (event) => {
-      event.preventDefault();
-      if (forgotForm.getAttribute('aria-busy') === 'true') return;
-      const email = value(root, '#auth-email').trim();
-      if (!email) {
-        setFormStatus(forgotForm, '请填写邮箱。');
-        return;
-      }
-      submitButton(forgotForm, true);
-      void api.requestPasswordReset({ email }).then((response) => {
-        if (active) setFormStatus(forgotForm, acceptedMessage(response, 'reset'));
-      }).catch((error: unknown) => setFormStatus(forgotForm, handleError(error, '申请暂未完成，请稍后重试。')))
-        .finally(() => { if (active) submitButton(forgotForm, false); });
     });
   }
 
@@ -679,49 +505,7 @@ export function mountAuthPage(
     });
   }
 
-  const passwordForm = root.querySelector<HTMLFormElement>('#password-change-form');
-  if (passwordForm) {
-    listen(passwordForm, 'submit', (event) => {
-      event.preventDefault();
-      if (passwordForm.getAttribute('aria-busy') === 'true') return;
-      const userId = currentUserId();
-      const submittedEpoch = identityEpoch;
-      const currentPassword = value(root, '#auth-current-password');
-      const newPassword = value(root, '#auth-password');
-      const confirmation = value(root, '#auth-password-confirmation');
-      if (!userId || store.getState().status !== 'active') {
-        setFormStatus(passwordForm, '请先验证邮箱并登录后再修改密码。');
-        return;
-      }
-      if (!currentPassword) {
-        setFormStatus(passwordForm, '请填写当前密码。');
-        return;
-      }
-      const passwordError = validatePassword(newPassword);
-      if (passwordError) {
-        setFormStatus(passwordForm, passwordError);
-        return;
-      }
-      if (newPassword !== confirmation) {
-        setFormStatus(passwordForm, '两次输入的新密码不一致。');
-        return;
-      }
-      submitButton(passwordForm, true);
-      void api.changePassword({ current_password: currentPassword, new_password: newPassword, new_password_confirmation: confirmation })
-        .then(() => {
-          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-          store.clear();
-          clearPasswordFields(passwordForm);
-          setFormStatus(passwordForm, '密码已更新，请重新登录。');
-        }).catch((error: unknown) => {
-          if (active && currentUserId() === userId && identityEpoch === submittedEpoch) setFormStatus(passwordForm, handleError(error, '请求结果暂未确认，请重新登录检查密码状态。'));
-        }).finally(() => { if (active) submitButton(passwordForm, false); });
-    });
-  }
-
   if (pathname === '/account') renderState = renderAccountState;
-  else if (pathname === '/account/password') renderState = renderPasswordPage;
-  else if (pathname === '/check-email') renderState = renderCheckEmailState;
   else if (pathname === '/verify-email') renderState = renderVerifyState;
   renderState(store.getState());
 
@@ -729,8 +513,6 @@ export function mountAuthPage(
     if (!active) return;
     active = false;
     actionToken = null;
-    registerAvatarEditor?.destroy();
-    registerAvatarEditor = null;
     accountAvatarEditor?.destroy();
     accountAvatarEditor = null;
     accountAvatarEditorKey = null;
@@ -741,13 +523,9 @@ export function mountAuthPage(
 
 function pageMarkup(pathname: string): { title: string; content: string } {
   switch (pathname) {
-    case '/register': return { title: '注册账号', content: registerMarkup() };
-    case '/login': return { title: '登录账号', content: loginMarkup() };
-    case '/check-email': return { title: '检查邮箱', content: checkEmailMarkup() };
     case '/verify-email': return { title: '验证邮箱', content: verifyMarkup() };
-    case '/forgot-password': return { title: '找回密码', content: forgotMarkup() };
     case '/reset-password': return { title: '重置密码', content: resetMarkup() };
-    case '/account/password': return { title: '修改密码', content: passwordMarkup() };
+    case '/account': return { title: '我的账号', content: accountMarkup() };
     default: return { title: '我的账号', content: accountMarkup() };
   }
 }
@@ -767,40 +545,6 @@ function shell(title: string, content: string): string {
   </div>`;
 }
 
-function checkEmailShell(content: string): string {
-  return `<div class="auth-page"><main class="auth-main page-width"><section class="auth-card" aria-label="注册完成">
-    ${content}
-  </section></main></div>`;
-}
-
-function registerMarkup(): string {
-  return `<p class="auth-intro">创建账号后，可在不同设备查看和管理自己的资料。</p>
-    <form id="register-form" class="auth-form" novalidate>
-      ${emailField()}
-      <label for="auth-display-name">昵称/主要游戏角色名<input id="auth-display-name" name="display_name" autocomplete="nickname" required></label>
-      <p class="auth-help">可填写常用游戏角色名，允许重名。</p>
-      <div id="register-avatar-editor"></div>
-      <p class="auth-help">头像会用于站内公开展示。</p>
-      ${passwordField('auth-password', '密码', 'new-password')}
-      ${passwordField('auth-password-confirmation', '确认密码', 'new-password')}
-      <p class="auth-help">密码长度为 5–256 个字符；可使用粘贴和自动填充。</p>
-      <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
-      <button type="submit">注册</button>
-    </form>
-    <p class="auth-links">已有账号？ <a href="/login">登录</a> · <a href="/forgot-password">忘记密码</a></p>`;
-}
-
-function loginMarkup(): string {
-  return `<p class="auth-intro">登录后查看账号资料与邮箱验证状态。</p>
-    <form id="login-form" class="auth-form" novalidate>
-      ${emailField()}
-      ${passwordField('auth-password', '密码', 'current-password')}
-      <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
-      <button type="submit">登录</button>
-    </form>
-    <p class="auth-links"><a href="/register">注册账号</a> · <a href="/forgot-password">忘记密码</a></p>`;
-}
-
 function verifyMarkup(): string {
   return `<p id="verify-status" class="auth-status" role="status" aria-live="polite"></p>
     <form id="verify-login-form" class="auth-form" novalidate hidden>
@@ -813,22 +557,7 @@ function verifyMarkup(): string {
       <button id="verify-confirm" type="button" hidden>确认邮箱验证</button>
       <button id="verify-logout" class="auth-text-button" type="button" hidden>退出并使用其他账号登录</button>
     </section>
-    <p class="auth-links"><a href="/login">登录</a> · <a href="/forgot-password">忘记密码</a></p>`;
-}
-
-function checkEmailMarkup(): string {
-  return `<p class="auth-intro">注册完成，请检查邮箱并完成验证</p>
-    <p id="check-email-account-email" class="auth-notice" hidden></p>`;
-}
-
-function forgotMarkup(): string {
-  return `<p class="auth-intro">如果该邮箱对应可恢复的账号，你会收到重置邮件。</p>
-    <form id="forgot-form" class="auth-form" novalidate>
-      ${emailField()}
-      <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
-      <button type="submit">申请重置密码</button>
-    </form>
-    <p class="auth-links"><a href="/login">返回登录</a></p>`;
+    <p class="auth-links"><button type="button" class="auth-text-button" data-open-login>登录</button> · <button type="button" class="auth-text-button" data-open-forgot>忘记密码</button></p>`;
 }
 
 function resetMarkup(): string {
@@ -841,13 +570,13 @@ function resetMarkup(): string {
     </form>
     <p id="reset-status" class="auth-status" role="status" aria-live="polite"></p>
     <button id="reset-csrf-retry" class="secondary-button" type="button" hidden>重试</button>
-    <p class="auth-links"><a href="/forgot-password">重新申请重置链接</a> · <a href="/login">登录</a></p>`;
+    <p class="auth-links"><button type="button" class="auth-text-button" data-open-forgot>重新申请重置链接</button> · <button type="button" class="auth-text-button" data-open-login>登录</button></p>`;
 }
 
 function accountMarkup(): string {
   return `<p id="account-content" class="auth-intro" role="status" aria-live="polite">正在读取账号状态…</p>
     <section id="account-login-guide" class="auth-notice" hidden>
-      <p>请先登录，查看和修改自己的账号资料。</p><a class="auth-button-link" href="/login">登录账号</a>
+      <p>请先登录，查看和修改自己的账号资料。</p><button class="auth-button-link" type="button" data-open-login>登录账号</button>
     </section>
     <section id="account-unavailable" class="auth-notice" hidden>
       <p data-account-error>账号服务暂不可用。</p><button class="secondary-button" type="button" data-auth-retry>重试</button>
@@ -864,7 +593,7 @@ function accountMarkup(): string {
         </dl>
       </div>
       <p id="account-status-label" class="auth-state-label"></p>
-      <p id="account-pending-message" class="auth-notice" hidden>邮箱尚待验证。<a href="/verify-email">前往邮箱验证</a></p>
+      <p id="account-pending-message" class="auth-notice" hidden>邮箱尚待验证，请打开验证邮件中的链接完成验证。</p>
       <div id="account-mail-availability" class="auth-notice" aria-live="polite"></div>
       <form id="profile-form" class="auth-form" novalidate>
         <label for="auth-display-name">昵称/主要游戏角色名<input id="auth-display-name" name="display_name" autocomplete="nickname" required></label>
@@ -887,27 +616,8 @@ function accountMarkup(): string {
         </div>
         <p id="account-avatar-status" class="auth-status" role="status" aria-live="polite"></p>
       </section>
-      <p id="account-password-link" class="auth-links"><a href="/account/password">修改密码</a> · <a href="/forgot-password">忘记密码</a></p>
+      <p id="account-password-link" class="auth-links"><button type="button" class="auth-text-button" data-open-password>修改密码</button> · <button type="button" class="auth-text-button" data-open-forgot>忘记密码</button></p>
     </section>`;
-}
-
-function passwordMarkup(): string {
-  return `<p class="auth-intro">修改账号密码后，所有现有会话都会退出。</p>
-    <section id="password-login-guide" class="auth-notice" hidden>请先登录。<a href="/login">登录账号</a></section>
-    <section id="password-pending-guide" class="auth-notice" hidden>
-      <p>请先验证邮箱后再修改密码。</p><div id="password-mail-availability"></div>
-      <a href="/verify-email">前往邮箱验证</a> · <a href="/forgot-password">通过邮件重置密码</a>
-    </section>
-    <section id="password-unavailable" class="auth-notice" hidden><p id="password-state-message"></p></section>
-    <form id="password-change-form" class="auth-form" novalidate hidden>
-      ${passwordField('auth-current-password', '当前密码', 'current-password')}
-      ${passwordField('auth-password', '新密码', 'new-password')}
-      ${passwordField('auth-password-confirmation', '确认新密码', 'new-password')}
-      <p class="auth-help">新密码长度为 5–256 个字符；可使用粘贴和自动填充。</p>
-      <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
-      <button type="submit">修改密码</button>
-    </form>
-    <p class="auth-links"><a href="/account">返回账号资料</a></p>`;
 }
 
 function emailField(): string {
@@ -933,7 +643,7 @@ function wirePasswordToggles(
       const visible = input.type === 'password';
       input.type = visible ? 'text' : 'password';
       button.setAttribute('aria-pressed', String(visible));
-      button.setAttribute('aria-label', `${visible ? '隐藏' : '显示'}${button.dataset.passwordToggle === 'auth-current-password' ? '当前密码' : '密码'}`);
+      button.setAttribute('aria-label', `${visible ? '隐藏' : '显示'}密码`);
       button.textContent = visible ? '隐藏' : '显示';
     });
   });
@@ -949,77 +659,4 @@ function takeActionToken(pathname: string): string | null {
 function normalizePath(path: string): string {
   const pathname = path.split(/[?#]/u, 1)[0] ?? path;
   return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-}
-
-function parseDisplayName(value: string): string | null {
-  const name = value.trim();
-  const length = Array.from(name).length;
-  return length >= 1 && length <= 32 ? name : null;
-}
-
-function validatePassword(value: string): string | null {
-  const length = Array.from(value).length;
-  if (length < 5 || length > 256) return '密码长度需为 5–256 个字符。';
-  return null;
-}
-
-function acceptedMessage(response: AuthAcceptedResponse, purpose: 'register' | 'verify' | 'reset'): string {
-  const base = purpose === 'register'
-    ? '申请已受理，正在等待发送。请检查邮箱；已有账号可以登录或申请密码重置。'
-    : purpose === 'reset'
-      ? '如果该邮箱对应可恢复的账号，申请已受理，正在等待发送。'
-      : '已受理，正在等待发送。';
-  const availability = formatMailAvailability(response.mail_availability, purpose);
-  return availability ? `${base} ${availability}` : base;
-}
-
-function renderMailAvailability(target: HTMLElement | null, availability: MailAvailability | null, purpose: 'verify' | 'reset'): void {
-  if (target) target.textContent = availability ? formatMailAvailability(availability, purpose) : '';
-}
-
-function formatMailAvailability(availability: MailAvailability, purpose: 'register' | 'verify' | 'reset'): string {
-  if (availability.code === 'MAIL_DAILY_QUOTA') {
-    const restoreTime = availability.retry_at === null ? '' : `预计当地恢复时间：${formatTimestamp(availability.retry_at)}。`;
-    if (purpose === 'register') return `今天邮件发送数量已达到上限，请明天重新申请。${restoreTime}服务商日额度按 UTC 恢复。`;
-    return purpose === 'verify'
-      ? `今天发送邮件的数量已达到上限，请明天重新登录账号，再进行 Email 身份验证。${restoreTime}服务商日额度按 UTC 恢复。已收到的有效验证链接仍可使用。`
-      : `今天发送邮件的数量已达到上限，请明天重新申请密码重置。${restoreTime}服务商日额度按 UTC 恢复。`;
-  }
-  if (availability.code === 'MAIL_MONTHLY_QUOTA') {
-    return purpose === 'verify'
-      ? '本月邮件发送额度已用完，请待额度恢复后重试。'
-      : '本月邮件发送额度已用完，请待额度恢复后重试；额度恢复后重新申请密码重置。';
-  }
-  return '';
-}
-
-function setText(root: ParentNode, selector: string, text: string): void {
-  const element = root.querySelector<HTMLElement>(selector);
-  if (element) element.textContent = text;
-}
-
-function value(root: ParentNode, selector: string): string {
-  return root.querySelector<HTMLInputElement>(selector)?.value ?? '';
-}
-
-function clearPasswordFields(root: ParentNode): void {
-  root.querySelectorAll<HTMLInputElement>('[data-password-input]').forEach((input) => {
-    input.value = '';
-    input.type = 'password';
-    const toggle = input.parentElement?.querySelector<HTMLButtonElement>('[data-password-toggle]');
-    if (toggle) {
-      toggle.setAttribute('aria-pressed', 'false');
-      toggle.setAttribute('aria-label', `显示${toggle.dataset.passwordLabel ?? '密码'}`);
-      toggle.textContent = '显示';
-    }
-  });
-}
-
-function formatTimestamp(value: number): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '时间暂不可用' : date.toLocaleString();
-}
-
-function initials(displayName: string): string {
-  return Array.from(displayName.trim())[0] ?? '用';
 }

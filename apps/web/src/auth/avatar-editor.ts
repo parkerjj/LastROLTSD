@@ -5,6 +5,7 @@ const OUTPUT_QUALITIES = [0.8, 0.7, 0.6, 0.5, 0.4] as const;
 
 export interface AvatarEditorOptions {
   initialAvatarUrl?: string | null;
+  compact?: boolean;
   onChange?: (state: { selected: boolean; processing: boolean }) => void;
 }
 
@@ -31,7 +32,24 @@ interface CropState {
 export function mountAvatarEditor(container: HTMLElement, options: AvatarEditorOptions = {}): AvatarEditor {
   const doc = container.ownerDocument;
   const view = doc.defaultView;
-  container.innerHTML = `
+  container.innerHTML = options.compact ? `
+    <div class="auth-avatar-editor compact" data-avatar-editor>
+      <div class="auth-avatar-editor-preview" data-avatar-preview-wrap>
+        <img class="auth-avatar-editor-current" data-avatar-current alt="当前头像" hidden>
+        <canvas class="auth-avatar-editor-crop" data-avatar-crop width="256" height="256" role="img" aria-label="头像裁剪预览。使用方向键移动裁剪区域。" tabindex="0" hidden></canvas>
+        <span class="auth-avatar-editor-empty" data-avatar-empty aria-hidden="true"><i class="ph ph-user-circle"></i></span>
+      </div>
+      <span class="auth-avatar-editor-text"><strong>头像（可选）</strong><span>会用于站内公开展示，保存时自动裁剪为 256×256。</span></span>
+      <label class="auth-avatar-editor-file">选择图片
+        <input data-avatar-file type="file" accept="image/jpeg,image/png,image/webp">
+      </label>
+      <p class="auth-help">支持 JPEG、PNG 或 WebP，最大 10 MiB。</p>
+      <label class="auth-avatar-editor-zoom" for="avatar-editor-zoom">缩放
+        <input id="avatar-editor-zoom" data-avatar-zoom type="range" min="1" max="4" step="0.05" value="1" disabled>
+      </label>
+      <button class="secondary-button auth-avatar-editor-cancel" data-avatar-cancel type="button" hidden>取消本次裁剪</button>
+      <p class="auth-status" data-avatar-status role="status" aria-live="polite"></p>
+    </div>` : `
     <div class="auth-avatar-editor" data-avatar-editor>
       <div class="auth-avatar-editor-preview" data-avatar-preview-wrap>
         <img class="auth-avatar-editor-current" data-avatar-current alt="当前头像" hidden>
@@ -221,7 +239,7 @@ export function mountAvatarEditor(container: HTMLElement, options: AvatarEditorO
       updateDisabledControls();
       drawPreview();
       reportSelection(true);
-      setStatus('拖动图片调整位置，也可用方向键微调；缩放后确认裁剪。');
+      setStatus(options.compact ? '已选择图片，可拖动圆形预览微调位置。' : '拖动图片调整位置，也可用方向键微调；缩放后确认裁剪。');
     } catch {
       if (alive && generation === imageGeneration) {
         reportSelection(false);

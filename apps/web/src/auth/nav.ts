@@ -1,4 +1,5 @@
-import { AuthApiError } from './api';
+import { authApi, AuthApiError, type AuthApiClient } from './api';
+import { mountAuthDialogs } from './dialogs';
 import { authStore, type AuthStore, type AuthStoreState } from './store';
 
 interface MountedAuthNav {
@@ -11,7 +12,7 @@ interface MountedAuthNav {
 const mountedByRoot = new WeakMap<ParentNode, MountedAuthNav>();
 const visitDocuments = new WeakSet<Document>();
 
-export function mountAuthNav(root: ParentNode, store: AuthStore = authStore): void {
+export function mountAuthNav(root: ParentNode, store: AuthStore = authStore, api: AuthApiClient = authApi): void {
   const slot = root.querySelector<HTMLElement>('[data-auth-nav]');
   if (!slot) return;
 
@@ -29,7 +30,10 @@ export function mountAuthNav(root: ParentNode, store: AuthStore = authStore): vo
     const button = (target as Element).closest<HTMLButtonElement>('[data-auth-logout]');
     if (!button || button.disabled) return;
     button.disabled = true;
-    void store.logout().catch((error: unknown) => {
+    void store.logout().then(() => {
+      // 退出后触发器随 replaceChildren 重建，把焦点归还到匿名态账号按钮
+      slot.querySelector<HTMLElement>('.account-trigger')?.focus();
+    }).catch((error: unknown) => {
       if (button.isConnected) button.disabled = false;
       const status = slot.querySelector<HTMLElement>('[data-auth-message]');
       const message = error instanceof AuthApiError && error.status === 401
@@ -46,12 +50,12 @@ export function mountAuthNav(root: ParentNode, store: AuthStore = authStore): vo
   const unsubscribe = store.subscribe(render);
   mountedByRoot.set(root, { slot, store, unsubscribe, onClick });
   render();
+  mountAuthDialogs(slot.ownerDocument, store, api);
   installVisitTriggers(slot.ownerDocument, store);
   void store.bootstrap();
 }
 
 function renderAuthNav(slot: HTMLElement, state: Readonly<AuthStoreState>): void {
-  const doc = slot.ownerDocument;
   slot.replaceChildren();
 
   if (state.status === 'loading') {
@@ -59,8 +63,7 @@ function renderAuthNav(slot: HTMLElement, state: Readonly<AuthStoreState>): void
     return;
   }
   if (state.status === 'anonymous') {
-    appendLink(slot, '/login', '登录');
-    appendLink(slot, '/register', '注册');
+    slot.append(anonymousMenu(slot.ownerDocument));
     return;
   }
   if (state.status === 'disabled') {
@@ -69,56 +72,181 @@ function renderAuthNav(slot: HTMLElement, state: Readonly<AuthStoreState>): void
   }
   if (state.status === 'error') {
     appendMessage(slot, state.message);
-    appendLink(slot, '/login', '登录');
-    appendLink(slot, '/register', '注册');
+    slot.append(anonymousMenu(slot.ownerDocument));
     return;
   }
 
-  const account = doc.createElement('a');
-  account.className = 'nav-item auth-nav-item auth-nav-account';
-  account.href = '/account';
-  account.setAttribute('aria-label', `账号：${state.user.display_name}`);
-  if (state.user.has_avatar && isSameOriginAvatarUrl(state.user.avatar_url, doc)) {
-    const avatar = doc.createElement('img');
-    avatar.className = 'auth-nav-avatar';
-    avatar.alt = '';
-    avatar.src = state.user.avatar_url;
-    account.append(avatar);
-  } else {
-    const fallback = doc.createElement('i');
-    fallback.className = 'ph ph-user-circle auth-nav-avatar-fallback';
-    fallback.setAttribute('aria-hidden', 'true');
-    account.append(fallback);
-  }
-  const name = doc.createElement('span');
-  name.className = 'auth-nav-name';
-  name.textContent = state.user.display_name;
-  account.append(name);
-  slot.append(account);
-
-  if (state.status === 'pending') {
-    const pending = doc.createElement('span');
-    pending.className = 'auth-nav-state';
-    pending.textContent = '待验证';
-    slot.append(pending);
-  }
-
-  const logout = doc.createElement('button');
-  logout.type = 'button';
-  logout.className = 'nav-item auth-nav-item auth-nav-logout';
-  logout.dataset.authLogout = '';
-  logout.textContent = '退出';
-  slot.append(logout);
-
+  slot.append(signedInMenu(slot.ownerDocument, state));
   if (state.refreshError) appendMessage(slot, state.refreshError);
 }
 
-function appendLink(slot: HTMLElement, href: string, label: string): void {
-  const link = slot.ownerDocument.createElement('a');
-  link.className = 'nav-item auth-nav-item';
-  link.href = href;
-  link.textContent = label;
-  slot.append(link);
+function anonymousMenu(doc: Document): HTMLElement {
+  const menu = doc.createElement('div');
+  menu.className = 'account-menu';
+
+  const trigger = doc.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'account-trigger';
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.append(phIcon(doc, 'ph-user'), textSpan(doc, '', '账号'), phIcon(doc, 'ph-caret-down', 'caret'));
+
+  const panel = doc.createElement('div');
+  panel.className = 'account-panel';
+  panel.setAttribute('role', 'menu');
+
+  const eyebrow = doc.createElement('p');
+  eyebrow.className = 'account-panel-eyebrow';
+  eyebrow.textContent = 'LTSD 账号';
+
+  const login = doc.createElement('button');
+  login.type = 'button';
+  login.className = 'account-panel-primary';
+  login.setAttribute('role', 'menuitem');
+  login.dataset.openLogin = '';
+  login.append(phIcon(doc, 'ph-user'), doc.createTextNode('登录'));
+
+  const register = doc.createElement('button');
+  register.type = 'button';
+  register.className = 'account-panel-item';
+  register.setAttribute('role', 'menuitem');
+  register.dataset.openRegister = '';
+  register.append(phIcon(doc, 'ph-pencil-simple'), doc.createTextNode('注册'));
+
+  const forgot = doc.createElement('button');
+  forgot.type = 'button';
+  forgot.className = 'account-panel-item';
+  forgot.setAttribute('role', 'menuitem');
+  forgot.dataset.openForgot = '';
+  forgot.append(phIcon(doc, 'ph-key'), doc.createTextNode('账号找回'));
+
+  panel.append(eyebrow, login, panelSep(doc), register, forgot);
+  menu.append(trigger, panel);
+  wireExpandedState(menu, trigger);
+  return menu;
+}
+
+function signedInMenu(doc: Document, state: Readonly<AuthStoreState> & { status: 'pending' | 'active' }): HTMLElement {
+  const { user } = state;
+  const menu = doc.createElement('div');
+  menu.className = 'account-menu';
+
+  const trigger = doc.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'account-trigger signed-in';
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-label', `账号：${user.display_name}`);
+  trigger.append(avatarContent(doc, user, 'account-avatar'));
+  const name = doc.createElement('span');
+  name.className = 'name';
+  name.textContent = user.display_name;
+  trigger.append(name, phIcon(doc, 'ph-caret-down', 'caret'));
+
+  const panel = doc.createElement('div');
+  panel.className = 'account-panel';
+  panel.setAttribute('role', 'menu');
+
+  const me = doc.createElement('div');
+  me.className = 'account-panel-me';
+  me.append(avatarContent(doc, user, 'account-panel-avatar'));
+  const meText = doc.createElement('span');
+  const meName = doc.createElement('strong');
+  meName.textContent = user.display_name;
+  const meMail = doc.createElement('small');
+  meMail.textContent = state.status === 'pending' ? `${user.email} · 邮箱待验证` : user.email;
+  meText.append(meName, meMail);
+  me.append(meText);
+
+  const settings = doc.createElement('a');
+  settings.className = 'account-panel-item';
+  settings.setAttribute('role', 'menuitem');
+  settings.href = '/account';
+  settings.append(phIcon(doc, 'ph-gear-six'), doc.createTextNode('账号设置'));
+
+  // 与个人中心一致：邮箱未验证（pending）时不提供修改密码入口
+  const panelItems: HTMLElement[] = [me, panelSep(doc), settings];
+  if (state.status === 'active') {
+    const password = doc.createElement('button');
+    password.type = 'button';
+    password.className = 'account-panel-item';
+    password.setAttribute('role', 'menuitem');
+    password.dataset.openPassword = '';
+    password.append(phIcon(doc, 'ph-password'), doc.createTextNode('修改密码'));
+    panelItems.push(password);
+  }
+  const logout = doc.createElement('button');
+  logout.type = 'button';
+  logout.className = 'account-panel-item';
+  logout.setAttribute('role', 'menuitem');
+  logout.dataset.authLogout = '';
+  logout.append(phIcon(doc, 'ph-sign-out'), doc.createTextNode('退出登录'));
+  panelItems.push(logout);
+
+  panel.append(...panelItems);
+  menu.append(trigger, panel);
+  wireExpandedState(menu, trigger);
+  return menu;
+}
+
+/**
+ * 面板显隐由 CSS :hover / :focus-within 控制，这里让 aria-expanded 与可见状态
+ * 保持同步，避免读屏器在面板可见时仍听到"已折叠"。
+ */
+function wireExpandedState(menu: HTMLElement, trigger: HTMLButtonElement): void {
+  const setExpanded = (expanded: boolean): void => {
+    trigger.setAttribute('aria-expanded', String(expanded));
+  };
+  menu.addEventListener('mouseenter', () => setExpanded(true));
+  menu.addEventListener('mouseleave', () => setExpanded(false));
+  menu.addEventListener('focusin', () => setExpanded(true));
+  menu.addEventListener('focusout', (event) => {
+    // 鸭子判断：测试运行在 node 环境，不引用全局 Node（参考本文件 onClick 写法）
+    const next = event.relatedTarget;
+    const staysInside = next !== null
+      && typeof next === 'object'
+      && 'nodeType' in next
+      && menu.contains(next as Node);
+    if (!staysInside) setExpanded(false);
+  });
+}
+
+function avatarContent(doc: Document, user: { has_avatar: boolean; avatar_url: string; display_name: string }, cls: string): HTMLElement {
+  if (user.has_avatar && isSameOriginAvatarUrl(user.avatar_url, doc)) {
+    const image = doc.createElement('img');
+    image.className = cls;
+    image.alt = '';
+    image.src = user.avatar_url;
+    return image;
+  }
+  const fallback = doc.createElement('span');
+  fallback.className = cls;
+  fallback.setAttribute('aria-hidden', 'true');
+  const icon = doc.createElement('i');
+  icon.className = 'ph ph-user-circle';
+  fallback.append(icon);
+  return fallback;
+}
+
+function panelSep(doc: Document): HTMLElement {
+  const sep = doc.createElement('span');
+  sep.className = 'account-panel-sep';
+  sep.setAttribute('aria-hidden', 'true');
+  return sep;
+}
+
+function phIcon(doc: Document, name: string, extraClass?: string): HTMLElement {
+  const icon = doc.createElement('i');
+  icon.className = extraClass ? `ph ${name} ${extraClass}` : `ph ${name}`;
+  icon.setAttribute('aria-hidden', 'true');
+  return icon;
+}
+
+function textSpan(doc: Document, cls: string, text: string): HTMLElement {
+  const span = doc.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text;
+  return span;
 }
 
 function appendMessage(slot: HTMLElement, message: string): void {
