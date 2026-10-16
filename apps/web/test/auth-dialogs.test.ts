@@ -7,12 +7,16 @@ import type { AuthAcceptedResponse, AuthSessionResponse } from '../src/auth/type
 
 let restoreDom: (() => void) | undefined;
 
-function session(status: 'ACTIVE' | 'PENDING_EMAIL' = 'PENDING_EMAIL'): AuthSessionResponse {
+function session(
+  status: 'ACTIVE' | 'PENDING_EMAIL' = 'PENDING_EMAIL',
+  id = '10000',
+  email = 'player@example.test',
+): AuthSessionResponse {
   return {
     user: {
-      id: '10000', email: 'player@example.test', display_name: '主号', status,
+      id, email, display_name: '主号', status,
       email_verified_at: status === 'ACTIVE' ? 1 : null, created_at: 1,
-      has_avatar: false, avatar_version: 0, avatar_url: '/api/v1/users/10000/avatar?v=0',
+      has_avatar: false, avatar_version: 0, avatar_url: `/api/v1/users/${id}/avatar?v=0`,
     },
     expires_at: 30_000, csrf_token: 'session-csrf',
     mail_availability: status === 'PENDING_EMAIL' ? { code: 'AVAILABLE', retry_at: null } : null,
@@ -267,6 +271,36 @@ describe('auth dialogs', () => {
     }
   });
 
+  it('preserves a newer session when the password change completes', async () => {
+    let finishChange!: () => void;
+    const change = vi.spyOn(authApi, 'changePassword').mockImplementation(
+      () => new Promise<void>((resolve) => { finishChange = resolve; }),
+    );
+    const { dom, doc, store, dispose, open } = mount();
+    try {
+      store.setSession(session('ACTIVE'));
+      open('password');
+      const form = doc.querySelector<HTMLFormElement>('#dialog-password-form')!;
+      doc.querySelector<HTMLInputElement>('#dialogCurrentPassword')!.value = 'oldpass';
+      doc.querySelector<HTMLInputElement>('#dialogNewPassword')!.value = 'newpass';
+      doc.querySelector<HTMLInputElement>('#dialogNewPasswordConfirmation')!.value = 'newpass';
+      submit(dom, form);
+      await vi.waitFor(() => expect(change).toHaveBeenCalledTimes(1));
+
+      // 改密请求仍在进行时，另一个账号登录（本页/其它标签页对账后的本地状态）
+      store.setSession(session('ACTIVE', '20000', 'other@example.test'));
+
+      finishChange();
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+      // 不得清掉更新的会话，也不展示属于原账号的成功态
+      expect(store.getState()).toMatchObject({ status: 'active', user: { id: '20000' } });
+      expect(doc.querySelector<HTMLElement>('[data-password-success]')!.hidden).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
   it('requires an email and password before calling the login api', () => {
     const login = vi.spyOn(authApi, 'login');
     const { dom, doc, dispose, open } = mount();
@@ -419,6 +453,11 @@ describe('auth dialogs', () => {
       expect(doc.body.classList.contains('register-open')).toBe(false);
       expect(doc.querySelector<HTMLElement>('[data-success-email]')?.textContent)
         .toBe('当前账号邮箱：player@example.test');
+      // 「返回首页」是真正导航回首页的链接，「先逛逛」仅关闭浮层
+      const home = doc.querySelector<HTMLAnchorElement>('[data-success-scrim] .success-actions a');
+      expect(home?.getAttribute('href')).toBe('/');
+      expect(home?.textContent).toBe('我已完成验证，返回首页');
+      expect(doc.querySelector<HTMLButtonElement>('[data-success-scrim] .success-actions button[data-close-success]')).not.toBeNull();
       expect(store.getState()).toMatchObject({ status: 'pending', user: { email: 'player@example.test' } });
       expect(password.value).toBe('');
       expect(password.type).toBe('password');
@@ -461,6 +500,37 @@ describe('auth dialogs', () => {
       expect(doc.querySelector<HTMLElement>('[data-success-email]')?.textContent)
         .toBe('当前账号邮箱：player@example.test');
       expect(store.getState().status).toBe('pending');
+    } finally {
+      dispose();
+    }
+  });
+
+  it('skips auto-login when the session identity changed during registration', async () => {
+    let finishRegister!: (response: AuthAcceptedResponse) => void;
+    const register = vi.spyOn(authApi, 'register').mockImplementation(
+      () => new Promise((resolve) => { finishRegister = resolve; }),
+    );
+    const login = vi.spyOn(authApi, 'login');
+    const { dom, doc, store, dispose, open } = mount();
+    try {
+      open('register');
+      doc.querySelector<HTMLInputElement>('#dialogRegisterEmail')!.value = 'player@example.test';
+      doc.querySelector<HTMLInputElement>('#dialogRegisterName')!.value = '主号';
+      doc.querySelector<HTMLInputElement>('#dialogRegisterPassword')!.value = 'password';
+      doc.querySelector<HTMLInputElement>('#dialogRegisterPasswordConfirmation')!.value = 'password';
+      submit(dom, doc.querySelector<HTMLFormElement>('#dialog-register-form')!);
+      await vi.waitFor(() => expect(register).toHaveBeenCalledTimes(1));
+
+      // 注册请求仍在进行时，另一个账号登录，本地身份发生变化
+      store.setSession(session('ACTIVE', '20000', 'other@example.test'));
+
+      finishRegister({ accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null } });
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+      // 不再用注册凭证自动登录，也不弹注册完成浮层
+      expect(login).not.toHaveBeenCalled();
+      expect(doc.body.classList.contains('success-open')).toBe(false);
+      expect(store.getState()).toMatchObject({ status: 'active', user: { id: '20000' } });
     } finally {
       dispose();
     }

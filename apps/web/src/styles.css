@@ -687,6 +687,7 @@ body.password-open .login-dialog { transform: none; }
 .success-email .ph { font-size: 15px; flex: 0 0 15px; }
 .success-tip { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.7; }
 .success-actions { display: grid; gap: 8px; margin-top: 2px; }
+.success-actions a.login-dialog-submit { display: flex; align-items: center; justify-content: center; text-decoration: none; }
 .password-success { display: grid; justify-items: center; gap: 10px; text-align: center; }
 .password-success .success-icon { margin-bottom: 2px; }
 .password-success-text { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.7; }

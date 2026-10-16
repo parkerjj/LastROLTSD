@@ -1,6 +1,6 @@
 import { authApi, type AuthApiClient } from './api';
 import { mountAvatarEditor, type AvatarEditor } from './avatar-editor';
-import { authStore, type AuthStore } from './store';
+import { authStore, type AuthStore, type AuthStoreState } from './store';
 import type { AuthSessionResponse, RegisterInput } from './types';
 import {
   acceptedMessage,
@@ -262,6 +262,7 @@ export function mountAuthDialogs(
     setStatus(registerDialog, '正在创建账号…', 'info');
     retryAutologinButton.hidden = true;
     autologinRetry = null;
+    const startedUserId = currentUserId(store.getState());
     void (async () => {
       let session: AuthSessionResponse | null = null;
       try {
@@ -271,6 +272,9 @@ export function mountAuthDialogs(
         if (avatarBase64 !== null) input.avatar_base64 = avatarBase64;
         await api.register(input);
         if (!active) return;
+        // 注册请求期间本地身份已被其它登录（本页浮层或其它标签页）替换时，
+        // 放弃自动登录，避免用注册凭证覆盖更新的会话
+        if (currentUserId(store.getState()) !== startedUserId) return;
         try {
           session = await api.login({ email, password });
         } catch {
@@ -362,9 +366,13 @@ export function mountAuthDialogs(
     }
     setBusy(passwordForm, true, '正在修改…');
     setStatus(passwordDialog, '正在修改密码…', 'info');
+    const submittingUserId = currentUserId(store.getState());
     void api.changePassword({ current_password: currentPassword, new_password: newPassword, new_password_confirmation: confirmation })
       .then(() => {
         if (!active) return;
+        // 请求期间本地身份已切换（其它账号本页/其它标签页登录）时，
+        // 这次改密属于原账号，不能清掉更新的会话，也不展示属于原账号的成功态
+        if (currentUserId(store.getState()) !== submittingUserId) return;
         // 后端修改成功即吊销该账号全部会话：无论浮层是否仍开着都要清掉本地残留状态。
         // 成功态展示期间 identity-changed 不关闭浮层（见 store 订阅），保证用户看到提示。
         passwordSuccessShown = openName === 'password';
@@ -500,6 +508,12 @@ export function mountAuthDialogs(
   };
 }
 
+// 当前已登录账号的用户 id；匿名（含加载中/错误态）返回 null。
+// 用于异步请求跨等待期比对身份，避免迟到回调覆盖或清掉更新的会话。
+function currentUserId(state: Readonly<AuthStoreState>): string | null {
+  return state.status === 'active' || state.status === 'pending' ? state.user.id : null;
+}
+
 function loginDialogMarkup(): string {
   return `<div class="login-scrim" data-login-scrim>
     <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogLoginTitle">
@@ -567,7 +581,7 @@ function successDialogMarkup(): string {
       <p class="success-email"><i class="ph ph-envelope-simple" aria-hidden="true"></i><span data-success-email>当前账号邮箱：</span></p>
       <p class="success-tip">验证邮件可能被归入垃圾邮件文件夹；请在邮箱中点击验证链接完成验证，验证完成后即可使用账号找回等功能。</p>
       <div class="success-actions">
-        <button type="button" class="login-dialog-submit" data-close-success>我已完成验证，返回首页</button>
+        <a class="login-dialog-submit" href="/">我已完成验证，返回首页</a>
         <button type="button" class="dialog-secondary" data-close-success>先逛逛，稍后再验证</button>
       </div>
     </section>
