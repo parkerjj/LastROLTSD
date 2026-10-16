@@ -980,15 +980,17 @@ function optionsChipsMarkup(item: ListingSearchResult): string {
 }
 
 function catalogItemIconUrl(itemId: number, name?: string): string {
-  // 数据库不区分道具类型，采用硬规则：名称以「卡片」结尾时统一使用 card.gif。
+  // 主列表图标由数据库下发（010_card/010_item 迁移后恒有值）；此硬规则仅服务无数据库数据的
+  // 静态目录兜底卡（items.json 只有名称）：RMS 没有按数字 ID 命名的卡片小图，
+  // 数据库迁移帮不了该路径，故沿用「名称以卡片结尾 → card.gif」。
   const file = String(name ?? "").endsWith("卡片") ? "card" : String(itemId);
   return rmsAssetUrl(`items/small/${encodeURIComponent(file)}.gif`);
 }
 
 function itemIconUrl(
-  item: Pick<ListingSearchResult, "itemId" | "itemName">,
+  item: Pick<ListingSearchResult, "itemId">,
 ): string {
-  return catalogItemIconUrl(item.itemId, item.itemName);
+  return catalogItemIconUrl(item.itemId);
 }
 
 function itemIconMarkup(item: ListingSearchResult): string {
