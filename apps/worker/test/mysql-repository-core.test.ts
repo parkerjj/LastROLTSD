@@ -312,6 +312,38 @@ describe('MySQL repository upload core', () => {
     expect(db.sql.join('\n')).not.toContain('LIMIT ?1');
   });
 
+  it('bounds item-wide sales to 30 newest records inside the existing 30-day window', async () => {
+    class ItemHistoryDatabase extends RecordingMysqlDatabase {
+      override async first<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T | null> {
+        if (sql.includes('SELECT item_id FROM listings')) {
+          this.sql.push(sql);
+          this.values.push(values);
+          return { item_id: 2000111 } as unknown as T;
+        }
+        return super.first<T>(sql, values);
+      }
+    }
+
+    const db = new ItemHistoryDatabase();
+    const windowStart = 1_700_000_000_000;
+    const windowEnd = windowStart + 30 * 24 * 60 * 60 * 1000;
+    const result = await createMysqlRepository(db).getItemMarketHistory!(2000111, windowStart, windowEnd);
+
+    expect(result).not.toBeNull();
+    expect(db.sql).toHaveLength(4);
+    const saleQueryIndex = db.sql.findIndex((sql) => sql.includes('listing_events.sold_quantity > 0'));
+    expect(saleQueryIndex).toBeGreaterThan(-1);
+    expect(db.sql[saleQueryIndex]).toContain('listing_events.observed_at >= ? AND listing_events.observed_at <= ?');
+    expect(db.sql[saleQueryIndex]).toContain('ORDER BY listing_events.observed_at DESC, listing_events.id DESC LIMIT 30');
+    expect(db.values[saleQueryIndex]).toEqual([2000111, windowStart, windowEnd]);
+
+    // Trend samples must still receive the full event history for the same 30-day window.
+    const eventQueryIndex = db.sql.findIndex((sql) => sql.includes('listing_events.to_quantity, listing_events.event_type'));
+    expect(eventQueryIndex).toBeGreaterThan(-1);
+    expect(db.sql[eventQueryIndex]).not.toContain('LIMIT 30');
+    expect(db.values[eventQueryIndex]).toEqual([2000111, windowStart, windowEnd]);
+  });
+
   it('returns null history for an unknown listing without using SQLite cursor syntax', async () => {
     const db = new RecordingMysqlDatabase();
     const result = await createMysqlRepository(db).getListingHistory(999, 50);
