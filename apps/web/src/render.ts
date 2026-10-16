@@ -341,8 +341,8 @@ function renderItemMarketHistory(
     </section>
     <div class="history-stat-strip" aria-label="市场概览"><span><strong>${history.currentListings.length}</strong> 间在售商店</span><span><strong>${activeUnits}</strong> 件当前库存</span><span><strong>${history.sales.length}</strong> 次售出记录</span></div>
     <section class="history-section">
-      <div class="history-section-heading"><div><p class="drawer-kicker">${trendKicker}</p><h3>价格与库存</h3></div><time>${eventRange}</time></div>
-      <p class="history-chart-explanation">红色色带为各商店的报价区间（最低 — 最高），红色中线是中位价；绿色阶梯线为市场总库存。图形按固定时间粒度汇总全部观察记录，悬停或聚焦后用方向键可查看每个时段的明细。</p>
+      <div class="history-section-heading"><div><p class="drawer-kicker">${trendKicker}</p><h3>价格走势</h3></div><time>${eventRange}</time></div>
+      <p class="history-chart-explanation">每个时段按在售商店的单件报价排序，剔除最高约 10% 的报价（至少保留一间商店），最低价不剔除。红色色带为剩余报价区间（最低 — 最高），红色中线为剩余报价的平均价。悬停或聚焦后使用方向键可查看各时段的统计。</p>
       ${renderHistoryTrend(history)}
     </section>
     <section class="history-section"><div class="history-section-heading"><div><p class="drawer-kicker">当前在售</p><h3>所有出售商店</h3></div><span>${history.currentListings.length} 条</span></div>${currentListings}</section>
@@ -364,22 +364,20 @@ const TREND_FRAME = { left: 52, top: 16, width: 314, height: 156 };
 type TrendSample = {
   time: number;
   min: number | null;
-  median: number | null;
+  average: number | null;
   max: number | null;
-  stock: number;
   shops: number;
-  known: boolean;
+  excluded: number;
 };
 
 type TrendPointView = {
   x: number;
   ym: number | null;
-  ys: number;
-  med: number | null;
+  avg: number | null;
   lo: number | null;
   hi: number | null;
-  stock: number;
   shops: number;
+  excluded: number;
   t: number;
 };
 
@@ -397,8 +395,8 @@ function renderHistoryTrend(history: ItemMarketHistory): string {
   const priced = samples.filter(
     (
       sample,
-    ): sample is TrendSample & { min: number; median: number; max: number } =>
-      sample.median !== null,
+    ): sample is TrendSample & { min: number; average: number; max: number } =>
+      sample.average !== null,
   );
   const frame = TREND_FRAME;
   const span = Math.max(1, chartEnd - chartStart);
@@ -414,14 +412,11 @@ function renderHistoryTrend(history: ItemMarketHistory): string {
     priceLo = Math.max(0, lo - padding);
     priceHi = hi + padding;
   }
-  const stockHi = Math.max(1, ...samples.map((sample) => sample.stock)) * 1.18;
   const yPrice = (value: number) =>
     frame.top + (1 - (value - priceLo) / (priceHi - priceLo)) * frame.height;
-  const yStock = (value: number) =>
-    frame.top + (1 - value / stockHi) * frame.height;
   const rounded = (value: number) => Math.round(value * 100) / 100;
 
-  // Horizontal grid rows with both-axis labels.
+  // Horizontal grid rows with only the price axis.
   const gridRows = [0, 0.25, 0.5, 0.75, 1]
     .map((fraction) => {
       const y = frame.top + (1 - fraction) * frame.height;
@@ -430,21 +425,20 @@ function renderHistoryTrend(history: ItemMarketHistory): string {
           ? `<line x1="${frame.left}" y1="${y}" x2="${frame.left + frame.width}" y2="${y}" class="history-chart-grid"/>`
           : "";
       const priceValue = priceLo + (priceHi - priceLo) * fraction;
-      const stockValue = stockHi * fraction;
-      return `${line}<text x="${frame.left - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="history-chart-tick">${formatAxisNumber(priceValue)} z</text><text x="${frame.left + frame.width + 6}" y="${y}" text-anchor="start" dominant-baseline="middle" class="history-chart-tick">${formatAxisNumber(stockValue)} 件</text>`;
+      return `${line}<text x="${frame.left - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" class="history-chart-tick">${formatAxisNumber(priceValue)} z</text>`;
     })
     .join("");
 
-  // Price band (min-max) and median line, split into contiguous runs.
+  // Price band (min-trimmed max) and upper-trimmed arithmetic mean, split into contiguous runs.
   let bands = "";
-  let medians = "";
+  let averages = "";
   for (let start = 0; start < samples.length; ) {
-    if (samples[start]!.median === null) {
+    if (samples[start]!.average === null) {
       start += 1;
       continue;
     }
     let end = start;
-    while (end < samples.length && samples[end]!.median !== null) end += 1;
+    while (end < samples.length && samples[end]!.average !== null) end += 1;
     const run = samples.slice(start, end);
     const upper = run
       .map(
@@ -461,36 +455,9 @@ function renderHistoryTrend(history: ItemMarketHistory): string {
       )
       .join("");
     bands += `<path d="M${rounded(xOf(run[0]!.time))} ${rounded(yPrice(run[0]!.max!))}${upper}${lower}Z" class="history-chart-band"/>`;
-    medians += `<path d="M${run.map((sample) => `${rounded(xOf(sample.time))} ${rounded(yPrice(sample.median!))}`).join(" L")}" class="history-chart-median"/>`;
+    averages += `<path d="M${run.map((sample) => `${rounded(xOf(sample.time))} ${rounded(yPrice(sample.average!))}`).join(" L")}" class="history-chart-mean"/>`;
     start = end;
   }
-
-  // Total stock: step-after line with faint area, starting when any listing is known.
-  const firstKnown = samples.findIndex((sample) => sample.known);
-  let stockArea = "";
-  let stockLine = "";
-  if (firstKnown !== -1) {
-    const run = samples.slice(firstKnown);
-    const x = (index: number) => rounded(xOf(run[index]!.time));
-    const y = (index: number) => rounded(yStock(run[index]!.stock));
-    let top = `M${x(0)} ${y(0)}`;
-    for (let index = 1; index < run.length; index += 1)
-      top += `H${x(index)}L${x(index)} ${y(index)}`;
-    stockLine = `<path d="${top}" class="history-chart-stock-line"/>`;
-    stockArea = `<path d="${top}L${x(run.length - 1)} ${frame.top + frame.height}H${x(0)}Z" class="history-chart-stock-area"/>`;
-  }
-
-  // Individual observations stay visible only for small datasets.
-  const rawDots =
-    events.length <= 20
-      ? events
-          .filter((event) => event.quantity > 0)
-          .map(
-            (event) =>
-              `<circle cx="${rounded(xOf(event.observedAt))}" cy="${rounded(yPrice(event.price))}" r="2.2" class="history-chart-rawpoint"><title>${formatTipDate(event.observedAt)} · ${event.price.toLocaleString("zh-CN")} z</title></circle>`,
-          )
-          .join("")
-      : "";
 
   // X 轴刻度按跨度动态选择（整点小时 / 自然日），跨日 0 点显示月日。
   const dateTicks = buildTimeTicks(chartStart, chartEnd)
@@ -503,30 +470,27 @@ function renderHistoryTrend(history: ItemMarketHistory): string {
 
   const points: TrendPointView[] = samples.map((sample) => ({
     x: rounded(xOf(sample.time)),
-    ym: sample.median === null ? null : rounded(yPrice(sample.median)),
-    ys: rounded(yStock(sample.stock)),
-    med: sample.median,
+    ym: sample.average === null ? null : rounded(yPrice(sample.average)),
+    avg: sample.average,
     lo: sample.min,
     hi: sample.max,
-    stock: sample.stock,
     shops: sample.shops,
+    excluded: sample.excluded,
     t: sample.time,
   }));
 
   const latest = priced.at(-1);
   const summary = latest
-    ? `最新中位价 ${latest.median.toLocaleString("zh-CN")} z，报价区间 ${latest.min.toLocaleString("zh-CN")} 至 ${latest.max.toLocaleString("zh-CN")} z，市场总库存 ${latest.stock.toLocaleString("zh-CN")} 件，${latest.shops} 间商店在售`
+    ? `最新平均价 ${latest.average.toLocaleString("zh-CN")} z，报价区间 ${latest.min.toLocaleString("zh-CN")} 至 ${latest.max.toLocaleString("zh-CN")} z，参与统计 ${latest.shops - latest.excluded} 间商店`
     : "窗口内暂无可报价的在售记录";
 
   return `<div class="history-chart" data-history-chart>
-    <div class="history-chart-legend"><span><i class="chart-key chart-key-median"></i>中位价</span><span><i class="chart-key chart-key-band"></i>价格区间</span><span><i class="chart-key chart-key-stock"></i>总库存</span></div>
-    <svg viewBox="0 0 ${TREND_VIEW.width} ${TREND_VIEW.height}" tabindex="0" role="img" aria-label="价格与库存走势（${describeTimeSpan(span)}）：${summary}" data-trend-svg data-trend="${encodeURIComponent(JSON.stringify(points))}">
-      <defs><linearGradient id="history-stock-fade" x1="0" y1="${frame.top}" x2="0" y2="${frame.top + frame.height}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1d332b" stop-opacity=".12"/><stop offset="1" stop-color="#1d332b" stop-opacity="0"/></linearGradient></defs>
+    <div class="history-chart-legend"><span><i class="chart-key chart-key-mean"></i>平均价</span><span><i class="chart-key chart-key-band"></i>价格区间（已排除高价）</span></div>
+    <svg viewBox="0 0 ${TREND_VIEW.width} ${TREND_VIEW.height}" tabindex="0" role="img" aria-label="价格走势（${describeTimeSpan(span)}）：${summary}" data-trend-svg data-trend="${encodeURIComponent(JSON.stringify(points))}">
       <rect x="${frame.left}" y="${frame.top}" width="${frame.width}" height="${frame.height}" class="history-chart-frame"/>
-      ${gridRows}${stockArea}${stockLine}${bands}${medians}${rawDots}${dateTicks}
+      ${gridRows}${bands}${averages}${dateTicks}
       <g class="history-chart-hover" data-hover visibility="hidden">
         <line data-hover-line x1="${frame.left}" y1="${frame.top}" x2="${frame.left}" y2="${frame.top + frame.height}" class="history-chart-cross"/>
-        <circle data-hover-stock cx="${frame.left}" cy="${frame.top + frame.height}" r="3.6" class="history-chart-hover-stock"/>
         <circle data-hover-price cx="${frame.left}" cy="${frame.top}" r="3.6" class="history-chart-hover-price"/>
       </g>
       <rect data-hover-overlay x="${frame.left}" y="${frame.top}" width="${frame.width}" height="${frame.height}" class="history-chart-overlay"/>
@@ -562,54 +526,30 @@ function buildTrendSamples(
       });
       cursor += 1;
     }
-    if (states.size === 0) {
-      samples.push({
-        time,
-        min: null,
-        median: null,
-        max: null,
-        stock: 0,
-        shops: 0,
-        known: false,
-      });
-      continue;
-    }
+    // One quote per active listing, not one per item unit.
     const prices: number[] = [];
-    let stock = 0;
-    let shops = 0;
     states.forEach((state) => {
-      if (!state.active) return;
-      stock += Math.max(0, state.quantity);
-      if (state.quantity > 0) {
+      if (state.active && state.quantity > 0 && Number.isFinite(state.price) && state.price > 0) {
         prices.push(state.price);
-        shops += 1;
       }
     });
     if (prices.length === 0) {
-      samples.push({
-        time,
-        min: null,
-        median: null,
-        max: null,
-        stock,
-        shops,
-        known: true,
-      });
+      samples.push({ time, min: null, average: null, max: null, shops: 0, excluded: 0 });
       continue;
     }
     prices.sort((a, b) => a - b);
-    const middle = prices.length / 2;
+    // Round up to remove a deliberate outlier even with fewer than 10 shops;
+    // never discard the sole available quote.
+    const excluded = prices.length === 1 ? 0 : Math.ceil(prices.length * 0.1);
+    const kept = prices.slice(0, prices.length - excluded);
+    const average = kept.reduce((sum, price) => sum + price, 0) / kept.length;
     samples.push({
       time,
-      min: prices[0]!,
-      median:
-        prices.length % 2 === 0
-          ? (prices[middle - 1]! + prices[middle]!) / 2
-          : prices[Math.floor(middle)]!,
-      max: prices.at(-1)!,
-      stock,
-      shops,
-      known: true,
+      min: kept[0]!,
+      average,
+      max: kept.at(-1)!,
+      shops: prices.length,
+      excluded,
     });
   }
   return samples;
@@ -630,10 +570,9 @@ function attachHistoryChart(drawer: HTMLElement): void {
   const hover = svg.querySelector<SVGGElement>("[data-hover]");
   const line = svg.querySelector<SVGLineElement>("[data-hover-line]");
   const priceDot = svg.querySelector<SVGCircleElement>("[data-hover-price]");
-  const stockDot = svg.querySelector<SVGCircleElement>("[data-hover-stock]");
   const overlay = svg.querySelector<SVGRectElement>("[data-hover-overlay]");
   const tip = root.querySelector<HTMLElement>("[data-tip]");
-  if (!hover || !line || !priceDot || !stockDot || !overlay || !tip) return;
+  if (!hover || !line || !priceDot || !overlay || !tip) return;
 
   let activeIndex = -1;
   const hide = (): void => {
@@ -646,8 +585,6 @@ function attachHistoryChart(drawer: HTMLElement): void {
     const point = points[index]!;
     line.setAttribute("x1", String(point.x));
     line.setAttribute("x2", String(point.x));
-    stockDot.setAttribute("cx", String(point.x));
-    stockDot.setAttribute("cy", String(point.ys));
     priceDot.setAttribute("cx", String(point.x));
     if (point.ym === null) priceDot.setAttribute("visibility", "hidden");
     else {
@@ -657,15 +594,15 @@ function attachHistoryChart(drawer: HTMLElement): void {
     hover.setAttribute("visibility", "visible");
 
     tip.innerHTML = `<p class="history-chart-tip-date">${formatTipDate(point.t)}</p>${
-      point.med === null
+      point.avg === null
         ? '<p class="history-chart-tip-row"><span>报价</span><b>该时段无在售</b></p>'
-        : `<p class="history-chart-tip-row"><span>中位价</span><b>${point.med.toLocaleString("zh-CN")} z</b></p><p class="history-chart-tip-row"><span>区间</span><b>${point.lo!.toLocaleString("zh-CN")} – ${point.hi!.toLocaleString("zh-CN")} z</b></p>`
-    }<p class="history-chart-tip-row"><span>库存</span><b>${point.stock.toLocaleString("zh-CN")} 件 · ${point.shops} 间</b></p>`;
+        : `<p class="history-chart-tip-row"><span>平均价</span><b>${Math.round(point.avg).toLocaleString("zh-CN")} z</b></p><p class="history-chart-tip-row"><span>区间</span><b>${point.lo!.toLocaleString("zh-CN")} – ${point.hi!.toLocaleString("zh-CN")} z</b></p>`
+    }<p class="history-chart-tip-row"><span>参与报价</span><b>${point.shops - point.excluded} 间（剔除 ${point.excluded} 间高价）</b></p>`;
 
     const svgRect = svg.getBoundingClientRect();
     const rootRect = root.getBoundingClientRect();
     tip.style.left = `${(point.x / TREND_VIEW.width) * svgRect.width + (svgRect.left - rootRect.left)}px`;
-    tip.style.top = `${((point.ym === null ? point.ys : point.ym) / TREND_VIEW.height) * svgRect.height + (svgRect.top - rootRect.top)}px`;
+    tip.style.top = `${((point.ym === null ? TREND_FRAME.top + TREND_FRAME.height / 2 : point.ym) / TREND_VIEW.height) * svgRect.height + (svgRect.top - rootRect.top)}px`;
     tip.classList.toggle("is-left", point.x > TREND_VIEW.width * 0.55);
     tip.classList.add("is-visible");
   };

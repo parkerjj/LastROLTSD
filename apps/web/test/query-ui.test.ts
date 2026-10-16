@@ -292,7 +292,7 @@ describe('query UI rendering', () => {
     } as any, listing({ itemId: 1001, itemName: '长发' }));
 
     expect(drawer.querySelector('.history-item-summary')?.textContent).toContain('长发');
-    expect(drawer.querySelector('.history-chart-explanation')?.textContent).toContain('中位价');
+    expect(drawer.querySelector('.history-chart-explanation')?.textContent).toContain('平均价');
     expect(drawer.querySelector('[data-history-chart]')).not.toBeNull();
     expect(drawer.querySelector('.current-listings')?.textContent).toContain('长发特卖');
     expect(drawer.textContent).toContain('售出记录');
@@ -300,6 +300,48 @@ describe('query UI rendering', () => {
     expect(drawer.querySelector('.drawer-inner.history-drawer-inner')).not.toBeNull();
     expect(drawer.querySelector('.drawer-head .drawer-close#close-history')).not.toBeNull();
     expect(drawer.querySelector('.drawer-close-footer')?.textContent).toContain('关闭');
+  });
+
+  it('discards the highest 10% of listing prices without removing cheap offers or displaying historical inventory', () => {
+    const drawPrices = (prices: number[]) => {
+      const dom = new JSDOM('<aside></aside>');
+      const drawer = dom.window.document.querySelector('aside') as HTMLElement;
+      renderHistory(drawer, {
+        itemId: 1001,
+        windowStart: 0,
+        windowEnd: 2000,
+        currentListings: [],
+        sales: [],
+        events: prices.map((price, index) => ({
+          listingId: index + 1, observedAt: 1000, price, quantity: 1, eventType: 'first_seen',
+        })),
+      });
+      const svg = drawer.querySelector<SVGSVGElement>('[data-trend-svg]')!;
+      const points = JSON.parse(decodeURIComponent(svg.dataset.trend!)) as Array<{
+        avg: number | null; lo: number | null; hi: number | null;
+        shops: number; excluded: number;
+      }>;
+      return { drawer, svg, latest: points.at(-1)! };
+    };
+
+    const outlier = drawPrices([1, ...Array(8).fill(40), 100_000_000]);
+    expect(outlier.latest).toMatchObject({ avg: 321 / 9, lo: 1, hi: 40, shops: 10, excluded: 1 });
+    expect(outlier.svg.getAttribute('aria-label')).toContain('最新平均价');
+    expect(outlier.svg.getAttribute('aria-label')).not.toContain('100,000,000');
+    expect(outlier.drawer.querySelector('.history-chart-legend')?.textContent).toContain('平均价');
+    expect(outlier.drawer.querySelector('.history-chart-legend')?.textContent).not.toContain('库存');
+    expect(outlier.drawer.querySelector('[data-hover-stock]')).toBeNull();
+    expect(outlier.drawer.querySelector('.history-chart-stock-line')).toBeNull();
+    expect(outlier.drawer.querySelectorAll('.history-chart-tick')).toHaveLength(5);
+
+    // Fewer than ten sellers can still contain a malicious high outlier.
+    expect(drawPrices([40, 100_000_000]).latest).toMatchObject({
+      avg: 40, lo: 40, hi: 40, shops: 2, excluded: 1,
+    });
+    // Never invent a price when just one seller exists.
+    expect(drawPrices([40]).latest).toMatchObject({
+      avg: 40, lo: 40, hi: 40, shops: 1, excluded: 0,
+    });
   });
 
   it('renders a friendly history error panel with item brief and retry action', () => {

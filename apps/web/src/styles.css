@@ -6577,7 +6577,7 @@ label {
   vertical-align: middle;
 }
 
-.chart-key-median {
+.chart-key-mean {
   background: var(--red-dark);
 }
 
@@ -6585,11 +6585,6 @@ label {
   height: 8px;
   background: rgba(184, 77, 63, .28);
   transform: translateY(-2px);
-}
-
-.chart-key-stock {
-  height: 2px;
-  background: var(--forest);
 }
 
 .history-chart svg {
@@ -6637,26 +6632,11 @@ label {
   fill-opacity: .1;
 }
 
-.history-chart-median {
+.history-chart-mean {
   fill: none;
   stroke: var(--red-dark);
   stroke-width: 2;
   stroke-linejoin: round;
-}
-
-.history-chart-stock-area {
-  fill: url(#history-stock-fade);
-}
-
-.history-chart-stock-line {
-  fill: none;
-  stroke: var(--forest);
-  stroke-width: 1.75;
-}
-
-.history-chart-rawpoint {
-  fill: var(--red-dark);
-  opacity: .75;
 }
 
 .history-chart-cross {
@@ -6668,12 +6648,6 @@ label {
 
 .history-chart-hover-price {
   fill: var(--red-dark);
-  stroke: #f0eadf;
-  stroke-width: 1.5;
-}
-
-.history-chart-hover-stock {
-  fill: var(--forest);
   stroke: #f0eadf;
   stroke-width: 1.5;
 }
