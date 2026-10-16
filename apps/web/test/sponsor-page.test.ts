@@ -25,7 +25,7 @@ describe('sponsor page', () => {
     );
   });
 
-  it('renders the cyber-begging hero, navigation entry and outbound reward link', () => {
+  it('renders the cyber-begging hero, the closed notice and disabled donation CTAs', () => {
     const root = mountInJsdom();
     expect(root.querySelector('h1')?.textContent).toBe('赛博化缘');
     // 导航中存在 /sponsor 入口且高亮当前页。
@@ -33,31 +33,24 @@ describe('sponsor page', () => {
     expect(navLink).not.toBeNull();
     expect(navLink?.getAttribute('aria-current')).toBe('page');
     expect(navLink?.querySelector('.ph-coffee')).not.toBeNull();
-    // 主推 Stripe 按钮指向 donate URL 且安全地在新标签打开。
-    const stripeCtas = [...root.querySelectorAll<HTMLAnchorElement>('a[href="https://donate.stripe.com/3cI3cxa8B4Q0fY8ejM1RC00"]')];
-    expect(stripeCtas.length).toBeGreaterThan(0);
-    for (const cta of stripeCtas) {
-      expect(cta.target).toBe('_blank');
-      expect(cta.rel).toContain('noopener');
-      // 「推荐」徽章存在。
-      expect(cta.querySelector('.recommend-badge')?.textContent).toContain('推荐');
+    // 捐款通道暂停公告：说明通道已关闭并感谢此前捐款的同学。
+    const banner = root.querySelector('.sponsor-closed-banner');
+    expect(banner).not.toBeNull();
+    const bannerText = banner?.textContent ?? '';
+    expect(bannerText).toContain('捐款通道暂时关闭');
+    expect(bannerText).toContain('感谢');
+    // 所有打赏入口都渲染为不可点击的禁用态。
+    const closedCtas = [...root.querySelectorAll<HTMLElement>('[data-sponsor-closed]')];
+    expect(closedCtas.length).toBeGreaterThanOrEqual(2);
+    for (const cta of closedCtas) {
+      expect(cta.getAttribute('aria-disabled')).toBe('true');
+      expect(cta.classList.contains('sponsor-cta-button--disabled')).toBe(true);
+      expect(cta.textContent).toContain('捐款通道暂时关闭');
     }
-    // 爱发电幽灵按钮也存在。
-    const afdianCtas = [...root.querySelectorAll<HTMLAnchorElement>('a[href="https://afdian.com/a/LTSD_RO"]')];
-    expect(afdianCtas.length).toBeGreaterThan(0);
-    for (const cta of afdianCtas) {
-      expect(cta.target).toBe('_blank');
-      expect(cta.rel).toContain('noopener');
-      expect(cta.classList.contains('sponsor-cta-ghost')).toBe(true);
-    }
-    // 卖点芯片有四枚：自定义金额 / 瞬间到账 / 支付宝 / 手续费最低。
-    const chips = [...root.querySelectorAll('.benefit-chip')];
-    expect(chips.length).toBeGreaterThanOrEqual(4);
-    const chipLabels = chips.map((c) => c.textContent?.trim() ?? '');
-    expect(chipLabels).toContain('自定义金额');
-    expect(chipLabels).toContain('瞬间到账');
-    expect(chipLabels).toContain('支付宝');
-    expect(chipLabels).toContain('手续费最低');
+    // 页面内不再存在任何跳转 Stripe / 爱发电的捐款按钮。
+    expect(root.querySelectorAll('a[href*="donate.stripe.com"]')).toHaveLength(0);
+    expect(root.querySelectorAll('a[href*="afdian.com"]')).toHaveLength(0);
+    expect(root.querySelector('[data-sponsor-stripe], [data-sponsor-cta]')).toBeNull();
     // 初始加载态。
     expect(root.querySelector('[data-sponsor-income]')?.textContent).toBe('—');
     expect(root.querySelector('.sponsor-honor-loading')).not.toBeNull();
@@ -131,7 +124,7 @@ describe('sponsor page', () => {
     expect(cards[1]!.querySelector('.honor-avatar--fallback')?.textContent).toBe('<');
   });
 
-  it('uses the configured public Stripe payment link for both CTAs', async () => {
+  it('keeps every donation CTA disabled even when the API exposes a Stripe link', async () => {
     const configured = 'https://donate.stripe.com/test-configured-donation';
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
@@ -148,9 +141,11 @@ describe('sponsor page', () => {
 
     const root = mountInJsdom();
     await vi.waitFor(() => expect(root.querySelector('[data-sponsor-income]')?.textContent).toBe('0.00'), { timeout: 1000 });
-    const ctas = [...root.querySelectorAll<HTMLAnchorElement>('[data-sponsor-stripe]')];
-    expect(ctas).toHaveLength(2);
-    expect(ctas.every((cta) => cta.href === configured)).toBe(true);
+    // 后端即使返回了可用的 Stripe 链接，通道关闭期间也不得渲染成可点击按钮。
+    expect(root.querySelectorAll(`a[href="${configured}"]`)).toHaveLength(0);
+    const closedCtas = [...root.querySelectorAll<HTMLElement>('[data-sponsor-closed]')];
+    expect(closedCtas.length).toBeGreaterThanOrEqual(2);
+    expect(closedCtas.every((cta) => cta.getAttribute('aria-disabled') === 'true')).toBe(true);
   });
 
   it('shows an empty honor roll message when nobody has sponsored yet', async () => {
