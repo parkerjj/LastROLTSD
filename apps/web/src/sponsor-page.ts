@@ -1,4 +1,3 @@
-import { AnalyticsEvent, track } from "./analytics";
 import { MarketApi } from "./api";
 import { mountSiteNav, siteNavMarkup } from "./nav";
 import type { SponsorHonorEntry, SponsorSummary } from "./types";
@@ -10,14 +9,9 @@ import type { SponsorHonorEntry, SponsorSummary } from "./types";
  * 数据由 Worker 用 secret 中的爱发电 token + Stripe Secret Key 服务端拉取
  * （见 routes/sponsors.ts），浏览器只访问自家 /api/v1/sponsors，永远接触不到机密。
  *
- * 主推 Stripe（金色实心按钮 + 「推荐」徽章 + 卖点芯片），次推爱发电（金色描边幽灵按钮）。
- * 光荣榜按累计金额排序，Stripe 与爱发电同台竞争榜首，每条带来源徽章。
+ * 当前状态：捐款通道暂时关闭。所有打赏入口（Stripe / 爱发电）均渲染为不可点击的
+ * 禁用态，并在页面顶部给出暂停公告，向此前积极捐款的同学致谢。光荣榜继续保留展示。
  */
-
-const AFDIAN_PAGE_URL = "https://afdian.com/a/LTSD_RO";
-const STRIPE_PAGE_URL = "https://donate.stripe.com/3cI3cxa8B4Q0fY8ejM1RC00";
-
-const STRIPE_BENEFITS = ["自定义金额", "瞬间到账", "支付宝", "手续费最低"] as const;
 
 export function mountSponsorPage(root: HTMLElement): void {
   document.title = "赛博化缘 · 露天商店.Ro";
@@ -47,21 +41,21 @@ export function mountSponsorPage(root: HTMLElement): void {
           <div class="fund-month" data-sponsor-month>本月（北京时间）</div>
           <div class="fund-amount"><span class="fund-currency">¥</span><strong data-sponsor-income>—</strong></div>
           <p class="fund-sub" data-sponsor-status>正在清点香火钱…</p>
-          <a class="sponsor-cta-button sponsor-cta-button--stripe" href="${STRIPE_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-stripe>
-            <span class="recommend-badge">推荐</span>
-            <i class="ph ph-credit-card" aria-hidden="true"></i>
-            <span>为爱发电</span>
-            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
-          </a>
-          <p class="sponsor-benefit-chips">${STRIPE_BENEFITS.map((label) => `<span class="benefit-chip">${label}</span>`).join("")}</p>
-          <p class="sponsor-benefit-note">手续费最低，让更多捐款直接用于站点运营</p>
-          <a class="sponsor-cta-button sponsor-cta-ghost" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
-            <i class="ph ph-wechat-logo" aria-hidden="true"></i>
-            <span>微信打赏</span>
-            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
-          </a>
+          <div class="sponsor-cta-button sponsor-cta-button--disabled" role="link" aria-disabled="true" data-sponsor-closed>
+            <i class="ph ph-prohibit" aria-hidden="true"></i>
+            <span>捐款通道暂时关闭</span>
+          </div>
+          <p class="sponsor-benefit-note">因技术型故障，暂时不接收新捐款。</p>
           <p class="fund-footnote" data-sponsor-updated>数据来自爱发电 + Stripe，每分钟自动更新</p>
         </aside>
+      </section>
+
+      <section class="sponsor-closed-banner" aria-label="捐款通道状态">
+        <span class="sponsor-closed-icon" aria-hidden="true"><i class="ph ph-hand-heart"></i></span>
+        <div class="sponsor-closed-copy">
+          <p class="sponsor-closed-title"><i class="ph ph-prohibit" aria-hidden="true"></i>捐款通道暂时关闭</p>
+          <p class="sponsor-closed-desc">衷心感谢每一位曾经为本站积极捐款的同学——正是你们一次次慷慨的支持，露天商店.Ro 才能安安稳稳地运转到今天。目前化缘通道已暂时关闭，恢复时间待定；已经收到的每一份心意，都会永远记在下面的光荣簿上。</p>
+        </div>
       </section>
 
       <section class="site-notice sponsor-notice" aria-label="化缘说明">
@@ -82,24 +76,16 @@ export function mountSponsorPage(root: HTMLElement): void {
         </div>
       </section>
 
-      <section class="sponsor-bottom-cta" aria-label="打赏入口">
+      <section class="sponsor-bottom-cta" aria-label="捐款通道状态">
         <div class="sponsor-bottom-copy">
-          <h2>随缘打赏，丰俭由人</h2>
-          <p>一元也是爱，一分也是情。功德无量，喵。</p>
+          <h2>谢谢曾经慷慨解囊的你</h2>
+          <p>捐款通道暂时关闭，但每一份支持都已被记在心上。再次感谢之前为本站积极捐款的同学。</p>
         </div>
         <div class="sponsor-bottom-actions">
-          <a class="sponsor-cta-button sponsor-cta-button--large sponsor-cta-button--stripe" href="${STRIPE_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-stripe>
-            <span class="recommend-badge">推荐</span>
-            <i class="ph ph-credit-card" aria-hidden="true"></i>
-            <span>为爱发电</span>
-            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
-          </a>
-          <a class="sponsor-cta-button sponsor-cta-button--large sponsor-cta-ghost" href="${AFDIAN_PAGE_URL}" target="_blank" rel="noopener noreferrer" data-sponsor-cta>
-            <i class="ph ph-wechat-logo" aria-hidden="true"></i>
-            <span>微信打赏</span>
-            <i class="ph ph-arrow-square-out" aria-hidden="true"></i>
-          </a>
-          <p class="sponsor-mini-chips">${STRIPE_BENEFITS.map((label) => `<span class="mini-chip">${label}</span>`).join("")}</p>
+          <div class="sponsor-cta-button sponsor-cta-button--large sponsor-cta-button--disabled" role="link" aria-disabled="true" data-sponsor-closed>
+            <i class="ph ph-prohibit" aria-hidden="true"></i>
+            <span>捐款通道暂时关闭</span>
+          </div>
         </div>
       </section>
     </main>
@@ -107,18 +93,6 @@ export function mountSponsorPage(root: HTMLElement): void {
   `;
 
   mountSiteNav(root);
-
-  root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-cta]").forEach((link) => {
-    link.addEventListener("click", () => {
-      track(AnalyticsEvent.SponsorOutbound);
-    });
-  });
-
-  root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-stripe]").forEach((link) => {
-    link.addEventListener("click", () => {
-      track(AnalyticsEvent.SponsorStripeOutbound);
-    });
-  });
 
   void refreshSponsorSummary(root);
 }
@@ -133,20 +107,6 @@ async function refreshSponsorSummary(root: HTMLElement): Promise<void> {
 
   try {
     const summary = await new MarketApi().getSponsorSummary();
-    // Keep both payment CTAs aligned with the server-side Stripe Payment Link.
-    // The fallback URL remains available for older API versions.
-    if (summary.stripeDonateUrl) {
-      try {
-        const stripeUrl = new URL(summary.stripeDonateUrl);
-        if (stripeUrl.protocol === "https:") {
-          root.querySelectorAll<HTMLAnchorElement>("[data-sponsor-stripe]").forEach((link) => {
-            link.href = stripeUrl.href;
-          });
-        }
-      } catch {
-        // Ignore malformed public configuration rather than rendering a bad URL.
-      }
-    }
     renderFundCard(summary, incomeEl, monthEl, statusEl, updatedEl);
     renderHonorRoll(honorEl, summary.supporters);
   } catch {

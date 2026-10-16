@@ -8196,65 +8196,76 @@ a.sponsor-honor-card:hover {
   }
 }
 
-/* ─── 赛博化缘 Stripe + 爱发电双渠道按钮/芯片/光荣榜来源徽章 ─── */
+/* ─── 赛博化缘捐款通道（当前：暂停关闭）─── */
 
-/* 主推 Stripe 按钮复用 .sponsor-cta-button 金色渐变实心样式，仅加 position 容纳「推荐」徽章 */
-.sponsor-cta-button--stripe {
-  position: relative;
+/* 暂停公告横幅：浅米色纸面 + 左侧陶土红竖条 */
+.sponsor-closed-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin-top: 34px;
+  padding: 22px 26px;
+  background: #fbf3e3;
+  border: 1px solid #e6cf9e;
+  border-left: 4px solid var(--red);
+  border-radius: 4px;
 }
 
-/* 「推荐」红色徽章：右上角浮于按钮边沿 */
-.recommend-badge {
-  position: absolute;
-  top: -7px;
-  right: 10px;
-  padding: 2px 7px;
-  background: var(--red);
-  color: #fff8ee;
-  border-radius: 999px;
-  font-size: 10px;
+.sponsor-closed-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  color: var(--red);
+  background: #f4e2c5;
+  border-radius: 50%;
+  font-size: 1.6rem;
+}
+
+.sponsor-closed-copy {
+  min-width: 0;
+}
+
+.sponsor-closed-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--red-dark);
+  font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: .04em;
-  line-height: 1.4;
-  pointer-events: none;
 }
 
-/* 爱发电金色描边幽灵按钮（次推）：与 Stripe 实心按钮同高同形，描边加粗保证深绿卡片上清晰可辨 */
-.sponsor-cta-ghost {
-  background: transparent;
-  border: 1.5px solid var(--gold);
-  color: var(--gold);
+.sponsor-closed-title .ph {
+  font-size: 1.1rem;
+}
+
+.sponsor-closed-desc {
+  margin: 0;
+  color: #46574c;
+  font-size: .87rem;
+  line-height: 1.85;
+}
+
+/* 捐款按钮禁用态：保留按钮外形但不可点击，虚线灰边框弱化暗示通道关闭 */
+.sponsor-cta-button--disabled {
+  cursor: not-allowed;
+  color: #857c6b;
+  background: #ece7da;
+  border: 1px dashed #c9bfa6;
   box-shadow: none;
 }
 
-.sponsor-cta-ghost:hover {
-  background: rgba(198, 148, 69, .12);
-  border-color: #d6a454;
-  color: #d6a454;
+.sponsor-cta-button--disabled:hover {
   filter: none;
   box-shadow: none;
   transform: none;
 }
 
-/* 卖点芯片（资金卡内） */
-.sponsor-benefit-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin: 0;
-  padding: 0;
-}
-
-.benefit-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 8px;
-  background: rgba(198, 148, 69, .14);
-  border: 1px solid rgba(198, 148, 69, .28);
-  border-radius: 999px;
-  font-size: 11px;
-  color: #d4c89e;
-  white-space: nowrap;
+.sponsor-cta-button--disabled .ph {
+  color: #9a8f79;
 }
 
 .sponsor-benefit-note {
@@ -8287,7 +8298,7 @@ a.sponsor-honor-card:hover {
   color: var(--gold-dark);
 }
 
-/* 底部 CTA 双按钮布局 */
+/* 底部 CTA 布局（当前仅剩禁用的捐款按钮） */
 .sponsor-bottom-copy {
   flex: 1 1 auto;
   min-width: 0;
@@ -8301,36 +8312,10 @@ a.sponsor-honor-card:hover {
   flex: 0 0 auto;
 }
 
-.sponsor-mini-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 4px 0 0;
-  justify-content: flex-end;
-}
-
-.mini-chip {
-  position: relative;
-  padding: 0 4px;
-  color: #8a9189;
-  font-size: 11px;
-}
-
-.mini-chip:not(:last-child)::after {
-  content: "·";
-  position: absolute;
-  right: -3px;
-  color: #6d776f;
-}
-
 @media (max-width: 760px) {
   .sponsor-bottom-actions {
     align-items: stretch;
     width: 100%;
-  }
-
-  .sponsor-mini-chips {
-    justify-content: flex-start;
   }
 }
 
