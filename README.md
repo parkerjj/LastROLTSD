@@ -30,7 +30,7 @@ pnpm exec wrangler dev --local
 - `GET /api/v1/market/listings/:id/history` — bounded price/quantity history
 - `GET /api/v1/options` — static option dictionary
 - `GET /api/health` — Worker and MySQL health
-- `/account`, `/register`, `/login` — player account pages; authentication is disabled by default
+- `/account` — player account page; sign-in and registration open as dialogs from the site navigation; authentication is disabled by default
 - `/api/v1/auth/*`, `/api/v1/account/*` — player account API; authentication is disabled by default
 
 See [deployment](docs/deployment.md), [MySQL migration](docs/mysql-migration.md), [operations](docs/operations.md), and the [API contract](docs/api.md).
@@ -71,7 +71,7 @@ pnpm exec wrangler dev --local
 - `GET /api/v1/market/listings/:id/history` — 有上限的价格/数量历史
 - `GET /api/v1/options` — 静态词条字典
 - `GET /api/health` — Worker 与 MySQL 健康检查
-- `/account`、`/register`、`/login` — 玩家账号页面；认证默认关闭
+- `/account` — 玩家账号页面；登录与注册改为站点导航内的浮层入口；认证默认关闭
 - `/api/v1/auth/*`、`/api/v1/account/*` — 玩家账号接口；认证默认关闭
 
 详见[部署文档](docs/deployment.md)、[MySQL 迁移](docs/mysql-migration.md)、[运维手册](docs/operations.md)与 [API 契约](docs/api.md)。
