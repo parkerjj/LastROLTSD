@@ -28,6 +28,9 @@ import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
+import { createSessionService } from './auth/session-service';
+import { assertCsrf } from './auth/csrf';
+import type { GuestbookAuthServices } from './routes/guestbook';
 import { runAuthJobTick } from './auth/jobs';
 
 export type WorkerBindings = AppEnv;
@@ -66,6 +69,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
       getItemIds: async () => loadCatalogItemIds(env.ASSETS),
       cursorSecret: env.CURSOR_SECRET ?? '',
       rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
+      auth: guestbookAuthServices(database, env),
     });
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
@@ -173,6 +177,25 @@ export async function fetchUpload(request: Request, env: AppEnv, database: Mysql
 
 const itemIdsCache = new WeakMap<object, Promise<ReadonlySet<number>>>();
 let catalogItemIdsFallback: Promise<ReadonlySet<number>> | undefined;
+
+/** 留言板写操作需要登录：复用账号系统会话服务；账号服务未配置时写接口降级为 503 */
+function guestbookAuthServices(database: MysqlDatabase, env: AppEnv): GuestbookAuthServices | null {
+  try {
+    const config = resolveAuthConfig(env);
+    if (!config.enabled) return null;
+    const repository = createAuthRepository(database, {
+      mailDailyLimit: config.mailDailyLimit,
+      mailMonthlyLimit: config.mailMonthlyLimit,
+    });
+    const sessions = createSessionService(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
+    return {
+      authenticate: (request) => sessions.authenticate(request),
+      assertSession: (request, identity) => assertCsrf(request, config, 'session', identity),
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function loadCatalogItemIds(assets: AppEnv['ASSETS']): Promise<ReadonlySet<number>> {
   if (!assets || typeof assets !== 'object') {

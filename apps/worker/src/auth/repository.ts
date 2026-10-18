@@ -784,8 +784,9 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
     async markEmailVerified(userId, now) {
       beginAuthWrite(userId);
       const at = timestampValue(now, 'now');
+      // 邮箱验证通过即成为正式用户：仅将 admin=0（萌新）升为 1，不覆盖赞助(2)/管理员(100)
       const result = await db.run(`UPDATE auth_users
-        SET email_verified_at = ?, status = 'ACTIVE', updated_at = ?
+        SET email_verified_at = ?, status = 'ACTIVE', admin = IF(admin = 0, 1, admin), updated_at = ?
         WHERE id = ? AND status = 'PENDING_EMAIL' AND email_verified_at IS NULL`, [
         at, at, userId,
       ]);

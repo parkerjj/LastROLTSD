@@ -131,6 +131,22 @@ export interface MarketStatus {
 }
 
 export type GuestbookCategory = 'buy' | 'sell' | 'suggestion';
+export interface GuestbookAuthor {
+  userId: string;
+  displayName: string;
+  hasAvatar: boolean;
+  avatarVersion: number;
+  avatarUrl: string;
+  admin: number;
+}
+export interface GuestbookReply {
+  id: number;
+  entryId: number;
+  content: string;
+  createdAt: number;
+  editedAt: number | null;
+  author: GuestbookAuthor;
+}
 export interface GuestbookEntry {
   id: number;
   category: GuestbookCategory;
@@ -141,6 +157,9 @@ export interface GuestbookEntry {
   createdAt: number;
   expiresAt: number | null;
   isExpired: boolean;
+  editedAt: number | null;
+  author: GuestbookAuthor | null;
+  replies: GuestbookReply[];
 }
 export interface GuestbookFilters {
   category?: GuestbookCategory;
@@ -153,7 +172,6 @@ export interface GuestbookSubmissionInput {
   category: GuestbookCategory;
   itemId?: number;
   isZeny?: boolean;
-  contact?: string;
   content: string;
   duration?: '1d' | '3d' | '7d' | 'permanent';
 }

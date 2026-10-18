@@ -64,7 +64,8 @@ export class MarketApi implements MarketApiClient {
   async searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage> {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value));
-    return this.request(`/api/v1/guestbook?${params.toString()}`, signal);
+    // 列表 GET 带 max-age=15 边缘/浏览器缓存；固定 no-cache 重新验证，保证发布/编辑/回复后的刷新立即可见
+    return this.request(`/api/v1/guestbook?${params.toString()}`, signal, 'no-cache');
   }
 
   async createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }> {
@@ -91,8 +92,8 @@ export class MarketApi implements MarketApiClient {
     return this.request('/api/v1/sponsors', signal);
   }
 
-  private async request<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const response = await fetch(path, signal ? { signal } : {});
+  private async request<T>(path: string, signal?: AbortSignal, cache?: RequestCache): Promise<T> {
+    const response = await fetch(path, { ...(signal ? { signal } : {}), ...(cache ? { cache } : {}) });
     return this.readResponse(response);
   }
 

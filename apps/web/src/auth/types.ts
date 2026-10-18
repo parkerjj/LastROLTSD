@@ -11,6 +11,8 @@ export interface AccountProfile {
   has_avatar: boolean;
   avatar_version: number;
   avatar_url: string;
+  /** 赞助标记：后端尚未提供，前端先行预留，缺省按未赞助处理 */
+  sponsored?: boolean;
 }
 
 export interface MailAvailability {

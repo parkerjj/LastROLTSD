@@ -3,7 +3,7 @@ import type { GuestbookCategory, GuestbookFilters } from '../db/guestbook-reposi
 
 export const GUESTBOOK_MAX_BODY_BYTES = 16 * 1024;
 export const GUESTBOOK_MAX_CONTENT_LENGTH = 2_000;
-export const GUESTBOOK_MAX_CONTACT_LENGTH = 120;
+export const GUESTBOOK_MAX_REPLY_LENGTH = 1_000;
 export const GUESTBOOK_MAX_QUERY_LENGTH = 80;
 export const GUESTBOOK_DEFAULT_LIMIT = 20;
 export const GUESTBOOK_MAX_LIMIT = 50;
@@ -23,7 +23,6 @@ export interface GuestbookSubmissionInput {
   category: GuestbookCategory;
   itemId: number | null;
   isZeny: boolean;
-  contact: string | null;
   content: string;
   expiresAt: number | null;
 }
@@ -35,21 +34,27 @@ function normalizeText(value: unknown, field: string, maximum: number): string {
   return normalized;
 }
 
+function rejectContact(raw: Record<string, unknown>): void {
+  if (raw.contact !== undefined && raw.contact !== null && raw.contact !== '') {
+    throw new GuestbookValidationError('contact is no longer accepted; signed-in users are shown automatically', 'contact');
+  }
+}
+
 export function parseGuestbookSubmission(value: unknown, validItemIds?: ReadonlySet<number>, now = Date.now()): GuestbookSubmissionInput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GuestbookValidationError('Request body must be an object');
   const raw = value as Record<string, unknown>;
   if (typeof raw.category !== 'string' || !CATEGORIES.has(raw.category as GuestbookCategory)) throw new GuestbookValidationError('category is invalid', 'category');
   const category = raw.category as GuestbookCategory;
   const content = normalizeText(raw.content, 'content', GUESTBOOK_MAX_CONTENT_LENGTH);
+  rejectContact(raw);
 
   if (category === 'suggestion') {
-    if (['itemId', 'item_id', 'isZeny', 'is_zeny', 'contact', 'duration'].some((key) => raw[key] !== undefined && raw[key] !== null && raw[key] !== false && raw[key] !== '')) {
+    if (['itemId', 'item_id', 'isZeny', 'is_zeny', 'duration'].some((key) => raw[key] !== undefined && raw[key] !== null && raw[key] !== false && raw[key] !== '')) {
       throw new GuestbookValidationError('suggestion cannot include trade fields', 'category');
     }
-    return { category, itemId: null, isZeny: false, contact: null, content, expiresAt: null };
+    return { category, itemId: null, isZeny: false, content, expiresAt: null };
   }
 
-  const contact = normalizeText(raw.contact, 'contact', GUESTBOOK_MAX_CONTACT_LENGTH);
   if (typeof raw.duration !== 'string' || !DURATIONS.has(raw.duration)) throw new GuestbookValidationError('duration must be 1d, 3d, 7d or permanent', 'duration');
   if (typeof raw.isZeny !== 'boolean') throw new GuestbookValidationError('isZeny must be boolean', 'isZeny');
   let itemId: number | null = null;
@@ -61,7 +66,26 @@ export function parseGuestbookSubmission(value: unknown, validItemIds?: Readonly
     itemId = raw.itemId;
   }
   const days = raw.duration === '1d' ? 1 : raw.duration === '3d' ? 3 : raw.duration === '7d' ? 7 : null;
-  return { category, itemId, isZeny: raw.isZeny, contact, content, expiresAt: days === null ? null : now + days * 24 * 60 * 60 * 1000 };
+  return { category, itemId, isZeny: raw.isZeny, content, expiresAt: days === null ? null : now + days * 24 * 60 * 60 * 1000 };
+}
+
+export function parseGuestbookContentEdit(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GuestbookValidationError('Request body must be an object');
+  const raw = value as Record<string, unknown>;
+  return normalizeText(raw.content, 'content', GUESTBOOK_MAX_CONTENT_LENGTH);
+}
+
+export function parseGuestbookReplySubmission(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GuestbookValidationError('Request body must be an object');
+  const raw = value as Record<string, unknown>;
+  return normalizeText(raw.content, 'content', GUESTBOOK_MAX_REPLY_LENGTH);
+}
+
+export function parseGuestbookIdParam(value: string, field: string): number {
+  if (!/^\d+$/u.test(value)) throw new GuestbookValidationError(`${field} is invalid`, field);
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new GuestbookValidationError(`${field} is invalid`, field);
+  return id;
 }
 
 export function parseGuestbookFilters(params: URLSearchParams): Omit<GuestbookFilters, 'context'> {

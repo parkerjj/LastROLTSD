@@ -52,10 +52,6 @@ function mount(path: string, store: AuthStore = authStore) {
   return { ...page, dispose };
 }
 
-function submit(dom: JSDOM, form: HTMLFormElement): void {
-  form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
-}
-
 function installAvatarCanvas(dom: JSDOM) {
   const drawImage = vi.fn();
   const context = { clearRect: vi.fn(), drawImage } as unknown as CanvasRenderingContext2D;
@@ -105,16 +101,33 @@ describe('auth pages', () => {
     expect(isAuthPage('/accounts')).toBe(false);
   });
 
-  it('offers independent avatar save and delete actions on the account page', () => {
+  it('offers the compact avatar editor with only a save action on the account page', () => {
     authStore.setSession(session());
     const { root, dispose } = mount('/account');
     try {
-      expect(root.querySelector<HTMLElement>('#account-avatar-editor')).not.toBeNull();
+      expect(root.querySelector<HTMLElement>('#account-avatar-editor .auth-avatar-editor.compact')).not.toBeNull();
       expect(root.querySelector<HTMLButtonElement>('#account-avatar-save')).not.toBeNull();
-      expect(root.querySelector<HTMLButtonElement>('#account-avatar-delete')).not.toBeNull();
+      expect(root.querySelector<HTMLButtonElement>('#account-avatar-delete')).toBeNull();
     } finally {
       dispose();
     }
+  });
+
+  it('shows the account tier below the email status row', () => {
+    const tierOf = (value: AuthSessionResponse): string => {
+      authStore.setSession(value);
+      const { root, dispose } = mount('/account');
+      try {
+        return root.querySelector<HTMLElement>('#account-tier')?.textContent ?? '';
+      } finally {
+        dispose();
+      }
+    };
+    expect(tierOf(session('PENDING_EMAIL'))).toBe('萌新用户');
+    expect(tierOf(session('ACTIVE'))).toBe('正式用户');
+    const sponsored = session('ACTIVE');
+    sponsored.user.sponsored = true;
+    expect(tierOf(sponsored)).toBe('赞助用户');
   });
 
   it('keeps the old account avatar and editable preview after an upload failure', async () => {
@@ -123,9 +136,6 @@ describe('auth pages', () => {
     const { dom, root, dispose } = mount('/account');
     installAvatarCanvas(dom);
     try {
-      const name = root.querySelector<HTMLInputElement>('#auth-display-name')!;
-      name.value = '还没保存的昵称';
-      name.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
       const file = root.querySelector<HTMLInputElement>('#account-avatar-editor input[type="file"]')!;
       selectAvatarFile(dom, file);
       await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('#account-avatar-save')?.disabled).toBe(false));
@@ -138,10 +148,8 @@ describe('auth pages', () => {
       expect(root.querySelector<HTMLCanvasElement>('#account-avatar-editor canvas')?.hidden).toBe(false);
       expect(file.disabled).toBe(false);
       expect(file.files?.[0]?.name).toBe('new.png');
-      expect(name.value).toBe('还没保存的昵称');
       expect(root.querySelector<HTMLElement>('#account-avatar-placeholder')?.textContent).toBe('旧');
       expect(root.querySelector<HTMLImageElement>('#account-avatar-image')?.hidden).toBe(true);
-      expect(root.querySelector<HTMLFormElement>('#profile-form [data-auth-status]')?.textContent).toBe('');
     } finally {
       dispose();
     }
@@ -217,7 +225,6 @@ describe('auth pages', () => {
     current.user.avatar_url = '/api/v1/users/10000/avatar?v=4';
     authStore.setSession(current);
     const save = vi.spyOn(authApi, 'setAvatar');
-    const remove = vi.spyOn(authApi, 'deleteAvatar');
     const { dom, root, dispose } = mount('/account');
     installAvatarCanvas(dom);
     try {
@@ -229,41 +236,8 @@ describe('auth pages', () => {
       expect(root.querySelector<HTMLCanvasElement>('#account-avatar-editor canvas')?.hidden).toBe(true);
       expect(root.querySelector<HTMLButtonElement>('#account-avatar-save')?.disabled).toBe(true);
       expect(root.querySelector<HTMLImageElement>('#account-avatar-image')?.getAttribute('src')).toBe(current.user.avatar_url);
-      expect(root.querySelector<HTMLButtonElement>('#account-avatar-delete')?.hidden).toBe(false);
       root.querySelector<HTMLButtonElement>('#account-avatar-save')!.click();
       expect(save).not.toHaveBeenCalled();
-      expect(remove).not.toHaveBeenCalled();
-    } finally {
-      dispose();
-    }
-  });
-
-  it('requires a small confirmation before deleting the stored avatar', async () => {
-    const current = session();
-    current.user.has_avatar = true;
-    current.user.avatar_version = 4;
-    current.user.avatar_url = '/api/v1/users/10000/avatar?v=4';
-    authStore.setSession(current);
-    const deletedUser = { ...current.user, has_avatar: false, avatar_version: 5, avatar_url: '/api/v1/users/10000/avatar?v=5' };
-    const remove = vi.spyOn(authApi, 'deleteAvatar').mockResolvedValue({ user: deletedUser });
-    vi.spyOn(authStore, 'reconcile').mockResolvedValue();
-    const { root, dispose } = mount('/account');
-    try {
-      const removeButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete')!;
-      const confirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation')!;
-      removeButton.click();
-      expect(confirmation.hidden).toBe(false);
-      root.querySelector<HTMLButtonElement>('#account-avatar-delete-cancel')!.click();
-      expect(confirmation.hidden).toBe(true);
-      expect(remove).not.toHaveBeenCalled();
-
-      removeButton.click();
-      root.querySelector<HTMLButtonElement>('#account-avatar-delete-confirm')!.click();
-      await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
-      await vi.waitFor(() => expect(root.querySelector<HTMLElement>('#account-avatar-status')?.textContent).toBe('头像已删除。'));
-      expect(confirmation.hidden).toBe(true);
-      expect(root.querySelector<HTMLImageElement>('#account-avatar-image')?.hidden).toBe(true);
-      expect(root.querySelector<HTMLElement>('#account-avatar-placeholder')?.hidden).toBe(false);
     } finally {
       dispose();
     }
@@ -291,7 +265,7 @@ describe('auth pages', () => {
       authStore.setSession(next);
       expect(root.querySelector<HTMLInputElement>('#account-avatar-editor input[type="file"]')?.files?.length ?? 0).toBe(0);
       expect(root.querySelector<HTMLCanvasElement>('#account-avatar-editor canvas')?.hidden).toBe(true);
-      expect(root.querySelector<HTMLInputElement>('#auth-display-name')?.value).toBe('B号');
+      expect(root.querySelector<HTMLElement>('#account-display-name')?.textContent).toBe('B号');
 
       finishSave({ user: { ...session().user, avatar_version: 1, has_avatar: true, avatar_url: '/api/v1/users/10000/avatar?v=1' } });
       await Promise.resolve();
@@ -304,20 +278,51 @@ describe('auth pages', () => {
     }
   });
 
-  it('lets a pending user update their profile and hides the password change entry', async () => {
+  it('shows the nickname row with an edit entry for pending users and hides the password change entry', () => {
     authStore.setSession(session());
-    const update = vi.spyOn(authApi, 'updateProfile').mockResolvedValue({ user: { ...session().user, display_name: '新昵称' } });
-    const reconcile = vi.spyOn(authStore, 'reconcile').mockResolvedValue();
-    const { dom, root, dispose } = mount('/account');
+    const { root, dispose } = mount('/account');
     try {
-      expect(root.querySelector<HTMLFormElement>('#profile-form')).not.toBeNull();
-      expect(root.textContent).toContain('待验证');
+      expect(root.querySelector('#profile-form')).toBeNull();
+      expect(root.querySelector<HTMLElement>('.auth-profile-name-row')).not.toBeNull();
+      expect(root.querySelector<HTMLElement>('#account-display-name')?.textContent).toBe('旧昵称');
+      expect(root.querySelector<HTMLButtonElement>('[data-open-name]')?.textContent).toBe('修改昵称');
+      expect(root.querySelector<HTMLElement>('#account-verified')?.textContent).toBe('未验证');
+      expect(root.querySelector('#account-verified .auth-email-status-note')).toBeNull();
+      expect(root.querySelector('#account-mail-availability')).toBeNull();
+      expect(root.querySelector('#account-status-label')).toBeNull();
       expect(root.querySelector<HTMLElement>('#account-password-link')?.hidden).toBe(true);
-      const name = root.querySelector<HTMLInputElement>('#auth-display-name')!;
-      name.value = '新昵称';
-      submit(dom, root.querySelector<HTMLFormElement>('#profile-form')!);
-      await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ display_name: '新昵称' }));
-      await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    } finally {
+      dispose();
+    }
+  });
+
+  it('shows only the verified status without a timestamp or empty notice for active sessions', () => {
+    authStore.setSession(session('ACTIVE'));
+    const { root, dispose } = mount('/account');
+    try {
+      const status = root.querySelector<HTMLElement>('#account-verified')!;
+      expect(status.textContent).toBe('已验证');
+      expect(status.textContent).not.toContain('2026');
+      expect(status.querySelector('.auth-email-status-note')).toBeNull();
+      expect(root.querySelector('#account-mail-availability')).toBeNull();
+      expect(root.querySelector('#account-status-label')).toBeNull();
+      expect(root.querySelector<HTMLElement>('#account-pending-message')?.hidden).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('appends the mail quota note after the unverified status when the daily quota is exhausted', () => {
+    const pending = session('PENDING_EMAIL');
+    pending.mail_availability = { code: 'MAIL_DAILY_QUOTA', retry_at: null };
+    authStore.setSession(pending);
+    const { root, dispose } = mount('/account');
+    try {
+      const status = root.querySelector<HTMLElement>('#account-verified')!;
+      expect(status.querySelector('span')?.textContent).toBe('未验证');
+      const note = status.querySelector<HTMLElement>('.auth-email-status-note');
+      expect(note).not.toBeNull();
+      expect(note?.textContent).toContain('已达到上限');
     } finally {
       dispose();
     }

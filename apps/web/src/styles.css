@@ -152,10 +152,10 @@ a:focus-visible {
   gap: 28px;
 }
 
-/* 普通头部去掉 brand 与标签组之间的固定 gap：配合 .site-nav 的左右 auto
+/* 头部去掉 brand 与标签组之间的固定 gap：配合 .site-nav 的左右 auto
    外边距平分剩余空间，标签组左右留白严格等比；窄视口下 auto 先压缩再溢出，
-   比"固定 gap + 右内边距补偿"节省 28px 横向预算。认证页有独立 gap，不受影响 */
-.site-header:not(.auth-page-header) .topbar {
+   比"固定 gap + 右内边距补偿"节省 28px 横向预算。 */
+.site-header .topbar {
   gap: 0;
 }
 
@@ -476,7 +476,8 @@ body.auth-dialog-open { overflow: hidden; }
 .register-scrim,
 .success-scrim,
 .forgot-scrim,
-.password-scrim {
+.password-scrim,
+.name-scrim {
   position: fixed;
   z-index: 60; /* 高于 .site-header 的 30，保证浮层压住顶栏 */
   inset: 0;
@@ -494,6 +495,7 @@ body.register-open .register-scrim { opacity: 1; visibility: visible; }
 body.success-open .success-scrim { opacity: 1; visibility: visible; }
 body.forgot-open .forgot-scrim { opacity: 1; visibility: visible; }
 body.password-open .password-scrim { opacity: 1; visibility: visible; }
+body.name-open .name-scrim { opacity: 1; visibility: visible; }
 .login-dialog {
   position: relative;
   width: min(392px, 100%);
@@ -538,7 +540,8 @@ body.password-open .login-dialog { transform: none; }
 .login-dialog-sub { margin: -5px 0 3px; color: var(--muted); font-size: .76rem; line-height: 1.7; }
 #dialog-login-form,
 #dialog-forgot-form,
-#dialog-password-form { display: grid; gap: 13px; }
+#dialog-password-form,
+#dialog-name-form { display: grid; gap: 13px; }
 .login-fields {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1439,6 +1442,7 @@ label {
   color: #425148;
   background: #eee7da;
   border: 1px solid #c9bca7;
+  border-radius: 8px;
   font-size: .82rem;
   font-weight: 800;
   transition: background .15s ease, border-color .15s ease, color .15s ease;
@@ -1466,7 +1470,7 @@ label {
 
 .guestbook-trade-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(190px, .8fr) minmax(150px, .6fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr) minmax(190px, .9fr);
   gap: 15px;
   align-items: start;
 }
@@ -1892,6 +1896,435 @@ label {
   letter-spacing: .08em;
   transform: rotate(-6deg);
 }
+
+/* ---- 登录引导卡片 ---- */
+.guestbook-login-gate {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  background: #faf5ea;
+  border: 1px dashed #cbb896;
+  border-radius: 6px;
+}
+
+.guestbook-login-gate>i {
+  flex: 0 0 auto;
+  color: #a0855b;
+  font-size: 1.7rem;
+}
+
+.guestbook-login-gate p {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.guestbook-login-gate strong {
+  color: var(--forest);
+  font-size: .92rem;
+}
+
+.guestbook-login-gate span {
+  color: #6e7a71;
+  font-size: .76rem;
+  line-height: 1.55;
+}
+
+.guestbook-login-gate button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
+/* ---- 已选道具预览卡（占原联系方式位）---- */
+.guestbook-preview-cell {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.guestbook-preview-label {
+  color: #43524a;
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.guestbook-item-preview {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 4px 11px;
+  background: #fffdf8;
+  border: 1px solid var(--line-light);
+  border-radius: 4px;
+}
+
+.guestbook-item-preview.is-empty {
+  justify-content: center;
+  color: #9aa39b;
+  font-size: .72rem;
+  border-style: dashed;
+}
+
+.guestbook-item-preview-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: default;
+}
+
+.guestbook-item-preview-card .guestbook-item-thumb {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+.guestbook-item-preview-card .guestbook-item-thumb img {
+  width: 24px;
+  height: 24px;
+}
+
+.guestbook-item-preview-card .guestbook-zeny-glyph {
+  width: 30px;
+  height: 30px;
+  font-size: .95rem;
+}
+
+.guestbook-item-preview-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.guestbook-item-preview-meta strong {
+  overflow: hidden;
+  color: var(--forest);
+  font-size: .8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guestbook-item-preview-meta small {
+  color: #8a9189;
+  font-size: .62rem;
+}
+
+/* ---- 作者信息行与徽章 ---- */
+.guestbook-entry-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.guestbook-entry-footer-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guestbook-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.gb-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  overflow: hidden;
+  background: #f0e6d1;
+  border: 1px solid #d6c4a3;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.gb-avatar--fallback {
+  color: #a0855b;
+  font-size: 1.35rem;
+  border: 0;
+  background: transparent;
+}
+
+.guestbook-author-name {
+  overflow: hidden;
+  color: #2f3b33;
+  font-size: .8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gb-badge {
+  flex: 0 0 auto;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+  font-size: .62rem;
+  font-weight: 900;
+  line-height: 1.5;
+  letter-spacing: .04em;
+}
+
+.gb-badge--newbie {
+  color: #6e7a71;
+  background: #eef0ec;
+  border: 1px solid #d5d9d2;
+}
+
+.gb-badge--verified {
+  color: #f4f9f4;
+  background: var(--forest);
+  border: 1px solid var(--forest);
+}
+
+.gb-badge--sponsor {
+  color: #6b4f12;
+  background: #f7e3ac;
+  border: 1px solid #ddb84f;
+}
+
+.gb-badge--admin {
+  color: #fff;
+  background: var(--red-dark);
+  border: 1px solid var(--red-dark);
+}
+
+.gb-badge--guest {
+  color: #8a9189;
+  background: transparent;
+  border: 1px dashed #c3c9c0;
+}
+
+.gb-edited {
+  color: #9aa39b;
+  font-size: .64rem;
+  font-style: normal;
+}
+
+.gb-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 2px 8px;
+  color: var(--forest);
+  background: transparent;
+  border: 1px solid #b9cbbd;
+  border-radius: 3px;
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.gb-edit-btn:hover:not(:disabled) {
+  color: #fff;
+  background: var(--forest);
+  border-color: var(--forest);
+}
+
+/* ---- 回复区 ---- */
+.guestbook-replies {
+  display: grid;
+  gap: 10px;
+  margin: 0 16px;
+  padding: 12px 0 0;
+}
+
+.guestbook-replies:empty {
+  padding: 0;
+}
+
+.guestbook-reply {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #fdfaf2;
+  border: 1px solid #e9dfc9;
+  border-left: 3px solid #c8b48c;
+  border-radius: 4px;
+}
+
+.guestbook-reply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guestbook-reply-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #838d84;
+  font-size: .66rem;
+}
+
+.guestbook-reply-content {
+  margin: 0;
+  color: #38443c;
+  font-size: .82rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.guestbook-reply-compose {
+  display: grid;
+  gap: 8px;
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  background: #faf5ea;
+  border: 1px dashed #d9ccb5;
+  border-radius: 4px;
+}
+
+.guestbook-reply-compose textarea {
+  width: 100%;
+  min-height: 54px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: #fffdf8;
+  border: 1px solid var(--line-light);
+  border-radius: 2px;
+  font-size: .82rem;
+  resize: vertical;
+}
+
+.guestbook-reply-compose-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.guestbook-reply-compose-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 5px 14px;
+}
+
+.guestbook-reply-gate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 16px 0;
+  padding: 9px 12px;
+  color: #6e7a71;
+  background: #faf5ea;
+  border: 1px dashed #d9ccb5;
+  border-radius: 4px;
+  font-size: .74rem;
+}
+
+.guestbook-reply-gate.is-done {
+  color: #8a9189;
+}
+
+.guestbook-reply-gate .gb-reply-login {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 0;
+  padding: 3px 12px;
+  color: var(--forest);
+  background: #fffdf8;
+  border: 1px solid #b9cbbd;
+  border-radius: 3px;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.guestbook-reply-gate .gb-reply-login:hover:not(:disabled) {
+  color: #fff;
+  background: var(--forest);
+  border-color: var(--forest);
+}
+
+/* ---- 留言底部回复区与条目的间距 ---- */
+.guestbook-entry>.guestbook-reply-compose,
+.guestbook-entry>.guestbook-reply-gate {
+  margin-bottom: 14px;
+}
+
+/* ---- 行内编辑器 ---- */
+.gb-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.gb-editor textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 11px;
+  color: var(--ink);
+  background: #fffdf8;
+  border: 1px solid var(--gold);
+  border-radius: 2px;
+  font-size: .84rem;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.gb-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.gb-editor-status {
+  flex: 1 1 auto;
+  min-height: 1.2em;
+  color: var(--forest);
+  font-size: .72rem;
+}
+
+.gb-editor-save,
+.gb-editor-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 0;
+  padding: 4px 12px;
+  border-radius: 3px;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.gb-editor-save {
+  color: #fff;
+  background: var(--forest);
+  border: 1px solid var(--forest);
+}
+
+.gb-editor-save:hover:not(:disabled) {
+  color: #fff;
+  background: #234434;
+  border-color: #234434;
+}
+
+.gb-editor-cancel {
+  color: #43524a;
+  background: transparent;
+  border: 1px solid #c3c9c0;
+}
+
+.gb-editor-cancel:hover:not(:disabled) {
+  color: var(--ink);
+  background: #eef0ec;
+  border-color: #b2bab0;
+}
+
 
 .guestbook-pager {
   display: flex;
@@ -5344,7 +5777,8 @@ body.drawer-open {
   .register-scrim,
   .success-scrim,
   .forgot-scrim,
-  .password-scrim {
+  .password-scrim,
+  .name-scrim {
     padding: 14px;
   }
 
@@ -5371,7 +5805,7 @@ body.drawer-open {
     gap: 8px;
   }
 
-  .site-header:not(.auth-page-header) .topbar {
+  .site-header .topbar {
     gap: 8px;
   }
 
@@ -8711,31 +9145,6 @@ a.sponsor-honor-card:hover {
   flex-direction: column;
 }
 
-.auth-page-header .topbar {
-  gap: 18px;
-}
-
-.auth-page-links {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.auth-page-links a {
-  padding: 8px 10px;
-  border-radius: 5px;
-  color: #3f4d45;
-  font-size: .78rem;
-  font-weight: 700;
-}
-
-.auth-page-links a:hover {
-  background: #fffdf8;
-  color: var(--forest-deep);
-}
-
 .auth-main {
   flex: 1;
   display: flex;
@@ -8952,6 +9361,56 @@ a.sponsor-honor-card:hover {
   background: #fffdf8;
 }
 
+/* 昵称行：昵称标签 + 当前昵称 + 修改昵称按钮，单行排布 */
+.auth-profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fffdf8;
+}
+
+.auth-profile-name-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.auth-profile-name-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  font-size: .92rem;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-profile-name-edit {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid var(--line-light);
+  border-radius: 7px;
+  background: #f0e8da;
+  color: var(--ink);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+/* hover 与账号菜单项（账号设置/退出登录）停留色一致；:not(:disabled) 提升优先级以覆盖全局按钮红色 hover */
+.auth-profile-name-edit:hover:not(:disabled) {
+  background: rgba(184, 77, 63, .07);
+  border-color: var(--line-light);
+  color: var(--forest);
+}
+
 .auth-avatar-placeholder {
   display: grid;
   place-items: center;
@@ -9078,8 +9537,7 @@ a.sponsor-honor-card:hover {
   cursor: pointer;
 }
 
-.auth-avatar-editor-cancel,
-.auth-avatar-actions .secondary-button {
+.auth-avatar-editor-cancel {
   border-color: var(--line-light);
   background: #f0e8da;
   color: var(--ink);
@@ -9098,21 +9556,7 @@ a.sponsor-honor-card:hover {
   gap: 9px;
 }
 
-.auth-avatar-delete-confirmation {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--tip-line);
-  border-radius: 8px;
-  background: var(--tip-soft);
-  color: var(--ink);
-  font-size: .82rem;
-}
-
-.auth-avatar-editor [hidden],
-.auth-avatar-delete-confirmation[hidden] {
+.auth-avatar-editor [hidden] {
   display: none;
 }
 
@@ -9212,11 +9656,14 @@ a.sponsor-honor-card:hover {
   font-weight: 700;
 }
 
-.auth-state-label {
-  margin: 12px 0;
-  color: var(--forest);
-  font-size: .82rem;
-  font-weight: 800;
+/* 邮箱未验证且邮件发送额度用完时，追加在「未验证」状态下方的恢复提示 */
+.auth-email-status-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 400;
+  line-height: 1.6;
 }
 
 .auth-page-footer {
@@ -9233,21 +9680,6 @@ a.sponsor-honor-card:hover {
 }
 
 @media (max-width: 760px) {
-  .auth-page-header .topbar {
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .auth-page-links {
-    order: 3;
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .auth-page .auth-nav-slot {
-    margin-left: auto;
-  }
-
   .auth-main {
     padding-top: 28px;
     padding-bottom: 36px;
@@ -9267,4 +9699,20 @@ a.sponsor-honor-card:hover {
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+/* ---- 留言页统一圆角：对齐登录/注册浮层体系（卡片 12px、控件与按钮 8px）---- */
+.guestbook-main .guestbook-compose,
+.guestbook-main .guestbook-list-section {
+  border-radius: 12px;
+}
+
+.guestbook-main input,
+.guestbook-main select,
+.guestbook-main textarea,
+.guestbook-main .suggestions,
+.guestbook-main .guestbook-item-preview,
+.guestbook-main .guestbook-login-gate,
+.guestbook-main button {
+  border-radius: 8px;
 }
