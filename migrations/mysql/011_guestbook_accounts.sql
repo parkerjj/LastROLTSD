@@ -1,6 +1,7 @@
 ALTER TABLE auth_users
-  ADD COLUMN permission_level TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER status
-  COMMENT '账号等级：0 萌新 / 1 正式（邮箱已验证）/ 2 赞助 / >=100 管理员';
+  ADD COLUMN permission_level TINYINT UNSIGNED NOT NULL DEFAULT 0
+  COMMENT '账号等级：0 萌新 / 1 正式（邮箱已验证）/ 2 赞助 / >=100 管理员'
+  AFTER status;
 
 -- 存量数据回填：新增列对所有既有行默认 0（萌新用户），而已通过邮箱验证的存量账号
 -- 不会再走 markEmailVerified（其 WHERE 条件 status = 'PENDING_EMAIL' AND
