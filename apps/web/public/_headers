@@ -16,3 +16,9 @@
 /account/
   Cache-Control: no-store
   Referrer-Policy: no-referrer
+/ke/device
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/ke/device/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer

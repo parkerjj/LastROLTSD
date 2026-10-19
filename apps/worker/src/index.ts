@@ -26,6 +26,8 @@ import { registerPresenceRoute } from './routes/presence';
 import { registerIwaRoutes } from './routes/iwa';
 import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
+import { registerKeRoutes } from './ke/router';
+import { createKeRepository } from './ke/repository';
 import { resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
 import { createSessionService } from './auth/session-service';
@@ -61,6 +63,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
   registerAuthRoutes(app, env, database);
+  registerKeRoutes(app, env, database);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
@@ -153,8 +156,11 @@ export default {
     const database = createMysqlDatabase(env.MYSQL_URL);
     try {
       if (event.cron === '* * * * *') await processSnapshotWakeup(env, createSnapshotRepository(database));
-      else if (event.cron === '*/5 * * * *') await createSnapshotRepository(database).cleanup(Date.now());
-      else await runRetention(Date.now(), {}, createMysqlRepository(database));
+      else if (event.cron === '*/5 * * * *') {
+        const now = Date.now();
+        await createSnapshotRepository(database).cleanup(now);
+        await createKeRepository(database).cleanup(now);
+      } else await runRetention(Date.now(), {}, createMysqlRepository(database));
     } finally {
       await database.close();
     }

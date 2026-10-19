@@ -5,6 +5,9 @@ dist/
 .dev.vars.*
 !.dev.vars.example
 .deployment-secrets.local
+# KoreEngine 授权密钥（scripts/generate-ke-secrets.mjs 生成）：Ed25519 私钥与 K_core 绝不能提交
+.ke-secrets.local/
+ke-secrets.env
 wrangler.*.local.toml
 source-seed*.local.sql
 # 数据 SQL 压缩包是交付件，解压版仅本地使用

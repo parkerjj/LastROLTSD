@@ -35,6 +35,8 @@ import { mountAccountsPage } from "./accounts-page";
 import { mountPlayPage } from "./play-page";
 import { mountClientPage } from "./client-page";
 import { mountSponsorPage } from "./sponsor-page";
+import { mountKePage } from "./ke-page";
+import { mountKeDevicePage } from "./ke-device-page";
 import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi } from "./auth/api";
@@ -54,6 +56,8 @@ const isAccountsPage = /^\/accounts\/?$/u.test(pathname);
 const isPlayPage = /^\/play\/?$/u.test(pathname);
 const isClientPage = /^\/client\/?$/u.test(pathname);
 const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
+const isKePage = /^\/ke\/?$/u.test(pathname);
+const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -1186,4 +1190,6 @@ else if (isSponsorPage) mountSponsorPage(root);
 else if (isReleasePage) mountReleasePage(root);
 else if (isGuestbookPage) mountGuestbookPage(root);
 else if (isAccountsPage) mountAccountsPage(root);
+else if (isKePage) mountKePage(root);
+else if (isKeDevicePage) mountKeDevicePage(root);
 else mountSearchPage();

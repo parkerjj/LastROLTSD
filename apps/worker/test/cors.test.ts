@@ -17,6 +17,24 @@ describe('CORS middleware', () => {
     expect(response.headers.get('access-control-max-age')).toBe('86400');
   });
 
+  it('answers KE preflight for isolated-app origins and allows the Authorization header', async () => {
+    const app = createApp({ ENVIRONMENT: 'test', BUILD_VERSION: 'test-build', MAX_BODY_BYTES: 512 * 1024 });
+    for (const path of ['/api/v1/ke/instances/bind', '/api/v1/ke/device/code', '/api/v1/ke/device/token']) {
+      const response = await app.request(path, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'isolated-app://nuqzolbnqymznffqhrx7ylosbqvbzekt4eybubmopsmsbjz5z2uqaaic',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'authorization, content-type',
+        },
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get('access-control-allow-origin')).toBe('*');
+      expect(response.headers.get('access-control-allow-methods')).toContain('POST');
+      expect(response.headers.get('access-control-allow-headers')).toContain('authorization');
+    }
+  });
+
   it('annotates successful and failing API responses with a constant allow-origin', async () => {
     const app = createApp({ ENVIRONMENT: 'test', BUILD_VERSION: 'test-build', MAX_BODY_BYTES: 512 * 1024 });
     const health = await app.request('/api/health');

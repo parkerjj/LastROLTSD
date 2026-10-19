@@ -1,3 +1,4 @@
+import { createPrivateKey } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -57,6 +58,52 @@ export function resolveAuthDeploymentPreflight(input) {
   }
 
   return { enabled: reasonCodes.length === 0, reasonCodes };
+}
+
+/**
+ * KoreEngine 授权密钥预检（仅在账号体系启用时才有意义）。只返回是否就绪与脱敏的原因码，不输出任何密钥内容。
+ * 未配置不算错误：Worker 的授权端点会返回 503，但配置编辑器（Profile）不受影响。
+ *
+ * @param {Record<string, string | undefined>} input
+ * @returns {{ready: boolean; reasonCodes: string[]}}
+ */
+export function resolveKeDeploymentPreflight(input) {
+  const hasPrivateKey = hasValue(input.licensePrivateKey);
+  const hasCoreKey = hasValue(input.coreKey);
+  if (!hasPrivateKey && !hasCoreKey) return { ready: false, reasonCodes: ['KE_SECRETS_NOT_CONFIGURED'] };
+
+  const reasonCodes = [];
+  if (hasPrivateKey !== hasCoreKey) reasonCodes.push('INCOMPLETE_KE_SECRETS');
+  if (hasPrivateKey && !isEd25519Pkcs8(input.licensePrivateKey)) reasonCodes.push('INVALID_KE_LICENSE_PRIVATE_KEY');
+  if (hasCoreKey && !isCanonicalSecret(input.coreKey)) reasonCodes.push('INVALID_KE_CORE_KEY');
+  for (const [label, value] of [['LICENSE', input.licenseKeyVersion], ['CORE', input.coreKeyVersion]]) {
+    if (hasValue(value) && !/^[1-9]\d*$/u.test(value)) reasonCodes.push(`INVALID_KE_${label}_KEY_VERSION`);
+  }
+  if (hasValue(input.buildManifest) && !isBuildManifest(input.buildManifest)) reasonCodes.push('INVALID_KE_BUILD_MANIFEST');
+  return { ready: reasonCodes.length === 0, reasonCodes };
+}
+
+function isEd25519Pkcs8(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+/]{64}$/u.test(value)) return false;
+  try {
+    const der = Buffer.from(value, 'base64');
+    return der.byteLength === 48 && der.toString('base64') === value
+      && createPrivateKey({ key: der, format: 'der', type: 'pkcs8' }).asymmetricKeyType === 'ed25519';
+  } catch {
+    return false;
+  }
+}
+
+function isBuildManifest(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
+    const entries = Object.values(parsed);
+    return entries.length > 0 && entries.every((entry) => typeof entry === 'object' && entry !== null
+      && typeof entry.chunk === 'string' && typeof entry.sha256 === 'string' && /^[0-9a-f]{64}$/u.test(entry.sha256));
+  } catch {
+    return false;
+  }
 }
 
 function hasValue(value) {
@@ -159,11 +206,22 @@ function runCli() {
   const input = environmentInput(process.env);
   const result = resolveAuthDeploymentPreflight(input);
   const reasonCodes = result.reasonCodes.join(',');
-  const output = `enabled=${String(result.enabled)}\nreason_codes=${reasonCodes}\n`;
+  const ke = resolveKeDeploymentPreflight({
+    licensePrivateKey: process.env.KE_LICENSE_PRIVATE_KEY,
+    coreKey: process.env.KE_CORE_KEY,
+    licenseKeyVersion: process.env.KE_LICENSE_KEY_VERSION,
+    coreKeyVersion: process.env.KE_CORE_KEY_VERSION,
+    buildManifest: process.env.KE_BUILD_MANIFEST,
+  });
+  const keReady = result.enabled && ke.ready;
+  const output = `enabled=${String(result.enabled)}\nreason_codes=${reasonCodes}\nke_ready=${String(keReady)}\nke_reason_codes=${ke.reasonCodes.join(',')}\n`;
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
   else process.stdout.write(output);
   if (input.requestedEnabled === 'true' && !result.enabled) {
     process.stdout.write(`::warning::Production account auth remains disabled by preflight (${reasonCodes})\n`);
+  }
+  if (result.enabled && !ke.ready) {
+    process.stdout.write(`::warning::KoreEngine license endpoints will return 503 until KE secrets are valid (${ke.reasonCodes.join(',')})\n`);
   }
 }
 

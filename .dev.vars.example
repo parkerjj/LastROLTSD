@@ -32,6 +32,17 @@ RESEND_API_KEY=
 MAIL_FROM="LTSD <no-reply@example.test>"
 MAIL_REPLY_TO=
 
+# KoreEngine 授权（需 AUTH_ENABLED=true 才生效）。用 `pnpm ke:secrets` 生成到 .ke-secrets.local/ke-secrets.env 后抄入下面两项。
+# 留空时仅授权端点（bind/start/heartbeat/stop）返回 503，/ke 配置编辑器（Profile）不受影响。
+# KE_LICENSE_PRIVATE_KEY_v1 = Ed25519 私钥（PKCS8 DER，48 字节，base64），用于签发 license；对应公钥烘焙进 KE。
+# KE_CORE_KEY = AES-256 密钥 K_core（32 字节 base64）；KE 构建期用同一个值加密 core.wasm。
+KE_LICENSE_PRIVATE_KEY_v1=
+KE_LICENSE_KEY_VERSION=1
+KE_CORE_KEY=
+KE_CORE_KEY_VERSION=1
+# 构建清单（可选 JSON）：{"<build_id>":{"chunk":"core","sha256":"<64hex>"}}。缺省跳过 A 构建指纹校验。
+KE_BUILD_MANIFEST=
+
 
 
 # Set this to the VPS MySQL 8 URL for local Worker development. Never commit a real URL.
