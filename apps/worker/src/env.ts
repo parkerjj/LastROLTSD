@@ -2,8 +2,9 @@ import type { Fetcher } from '@cloudflare/workers-types';
 import { DEFAULT_CURSOR_SECRET } from './domain/search';
 import type { SnapshotMessage } from './services/full-upload';
 import type { AuthBindings } from './auth/types';
+import type { KeBindings } from './ke/types';
 
-export interface AppEnv extends AuthBindings {
+export interface AppEnv extends AuthBindings, KeBindings {
   MYSQL_URL?: string | undefined;
   ASSETS?: Fetcher | undefined;
   ENVIRONMENT: string;
@@ -72,6 +73,11 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     MAIL_REPLY_TO: typeof bindings.MAIL_REPLY_TO === 'string' ? bindings.MAIL_REPLY_TO : undefined,
     AUTH_MAIL_DAILY_LIMIT: typeof bindings.AUTH_MAIL_DAILY_LIMIT === 'string' ? bindings.AUTH_MAIL_DAILY_LIMIT : undefined,
     AUTH_MAIL_MONTHLY_LIMIT: typeof bindings.AUTH_MAIL_MONTHLY_LIMIT === 'string' ? bindings.AUTH_MAIL_MONTHLY_LIMIT : undefined,
+    KE_LICENSE_PRIVATE_KEY_v1: typeof bindings.KE_LICENSE_PRIVATE_KEY_v1 === 'string' ? bindings.KE_LICENSE_PRIVATE_KEY_v1 : undefined,
+    KE_LICENSE_KEY_VERSION: typeof bindings.KE_LICENSE_KEY_VERSION === 'string' ? bindings.KE_LICENSE_KEY_VERSION : undefined,
+    KE_CORE_KEY: typeof bindings.KE_CORE_KEY === 'string' ? bindings.KE_CORE_KEY : undefined,
+    KE_CORE_KEY_VERSION: typeof bindings.KE_CORE_KEY_VERSION === 'string' ? bindings.KE_CORE_KEY_VERSION : undefined,
+    KE_BUILD_MANIFEST: typeof bindings.KE_BUILD_MANIFEST === 'string' ? bindings.KE_BUILD_MANIFEST : undefined,
   };
 }
 

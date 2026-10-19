@@ -1,0 +1,426 @@
+// KoreEngine config.txt 的 schema（数据驱动）：标量 + 有序 block + 条件 key。
+// 每个字段带 label（中文名）+ help（通俗解释）+ 可选 suffix（单位后缀，如 %）。
+// 字段与默认值以 KE 的 M6 设计（config.txt 精确范围）为准。
+
+export interface ScalarOption {
+  value: string;
+  label: string;
+}
+
+export interface ScalarDef {
+  key: string;
+  label: string;
+  help: string;
+  type: 'enum' | 'int' | 'string' | 'map';
+  options?: ScalarOption[];
+  default?: string;
+  suffix?: string;
+  group: string;
+  /** 特殊输入控件：'item' = 道具搜索选择器（存道具名称）。 */
+  picker?: 'item';
+}
+
+const ON_OFF: ScalarOption[] = [
+  { value: '0', label: '关闭' },
+  { value: '1', label: '开启' },
+];
+
+export const CONFIG_SCALARS: ScalarDef[] = [
+  // —— 攻击 ——
+  { key: 'attackAuto', label: '自动攻击', help: '是否自动打怪。0=完全手动；1=只打主动打你的怪；2=打范围内所有怪（挂机推荐）。', type: 'enum', default: '2', group: '攻击', options: [
+    { value: '0', label: '关闭' },
+    { value: '1', label: '仅攻击主动怪' },
+    { value: '2', label: '攻击范围内所有怪' },
+  ] },
+  { key: 'attackUseWeapon', label: '使用武器攻击', help: '是否用武器普攻。拳刃/法杖等也要普攻的话保持开启。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackCanSnipe', label: '边退边打', help: '边后退边攻击（放风筝）。远程职业想拉开距离时开启。', type: 'enum', default: '0', group: '攻击', options: ON_OFF },
+  { key: 'attackCheckLOS', label: '检查视线', help: '攻击前检查目标是否被墙/障碍挡住。避免隔着墙傻站，保持开启。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackAuto_routeToLock', label: '回城途中攻击', help: '从出生点/回城点走去挂机地图的路上，遇到怪是否打。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackAuto_outOfLock', label: '锁图外攻击', help: '挂机地图之外（如误走进邻图）是否继续打怪。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackAuto_party', label: '攻击队友目标', help: '队友正在打的怪，你是否也上去打。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackAuto_followTarget', label: '攻击跟随目标', help: '你跟随的人打的怪，是否也打。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackAuto_notInTown', label: '城镇内不攻击', help: '在城镇/安全区不主动打怪，避免误伤NPC或守卫。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackDistanceAuto', label: '自动调整攻击距离', help: '按武器/技能自动调整站多远打怪。', type: 'enum', default: '1', group: '攻击', options: ON_OFF },
+  { key: 'attackDistance', label: '攻击距离', help: '手动指定攻击距离（格）。留空则用自动距离。', type: 'int', group: '攻击' },
+  { key: 'attackMaxDistance', label: '最大攻击距离', help: '追怪的最远距离，超过就放弃这个目标。', type: 'int', group: '攻击' },
+  { key: 'attackMaxRouteTime', label: '最大寻路时间', help: '追怪找路的最大秒数，超时放弃。', type: 'int', suffix: '秒', group: '攻击' },
+  { key: 'attackEquip_topHead', label: '攻击装备：上头部', help: '开打前切换的上头部装备（道具名）。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_midHead', label: '攻击装备：中头部', help: '开打前切换的中头部装备。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_lowHead', label: '攻击装备：下头部', help: '开打前切换的下头部装备。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_leftHand', label: '攻击装备：左手', help: '开打前切换的左手武器。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_rightHand', label: '攻击装备：右手', help: '开打前切换的右手武器。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_leftAccessory', label: '攻击装备：左饰品', help: '开打前切换的左饰品。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_rightAccessory', label: '攻击装备：右饰品', help: '开打前切换的右饰品。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_robe', label: '攻击装备：披肩', help: '开打前切换的披肩。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_armor', label: '攻击装备：铠甲', help: '开打前切换的铠甲。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_shoes', label: '攻击装备：鞋子', help: '开打前切换的鞋子。', type: 'string', group: '攻击' },
+  { key: 'attackEquip_arrow', label: '攻击装备：箭矢', help: '开打前切换的箭矢。', type: 'string', group: '攻击' },
+
+  // —— 路线 ——
+  { key: 'lockMap', label: '挂机地图', help: '自动挂机的地图代码（如 prt_fild08）。进入该图后才开始挂机。', type: 'map', group: '路线' },
+  { key: 'saveMap', label: '回城地图', help: '死亡/补给后回城的城镇代码（如 prontera）。', type: 'map', group: '路线' },
+  { key: 'route_randomWalk', label: '走动寻怪', help: '在挂机图里怎么找怪。关闭=站在原地等怪；KE模式=随机走动；优化模式=沿地图路线系统扫图。', type: 'enum', default: '1', group: '路线', options: [
+    { value: '0', label: '关闭' },
+    { value: '1', label: 'KE 模式' },
+    { value: '2', label: '优化模式' },
+  ] },
+  { key: 'route_teleport', label: '瞬移赶路', help: '去锁图路上是否用传送快速赶路。', type: 'enum', default: '0', group: '路线', options: ON_OFF },
+  { key: 'route_teleport_minDistance', label: '大于此距离使用瞬移赶路', help: '离目标超过这个距离就用瞬移赶路，否则走过去。', type: 'int', default: '75', suffix: '格', group: '路线' },
+  { key: 'route_teleport_maxTries', label: '瞬移最大尝试次数', help: '瞬移赶路最多试几次，避免无限瞬移。', type: 'int', default: '8', group: '路线' },
+  { key: 'route_teleport_notInMaps', label: '不瞬移的地图', help: '这些地图里不瞬移赶路（如城镇，避免误操作），逗号分隔。', type: 'string', group: '路线' },
+  { key: 'lastro_airshipRoute', label: '飞艇路线目的地', help: 'LastRO 飞艇传送的目的地地图代码。留空则不使用飞艇。', type: 'map', group: '路线' },
+  { key: 'lastro_airshipRoute_timeout', label: '飞艇路线超时', help: '飞艇传送等待确认的最长秒数，超时算失败。', type: 'int', suffix: '秒', group: '路线' },
+  { key: 'lastro_airship_recovery_timeout', label: '飞艇恢复超时', help: '飞艇失败后的恢复等待秒数。', type: 'int', suffix: '秒', group: '路线' },
+  { key: 'lastro_airship_failure_cooldown', label: '飞艇失败冷却', help: '飞艇失败后多久内不再重试。', type: 'int', suffix: '秒', group: '路线' },
+
+  // —— 传送 ——
+  { key: 'teleportAuto_hp', label: 'HP 低于（%）传送', help: 'HP 掉到这个百分比以下就瞬移逃跑保命。', type: 'int', default: '10', suffix: '%', group: '传送' },
+  { key: 'teleportAuto_sp', label: 'SP 低于（%）传送', help: 'SP 掉到这个百分比以下就瞬移。', type: 'int', default: '0', suffix: '%', group: '传送' },
+  { key: 'teleportAuto_deadly', label: '致命状态传送', help: '中了致命状态（如冰冻、石化）是否瞬移。', type: 'enum', default: '1', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_useSkill', label: '使用技能传送', help: '用「瞬间移动」技能瞬移（需要学会该技能）；关闭则用蝴蝶翅膀/苍蝇翅膀道具。', type: 'enum', default: '1', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_idle', label: '瞬移寻怪', help: '空闲没怪时是否瞬移到别处找怪。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_maxDmg', label: '受击伤害上限传送', help: '单次受到的伤害超过这个值就瞬移。', type: 'int', default: '500', group: '传送' },
+  { key: 'teleportAuto_unstuck', label: '卡住时传送', help: '被卡住走不动时是否瞬移脱离。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_portal', label: '遇到传送点瞬移', help: '走到传送点/传送门时是否直接瞬移过去（而非走过去）。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_search', label: '专注传送模式', help: '只打指定怪、其它怪一律瞬移跳过（适合只刷 BOSS/指定怪的场景）。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_minAggressives', label: '被围攻数触发传送', help: '同时被多少只怪围攻就瞬移（0=关闭）。', type: 'int', default: '0', group: '传送' },
+  { key: 'teleportAuto_minAggressivesInLock', label: '锁图内被围攻数触发', help: '挂机图内被围攻到多少只就瞬移。', type: 'int', default: '0', group: '传送' },
+  { key: 'teleportAuto_maxDmgInLock', label: '锁图内受击上限', help: '挂机图内单次受击超过此值瞬移。', type: 'int', default: '0', group: '传送' },
+  { key: 'teleportAuto_atkCount', label: '攻击次数触发传送', help: '连续攻击多少次还没打死就瞬移（0=关闭）。', type: 'int', default: '0', group: '传送' },
+  { key: 'teleportAuto_atkMiss', label: '未命中次数触发', help: '连续攻击未命中多少次就瞬移（10=默认）。', type: 'int', default: '10', group: '传送' },
+  { key: 'teleportAuto_lostTarget', label: '目标丢失传送', help: '打的怪突然消失（被抢/传送）时是否瞬移。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_dropTarget', label: '目标被抢传送', help: '目标被别人抢走时是否瞬移。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_dropTargetEngaged', label: '被抢且战斗中传送', help: '目标被抢且你还在被其它怪打时是否瞬移。', type: 'enum', default: '1', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_dropTargetKS', label: '目标被抢杀传送', help: '目标被别人抢杀（KS）时是否瞬移。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_dropTargetHidden', label: '目标隐身传送', help: '目标隐身/消失时是否瞬移。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_attackedWhenSitting', label: '坐下被攻击传送', help: '坐下回血时被攻击是否瞬移。', type: 'enum', default: '0', group: '传送', options: ON_OFF },
+  { key: 'teleportAuto_totalDmg', label: '累计伤害传送', help: '累计受到的伤害超过此值瞬移（0=关闭）。', type: 'int', default: '0', group: '传送' },
+  { key: 'teleportAuto_totalDmgInLock', label: '锁图内累计伤害', help: '挂机图内累计受击超过此值瞬移。', type: 'int', default: '0', group: '传送' },
+  { key: 'teleportAuto_equip_leftAccessory', label: '传送用左饰品', help: '瞬移时切换的左饰品（如瞬移夹）。', type: 'string', group: '传送' },
+  { key: 'teleportAuto_equip_rightAccessory', label: '传送用右饰品', help: '瞬移时切换的右饰品。', type: 'string', group: '传送' },
+  { key: 'teleportAuto_item1', label: '苍蝇翅膀或代替道具名称', help: '随机瞬移时优先使用这个道具代替苍蝇翅膀（输入关键字搜索选择）。留空则使用苍蝇翅膀。', type: 'string', group: '传送', picker: 'item' },
+  { key: 'teleportAuto_item2', label: '蝴蝶翅膀或代替道具名称', help: '回到储存点时优先使用这个道具代替蝴蝶翅膀（输入关键字搜索选择）。留空则使用蝴蝶翅膀。', type: 'string', group: '传送', picker: 'item' },
+
+  // —— 坐下 ——
+  { key: 'sitAuto_hp_lower', label: 'HP 低于（%）坐下', help: 'HP 低于这个百分比就坐下回血。', type: 'int', default: '40', suffix: '%', group: '坐下' },
+  { key: 'sitAuto_hp_upper', label: 'HP 高于（%）站起', help: 'HP 回到这个百分比以上就站起继续打。', type: 'int', default: '100', suffix: '%', group: '坐下' },
+  { key: 'sitAuto_sp_lower', label: 'SP 低于（%）坐下', help: 'SP 低于这个百分比就坐下回蓝。', type: 'int', default: '0', suffix: '%', group: '坐下' },
+  { key: 'sitAuto_sp_upper', label: 'SP 高于（%）站起', help: 'SP 回到这个百分比以上就站起。', type: 'int', default: '0', suffix: '%', group: '坐下' },
+  { key: 'sitAuto_idle', label: '空闲时坐下', help: '没怪打、空闲时是否坐下加速回血回蓝。', type: 'enum', default: '1', group: '坐下', options: ON_OFF },
+  { key: 'sitAuto_follow', label: '跟随中坐下', help: '跟随别人时，对方坐下你是否也坐下。', type: 'enum', default: '0', group: '坐下', options: ON_OFF },
+  { key: 'sitAuto_over_50', label: '负重超 50% 坐下', help: '负重超过 50%（会减速）时是否坐下。', type: 'enum', default: '0', group: '坐下', options: ON_OFF },
+
+  // —— 拾取 ——
+  { key: 'itemsTakeAuto', label: '自动拾取', help: '是否自动捡地上的掉落物。0=不捡；1=捡身边的；2=追过去捡所有。', type: 'enum', default: '2', group: '拾取', options: [
+    { value: '0', label: '关闭' },
+    { value: '1', label: '拾取范围内' },
+    { value: '2', label: '拾取所有' },
+  ] },
+  { key: 'itemsTakeAuto_party', label: '拾取队友物品', help: '是否捡队友（队伍）掉的东西。', type: 'enum', default: '0', group: '拾取', options: ON_OFF },
+  { key: 'itemsGatherAuto', label: '拾取无主物品', help: '捡那些不是自己打掉的、无主的地面物品。', type: 'enum', default: '2', group: '拾取', options: [
+    { value: '0', label: '关闭' },
+    { value: '1', label: '范围内' },
+    { value: '2', label: '所有' },
+  ] },
+  { key: 'itemsMaxWeight', label: '拾取负重上限', help: '负重超过这个百分比就停止拾取/收集任何物品，并触发自动出售/存仓（触发存售的阈值可被下方「出售/存仓负重阈值」单独覆盖）。', type: 'int', suffix: '%', group: '拾取' },
+  { key: 'itemsMaxWeight_sellOrStore', label: '出售/存仓负重阈值', help: '负重达到这个百分比就触发去出售/存仓清包。', type: 'int', suffix: '%', group: '拾取' },
+
+  // —— 跟随 ——
+  { key: 'follow', label: '跟随', help: '是否自动跟随别人。', type: 'enum', default: '0', group: '跟随', options: ON_OFF },
+  { key: 'followTarget', label: '跟随目标名称', help: '跟随的玩家角色名。', type: 'string', group: '跟随' },
+  { key: 'followDistanceMax', label: '跟随最大距离', help: '和目标超过这个距离就追上去。', type: 'int', default: '6', suffix: '格', group: '跟随' },
+  { key: 'followDistanceMin', label: '跟随最小距离', help: '和目标小于这个距离就停一下，避免贴太近。', type: 'int', default: '3', suffix: '格', group: '跟随' },
+  { key: 'followLostStep', label: '丢失步数', help: '走了多少步还找不到跟随目标就停下。', type: 'int', default: '12', group: '跟随' },
+  { key: 'followSitAuto', label: '跟随坐下', help: '跟随目标坐下时你是否也坐下。', type: 'enum', default: '0', group: '跟随', options: ON_OFF },
+
+  // —— 修理 ——
+  { key: 'repairAuto', label: '自动修理', help: '装备耐久掉了是否自动去找 NPC 修理。', type: 'enum', default: '0', group: '修理', options: ON_OFF },
+  { key: 'repairAuto_list', label: '修理物品列表', help: '要修理的装备列表（逗号分隔）。', type: 'string', group: '修理' },
+  { key: 'repairAuto_npc', label: '修理 NPC 位置', help: '修理 NPC 的坐标（格式：地图 x y，如 prontera 123 45）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string', group: '修理' },
+  { key: 'repairAuto_npc_steps', label: '修理对话步骤', help: '与修理 NPC 的对话指令序列（如 c r0 c r0 n）。', type: 'string', group: '修理' },
+
+  // —— 技能 ——
+  { key: 'useSelf_skill_smartHeal', label: '智能治疗', help: '根据 HP/SP 情况智能决定用哪个治疗技能，而不是按固定顺序。', type: 'enum', default: '1', group: '技能', options: ON_OFF },
+
+  // —— 商店仓库 ——
+  { key: 'sellAuto', label: '自动出售', help: '是否自动把不需要的物品卖给 NPC。', type: 'enum', default: '0', group: '商店仓库', options: ON_OFF },
+  { key: 'sellAuto_npc', label: '出售 NPC 位置', help: '卖东西的 NPC 坐标（格式：地图 x y，如 prontera 156 88）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string', group: '商店仓库' },
+  { key: 'sellAuto_distance', label: '出售距离', help: '离 NPC 多远就触发出售。', type: 'int', default: '3', group: '商店仓库' },
+  { key: 'sellAuto_npc_steps', label: '出售对话步骤', help: '与出售 NPC 的对话指令（默认 s）。', type: 'string', default: 's', group: '商店仓库' },
+  { key: 'storageAuto', label: '自动存仓', help: '是否自动把物品存入仓库。', type: 'enum', default: '0', group: '商店仓库', options: ON_OFF },
+  { key: 'storageAuto_npc', label: '仓库 NPC 位置', help: '仓库 NPC 的坐标（格式：地图 x y，如 prontera 146 89）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string', default: 'prontera 146 89', group: '商店仓库' },
+  { key: 'storageAuto_npc_type', label: '仓库 NPC 类型', help: '仓库 NPC 的类型编号。', type: 'int', default: '1', group: '商店仓库' },
+  { key: 'storageAuto_type', label: '仓库类型', help: '仓库类型编号。', type: 'int', default: '0', group: '商店仓库' },
+  { key: 'storageAuto_npc_steps', label: '仓库对话步骤', help: '与仓库 NPC 的对话指令（如 c r1 n）。', type: 'string', group: '商店仓库' },
+  { key: 'storageAuto_distance', label: '仓库距离', help: '离仓库 NPC 多远就触发存仓。', type: 'int', group: '商店仓库' },
+  { key: 'storageAuto_password', label: '仓库密码', help: '仓库密码（若设置了密码）。', type: 'string', group: '商店仓库' },
+];
+
+export type ConfigValues = Record<string, string>;
+
+// —— block ——
+
+export type ConditionGroup = 'self' | 'monster' | 'player';
+
+export interface BlockFieldDef {
+  key: string;
+  label: string;
+  help: string;
+  type: 'int' | 'string' | 'enum' | 'monsters';
+  options?: ScalarOption[];
+}
+
+export interface BlockDef {
+  type: string;
+  label: string;
+  help: string;
+  selectorKind: 'skill' | 'item' | 'none';
+  fields: BlockFieldDef[];
+  conditions: ConditionGroup[];
+  /** 新增卡片时预填的字段/条件（如 buyAuto 默认指向普隆德拉道具商人）。 */
+  defaults?: { fields?: Record<string, string>; conditions?: Record<string, string> };
+}
+
+export interface BlockValue {
+  selector: string;
+  fields: Record<string, string>;
+  conditions: Record<string, string>;
+}
+
+export interface ConditionKeyDef {
+  key: string;
+  label: string;
+  hint?: string;
+  help: string;
+}
+
+export const BLOCK_DEFS: BlockDef[] = [
+  {
+    type: 'attackSkillSlot', label: '攻击技能', selectorKind: 'skill',
+    help: '用技能攻击怪物。可以加多个，配条件决定什么时候用哪个技能。',
+    fields: [
+      { key: 'lvl', label: '技能等级', help: '使用该技能的等级（1-10）。', type: 'int' },
+      { key: 'dist', label: '最小距离', help: '和目标至少这个距离才放这个技能。', type: 'int' },
+      { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间的技能不自动放。', type: 'int' },
+      { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间的技能不自动放。', type: 'int' },
+      { key: 'maxAttempts', label: '最大尝试次数', help: '这个技能最多连续尝试几次。', type: 'int' },
+      { key: 'maxUses', label: '最大使用次数', help: '这个技能最多用几次。', type: 'int' },
+      { key: 'isSelfSkill', label: '目标是自己', help: '是否对自己放（治疗/增益）。', type: 'enum', options: ON_OFF },
+      { key: 'isStartSkill', label: '起手技能', help: '是否作为开打的第一招。', type: 'enum', options: ON_OFF },
+      { key: 'monsters', label: '仅对怪物', help: '只对这里列的怪物用这个技能。', type: 'monsters' },
+      { key: 'notMonsters', label: '排除怪物', help: '对这些怪物不用这个技能。', type: 'monsters' },
+    ],
+    conditions: ['self', 'monster'],
+  },
+  {
+    type: 'useSelf_skill', label: '自身增益/治疗技能', selectorKind: 'skill',
+    help: '对自己放的增益或治疗技能（如加速、治愈）。',
+    fields: [
+      { key: 'lvl', label: '技能等级', help: '使用该技能的等级。', type: 'int' },
+      { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间不自动放。', type: 'int' },
+      { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间不自动放。', type: 'int' },
+      { key: 'smartEncore', label: '智能重复', help: '状态快消失时自动补，而不是等消失再放。', type: 'enum', options: ON_OFF },
+      { key: 'noSmartHeal', label: '关闭智能治疗', help: '该技能不参与智能治疗，按固定规则放。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: ['self'],
+  },
+  {
+    type: 'partySkill', label: '队伍技能', selectorKind: 'skill',
+    help: '对队友放的技能（如给队友加血、加速）。',
+    fields: [
+      { key: 'lvl', label: '技能等级', help: '使用该技能的等级。', type: 'int' },
+      { key: 'dist', label: '最小距离', help: '和队友至少这个距离才放。', type: 'int' },
+      { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间不自动放。', type: 'int' },
+      { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间不自动放。', type: 'int' },
+      { key: 'target', label: '目标', help: '对哪个队友放（角色名）。', type: 'string' },
+      { key: 'notPartyOnly', label: '不限于队伍', help: '是否也对非队友的玩家放。', type: 'enum', options: ON_OFF },
+      { key: 'isSelfSkill', label: '目标是自己', help: '是否也对自己放。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: ['self', 'player'],
+  },
+  {
+    type: 'useSelf_item', label: '自身使用物品', selectorKind: 'item',
+    help: '自动使用消耗品（如药水）。',
+    fields: [
+      { key: 'dcOnEmpty', label: '用完断线', help: '物品用完时是否断线下线保护。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: ['self'],
+  },
+  {
+    type: 'buyAuto', label: '自动购买', selectorKind: 'item',
+    help: '自动从 NPC 买补给（如药水、箭矢）。',
+    fields: [
+      { key: 'npc', label: 'NPC 位置', help: '卖这个物品的 NPC 坐标（格式：地图 x y，默认是普隆德拉道具商人 prt_in 126 76）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string' },
+      { key: 'npc_steps', label: '对话步骤', help: '与 NPC 的对话指令（如 b 打开商店）。', type: 'string' },
+      { key: 'distance', label: '距离', help: '离 NPC 多远触发购买。', type: 'int' },
+      { key: 'price', label: '价格上限', help: '超过这个单价就不买。', type: 'int' },
+      { key: 'minAmount', label: '最小数量', help: '库存低于这个数量就补货。', type: 'int' },
+      { key: 'maxAmount', label: '最大数量', help: '补货补到这个数量。', type: 'int' },
+      { key: 'batchSize', label: '批量大小', help: '一次买多少。', type: 'int' },
+      { key: 'dcOnEmpty', label: '买空断线', help: 'NPC 没货时是否断线。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: ['self'],
+    defaults: {
+      fields: { npc: 'prt_in 126 76', npc_steps: 'b', distance: '3', minAmount: '0', maxAmount: '10' },
+      conditions: { zeny: '> 25000' },
+    },
+  },
+  {
+    type: 'getAuto', label: '自动取物（仓库）', selectorKind: 'item',
+    help: '自动从仓库取补给。',
+    fields: [
+      { key: 'minAmount', label: '最小数量', help: '身上低于这个数量就从仓库取。', type: 'int' },
+      { key: 'maxAmount', label: '最大数量', help: '取到身上达到这个数量。', type: 'int' },
+      { key: 'batchSize', label: '批量大小', help: '一次取多少。', type: 'int' },
+      { key: 'passive', label: '被动', help: '只在顺路时取，不主动去仓库。', type: 'enum', options: ON_OFF },
+      { key: 'dcOnEmpty', label: '取空断线', help: '仓库没货时是否断线。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: ['self'],
+  },
+  {
+    type: 'autoSwitch', label: '自动换装', selectorKind: 'none',
+    help: '根据距离等条件自动切换武器（如近战切远程）。',
+    fields: [
+      { key: 'rightHand', label: '右手武器', help: '切换的右手武器。', type: 'string' },
+      { key: 'leftHand', label: '左手武器', help: '切换的左手武器。', type: 'string' },
+      { key: 'arrow', label: '箭矢', help: '切换的箭矢。', type: 'string' },
+      { key: 'distance', label: '距离', help: '目标在此距离内切换。', type: 'int' },
+      { key: 'useWeapon', label: '使用武器', help: '切换后是否用武器普攻。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: [],
+  },
+];
+
+export const CONDITION_KEYS: Record<ConditionGroup, ConditionKeyDef[]> = {
+  self: [
+    { key: 'hp', label: '自身 HP', hint: '例：< 50%', help: '自身 HP 满足这个条件才触发（用 <、>、= 加数值和 %）。' },
+    { key: 'sp', label: '自身 SP', hint: '例：< 30%', help: '自身 SP 满足这个条件才触发。' },
+    { key: 'weight', label: '负重', hint: '例：< 50%', help: '负重满足这个条件才触发。' },
+    { key: 'zeny', label: '金币', hint: '例：> 1000', help: '身上金币满足这个条件才触发。' },
+    { key: 'spirit', label: '气弹数', hint: '例：>= 5', help: '气弹（念气）数量满足这个条件才触发。' },
+    { key: 'aggressives', label: '被围攻数量', hint: '例：>= 3', help: '正在围攻你的怪物数量满足条件才触发。' },
+    { key: 'whenStatusActive', label: '状态生效时', hint: '选择 Buff 状态', help: '身上有某个 Buff 状态时才触发。' },
+    { key: 'whenStatusInactive', label: '状态未生效时', hint: '选择 Buff 状态', help: '身上没有某个 Buff 状态时才触发。' },
+    { key: 'inMap', label: '在地图内', hint: '例：prt_fild08', help: '在当前地图时才触发。' },
+    { key: 'notInMap', label: '不在地图内', hint: '例：prt_fild08', help: '不在某个地图时才触发。' },
+    { key: 'monstersCount', label: '周围可见怪物数量', hint: '例：> 2', help: '周围可见怪物数量满足条件才触发。' },
+    { key: 'timeout', label: '冷却时间', hint: '例：10', help: '上次使用后至少隔这么多秒才再次触发。' },
+  ],
+  monster: [
+    { key: 'target_hp', label: '目标 HP', hint: '例：< 30%', help: '目标的 HP 满足条件才触发。' },
+    { key: 'target_dist', label: '目标距离', hint: '例：< 3', help: '和目标距离满足条件才触发。' },
+    { key: 'target_deltaHp', label: '目标掉血', hint: '例：> 500', help: '目标掉血量满足条件才触发。' },
+    { key: 'target_whenStatusActive', label: '目标状态生效', hint: '选择 Buff 状态', help: '目标身上有某个状态才触发。' },
+    { key: 'target_timeout', label: '目标冷却', hint: '例：5', help: '对同一目标隔这么多秒才再次触发。' },
+  ],
+  player: [
+    { key: 'target_hp', label: '目标 HP', hint: '例：< 50%', help: '目标玩家 HP 满足条件才触发。' },
+    { key: 'target_dist', label: '目标距离', hint: '例：< 8', help: '和目标玩家距离满足条件才触发。' },
+    { key: 'target_isJob', label: '目标职业', hint: '例：Priest', help: '目标玩家是某个职业才触发。' },
+    { key: 'target_whenStatusActive', label: '目标状态生效', hint: '选择 Buff 状态', help: '目标玩家身上有某个状态才触发。' },
+    { key: 'target_timeout', label: '目标冷却', hint: '例：5', help: '对同一目标玩家隔这么多秒才再次触发。' },
+  ],
+};
+
+export function conditionKeysOf(group: ConditionGroup): ConditionKeyDef[] {
+  return CONDITION_KEYS[group];
+}
+
+export function conditionGroupLabel(group: ConditionGroup): string {
+  if (group === 'self') return '自身条件';
+  if (group === 'monster') return '怪物条件';
+  return '玩家条件';
+}
+
+// —— 序列化 / 解析 ——
+
+export interface ConfigDoc {
+  scalars: ConfigValues;
+  blocks: Record<string, BlockValue[]>;
+}
+
+function isConditionKey(key: string): boolean {
+  return Object.values(CONDITION_KEYS).some((keys) => keys.some((k) => k.key === key));
+}
+
+export function emptyDoc(): ConfigDoc {
+  return { scalars: {}, blocks: {} };
+}
+
+/** 新 Profile 的默认配置：标量填默认值，block 留空（由用户按需添加）。 */
+export function defaultDoc(): ConfigDoc {
+  const scalars: ConfigValues = {};
+  for (const scalar of CONFIG_SCALARS) {
+    if (scalar.default !== undefined) scalars[scalar.key] = scalar.default;
+  }
+  return { scalars, blocks: {} };
+}
+
+/** 把表单模型序列化成 config.txt 文本。 */
+export function serializeConfig(doc: ConfigDoc): string {
+  const lines: string[] = [];
+  for (const scalar of CONFIG_SCALARS) {
+    const value = doc.scalars[scalar.key];
+    if (value !== undefined && value !== '') lines.push(`${scalar.key} ${value}`);
+  }
+  for (const def of BLOCK_DEFS) {
+    for (const block of doc.blocks[def.type] ?? []) {
+      if (def.selectorKind === 'none') {
+        lines.push(`${def.type} {`);
+      } else {
+        if (block.selector === '') continue;
+        lines.push(`${def.type} ${block.selector} {`);
+      }
+      for (const field of def.fields) {
+        const value = block.fields[field.key];
+        if (value !== undefined && value !== '') lines.push(`\t${field.key} ${value}`);
+      }
+      for (const [key, value] of Object.entries(block.conditions)) {
+        if (value !== undefined && value !== '') lines.push(`\t${key} ${value}`);
+      }
+      lines.push('}');
+    }
+  }
+  return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+/** 从 config.txt 文本解析出标量与 block（忽略注释、空行与未支持的 block）。 */
+export function parseConfig(text: string): ConfigDoc {
+  const doc: ConfigDoc = emptyDoc();
+  let current: { type: string; block: BlockValue } | null = null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith('/*')) continue;
+    if (line.endsWith('{')) {
+      const head = line.slice(0, -1).trim();
+      const spaceIndex = head.indexOf(' ');
+      const type = spaceIndex >= 0 ? head.slice(0, spaceIndex) : head;
+      const selector = spaceIndex >= 0 ? head.slice(spaceIndex + 1).trim() : '';
+      const def = BLOCK_DEFS.find((d) => d.type === type);
+      if (def) {
+        current = { type, block: { selector, fields: {}, conditions: {} } };
+        (doc.blocks[type] ??= []).push(current.block);
+      } else {
+        current = null;
+      }
+      continue;
+    }
+    if (line === '}') {
+      current = null;
+      continue;
+    }
+    const spaceIndex = line.indexOf(' ');
+    if (spaceIndex <= 0) continue;
+    const key = line.slice(0, spaceIndex);
+    const value = line.slice(spaceIndex + 1).trim();
+    if (value === '') continue;
+    if (current) {
+      const def = BLOCK_DEFS.find((d) => d.type === current!.type);
+      if (def?.fields.some((f) => f.key === key)) current.block.fields[key] = value;
+      else if (isConditionKey(key)) current.block.conditions[key] = value;
+    } else if (CONFIG_SCALARS.some((s) => s.key === key)) {
+      doc.scalars[key] = value;
+    }
+  }
+  return doc;
+}
