@@ -50,7 +50,7 @@ function itemIconUrl(itemId: number, itemName: string): string {
 }
 
 function authorLine(author: GuestbookAuthor): string {
-  const badge = tierBadge(author.admin);
+  const badge = tierBadge(author.permission_level);
   const avatar = author.hasAvatar
     ? `<img class="gb-avatar" src="${escapeHtml(author.avatarUrl)}" alt="" loading="lazy">`
     : `<span class="gb-avatar gb-avatar--fallback" aria-hidden="true"><i class="ph ph-user-circle"></i></span>`;

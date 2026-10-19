@@ -211,9 +211,9 @@ export function mountAuthPage(
     }
   }
 
-  // 账号等级与留言板共用同一套 admin 映射（0 萌新 / 1 正式 / 2 赞助 / >=100 管理员）
+  // 账号等级与留言板共用同一套 permission_level 映射（0 萌新 / 1 正式 / 2 赞助 / >=100 管理员）
   function renderAccountTier(user: AccountProfile): void {
-    setText(root, '#account-tier', tierBadge(user.admin).label);
+    setText(root, '#account-tier', tierBadge(user.permission_level).label);
   }
 
   function updateAvatarActions(selected: boolean, processing: boolean): void {

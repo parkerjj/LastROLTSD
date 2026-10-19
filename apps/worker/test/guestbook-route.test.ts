@@ -147,7 +147,7 @@ describe('guestbook routes', () => {
   });
 
   it('creates replies with per-user uniqueness enforced by the repository', async () => {
-    const reply = { id: 11, entryId: 5, content: '回复', createdAt: 10, editedAt: null, author: { userId: '10002', displayName: '小明', hasAvatar: false, avatarVersion: 0, avatarUrl: '/api/v1/users/10002/avatar?v=0', admin: 1 } };
+    const reply = { id: 11, entryId: 5, content: '回复', createdAt: 10, editedAt: null, author: { userId: '10002', displayName: '小明', hasAvatar: false, avatarVersion: 0, avatarUrl: '/api/v1/users/10002/avatar?v=0', permission_level: 1 } };
     const repo = {
       createReply: async () => ({ status: 'created', id: 11 } as const),
       readById: async () => entryFixture({ id: 5, replies: [reply] }),

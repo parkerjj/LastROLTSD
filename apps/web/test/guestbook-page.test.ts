@@ -4,7 +4,7 @@ import { mountGuestbookPage } from '../src/guestbook-page';
 import type { GuestbookAuthor, GuestbookEntry, GuestbookReply } from '../src/types';
 
 const signedInUser = {
-  id: '10002', email: 'n@example.com', display_name: '小明', status: 'ACTIVE', admin: 1,
+  id: '10002', email: 'n@example.com', display_name: '小明', status: 'ACTIVE', permission_level: 1,
   email_verified_at: 1, created_at: 1, has_avatar: true, avatar_version: 2,
   avatar_url: '/api/v1/users/10002/avatar?v=2',
 };
@@ -17,7 +17,7 @@ const activeStore = {
 
 const authorOf = (overrides: Partial<GuestbookAuthor> = {}): GuestbookAuthor => ({
   userId: '10002', displayName: '小明', hasAvatar: false, avatarVersion: 0,
-  avatarUrl: '/api/v1/users/10002/avatar?v=0', admin: 1, ...overrides,
+  avatarUrl: '/api/v1/users/10002/avatar?v=0', permission_level: 1, ...overrides,
 });
 
 const entryOf = (overrides: Partial<GuestbookEntry> = {}): GuestbookEntry => ({
@@ -120,12 +120,12 @@ describe('guestbook page', () => {
     }
   });
 
-  it('shows the badge matching the author admin level', async () => {
+  it('shows the badge matching the author permission level', async () => {
     const entries = [
-      entryOf({ id: 1, author: authorOf({ admin: 0 }) }),
-      entryOf({ id: 2, author: authorOf({ admin: 1 }) }),
-      entryOf({ id: 3, author: authorOf({ admin: 2 }) }),
-      entryOf({ id: 4, author: authorOf({ admin: 100 }) }),
+      entryOf({ id: 1, author: authorOf({ permission_level: 0 }) }),
+      entryOf({ id: 2, author: authorOf({ permission_level: 1 }) }),
+      entryOf({ id: 3, author: authorOf({ permission_level: 2 }) }),
+      entryOf({ id: 4, author: authorOf({ permission_level: 100 }) }),
     ];
     const { root, restore } = mount(entries);
     try {

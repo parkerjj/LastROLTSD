@@ -15,7 +15,7 @@ function session(
   return {
     user: {
       id, email, display_name: '主号', status,
-      admin: status === 'ACTIVE' ? 1 : 0,
+      permission_level: status === 'ACTIVE' ? 1 : 0,
       email_verified_at: status === 'ACTIVE' ? 1 : null, created_at: 1,
       has_avatar: false, avatar_version: 0, avatar_url: `/api/v1/users/${id}/avatar?v=0`,
     },

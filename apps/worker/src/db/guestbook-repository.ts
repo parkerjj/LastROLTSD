@@ -19,7 +19,7 @@ export interface GuestbookAuthor {
   hasAvatar: boolean;
   avatarVersion: number;
   avatarUrl: string;
-  admin: number;
+  permission_level: number;
 }
 
 export interface GuestbookReply {
@@ -130,7 +130,7 @@ function mapAuthor(row: MysqlRow, prefix: string): GuestbookAuthor | null {
     hasAvatar: Number(row[`${prefix}has_avatar`] ?? 0) === 1,
     avatarVersion,
     avatarUrl: `/api/v1/users/${id}/avatar?v=${avatarVersion}`,
-    admin: Number(row[`${prefix}admin`] ?? 0),
+    permission_level: Number(row[`${prefix}permission_level`] ?? 0),
   };
 }
 
@@ -156,7 +156,7 @@ function mapEntryRow(row: MysqlRow, now: number): GuestbookEntry {
 }
 
 const AUTHOR_COLUMNS = `CAST(u.id AS CHAR) AS author_user_id, u.display_name AS author_display_name,
-  u.avatar_version AS author_avatar_version, u.admin AS author_admin,
+  u.avatar_version AS author_avatar_version, u.permission_level AS author_permission_level,
   EXISTS (SELECT 1 FROM auth_avatars AS a WHERE a.user_id = u.id) AS author_has_avatar`;
 
 const ENTRY_COLUMNS = `e.id, e.category, e.item_id, e.is_zeny, e.contact, e.content, e.created_at, e.expires_at, e.edited_at, ${AUTHOR_COLUMNS}`;
@@ -184,7 +184,7 @@ async function attachReplies(
   const cappedRows = await db.all<MysqlRow>(
     `SELECT r.id, r.entry_id, r.content, r.created_at, r.edited_at,
         CAST(u.id AS CHAR) AS author_user_id, u.display_name AS author_display_name,
-        u.avatar_version AS author_avatar_version, u.admin AS author_admin,
+        u.avatar_version AS author_avatar_version, u.permission_level AS author_permission_level,
         EXISTS (SELECT 1 FROM auth_avatars AS a WHERE a.user_id = u.id) AS author_has_avatar
       FROM (
         SELECT r.*, ROW_NUMBER() OVER (PARTITION BY r.entry_id ORDER BY r.created_at DESC, r.id DESC) AS rn

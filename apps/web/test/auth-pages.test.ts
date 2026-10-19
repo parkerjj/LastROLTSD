@@ -22,7 +22,7 @@ function session(status: 'ACTIVE' | 'PENDING_EMAIL' = 'PENDING_EMAIL'): AuthSess
   return {
     user: {
       id: '10000', email: 'player@example.test', display_name: '旧昵称', status,
-      admin: status === 'ACTIVE' ? 1 : 0,
+      permission_level: status === 'ACTIVE' ? 1 : 0,
       email_verified_at: status === 'ACTIVE' ? 1 : null, created_at: 1,
       has_avatar: false, avatar_version: 0, avatar_url: '/api/v1/users/10000/avatar?v=0',
     },
@@ -127,10 +127,10 @@ describe('auth pages', () => {
     expect(tierOf(session('PENDING_EMAIL'))).toBe('萌新用户');
     expect(tierOf(session('ACTIVE'))).toBe('正式用户');
     const sponsored = session('ACTIVE');
-    sponsored.user.admin = 2;
+    sponsored.user.permission_level = 2;
     expect(tierOf(sponsored)).toBe('赞助用户');
     const administrator = session('ACTIVE');
-    administrator.user.admin = 100;
+    administrator.user.permission_level = 100;
     expect(tierOf(administrator)).toBe('管理员');
   });
 

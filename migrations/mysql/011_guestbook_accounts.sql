@@ -1,13 +1,14 @@
 ALTER TABLE auth_users
-  ADD COLUMN admin TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER status;
+  ADD COLUMN permission_level TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER status
+  COMMENT '账号等级：0 萌新 / 1 正式（邮箱已验证）/ 2 赞助 / >=100 管理员';
 
 -- 存量数据回填：新增列对所有既有行默认 0（萌新用户），而已通过邮箱验证的存量账号
 -- 不会再走 markEmailVerified（其 WHERE 条件 status = 'PENDING_EMAIL' AND
--- email_verified_at IS NULL，是唯一把 admin 由 0 升为 1 的代码路径），不回填的话
+-- email_verified_at IS NULL，是唯一把 permission_level 由 0 升为 1 的代码路径），不回填的话
 -- 这些已验证用户的新留言/回复会被一直标成「萌新用户」。只把 0 升为 1，不动赞助(2)/管理员(100)。
 UPDATE auth_users
-  SET admin = 1
-  WHERE admin = 0 AND status = 'ACTIVE' AND email_verified_at IS NOT NULL;
+  SET permission_level = 1
+  WHERE permission_level = 0 AND status = 'ACTIVE' AND email_verified_at IS NOT NULL;
 
 ALTER TABLE guestbook_entries
   ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id,

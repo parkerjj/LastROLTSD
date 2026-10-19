@@ -35,7 +35,7 @@ class FakeDatabase implements MysqlDatabase {
 }
 
 const authorColumns = {
-  author_user_id: '10002', author_display_name: '小明', author_avatar_version: 3, author_admin: 1, author_has_avatar: 1,
+  author_user_id: '10002', author_display_name: '小明', author_avatar_version: 3, author_permission_level: 1, author_has_avatar: 1,
 };
 
 const entryRow = (overrides: MysqlRow = {}): MysqlRow => ({
@@ -62,12 +62,12 @@ describe('guestbook MySQL repository', () => {
   });
 
   it('maps joined author columns and falls back to a guest author for legacy rows', async () => {
-    const legacy = entryRow({ id: 4, contact: 'QQ 123', author_user_id: null, author_display_name: null, author_avatar_version: null, author_admin: null, author_has_avatar: null });
+    const legacy = entryRow({ id: 4, contact: 'QQ 123', author_user_id: null, author_display_name: null, author_avatar_version: null, author_permission_level: null, author_has_avatar: null });
     const db = new FakeDatabase([[entryRow(), legacy], [{ entry_id: 3, cnt: 0 }, { entry_id: 4, cnt: 0 }], [], []]);
     const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 100);
     expect(page.items[0]?.author).toEqual({
       userId: '10002', displayName: '小明', hasAvatar: true, avatarVersion: 3,
-      avatarUrl: '/api/v1/users/10002/avatar?v=3', admin: 1,
+      avatarUrl: '/api/v1/users/10002/avatar?v=3', permission_level: 1,
     });
     expect(page.items[1]?.author).toBeNull();
     expect(page.items[1]?.contact).toBe('QQ 123');

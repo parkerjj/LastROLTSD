@@ -73,7 +73,7 @@ function profileHarness(status: AccountStatus = 'PENDING_EMAIL', identityStatus:
     readProfile: async (): Promise<AccountProfile> => {
       calls.push('readProfile');
       return {
-        id: user.id, email: user.email, display_name: user.displayName, status: user.status, admin: 0,
+        id: user.id, email: user.email, display_name: user.displayName, status: user.status, permission_level: 0,
         email_verified_at: user.emailVerifiedAt, created_at: user.createdAt,
         has_avatar: storedAvatar !== null, avatar_version: user.avatarVersion,
         avatar_url: `/api/v1/users/${user.id}/avatar?v=${user.avatarVersion}`,

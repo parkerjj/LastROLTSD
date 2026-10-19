@@ -16,7 +16,7 @@ export interface AccountProfile {
   display_name: string;
   status: AccountStatus;
   /** 账号等级：0 萌新 / 1 正式（邮箱已验证）/ 2 赞助 / >=100 管理员 */
-  admin: number;
+  permission_level: number;
   email_verified_at: number | null;
   created_at: number;
   has_avatar: boolean;

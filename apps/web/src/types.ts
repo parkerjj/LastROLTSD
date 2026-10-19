@@ -137,7 +137,7 @@ export interface GuestbookAuthor {
   hasAvatar: boolean;
   avatarVersion: number;
   avatarUrl: string;
-  admin: number;
+  permission_level: number;
 }
 export interface GuestbookReply {
   id: number;

@@ -50,7 +50,7 @@ class MeDatabase implements MysqlDatabase {
       return {
         id: '10000', email: 'player@example.test', display_name: 'Player', status: 'ACTIVE',
         email_verified_at: 1_700_000_000_000, created_at: 1_700_000_000_000, avatar_version: 0, has_avatar: 0,
-        admin: 1,
+        permission_level: 1,
       } as unknown as T;
     }
     return null;
@@ -177,7 +177,7 @@ class SessionDatabase implements MysqlDatabase {
         id: this.user.id, email: this.user.email, display_name: this.user.display_name,
         status: this.user.status, email_verified_at: this.user.email_verified_at,
         created_at: this.user.created_at, avatar_version: this.user.avatar_version, has_avatar: 0,
-        admin: 0,
+        permission_level: 0,
       } as unknown as T;
     }
     return null;

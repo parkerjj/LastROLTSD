@@ -274,7 +274,7 @@ interface ProfileRow extends MysqlRow {
   email: unknown;
   display_name: unknown;
   status: unknown;
-  admin: unknown;
+  permission_level: unknown;
   email_verified_at: unknown;
   created_at: unknown;
   has_avatar: unknown;
@@ -308,7 +308,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
 
     async readProfile(userId) {
       const row = await db.first<ProfileRow>(`SELECT CAST(u.id AS CHAR) AS id, u.email, u.display_name, u.status,
-          u.admin, u.email_verified_at, u.created_at, u.avatar_version,
+          u.permission_level, u.email_verified_at, u.created_at, u.avatar_version,
           EXISTS (SELECT 1 FROM auth_avatars AS a WHERE a.user_id = u.id) AS has_avatar
         FROM auth_users AS u
         WHERE u.id = ?
@@ -321,7 +321,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
         email: requiredString(row.email, 'email'),
         display_name: requiredString(row.display_name, 'display_name'),
         status: requiredString(row.status, 'status') as AccountStatus,
-        admin: numberValue(row.admin, 'admin'),
+        permission_level: numberValue(row.permission_level, 'permission_level'),
         email_verified_at: nullableNumberValue(row.email_verified_at, 'email_verified_at'),
         created_at: numberValue(row.created_at, 'created_at'),
         has_avatar: numberValue(row.has_avatar, 'has_avatar') === 1,
@@ -786,9 +786,9 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
     async markEmailVerified(userId, now) {
       beginAuthWrite(userId);
       const at = timestampValue(now, 'now');
-      // 邮箱验证通过即成为正式用户：仅将 admin=0（萌新）升为 1，不覆盖赞助(2)/管理员(100)
+      // 邮箱验证通过即成为正式用户：仅将 permission_level=0（萌新）升为 1，不覆盖赞助(2)/管理员(100)
       const result = await db.run(`UPDATE auth_users
-        SET email_verified_at = ?, status = 'ACTIVE', admin = IF(admin = 0, 1, admin), updated_at = ?
+        SET email_verified_at = ?, status = 'ACTIVE', permission_level = IF(permission_level = 0, 1, permission_level), updated_at = ?
         WHERE id = ? AND status = 'PENDING_EMAIL' AND email_verified_at IS NULL`, [
         at, at, userId,
       ]);
