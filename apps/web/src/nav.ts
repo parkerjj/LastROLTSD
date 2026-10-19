@@ -1,4 +1,6 @@
 import { mountAuthNav } from './auth/nav';
+import type { AuthApiClient } from './auth/api';
+import type { AuthStore } from './auth/store';
 
 export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors";
 
@@ -62,8 +64,9 @@ const mountedNavs = new WeakSet<HTMLElement>();
 /**
  * 渲染站点主导航：站内页面（分段架）+ 外链（次级样式）。
  * 搜索页自身的「搜索市场」链接使用页内锚点 #search。
+ * active 传 null 表示当前页面不属于任何导航项（如账号系统页面），无高亮项。
  */
-export function siteNavMarkup(active: SitePage): string {
+export function siteNavMarkup(active: SitePage | null): string {
   const items = NAV_ENTRIES.map((entry) => {
     const href =
       entry.page === "search" && active === "search" ? "#search" : entry.href;
@@ -93,13 +96,18 @@ export function siteNavMarkup(active: SitePage): string {
 
 /**
  * 绑定窄屏下的汉堡菜单开合。桌面端菜单钮被 CSS 隐藏，无需处理。
+ * 可选透传 store/api，供账号系统页面使用其已构造的 store 实例。
  */
-export function mountSiteNav(root: ParentNode = document): void {
+export function mountSiteNav(
+  root: ParentNode = document,
+  store?: AuthStore,
+  api?: AuthApiClient,
+): void {
   const nav = root.querySelector<HTMLElement>(".site-nav");
   const toggle = root.querySelector<HTMLButtonElement>(".nav-toggle");
   if (!nav || !toggle) return;
   if (mountedNavs.has(nav)) {
-    mountAuthNav(root);
+    mountAuthNav(root, store, api);
     return;
   }
   mountedNavs.add(nav);
@@ -136,5 +144,5 @@ export function mountSiteNav(root: ParentNode = document): void {
     desktopQuery.addEventListener("change", closeOnDesktop);
   }
 
-  mountAuthNav(root);
+  mountAuthNav(root, store, api);
 }

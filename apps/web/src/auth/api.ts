@@ -57,6 +57,8 @@ export interface AuthApiClient {
   setAvatar(input: AvatarUpdateInput): Promise<AuthUserResponse>;
   deleteAvatar(): Promise<AuthUserResponse>;
   getAvatar(userId: string, version: number): Promise<Blob>;
+  /** 账号命名空间之外的登录写请求（如留言板）：自动附带会话 CSRF，401/CSRF 失效会广播会话失败 */
+  sessionRequest<T>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<T>;
   setSessionCsrf(token: string): void;
   clearSessionCsrf(): void;
   onSessionFailure(listener: AuthSessionFailureListener): () => void;
@@ -189,6 +191,11 @@ export class AuthApi implements AuthApiClient {
     });
     if (!response.ok) throw await this.readError(response);
     return response.blob();
+  }
+
+  async sessionRequest<T>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<T> {
+    const response = await this.write(path, method, body, 'session');
+    return this.readJson<T>(response);
   }
 
   setSessionCsrf(token: string): void {

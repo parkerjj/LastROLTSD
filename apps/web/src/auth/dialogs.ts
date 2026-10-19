@@ -9,9 +9,9 @@ import {
   validatePassword,
 } from './utils';
 
-type DialogName = 'login' | 'register' | 'success' | 'forgot' | 'password';
+type DialogName = 'login' | 'register' | 'success' | 'forgot' | 'password' | 'name';
 
-const ALL_OPEN_CLASSES = ['login-open', 'register-open', 'success-open', 'forgot-open', 'password-open'];
+const ALL_OPEN_CLASSES = ['login-open', 'register-open', 'success-open', 'forgot-open', 'password-open', 'name-open'];
 const mountedDocuments = new WeakSet<Document>();
 
 export function mountAuthDialogs(
@@ -24,7 +24,7 @@ export function mountAuthDialogs(
 
   const host = doc.createElement('div');
   host.id = 'auth-dialogs';
-  host.innerHTML = loginDialogMarkup() + registerDialogMarkup() + successDialogMarkup() + forgotDialogMarkup() + passwordDialogMarkup();
+  host.innerHTML = loginDialogMarkup() + registerDialogMarkup() + successDialogMarkup() + forgotDialogMarkup() + passwordDialogMarkup() + nameDialogMarkup();
   doc.body.append(host);
 
   const loginDialog = host.querySelector<HTMLElement>('[data-login-scrim]')!;
@@ -32,10 +32,12 @@ export function mountAuthDialogs(
   const successDialog = host.querySelector<HTMLElement>('[data-success-scrim]')!;
   const forgotDialog = host.querySelector<HTMLElement>('[data-forgot-scrim]')!;
   const passwordDialog = host.querySelector<HTMLElement>('[data-password-scrim]')!;
+  const nameDialog = host.querySelector<HTMLElement>('[data-name-scrim]')!;
   const loginForm = host.querySelector<HTMLFormElement>('#dialog-login-form')!;
   const registerForm = host.querySelector<HTMLFormElement>('#dialog-register-form')!;
   const forgotForm = host.querySelector<HTMLFormElement>('#dialog-forgot-form')!;
   const passwordForm = host.querySelector<HTMLFormElement>('#dialog-password-form')!;
+  const nameForm = host.querySelector<HTMLFormElement>('#dialog-name-form')!;
   const passwordSuccess = host.querySelector<HTMLElement>('[data-password-success]')!;
   const retryAutologinButton = host.querySelector<HTMLButtonElement>('[data-retry-autologin]')!;
 
@@ -44,23 +46,26 @@ export function mountAuthDialogs(
   // 修改密码成功态展示中：此时本地会话已清（服务端已吊销全部会话），
   // identity-changed 不得关闭浮层，否则用户看不到成功提示
   let passwordSuccessShown = false;
+  // 修改昵称浮层会话代次：浮层关闭或被其它浮层替换时递增，
+  // 在途的保存请求随即失去更新浮层 UI 的资格（只保留数据回读）
+  let nameDialogGeneration = 0;
   let registerEditor: AvatarEditor | null = null;
   let registerAvatarProcessing = false;
   let autologinRetry: { email: string; password: string } | null = null;
   let active = true;
 
-  const setStatus = (dialog: HTMLElement, message: string, kind: 'info' | 'error', withIcon = false): void => {
+  const setStatus = (dialog: HTMLElement, message: string, kind: 'info' | 'error', withIcon = false, icon?: string): void => {
     const status = dialog.querySelector<HTMLElement>('[data-dialog-status]');
     if (!status) return;
     status.hidden = false;
     status.className = `login-dialog-status${kind === 'error' ? ' error' : ''}${withIcon ? ' with-icon' : ''}`;
     if (withIcon) {
-      const icon = doc.createElement('i');
-      icon.className = `ph ${kind === 'error' ? 'ph-warning' : 'ph-envelope-simple'}`;
-      icon.setAttribute('aria-hidden', 'true');
+      const iconEl = doc.createElement('i');
+      iconEl.className = `ph ${icon ?? (kind === 'error' ? 'ph-warning' : 'ph-envelope-simple')}`;
+      iconEl.setAttribute('aria-hidden', 'true');
       const text = doc.createElement('span');
       text.textContent = message;
-      status.replaceChildren(icon, text);
+      status.replaceChildren(iconEl, text);
     } else {
       status.textContent = message;
     }
@@ -146,6 +151,11 @@ export function mountAuthDialogs(
       passwordForm.hidden = false;
       passwordSuccess.hidden = true;
       passwordSuccessShown = false;
+    } else if (name === 'name') {
+      nameDialogGeneration += 1;
+      nameForm.reset();
+      hideStatus(nameDialog);
+      setBusy(nameForm, false, '保存');
     }
   };
 
@@ -154,7 +164,8 @@ export function mountAuthDialogs(
       : name === 'register' ? registerDialog
         : name === 'forgot' ? forgotDialog
           : name === 'password' ? passwordDialog
-            : successDialog;
+            : name === 'name' ? nameDialog
+              : successDialog;
     const input = dialog.querySelector<HTMLInputElement>('input');
     (input ?? dialog.querySelector<HTMLElement>('.login-dialog-close'))?.focus();
   };
@@ -168,6 +179,12 @@ export function mountAuthDialogs(
     doc.body.classList.add(`${name}-open`, 'auth-dialog-open');
     if (previous !== null) cleanupDialog(previous);
     if (name === 'register') ensureRegisterEditor();
+    // 修改昵称浮层每次打开都以服务端当前昵称为初值
+    if (name === 'name') {
+      const state = store.getState();
+      const input = nameForm.querySelector<HTMLInputElement>('#dialogNameInput');
+      if (input) input.value = state.status === 'active' || state.status === 'pending' ? state.user.display_name : '';
+    }
     focusFirstField(name);
   };
 
@@ -396,6 +413,46 @@ export function mountAuthDialogs(
     openDialog('login', null);
   };
 
+  const onNameSubmit = (event: SubmitEvent): void => {
+    event.preventDefault();
+    if (nameForm.getAttribute('aria-busy') === 'true') return;
+    const submittingUserId = currentUserId(store.getState());
+    if (!submittingUserId) {
+      setStatus(nameDialog, '登录状态已失效，请重新登录。', 'error', true);
+      return;
+    }
+    const input = nameForm.querySelector<HTMLInputElement>('#dialogNameInput')!;
+    const parsedName = parseDisplayName(input.value);
+    if (!parsedName) {
+      setStatus(nameDialog, '昵称需为 1–32 个字符。', 'error', true);
+      return;
+    }
+    // 本次请求归属的浮层会话代次；浮层在请求期间被关闭/重开后代次不再匹配，
+    // 迟到回调只同步数据，不再触碰浮层 UI（避免覆盖重开后的新草稿与状态提示）
+    const requestGeneration = nameDialogGeneration;
+    setBusy(nameForm, true, '正在保存…');
+    setStatus(nameDialog, '正在保存昵称…', 'info');
+    void api.updateProfile({ display_name: parsedName }).then(async () => {
+      if (!active) return;
+      // 请求期间本地身份已切换为其它账号时，这次修改属于原账号，不刷新当前账号视图
+      if (currentUserId(store.getState()) !== submittingUserId) return;
+      // 保存成功始终回读服务端资料：即使浮层已关闭，账号页与导航栏也要立即反映新昵称
+      await store.reconcile();
+      if (!active || openName !== 'name' || nameDialogGeneration !== requestGeneration) return;
+      if (currentUserId(store.getState()) !== submittingUserId) return;
+      input.value = parsedName;
+      setStatus(nameDialog, '昵称已更新。', 'info', true, 'ph-check-circle');
+    }).catch((error: unknown) => {
+      if (active && openName === 'name' && nameDialogGeneration === requestGeneration) {
+        setStatus(nameDialog, authErrorMessage(error, '昵称保存未完成，请稍后重试。'), 'error');
+      }
+    }).finally(() => {
+      if (active && openName === 'name' && nameDialogGeneration === requestGeneration) {
+        setBusy(nameForm, false, '保存');
+      }
+    });
+  };
+
   const onClick = (event: Event): void => {
     const target = event.target;
     if (!target || typeof target !== 'object' || !('nodeType' in target) || target.nodeType !== 1) return;
@@ -425,7 +482,13 @@ export function mountAuthDialogs(
       openDialog('password', openPassword);
       return;
     }
-    if (element.closest('[data-close-login], [data-close-register], [data-close-success], [data-close-forgot], [data-close-password]')) {
+    const openNameTrigger = element.closest<HTMLElement>('[data-open-name]');
+    if (openNameTrigger) {
+      event.preventDefault();
+      openDialog('name', openNameTrigger);
+      return;
+    }
+    if (element.closest('[data-close-login], [data-close-register], [data-close-success], [data-close-forgot], [data-close-password], [data-close-name]')) {
       closeDialog();
       return;
     }
@@ -449,7 +512,7 @@ export function mountAuthDialogs(
       if (icon) icon.className = visible ? 'ph ph-eye-slash' : 'ph ph-eye';
       return;
     }
-    const scrim = element.closest('[data-login-scrim], [data-register-scrim], [data-success-scrim], [data-forgot-scrim], [data-password-scrim]');
+    const scrim = element.closest('[data-login-scrim], [data-register-scrim], [data-success-scrim], [data-forgot-scrim], [data-password-scrim], [data-name-scrim]');
     if (scrim && !element.closest('.login-dialog')) closeDialog();
   };
 
@@ -485,6 +548,7 @@ export function mountAuthDialogs(
   registerForm.addEventListener('input', onRegisterInput);
   forgotForm.addEventListener('submit', onForgotSubmit);
   passwordForm.addEventListener('submit', onPasswordSubmit);
+  nameForm.addEventListener('submit', onNameSubmit);
   doc.addEventListener('click', onClick);
   doc.addEventListener('keydown', onKeydown);
 
@@ -497,6 +561,7 @@ export function mountAuthDialogs(
     registerForm.removeEventListener('input', onRegisterInput);
     forgotForm.removeEventListener('submit', onForgotSubmit);
     passwordForm.removeEventListener('submit', onPasswordSubmit);
+    nameForm.removeEventListener('submit', onNameSubmit);
     doc.removeEventListener('click', onClick);
     doc.removeEventListener('keydown', onKeydown);
     registerEditor?.destroy();
@@ -634,6 +699,26 @@ function passwordDialogMarkup(): string {
         <button type="button" class="login-dialog-submit" data-password-relogin>使用新密码重新登录</button>
       </div>
       <p class="login-dialog-note">新密码长度为 5–256 个字符；可使用粘贴和自动填充。</p>
+    </section>
+  </div>`;
+}
+
+function nameDialogMarkup(): string {
+  return `<div class="name-scrim" data-name-scrim>
+    <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogNameTitle">
+      <button type="button" class="login-dialog-close" data-close-name aria-label="关闭修改昵称浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
+      <p class="login-dialog-eyebrow">LTSD 账号</p>
+      <h2 class="login-dialog-title" id="dialogNameTitle">修改昵称</h2>
+      <p class="login-dialog-sub">昵称用于站内公开展示，允许与其他玩家重名。</p>
+      <form id="dialog-name-form" novalidate>
+        <div class="login-fields">
+          <div class="login-field"><label class="login-field-label" for="dialogNameInput">昵称</label>
+            <input id="dialogNameInput" name="display_name" type="text" autocomplete="nickname" placeholder="常用游戏角色名"></div>
+        </div>
+        <p class="login-dialog-status" data-dialog-status role="status" aria-live="polite" hidden></p>
+        <button type="submit" class="login-dialog-submit">保存</button>
+      </form>
+      <p class="login-dialog-note">昵称长度为 1–32 个字符；保存后立即更新站内显示。</p>
     </section>
   </div>`;
 }

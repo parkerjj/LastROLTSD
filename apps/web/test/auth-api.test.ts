@@ -7,6 +7,7 @@ const user: AccountProfile = {
   email: 'a@example.test',
   display_name: 'Player A',
   status: 'ACTIVE',
+  permission_level: 1,
   email_verified_at: 1,
   created_at: 1,
   has_avatar: false,
