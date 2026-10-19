@@ -56,7 +56,7 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec vitest run tests/integration/auth-account-flow.test.ts tests/integration/auth-account-races.test.ts --maxWorkers=1 --no-file-parallelism
+      - run: pnpm exec vitest run tests/integration/auth-account-flow.test.ts tests/integration/auth-account-races.test.ts tests/integration/ke-mysql.test.ts --maxWorkers=1 --no-file-parallelism
 
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -91,6 +91,11 @@ jobs:
           AUTH_MAIL_PAYLOAD_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_SECRET }}
           AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          KE_LICENSE_PRIVATE_KEY: ${{ secrets.KE_LICENSE_PRIVATE_KEY_V1 }}
+          KE_CORE_KEY: ${{ secrets.KE_CORE_KEY }}
+          KE_BUILD_MANIFEST: ${{ secrets.KE_BUILD_MANIFEST }}
+          KE_LICENSE_KEY_VERSION: ${{ vars.KE_LICENSE_KEY_VERSION }}
+          KE_CORE_KEY_VERSION: ${{ vars.KE_CORE_KEY_VERSION }}
       - name: Ensure production snapshot Queue exists
         shell: bash
         run: |
@@ -190,6 +195,27 @@ jobs:
           AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET: ${{ secrets.AUTH_MAIL_PAYLOAD_PREVIOUS_SECRET }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set Worker KoreEngine license secrets
+        if: steps.auth-preflight.outputs.ke_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          put_secret() {
+            local name="$1"
+            local value="$2"
+            if [[ -n "$value" ]]; then
+              printf '%s' "$value" | pnpm exec wrangler secret put "$name" --env production --config wrangler.toml
+            fi
+          }
+          put_secret KE_LICENSE_PRIVATE_KEY_v1 "$KE_LICENSE_PRIVATE_KEY"
+          put_secret KE_CORE_KEY "$KE_CORE_KEY"
+          put_secret KE_BUILD_MANIFEST "$KE_BUILD_MANIFEST"
+        env:
+          KE_LICENSE_PRIVATE_KEY: ${{ secrets.KE_LICENSE_PRIVATE_KEY_V1 }}
+          KE_CORE_KEY: ${{ secrets.KE_CORE_KEY }}
+          KE_BUILD_MANIFEST: ${{ secrets.KE_BUILD_MANIFEST }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy production Worker and web assets
         shell: bash
         run: |
@@ -212,6 +238,8 @@ jobs:
             if [[ -n "${AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION:-}" ]]; then
               deploy_args+=(--var "AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION:${AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION}")
             fi
+            if [[ -n "${KE_LICENSE_KEY_VERSION:-}" ]]; then deploy_args+=(--var "KE_LICENSE_KEY_VERSION:${KE_LICENSE_KEY_VERSION}"); fi
+            if [[ -n "${KE_CORE_KEY_VERSION:-}" ]]; then deploy_args+=(--var "KE_CORE_KEY_VERSION:${KE_CORE_KEY_VERSION}"); fi
           fi
           pnpm exec wrangler deploy --env production --config wrangler.toml "${deploy_args[@]}"
         env:
@@ -225,5 +253,7 @@ jobs:
           AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION: ${{ vars.AUTH_MAIL_PAYLOAD_PREVIOUS_KEY_VERSION }}
           AUTH_MAIL_DAILY_LIMIT: ${{ vars.AUTH_MAIL_DAILY_LIMIT }}
           AUTH_MAIL_MONTHLY_LIMIT: ${{ vars.AUTH_MAIL_MONTHLY_LIMIT }}
+          KE_LICENSE_KEY_VERSION: ${{ vars.KE_LICENSE_KEY_VERSION }}
+          KE_CORE_KEY_VERSION: ${{ vars.KE_CORE_KEY_VERSION }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

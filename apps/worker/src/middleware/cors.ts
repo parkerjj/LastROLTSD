@@ -12,7 +12,9 @@ const CORS_ORIGIN = { 'access-control-allow-origin': '*' } as const;
 const PREFLIGHT_HEADERS = {
   ...CORS_ORIGIN,
   'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'content-type, x-admin-secret',
+  // authorization：KE（IWA）用 Bearer token 调 /api/v1/ke/*。通配符 `*` 不覆盖 Authorization，必须显式列出；
+  // Bearer 不是 cookie 类「凭据」，allow-origin 仍可用 `*`。
+  'access-control-allow-headers': 'content-type, authorization, x-admin-secret',
   'access-control-max-age': '86400',
 } as const;
 
