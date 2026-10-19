@@ -274,6 +274,7 @@ interface ProfileRow extends MysqlRow {
   email: unknown;
   display_name: unknown;
   status: unknown;
+  admin: unknown;
   email_verified_at: unknown;
   created_at: unknown;
   has_avatar: unknown;
@@ -307,7 +308,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
 
     async readProfile(userId) {
       const row = await db.first<ProfileRow>(`SELECT CAST(u.id AS CHAR) AS id, u.email, u.display_name, u.status,
-          u.email_verified_at, u.created_at, u.avatar_version,
+          u.admin, u.email_verified_at, u.created_at, u.avatar_version,
           EXISTS (SELECT 1 FROM auth_avatars AS a WHERE a.user_id = u.id) AS has_avatar
         FROM auth_users AS u
         WHERE u.id = ?
@@ -320,6 +321,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
         email: requiredString(row.email, 'email'),
         display_name: requiredString(row.display_name, 'display_name'),
         status: requiredString(row.status, 'status') as AccountStatus,
+        admin: numberValue(row.admin, 'admin'),
         email_verified_at: nullableNumberValue(row.email_verified_at, 'email_verified_at'),
         created_at: numberValue(row.created_at, 'created_at'),
         has_avatar: numberValue(row.has_avatar, 'has_avatar') === 1,

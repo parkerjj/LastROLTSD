@@ -46,6 +46,9 @@ export function mountAuthDialogs(
   // 修改密码成功态展示中：此时本地会话已清（服务端已吊销全部会话），
   // identity-changed 不得关闭浮层，否则用户看不到成功提示
   let passwordSuccessShown = false;
+  // 修改昵称浮层会话代次：浮层关闭或被其它浮层替换时递增，
+  // 在途的保存请求随即失去更新浮层 UI 的资格（只保留数据回读）
+  let nameDialogGeneration = 0;
   let registerEditor: AvatarEditor | null = null;
   let registerAvatarProcessing = false;
   let autologinRetry: { email: string; password: string } | null = null;
@@ -149,6 +152,7 @@ export function mountAuthDialogs(
       passwordSuccess.hidden = true;
       passwordSuccessShown = false;
     } else if (name === 'name') {
+      nameDialogGeneration += 1;
       nameForm.reset();
       hideStatus(nameDialog);
       setBusy(nameForm, false, '保存');
@@ -423,22 +427,29 @@ export function mountAuthDialogs(
       setStatus(nameDialog, '昵称需为 1–32 个字符。', 'error', true);
       return;
     }
+    // 本次请求归属的浮层会话代次；浮层在请求期间被关闭/重开后代次不再匹配，
+    // 迟到回调只同步数据，不再触碰浮层 UI（避免覆盖重开后的新草稿与状态提示）
+    const requestGeneration = nameDialogGeneration;
     setBusy(nameForm, true, '正在保存…');
     setStatus(nameDialog, '正在保存昵称…', 'info');
     void api.updateProfile({ display_name: parsedName }).then(async () => {
-      if (!active || openName !== 'name') return;
+      if (!active) return;
       // 请求期间本地身份已切换为其它账号时，这次修改属于原账号，不刷新当前账号视图
       if (currentUserId(store.getState()) !== submittingUserId) return;
+      // 保存成功始终回读服务端资料：即使浮层已关闭，账号页与导航栏也要立即反映新昵称
       await store.reconcile();
-      if (!active || openName !== 'name' || currentUserId(store.getState()) !== submittingUserId) return;
+      if (!active || openName !== 'name' || nameDialogGeneration !== requestGeneration) return;
+      if (currentUserId(store.getState()) !== submittingUserId) return;
       input.value = parsedName;
       setStatus(nameDialog, '昵称已更新。', 'info', true, 'ph-check-circle');
     }).catch((error: unknown) => {
-      if (active && openName === 'name') {
+      if (active && openName === 'name' && nameDialogGeneration === requestGeneration) {
         setStatus(nameDialog, authErrorMessage(error, '昵称保存未完成，请稍后重试。'), 'error');
       }
     }).finally(() => {
-      if (active && openName === 'name') setBusy(nameForm, false, '保存');
+      if (active && openName === 'name' && nameDialogGeneration === requestGeneration) {
+        setBusy(nameForm, false, '保存');
+      }
     });
   };
 

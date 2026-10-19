@@ -22,6 +22,7 @@ function session(status: 'ACTIVE' | 'PENDING_EMAIL' = 'PENDING_EMAIL'): AuthSess
   return {
     user: {
       id: '10000', email: 'player@example.test', display_name: '旧昵称', status,
+      admin: status === 'ACTIVE' ? 1 : 0,
       email_verified_at: status === 'ACTIVE' ? 1 : null, created_at: 1,
       has_avatar: false, avatar_version: 0, avatar_url: '/api/v1/users/10000/avatar?v=0',
     },
@@ -101,13 +102,13 @@ describe('auth pages', () => {
     expect(isAuthPage('/accounts')).toBe(false);
   });
 
-  it('offers the compact avatar editor with only a save action on the account page', () => {
+  it('offers the compact avatar editor with save and delete actions on the account page', () => {
     authStore.setSession(session());
     const { root, dispose } = mount('/account');
     try {
       expect(root.querySelector<HTMLElement>('#account-avatar-editor .auth-avatar-editor.compact')).not.toBeNull();
       expect(root.querySelector<HTMLButtonElement>('#account-avatar-save')).not.toBeNull();
-      expect(root.querySelector<HTMLButtonElement>('#account-avatar-delete')).toBeNull();
+      expect(root.querySelector<HTMLButtonElement>('#account-avatar-delete')).not.toBeNull();
     } finally {
       dispose();
     }
@@ -126,8 +127,11 @@ describe('auth pages', () => {
     expect(tierOf(session('PENDING_EMAIL'))).toBe('萌新用户');
     expect(tierOf(session('ACTIVE'))).toBe('正式用户');
     const sponsored = session('ACTIVE');
-    sponsored.user.sponsored = true;
+    sponsored.user.admin = 2;
     expect(tierOf(sponsored)).toBe('赞助用户');
+    const administrator = session('ACTIVE');
+    administrator.user.admin = 100;
+    expect(tierOf(administrator)).toBe('管理员');
   });
 
   it('keeps the old account avatar and editable preview after an upload failure', async () => {
@@ -225,6 +229,7 @@ describe('auth pages', () => {
     current.user.avatar_url = '/api/v1/users/10000/avatar?v=4';
     authStore.setSession(current);
     const save = vi.spyOn(authApi, 'setAvatar');
+    const remove = vi.spyOn(authApi, 'deleteAvatar');
     const { dom, root, dispose } = mount('/account');
     installAvatarCanvas(dom);
     try {
@@ -236,8 +241,41 @@ describe('auth pages', () => {
       expect(root.querySelector<HTMLCanvasElement>('#account-avatar-editor canvas')?.hidden).toBe(true);
       expect(root.querySelector<HTMLButtonElement>('#account-avatar-save')?.disabled).toBe(true);
       expect(root.querySelector<HTMLImageElement>('#account-avatar-image')?.getAttribute('src')).toBe(current.user.avatar_url);
+      expect(root.querySelector<HTMLButtonElement>('#account-avatar-delete')?.hidden).toBe(false);
       root.querySelector<HTMLButtonElement>('#account-avatar-save')!.click();
       expect(save).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+    }
+  });
+
+  it('requires a small confirmation before deleting the stored avatar', async () => {
+    const current = session();
+    current.user.has_avatar = true;
+    current.user.avatar_version = 4;
+    current.user.avatar_url = '/api/v1/users/10000/avatar?v=4';
+    authStore.setSession(current);
+    const deletedUser = { ...current.user, has_avatar: false, avatar_version: 5, avatar_url: '/api/v1/users/10000/avatar?v=5' };
+    const remove = vi.spyOn(authApi, 'deleteAvatar').mockResolvedValue({ user: deletedUser });
+    vi.spyOn(authStore, 'reconcile').mockResolvedValue();
+    const { root, dispose } = mount('/account');
+    try {
+      const removeButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete')!;
+      const confirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation')!;
+      removeButton.click();
+      expect(confirmation.hidden).toBe(false);
+      root.querySelector<HTMLButtonElement>('#account-avatar-delete-cancel')!.click();
+      expect(confirmation.hidden).toBe(true);
+      expect(remove).not.toHaveBeenCalled();
+
+      removeButton.click();
+      root.querySelector<HTMLButtonElement>('#account-avatar-delete-confirm')!.click();
+      await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(root.querySelector<HTMLElement>('#account-avatar-status')?.textContent).toBe('头像已删除。'));
+      expect(confirmation.hidden).toBe(true);
+      expect(root.querySelector<HTMLImageElement>('#account-avatar-image')?.hidden).toBe(true);
+      expect(root.querySelector<HTMLElement>('#account-avatar-placeholder')?.hidden).toBe(false);
     } finally {
       dispose();
     }

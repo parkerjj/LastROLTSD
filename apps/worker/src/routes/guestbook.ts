@@ -74,6 +74,8 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
     try {
       const raw = parseGuestbookFilters(new URL(c.req.url).searchParams);
       const filters = { ...raw, context: guestbookCursorContext(raw) };
+      // 列表接口带 public max-age 缓存，不注入 hasReplied（避免污染边缘缓存）；
+      // 需要用户级态的 hasReplied 时由单条详情接口返回
       const result = await repo.search(filters, Date.now());
       return c.json(result, 200, { 'cache-control': 'public, max-age=15, s-maxage=15' });
     } catch (error) {
@@ -99,7 +101,7 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
       const bucketStart = Math.floor(now / GUESTBOOK_RATE_WINDOW_MS) * GUESTBOOK_RATE_WINDOW_MS;
       const result = await repo.create({ ...input, createdAt: now }, identity.userId, rateKey, bucketStart, GUESTBOOK_RATE_LIMIT);
       if (result.status === 'rate_limited') return rateLimitedResponse(id);
-      const item = await repo.readById(result.id, now);
+      const item = await repo.readById(result.id, now, identity.userId);
       return c.json({ item }, 201, { 'cache-control': 'no-store' });
     } catch (error) {
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);
@@ -120,12 +122,12 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
       const now = Date.now();
       const updated = await repo.updateEntryContent(entryId, identity.userId, content, now);
       if (!updated) {
-        const existing = await repo.readById(entryId, now);
+        const existing = await repo.readById(entryId, now, identity.userId);
         return existing
           ? jsonError('forbidden', '只能修改自己的留言', 403, id)
           : jsonError('not_found', '留言不存在', 404, id);
       }
-      const item = await repo.readById(entryId, now);
+      const item = await repo.readById(entryId, now, identity.userId);
       return c.json({ item }, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);
@@ -150,7 +152,7 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
       if (result.status === 'rate_limited') return rateLimitedResponse(id);
       if (result.status === 'duplicate') return jsonError('reply_exists', '你已经回复过这条留言，可直接编辑原回复', 409, id);
       if (result.status === 'entry_not_found') return jsonError('not_found', '留言不存在', 404, id);
-      const entry = await repo.readById(entryId, now);
+      const entry = await repo.readById(entryId, now, identity.userId);
       const item = entry?.replies.find((reply) => reply.id === result.id) ?? null;
       return c.json({ item }, 201, { 'cache-control': 'no-store' });
     } catch (error) {
@@ -169,13 +171,36 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
     try {
       const replyId = parseGuestbookIdParam(c.req.param('id'), 'id');
       const content = parseGuestbookReplySubmission(body.value);
-      const updated = await repo.updateReplyContent(replyId, identity.userId, content, Date.now());
+      const now = Date.now();
+      const updated = await repo.updateReplyContent(replyId, identity.userId, content, now);
       if (!updated) return jsonError('not_found', '回复不存在或无权修改', 404, id);
-      return c.json({ item: { id: replyId, content, editedAt: Date.now() } }, 200, { 'cache-control': 'no-store' });
+      return c.json({ item: { id: replyId, content, editedAt: now } }, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);
       logError('lastroweb.guestbook_error', error, { request_id: id });
       return jsonError('internal_error', 'Internal Server Error', 500, id, { retryable: true });
+    }
+  });
+
+  /** 单条详情：返回完整回复历史 + hasReplied；带 private 缓存避免边缘污染 */
+  app.get('/api/v1/guestbook/:id', async (c) => {
+    try {
+      const entryId = parseGuestbookIdParam(c.req.param('id'), 'id');
+      let currentUserId: string | undefined;
+      if (config.auth) {
+        try {
+          const identity = await config.auth.authenticate(c.req.raw);
+          currentUserId = identity.userId;
+        } catch {
+          // 未登录 → 匿名访问，hasReplied 为 null
+        }
+      }
+      const item = await repo.readById(entryId, Date.now(), currentUserId);
+      if (!item) return jsonError('not_found', '留言不存在', 404, requestId(c.req.raw));
+      return c.json({ item }, 200, { 'cache-control': 'private, no-cache' });
+    } catch (error) {
+      if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, requestId(c.req.raw));
+      throw error;
     }
   });
 }

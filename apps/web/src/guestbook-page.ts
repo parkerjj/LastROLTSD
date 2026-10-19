@@ -5,6 +5,7 @@ import {
   findCatalogMatches,
 } from "./catalog";
 import { cleanItemDescription, rmsAssetUrl } from "./render";
+import { tierBadge } from "./tier";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi, AuthApiError, type AuthApiClient } from "./auth/api";
 import { authStore, type AuthStore } from "./auth/store";
@@ -48,15 +49,8 @@ function itemIconUrl(itemId: number, itemName: string): string {
   return rmsAssetUrl(`items/large/${encodeURIComponent(file)}.gif`);
 }
 
-function authorBadge(admin: number): { label: string; cls: string } {
-  if (admin >= 100) return { label: "管理员", cls: "gb-badge--admin" };
-  if (admin === 2) return { label: "赞助用户", cls: "gb-badge--sponsor" };
-  if (admin === 1) return { label: "正式用户", cls: "gb-badge--verified" };
-  return { label: "萌新用户", cls: "gb-badge--newbie" };
-}
-
 function authorLine(author: GuestbookAuthor): string {
-  const badge = authorBadge(author.admin);
+  const badge = tierBadge(author.admin);
   const avatar = author.hasAvatar
     ? `<img class="gb-avatar" src="${escapeHtml(author.avatarUrl)}" alt="" loading="lazy">`
     : `<span class="gb-avatar gb-avatar--fallback" aria-hidden="true"><i class="ph ph-user-circle"></i></span>`;
@@ -79,10 +73,19 @@ function replyMarkup(reply: GuestbookReply, currentUserId: string | null): strin
 
 function replyAreaMarkup(entry: GuestbookEntry, currentUserId: string | null): string {
   const replies = (entry.replies ?? []).map((reply) => replyMarkup(reply, currentUserId)).join("");
+  const replied = entry.hasReplied !== null
+    ? entry.hasReplied
+    : !!currentUserId && entry.replies?.some((reply) => reply.author.userId === currentUserId);
+  const countBadge = entry.replyCount > 0
+    ? `<span class="gb-reply-count" aria-label="共 ${entry.replyCount} 条回复"><i class="ph ph-chat-teardrop" aria-hidden="true"></i> ${entry.replyCount}</span>`
+    : "";
+  const truncated = entry.hasMoreReplies
+    ? `<button type="button" class="gb-reply-truncated" data-gb-load-replies="${entry.id}"><i class="ph ph-caret-down" aria-hidden="true"></i> 展开全部 ${entry.replyCount} 条回复</button>`
+    : "";
   let compose: string;
   if (currentUserId === null) {
     compose = `<div class="guestbook-reply-gate"><span>登录后即可回复</span><button type="button" class="gb-reply-login" data-open-login><i class="ph ph-user" aria-hidden="true"></i> 登录</button></div>`;
-  } else if (entry.replies?.some((reply) => reply.author.userId === currentUserId)) {
+  } else if (replied) {
     compose = '<div class="guestbook-reply-gate is-done"><i class="ph ph-check-circle" aria-hidden="true"></i> 你已回复过这条留言，可编辑自己的回复</div>';
   } else {
     compose = `<div class="guestbook-reply-compose" data-reply-compose="${entry.id}">
@@ -90,7 +93,7 @@ function replyAreaMarkup(entry: GuestbookEntry, currentUserId: string | null): s
       <div class="guestbook-reply-compose-actions"><span class="gb-editor-status" role="status" aria-live="polite"></span><button type="button" data-gb-reply-submit="${entry.id}"><i class="ph ph-paper-plane-tilt" aria-hidden="true"></i> 回复</button></div>
     </div>`;
   }
-  return `<div class="guestbook-replies" data-replies="${entry.id}">${replies}</div>${compose}`;
+  return `<div class="guestbook-replies" data-replies="${entry.id}">${countBadge}${truncated}${replies}</div>${compose}`;
 }
 
 function entryMarkup(
@@ -647,7 +650,7 @@ export function mountGuestbookPage(
     }
   }
 
-  results.addEventListener("click", (event) => {
+  results.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement;
     const editButton = target.closest<HTMLElement>("[data-gb-edit]");
     if (editButton) {
@@ -671,6 +674,23 @@ export function mountGuestbookPage(
       const entry = article ? entriesById.get(Number(article.dataset.entryId)) : undefined;
       const compose = replySubmit.closest<HTMLElement>(".guestbook-reply-compose");
       if (entry && compose) void handleReplySubmit(entry, compose);
+      return;
+    }
+    const loadRepliesBtn = target.closest<HTMLButtonElement>("[data-gb-load-replies]");
+    if (loadRepliesBtn) {
+      const entryId = Number(loadRepliesBtn.dataset.gbLoadReplies);
+      const article = loadRepliesBtn.closest<HTMLElement>("article[data-entry-id]");
+      if (!article || !Number.isSafeInteger(entryId)) return;
+      loadRepliesBtn.disabled = true;
+      const prevLabel = loadRepliesBtn.innerHTML;
+      loadRepliesBtn.innerHTML = '<i class="ph ph-circle-notch" aria-hidden="true"></i> 加载中…';
+      try {
+        const detail = await api.getGuestbookEntry(entryId);
+        replaceEntry(detail.item);
+      } catch {
+        loadRepliesBtn.disabled = false;
+        loadRepliesBtn.innerHTML = '<i class="ph ph-warning-circle" aria-hidden="true"></i> 加载失败，点击重试';
+      }
     }
   });
 

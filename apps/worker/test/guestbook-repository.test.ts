@@ -47,14 +47,14 @@ const submission = { category: 'suggestion' as const, itemId: null, isZeny: fals
 
 describe('guestbook MySQL repository', () => {
   it('includes expired rows and computes expiration at the exact boundary', async () => {
-    const db = new FakeDatabase([[entryRow({ content: 'expired', expires_at: 20 })]]);
+    const db = new FakeDatabase([[entryRow({ content: 'expired', expires_at: 20 })], [{ entry_id: 3, cnt: 0 }], []]);
     const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 20);
     expect(page.items).toMatchObject([{ content: 'expired', isExpired: true }]);
     expect(db.calls[0]?.sql).not.toContain('expires_at >');
   });
 
   it('binds search values and escapes LIKE metacharacters literally', async () => {
-    const db = new FakeDatabase([]);
+    const db = new FakeDatabase([[], [], []]);
     await createGuestbookRepository(db, '0123456789abcdef').search({ q: "%_\\' OR 1=1 --", limit: 20, context: 'q' }, 100);
     expect(db.calls[0]?.sql).toContain("ESCAPE '\\\\'");
     expect(db.calls[0]?.sql).not.toContain("OR 1=1");
@@ -63,7 +63,7 @@ describe('guestbook MySQL repository', () => {
 
   it('maps joined author columns and falls back to a guest author for legacy rows', async () => {
     const legacy = entryRow({ id: 4, contact: 'QQ 123', author_user_id: null, author_display_name: null, author_avatar_version: null, author_admin: null, author_has_avatar: null });
-    const db = new FakeDatabase([[entryRow(), legacy], []]);
+    const db = new FakeDatabase([[entryRow(), legacy], [{ entry_id: 3, cnt: 0 }, { entry_id: 4, cnt: 0 }], [], []]);
     const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 100);
     expect(page.items[0]?.author).toEqual({
       userId: '10002', displayName: '小明', hasAvatar: true, avatarVersion: 3,
@@ -73,19 +73,60 @@ describe('guestbook MySQL repository', () => {
     expect(page.items[1]?.contact).toBe('QQ 123');
   });
 
-  it('attaches replies to their entries in ascending order', async () => {
-    const replyRow = {
-      id: 11, entry_id: 3, content: '回复内容', created_at: 5, edited_at: 6, ...authorColumns,
-    };
-    const db = new FakeDatabase([[entryRow()], [replyRow]]);
+  it('attaches replies to their entries in ascending order and caps per-entry', async () => {
+    const replyOld = { id: 10, entry_id: 3, content: '早回复', created_at: 1, edited_at: null, ...authorColumns };
+    const replyNew = { id: 11, entry_id: 3, content: '新回复', created_at: 5, edited_at: 6, ...authorColumns };
+    // COUNT → 2, capped query → returns 2 (under cap), displayed ASC
+    const db = new FakeDatabase(
+      [[entryRow()], [{ entry_id: 3, cnt: 2 }], [replyOld, replyNew]],
+    );
     const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 100);
-    expect(page.items[0]?.replies).toHaveLength(1);
-    expect(page.items[0]?.replies[0]).toMatchObject({
-      id: 11, entryId: 3, content: '回复内容', editedAt: 6,
-      author: { userId: '10002', displayName: '小明' },
-    });
-    expect(db.calls[1]?.sql).toContain('FROM guestbook_replies');
-    expect(db.calls[1]?.values).toEqual([3]);
+    expect(page.items[0]?.replyCount).toBe(2);
+    expect(page.items[0]?.hasMoreReplies).toBe(false);
+    expect(page.items[0]?.replies).toHaveLength(2);
+    expect(page.items[0]?.replies[0]).toMatchObject({ id: 10, content: '早回复' });
+    expect(page.items[0]?.replies[1]).toMatchObject({ id: 11, content: '新回复', editedAt: 6 });
+    // ROW_NUMBER 窗口函数出现在 capped SQL 中
+    expect(db.calls[2]?.sql).toContain('ROW_NUMBER() OVER (PARTITION BY');
+    // COUNT 是独立的 GROUP BY 查询
+    expect(db.calls[1]?.sql).toContain('COUNT(*) AS cnt');
+  });
+
+  it('caps replies at GUESTBOOK_MAX_REPLIES_PER_ENTRY and marks hasMoreReplies', async () => {
+    const many: MysqlRow[] = Array.from({ length: 10 }, (_, i) => ({
+      id: 10 + i, entry_id: 3, content: `回复${i}`, created_at: 1 + i, edited_at: null, ...authorColumns,
+    }));
+    // FakeDatabase 不执行 SQL 过滤，需手动模拟 ROW_NUMBER() cap 只返回最新 5 条
+    const capped = many.slice(-5);
+    const db = new FakeDatabase(
+      [[entryRow()], [{ entry_id: 3, cnt: 10 }], capped],
+    );
+    const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 100);
+    const entry = page.items[0];
+    expect(entry?.replyCount).toBe(10);
+    expect(entry?.replies.length).toBe(5);
+    expect(entry?.hasMoreReplies).toBe(true);
+  });
+
+  it('sets hasReplied via EXISTS check when currentUserId is provided', async () => {
+    const db = new FakeDatabase(
+      [[entryRow()], [{ entry_id: 3, cnt: 0 }], [], [{ entry_id: 3 }]],
+    );
+    const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 100, '10002');
+    expect(page.items[0]?.hasReplied).toBe(true);
+    // 提供 userId 时会触发额外的 hasReplied 查询
+    expect(db.calls[3]?.sql).toContain('guestbook_replies');
+    expect(db.calls[3]?.values).toContain('10002');
+  });
+
+  it('leaves hasReplied null when currentUserId is not provided', async () => {
+    const db = new FakeDatabase(
+      [[entryRow()], [{ entry_id: 3, cnt: 0 }], []],
+    );
+    const page = await createGuestbookRepository(db, '0123456789abcdef').search({ limit: 20, context: 'all' }, 100);
+    expect(page.items[0]?.hasReplied).toBeNull();
+    // 不触发 hasReplied 查询
+    expect(db.calls).toHaveLength(3);
   });
 
   it('inserts rate bucket and entry within one transaction, binding the user id', async () => {

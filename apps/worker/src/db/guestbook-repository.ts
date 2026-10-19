@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { MysqlDatabase, MysqlRow } from './mysql-client';
+import { GUESTBOOK_MAX_REPLIES_PER_ENTRY } from '../domain/guestbook';
 
 export type GuestbookCategory = 'buy' | 'sell' | 'suggestion';
 
@@ -39,6 +40,12 @@ export interface GuestbookEntry extends GuestbookSubmission {
   /** null 表示账号系统上线前的历史游客留言 */
   author: GuestbookAuthor | null;
   replies: GuestbookReply[];
+  /** 该留言下的回复总数（不受列表 cap 影响）。 */
+  replyCount: number;
+  /** true 表示列表视图因 cap 截断了回复；需按需加载完整历史。 */
+  hasMoreReplies: boolean;
+  /** 当请求携带登录态时，表示当前用户是否已回复过该留言；未携带登录态时为 null。 */
+  hasReplied: boolean | null;
 }
 
 export interface GuestbookFilters {
@@ -60,8 +67,8 @@ export type EntryCreateResult = { status: 'created'; id: number } | { status: 'r
 
 export interface GuestbookRepository {
   create(input: GuestbookSubmission, userId: string, rateKey: string, bucketStart: number, rateLimit: number): Promise<EntryCreateResult>;
-  search(filters: GuestbookFilters, now: number): Promise<{ items: GuestbookEntry[]; nextCursor: string | null }>;
-  readById(id: number, now: number): Promise<GuestbookEntry | null>;
+  search(filters: GuestbookFilters, now: number, currentUserId?: string): Promise<{ items: GuestbookEntry[]; nextCursor: string | null }>;
+  readById(id: number, now: number, currentUserId?: string): Promise<GuestbookEntry | null>;
   updateEntryContent(id: number, userId: string, content: string, editedAt: number): Promise<boolean>;
   createReply(entryId: number, userId: string, content: string, createdAt: number, rateKey: string, bucketStart: number, rateLimit: number): Promise<ReplyCreateResult>;
   updateReplyContent(id: number, userId: string, content: string, editedAt: number): Promise<boolean>;
@@ -142,6 +149,9 @@ function mapEntryRow(row: MysqlRow, now: number): GuestbookEntry {
     contact: row.contact == null ? null : String(row.contact),
     author: mapAuthor(row, 'author_'),
     replies: [],
+    replyCount: 0,
+    hasMoreReplies: false,
+    hasReplied: null,
   };
 }
 
@@ -151,19 +161,54 @@ const AUTHOR_COLUMNS = `CAST(u.id AS CHAR) AS author_user_id, u.display_name AS 
 
 const ENTRY_COLUMNS = `e.id, e.category, e.item_id, e.is_zeny, e.contact, e.content, e.created_at, e.expires_at, e.edited_at, ${AUTHOR_COLUMNS}`;
 
-async function attachReplies(db: MysqlDatabase, entries: GuestbookEntry[]): Promise<void> {
+/** 最多拉取的回复条数：列表视图用 cap，单条读取（readById）给更大的上限。 */
+async function attachReplies(
+  db: MysqlDatabase,
+  entries: GuestbookEntry[],
+  cap: number,
+  currentUserId?: string,
+): Promise<void> {
   if (entries.length === 0) return;
-  const placeholders = entries.map(() => '?').join(', ');
-  const rows = await db.all<MysqlRow>(`SELECT r.id, r.entry_id, r.content, r.created_at, r.edited_at,
-      CAST(u.id AS CHAR) AS author_user_id, u.display_name AS author_display_name,
-      u.avatar_version AS author_avatar_version, u.admin AS author_admin,
-      EXISTS (SELECT 1 FROM auth_avatars AS a WHERE a.user_id = u.id) AS author_has_avatar
-    FROM guestbook_replies AS r
-    INNER JOIN auth_users AS u ON u.id = r.user_id
-    WHERE r.entry_id IN (${placeholders})
-    ORDER BY r.created_at ASC, r.id ASC`, entries.map((entry) => entry.id));
+  const entryIds = entries.map((entry) => entry.id);
+  const placeholders = entryIds.map(() => '?').join(', ');
+
+  // 1. 总数：用于前端展示回复计数 + 判断是否截断
+  const countRows = await db.all<MysqlRow>(
+    `SELECT entry_id, COUNT(*) AS cnt FROM guestbook_replies WHERE entry_id IN (${placeholders}) GROUP BY entry_id`,
+    entryIds,
+  );
+  const countByEntry = new Map<number, number>(countRows.map((r) => [Number(r.entry_id), Number(r.cnt)]));
+
+  // 2. 逐条 cap 最新 N 条回复：MySQL 8 ROW_NUMBER() OVER (PARTITION BY entry_id ORDER BY ... DESC) rn <= cap
+  //    外层再按 ASC 排序恢复时间正序展示
+  const cappedRows = await db.all<MysqlRow>(
+    `SELECT r.id, r.entry_id, r.content, r.created_at, r.edited_at,
+        CAST(u.id AS CHAR) AS author_user_id, u.display_name AS author_display_name,
+        u.avatar_version AS author_avatar_version, u.admin AS author_admin,
+        EXISTS (SELECT 1 FROM auth_avatars AS a WHERE a.user_id = u.id) AS author_has_avatar
+      FROM (
+        SELECT r.*, ROW_NUMBER() OVER (PARTITION BY r.entry_id ORDER BY r.created_at DESC, r.id DESC) AS rn
+        FROM guestbook_replies AS r
+        WHERE r.entry_id IN (${placeholders})
+      ) AS r
+      INNER JOIN auth_users AS u ON u.id = r.user_id
+      WHERE r.rn <= ?
+      ORDER BY r.entry_id ASC, r.created_at ASC, r.id ASC`,
+    [...entryIds, cap],
+  );
+
+  // 3. 当请求携带登录态时，额外标记当前用户是否已回复过每条留言
+  let hasRepliedByEntry: Map<number, boolean> | undefined;
+  if (currentUserId !== undefined) {
+    const repliedRows = await db.all<MysqlRow>(
+      `SELECT entry_id FROM guestbook_replies WHERE entry_id IN (${placeholders}) AND user_id = ?`,
+      [...entryIds, currentUserId],
+    );
+    hasRepliedByEntry = new Map(repliedRows.map((r) => [Number(r.entry_id), true]));
+  }
+
   const byEntry = new Map<number, GuestbookEntry>(entries.map((entry) => [entry.id, entry]));
-  for (const row of rows) {
+  for (const row of cappedRows) {
     const entry = byEntry.get(Number(row.entry_id));
     const author = mapAuthor(row, 'author_');
     if (!entry || !author) continue;
@@ -175,6 +220,12 @@ async function attachReplies(db: MysqlDatabase, entries: GuestbookEntry[]): Prom
       editedAt: row.edited_at == null ? null : Number(row.edited_at),
       author,
     });
+  }
+  for (const entry of entries) {
+    const total = countByEntry.get(entry.id) ?? 0;
+    entry.replyCount = total;
+    entry.hasMoreReplies = total > entry.replies.length;
+    entry.hasReplied = hasRepliedByEntry ? (hasRepliedByEntry.get(entry.id) ?? false) : null;
   }
 }
 
@@ -202,7 +253,7 @@ export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: strin
       }
     },
 
-    async search(filters, now) {
+    async search(filters, now, currentUserId) {
       const where: string[] = [];
       const values: unknown[] = [];
       const bind = (value: unknown): string => { values.push(value); return '?'; };
@@ -229,7 +280,7 @@ export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: strin
       const hasMore = rows.length > limit;
       const visible = hasMore ? rows.slice(0, limit) : rows;
       const items = visible.map((row) => mapEntryRow(row, now));
-      await attachReplies(db, items);
+      await attachReplies(db, items, GUESTBOOK_MAX_REPLIES_PER_ENTRY, currentUserId);
       const last = visible.at(-1);
       return {
         items,
@@ -237,14 +288,16 @@ export function createGuestbookRepository(db: MysqlDatabase, cursorSecret: strin
       };
     },
 
-    async readById(id, now) {
+    async readById(id, now, currentUserId) {
       const row = await db.first<MysqlRow>(`SELECT ${ENTRY_COLUMNS}
         FROM guestbook_entries AS e
         LEFT JOIN auth_users AS u ON u.id = e.user_id
         WHERE e.id = ? LIMIT 1`, [id]);
       if (!row) return null;
       const entry = mapEntryRow(row, now);
-      await attachReplies(db, [entry]);
+      // 单条读取（创建/编辑/回复后的回读 + 详情接口）给更大的上限，展示完整历史；
+      // 仍保留硬上限防止异常数据拖垮 Worker 内存
+      await attachReplies(db, [entry], 200, currentUserId);
       return entry;
     },
 

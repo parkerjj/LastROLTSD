@@ -160,6 +160,12 @@ export interface GuestbookEntry {
   editedAt: number | null;
   author: GuestbookAuthor | null;
   replies: GuestbookReply[];
+  /** 该留言下的回复总数。 */
+  replyCount: number;
+  /** 列表视图是否截断了回复；true 表示还有更多回复未返回。 */
+  hasMoreReplies: boolean;
+  /** 当前用户是否已回复过（null 表示请求未携带登录态）。 */
+  hasReplied: boolean | null;
 }
 export interface GuestbookFilters {
   category?: GuestbookCategory;
@@ -178,6 +184,9 @@ export interface GuestbookSubmissionInput {
 export interface GuestbookPage {
   items: GuestbookEntry[];
   nextCursor: string | null;
+}
+export interface GuestbookDetail {
+  item: GuestbookEntry;
 }
 
 export type LastroAccountState = 'online' | 'offline' | 'auth_failed';

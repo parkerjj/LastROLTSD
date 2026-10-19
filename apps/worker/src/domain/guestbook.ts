@@ -9,6 +9,8 @@ export const GUESTBOOK_DEFAULT_LIMIT = 20;
 export const GUESTBOOK_MAX_LIMIT = 50;
 export const GUESTBOOK_RATE_WINDOW_MS = 60_000;
 export const GUESTBOOK_RATE_LIMIT = 5;
+/** 每条留言在列表视图中最多返回的最新回复条数；超出部分需按需加载。 */
+export const GUESTBOOK_MAX_REPLIES_PER_ENTRY = 5;
 export const GUESTBOOK_CURSOR_SECRET_MIN_LENGTH = 16;
 export const GUESTBOOK_RATE_SECRET_MIN_LENGTH = 32;
 

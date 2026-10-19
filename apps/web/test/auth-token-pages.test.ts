@@ -11,6 +11,7 @@ function session(status: 'ACTIVE' | 'PENDING_EMAIL' = 'PENDING_EMAIL'): AuthSess
   return {
     user: {
       id: '10000', email: 'player@example.test', display_name: '玩家', status,
+      admin: status === 'ACTIVE' ? 1 : 0,
       email_verified_at: status === 'ACTIVE' ? 1 : null, created_at: 1,
       has_avatar: false, avatar_version: 0, avatar_url: '/api/v1/users/10000/avatar?v=0',
     },

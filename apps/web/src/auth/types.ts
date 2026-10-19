@@ -6,13 +6,13 @@ export interface AccountProfile {
   email: string;
   display_name: string;
   status: AccountStatus;
+  /** 账号等级：0 萌新 / 1 正式（邮箱已验证）/ 2 赞助 / >=100 管理员 */
+  admin: number;
   email_verified_at: number | null;
   created_at: number;
   has_avatar: boolean;
   avatar_version: number;
   avatar_url: string;
-  /** 赞助标记：后端尚未提供，前端先行预留，缺省按未赞助处理 */
-  sponsored?: boolean;
 }
 
 export interface MailAvailability {

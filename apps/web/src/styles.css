@@ -2142,6 +2142,35 @@ label {
   padding: 0;
 }
 
+.gb-reply-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #8a9189;
+  font-size: .68rem;
+  font-weight: 600;
+}
+
+.gb-reply-truncated {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #a08a5c;
+  font-size: .68rem;
+  padding: 4px 8px;
+  background: #fbf5e4;
+  border: 1px dashed #e0cf9b;
+  border-radius: 4px;
+  cursor: pointer;
+  min-height: 0;
+}
+
+.gb-reply-truncated:hover:not(:disabled) {
+  color: #fff;
+  background: #a08a5c;
+  border-color: #a08a5c;
+}
+
 .guestbook-reply {
   display: grid;
   gap: 6px;
@@ -9537,7 +9566,8 @@ a.sponsor-honor-card:hover {
   cursor: pointer;
 }
 
-.auth-avatar-editor-cancel {
+.auth-avatar-editor-cancel,
+.auth-avatar-actions .secondary-button {
   border-color: var(--line-light);
   background: #f0e8da;
   color: var(--ink);
@@ -9556,7 +9586,21 @@ a.sponsor-honor-card:hover {
   gap: 9px;
 }
 
-.auth-avatar-editor [hidden] {
+.auth-avatar-delete-confirmation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--tip-line);
+  border-radius: 8px;
+  background: var(--tip-soft);
+  color: var(--ink);
+  font-size: .82rem;
+}
+
+.auth-avatar-editor [hidden],
+.auth-avatar-delete-confirmation[hidden] {
   display: none;
 }
 
@@ -9628,6 +9672,36 @@ a.sponsor-honor-card:hover {
 .auth-avatar-editor.compact .auth-help { flex-basis: 100%; margin: 0; font-size: .68rem; }
 
 .auth-avatar-editor.compact .auth-status { flex-basis: 100%; margin: 0; font-size: .72rem; }
+
+/* ---- 账号页头像行：沿用紧凑布局，但放大圆形预览并放开缩放滑杆（注册浮层仍为 44px 且无滑杆）---- */
+#account-avatar-editor .auth-avatar-editor.compact {
+  gap: 8px 14px;
+}
+
+#account-avatar-editor .auth-avatar-editor.compact .auth-avatar-editor-preview {
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+}
+
+#account-avatar-editor .auth-avatar-editor.compact .auth-avatar-editor-empty .ph { font-size: 38px; }
+
+/* 「选择图片」与上方「修改昵称」按钮对齐：同尺寸（min-height 34px / 6px 14px / .82rem 750），并贴右边缘 */
+#account-avatar-editor .auth-avatar-editor.compact .auth-avatar-editor-file {
+  min-height: 34px;
+  margin-left: auto;
+  padding: 6px 14px;
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+#account-avatar-editor .auth-avatar-editor.compact .auth-avatar-editor-zoom {
+  display: grid;
+  flex-basis: 100%;
+  max-width: 260px;
+  margin-top: 2px;
+  font-size: .74rem;
+}
 
 .auth-profile-summary dl {
   display: grid;

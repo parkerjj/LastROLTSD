@@ -1,6 +1,7 @@
 import { AuthApiError, type AuthApiClient } from './api';
 import { mountAvatarEditor, type AvatarEditor } from './avatar-editor';
 import { mountSiteNav, siteNavMarkup } from '../nav';
+import { tierBadge } from '../tier';
 import type { AuthStore, AuthStoreState } from './store';
 import type { AccountProfile } from './types';
 import {
@@ -51,6 +52,7 @@ export function mountAuthPage(
   let accountAvatarSaving = false;
   let accountAvatarSelected = false;
   let accountAvatarProcessing = false;
+  let accountHasStoredAvatar = false;
   let renderState = (_state: Readonly<AuthStoreState>): void => undefined;
 
   const listen = <K extends keyof HTMLElementEventMap>(
@@ -76,6 +78,8 @@ export function mountAuthPage(
     accountAvatarSaving = false;
     accountAvatarSelected = false;
     accountAvatarProcessing = false;
+    const deleteConfirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation');
+    if (deleteConfirmation) deleteConfirmation.hidden = true;
     const avatarStatus = root.querySelector<HTMLElement>('#account-avatar-status');
     if (avatarStatus) avatarStatus.textContent = '';
   };
@@ -131,6 +135,7 @@ export function mountAuthPage(
       accountAvatarEditor?.destroy();
       accountAvatarEditor = null;
       accountAvatarEditorKey = null;
+      accountHasStoredAvatar = false;
     }
     if (state.status === 'loading') {
       shell.textContent = '正在读取账号状态…';
@@ -168,7 +173,9 @@ export function mountAuthPage(
     if (pendingMessage) pendingMessage.hidden = user.status !== 'PENDING_EMAIL';
   };
 
+  // 删除头像沿用 AC-24 契约（版本更新，NULL 回默认头像）；紧凑布局下与「保存头像」并排，仅在已有头像时出现
   function renderAccountAvatar(user: AccountProfile): void {
+    accountHasStoredAvatar = user.has_avatar;
     const image = root.querySelector<HTMLImageElement>('#account-avatar-image');
     if (image) {
       image.hidden = !user.has_avatar;
@@ -180,6 +187,8 @@ export function mountAuthPage(
       placeholder.hidden = user.has_avatar;
       placeholder.textContent = initials(user.display_name);
     }
+    const remove = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    if (remove) remove.hidden = !user.has_avatar;
   }
 
   // 邮箱状态只展示三种形态：已验证 / 未验证 / 未验证且邮件发送额度用完（追加额度提示）
@@ -202,10 +211,9 @@ export function mountAuthPage(
     }
   }
 
-  // 账号等级：赞助用户 > 正式用户（邮箱已验证）> 萌新用户（邮箱未验证）；赞助标记后端提供前一律按未赞助处理
+  // 账号等级与留言板共用同一套 admin 映射（0 萌新 / 1 正式 / 2 赞助 / >=100 管理员）
   function renderAccountTier(user: AccountProfile): void {
-    const tier = user.sponsored === true ? '赞助用户' : user.status === 'ACTIVE' ? '正式用户' : '萌新用户';
-    setText(root, '#account-tier', tier);
+    setText(root, '#account-tier', tierBadge(user.admin).label);
   }
 
   function updateAvatarActions(selected: boolean, processing: boolean): void {
@@ -213,6 +221,11 @@ export function mountAuthPage(
     accountAvatarProcessing = processing;
     const save = root.querySelector<HTMLButtonElement>('#account-avatar-save');
     if (save) save.disabled = !selected || processing || accountAvatarSaving;
+    const remove = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    if (remove) {
+      remove.hidden = !accountHasStoredAvatar;
+      remove.disabled = selected || processing || accountAvatarSaving;
+    }
   }
 
   function ensureAccountAvatarEditor(user: AccountProfile): void {
@@ -439,6 +452,48 @@ export function mountAuthPage(
     });
   }
 
+  const avatarDeleteButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+  const avatarDeleteConfirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation');
+  const avatarDeleteConfirmButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete-confirm');
+  const avatarDeleteCancelButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete-cancel');
+  if (avatarDeleteButton && avatarDeleteConfirmation && avatarDeleteConfirmButton && avatarDeleteCancelButton) {
+    listen(avatarDeleteButton, 'click', () => {
+      if (!avatarDeleteButton.disabled && accountHasStoredAvatar) avatarDeleteConfirmation.hidden = false;
+    });
+    listen(avatarDeleteCancelButton, 'click', () => {
+      avatarDeleteConfirmation.hidden = true;
+      avatarDeleteButton.focus();
+    });
+    listen(avatarDeleteConfirmButton, 'click', () => {
+      const userId = currentUserId();
+      const submittedEpoch = identityEpoch;
+      if (!userId || !accountHasStoredAvatar || accountAvatarSaving) return;
+      accountAvatarSaving = true;
+      accountAvatarEditor?.setDisabled(true);
+      updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+      setText(root, '#account-avatar-status', '正在删除头像…');
+      void api.deleteAvatar().then(async (response) => {
+        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+        renderAccountAvatar(response.user);
+        accountAvatarEditorKey = null;
+        ensureAccountAvatarEditor(response.user);
+        avatarDeleteConfirmation.hidden = true;
+        setText(root, '#account-avatar-status', '头像已删除。');
+        await store.reconcile();
+      }).catch((error: unknown) => {
+        if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
+          setText(root, '#account-avatar-status', handleError(error, '头像删除失败，请重试。'));
+        }
+      }).finally(() => {
+        if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
+          accountAvatarSaving = false;
+          accountAvatarEditor?.setDisabled(false);
+          updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+        }
+      });
+    });
+  }
+
   if (pathname === '/account') renderState = renderAccountState;
   else if (pathname === '/verify-email') renderState = renderVerifyState;
   renderState(store.getState());
@@ -537,6 +592,12 @@ function accountMarkup(): string {
         <div id="account-avatar-editor"></div>
         <div class="auth-avatar-actions">
           <button id="account-avatar-save" type="button" disabled>保存头像</button>
+          <button id="account-avatar-delete" class="secondary-button" type="button" hidden>删除头像</button>
+          <div id="account-avatar-delete-confirmation" class="auth-avatar-delete-confirmation" hidden>
+            <span>删除当前头像？</span>
+            <button id="account-avatar-delete-confirm" type="button">确认删除</button>
+            <button id="account-avatar-delete-cancel" class="secondary-button" type="button">取消</button>
+          </div>
         </div>
         <p id="account-avatar-status" class="auth-status" role="status" aria-live="polite"></p>
       </section>

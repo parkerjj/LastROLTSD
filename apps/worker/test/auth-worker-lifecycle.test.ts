@@ -52,6 +52,7 @@ function trackAuthPools(options: { failIdentity?: boolean; dailyCount?: number }
           return [[{
             id: '10000', email: 'player@example.test', display_name: 'Player', status: 'PENDING_EMAIL',
             email_verified_at: null, created_at: 1_700_000_000_000, avatar_version: 0, has_avatar: 0,
+            admin: 0,
           }], []];
         }
         if (/^\s*SELECT\b/iu.test(sql) && sql.includes('FROM auth_rate_limits')) {

@@ -4,7 +4,7 @@ import { mountGuestbookPage } from '../src/guestbook-page';
 import type { GuestbookAuthor, GuestbookEntry, GuestbookReply } from '../src/types';
 
 const signedInUser = {
-  id: '10002', email: 'n@example.com', display_name: '小明', status: 'ACTIVE',
+  id: '10002', email: 'n@example.com', display_name: '小明', status: 'ACTIVE', admin: 1,
   email_verified_at: 1, created_at: 1, has_avatar: true, avatar_version: 2,
   avatar_url: '/api/v1/users/10002/avatar?v=2',
 };
@@ -23,6 +23,7 @@ const authorOf = (overrides: Partial<GuestbookAuthor> = {}): GuestbookAuthor => 
 const entryOf = (overrides: Partial<GuestbookEntry> = {}): GuestbookEntry => ({
   id: 1, category: 'suggestion', itemId: null, isZeny: false, contact: null, content: '内容',
   createdAt: 1, expiresAt: null, isExpired: false, editedAt: null, author: null, replies: [],
+  replyCount: 0, hasMoreReplies: false, hasReplied: null,
   ...overrides,
 });
 

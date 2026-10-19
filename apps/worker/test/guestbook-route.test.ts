@@ -31,6 +31,7 @@ function patch(app: Hono<any>, path: string, body: unknown) {
 const entryFixture = (overrides: Partial<GuestbookEntry> = {}): GuestbookEntry => ({
   id: 1, category: 'sell', itemId: 100, isZeny: false, contact: null, content: 'hello',
   createdAt: 1, expiresAt: null, isExpired: false, editedAt: null, author: null, replies: [],
+  replyCount: 0, hasMoreReplies: false, hasReplied: null,
   ...overrides,
 });
 

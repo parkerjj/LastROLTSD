@@ -1,4 +1,4 @@
-import type { GuestbookFilters, GuestbookPage, GuestbookSubmissionInput, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage, SponsorSummary } from './types';
+import type { GuestbookDetail, GuestbookFilters, GuestbookPage, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage, SponsorSummary } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -19,7 +19,8 @@ export interface MarketApiClient {
   getOptions(signal?: AbortSignal): Promise<OptionDefinitionsResponse>;
   getStatus(signal?: AbortSignal): Promise<MarketStatus>;
   searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage>;
-  createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }>;
+  /** 获取单条留言详情（含完整回复历史）。 */
+  getGuestbookEntry(id: number, signal?: AbortSignal): Promise<GuestbookDetail>;
   getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse>;
   getSponsorSummary(signal?: AbortSignal): Promise<SponsorSummary>;
 }
@@ -68,14 +69,8 @@ export class MarketApi implements MarketApiClient {
     return this.request(`/api/v1/guestbook?${params.toString()}`, signal, 'no-cache');
   }
 
-  async createGuestbookEntry(input: GuestbookSubmissionInput, signal?: AbortSignal): Promise<{ item: GuestbookPage['items'][number] }> {
-    const response = await fetch('/api/v1/guestbook', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(input),
-      ...(signal ? { signal } : {}),
-    });
-    return this.readResponse(response);
+  async getGuestbookEntry(id: number, signal?: AbortSignal): Promise<GuestbookDetail> {
+    return this.request(`/api/v1/guestbook/${id}`, signal);
   }
 
   async getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse> {
