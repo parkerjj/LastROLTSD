@@ -131,6 +131,22 @@ export interface MarketStatus {
 }
 
 export type GuestbookCategory = 'buy' | 'sell' | 'suggestion';
+export interface GuestbookAuthor {
+  userId: string;
+  displayName: string;
+  hasAvatar: boolean;
+  avatarVersion: number;
+  avatarUrl: string;
+  permission_level: number;
+}
+export interface GuestbookReply {
+  id: number;
+  entryId: number;
+  content: string;
+  createdAt: number;
+  editedAt: number | null;
+  author: GuestbookAuthor;
+}
 export interface GuestbookEntry {
   id: number;
   category: GuestbookCategory;
@@ -141,6 +157,15 @@ export interface GuestbookEntry {
   createdAt: number;
   expiresAt: number | null;
   isExpired: boolean;
+  editedAt: number | null;
+  author: GuestbookAuthor | null;
+  replies: GuestbookReply[];
+  /** 该留言下的回复总数。 */
+  replyCount: number;
+  /** 列表视图是否截断了回复；true 表示还有更多回复未返回。 */
+  hasMoreReplies: boolean;
+  /** 当前用户是否已回复过（null 表示请求未携带登录态）。 */
+  hasReplied: boolean | null;
 }
 export interface GuestbookFilters {
   category?: GuestbookCategory;
@@ -153,13 +178,15 @@ export interface GuestbookSubmissionInput {
   category: GuestbookCategory;
   itemId?: number;
   isZeny?: boolean;
-  contact?: string;
   content: string;
   duration?: '1d' | '3d' | '7d' | 'permanent';
 }
 export interface GuestbookPage {
   items: GuestbookEntry[];
   nextCursor: string | null;
+}
+export interface GuestbookDetail {
+  item: GuestbookEntry;
 }
 
 export type LastroAccountState = 'online' | 'offline' | 'auth_failed';

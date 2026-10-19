@@ -15,6 +15,7 @@ function session(
   return {
     user: {
       id, email, display_name: '主号', status,
+      permission_level: status === 'ACTIVE' ? 1 : 0,
       email_verified_at: status === 'ACTIVE' ? 1 : null, created_at: 1,
       has_avatar: false, avatar_version: 0, avatar_url: `/api/v1/users/${id}/avatar?v=0`,
     },
@@ -50,12 +51,13 @@ function mount() {
   const doc = dom.window.document;
   const store = new AuthStore(storeApiStub(), { broadcastChannel: null });
   const dispose = mountAuthDialogs(doc, store, authApi);
-  const open = (kind: 'login' | 'register' | 'forgot' | 'password'): HTMLButtonElement => {
+  const open = (kind: 'login' | 'register' | 'forgot' | 'password' | 'name'): HTMLButtonElement => {
     const trigger = doc.createElement('button');
     trigger.type = 'button';
     if (kind === 'login') trigger.dataset.openLogin = '';
     else if (kind === 'register') trigger.dataset.openRegister = '';
     else if (kind === 'forgot') trigger.dataset.openForgot = '';
+    else if (kind === 'name') trigger.dataset.openName = '';
     else trigger.dataset.openPassword = '';
     doc.body.append(trigger);
     trigger.click();
@@ -618,6 +620,118 @@ describe('auth dialogs', () => {
 
       doc.querySelector<HTMLButtonElement>('[data-success-scrim] [data-close-success]')!.click();
       expect(doc.activeElement).toBe(rebuiltTrigger);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('opens the name dialog with the current nickname and saves a new one through updateProfile', async () => {
+    const update = vi.spyOn(authApi, 'updateProfile')
+      .mockResolvedValue({ user: { ...session('ACTIVE').user, display_name: '新昵称' } });
+    const { dom, doc, store, dispose, open } = mount();
+    const reconcile = vi.spyOn(store, 'reconcile').mockResolvedValue();
+    try {
+      store.setSession(session('ACTIVE'));
+      open('name');
+      expect(doc.body.classList.contains('name-open')).toBe(true);
+      expect(doc.body.classList.contains('auth-dialog-open')).toBe(true);
+      const input = doc.querySelector<HTMLInputElement>('#dialogNameInput')!;
+      expect(input.value).toBe('主号');
+      expect(doc.activeElement).toBe(input);
+      const form = doc.querySelector<HTMLFormElement>('#dialog-name-form')!;
+
+      input.value = '新昵称';
+      submit(dom, form);
+      expect(update).toHaveBeenCalledWith({ display_name: '新昵称' });
+      expect(dialogStatus(doc, 'name').textContent).toBe('正在保存昵称…');
+      expect(form.getAttribute('aria-busy')).toBe('true');
+
+      await vi.waitFor(() => expect(dialogStatus(doc, 'name').textContent).toBe('昵称已更新。'));
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      expect(dialogStatus(doc, 'name').querySelector('.ph-check-circle')).not.toBeNull();
+      expect(form.getAttribute('aria-busy')).toBe('false');
+      expect(input.value).toBe('新昵称');
+      expect(doc.body.classList.contains('name-open')).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('still reconciles a successful nickname save when the dialog closed mid-flight', async () => {
+    let resolveUpdate: (value: { user: AuthSessionResponse['user'] }) => void = () => {};
+    const update = vi.spyOn(authApi, 'updateProfile').mockImplementation(
+      () => new Promise<{ user: AuthSessionResponse['user'] }>((resolve) => { resolveUpdate = resolve; }),
+    );
+    const { dom, doc, store, dispose, open } = mount();
+    const reconcile = vi.spyOn(store, 'reconcile').mockResolvedValue();
+    try {
+      store.setSession(session('ACTIVE'));
+      open('name');
+      const form = doc.querySelector<HTMLFormElement>('#dialog-name-form')!;
+      const input = doc.querySelector<HTMLInputElement>('#dialogNameInput')!;
+      input.value = '新昵称';
+      submit(dom, form);
+      expect(form.getAttribute('aria-busy')).toBe('true');
+
+      doc.querySelector<HTMLButtonElement>('[data-name-scrim] [data-close-name]')!.click();
+      expect(doc.body.classList.contains('name-open')).toBe(false);
+
+      resolveUpdate({ user: { ...session('ACTIVE').user, display_name: '新昵称' } });
+      await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+      expect(update).toHaveBeenCalledTimes(1);
+      // 迟到的成功回调不重开浮层、不触碰已复位的表单，但账号页与导航栏已经过 reconcile 同步
+      expect(doc.body.classList.contains('name-open')).toBe(false);
+      expect(form.getAttribute('aria-busy')).toBe('false');
+      expect(input.value).toBe('');
+    } finally {
+      dispose();
+    }
+  });
+
+  it('does not overwrite a reopened name dialog draft with a stale save response', async () => {
+    let resolveUpdate: (value: { user: AuthSessionResponse['user'] }) => void = () => {};
+    const update = vi.spyOn(authApi, 'updateProfile').mockImplementation(
+      () => new Promise<{ user: AuthSessionResponse['user'] }>((resolve) => { resolveUpdate = resolve; }),
+    );
+    const { dom, doc, store, dispose, open } = mount();
+    const reconcile = vi.spyOn(store, 'reconcile').mockResolvedValue();
+    try {
+      store.setSession(session('ACTIVE'));
+      open('name');
+      const input = doc.querySelector<HTMLInputElement>('#dialogNameInput')!;
+      input.value = '新昵称';
+      submit(dom, doc.querySelector<HTMLFormElement>('#dialog-name-form')!);
+
+      doc.querySelector<HTMLButtonElement>('[data-name-scrim] [data-close-name]')!.click();
+      open('name');
+      // 重开后输入框以服务端当前昵称为初值，用户已开始输入新草稿
+      expect(input.value).toBe('主号');
+      input.value = '更新的草稿';
+
+      resolveUpdate({ user: { ...session('ACTIVE').user, display_name: '新昵称' } });
+      await vi.waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+      expect(update).toHaveBeenCalledTimes(1);
+      // 迟到的成功回调只回读资料：不覆盖新草稿、不显示旧的成功提示、不占用表单
+      expect(input.value).toBe('更新的草稿');
+      expect(dialogStatus(doc, 'name').hidden).toBe(true);
+      expect(doc.querySelector<HTMLFormElement>('#dialog-name-form')!.getAttribute('aria-busy')).toBe('false');
+    } finally {
+      dispose();
+    }
+  });
+
+  it('rejects an empty nickname in the name dialog without calling the API', () => {
+    const update = vi.spyOn(authApi, 'updateProfile');
+    const { dom, doc, store, dispose, open } = mount();
+    try {
+      store.setSession(session('ACTIVE'));
+      open('name');
+      const form = doc.querySelector<HTMLFormElement>('#dialog-name-form')!;
+      doc.querySelector<HTMLInputElement>('#dialogNameInput')!.value = '   ';
+      submit(dom, form);
+      expect(update).not.toHaveBeenCalled();
+      expect(dialogStatus(doc, 'name').textContent).toBe('昵称需为 1–32 个字符。');
+      expect(dialogStatus(doc, 'name').querySelector('.ph-warning')).not.toBeNull();
     } finally {
       dispose();
     }

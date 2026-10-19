@@ -26,7 +26,7 @@ class FakeDatabase implements MysqlDatabase {
     if (sql.includes('auth_credentials')) return [credentialRow as unknown as T];
     if (sql.includes('EXISTS (SELECT 1 FROM auth_avatars')) return [{
       id: userRow.id, email: userRow.email, display_name: userRow.display_name, status: userRow.status,
-      email_verified_at: null, created_at: userRow.created_at, has_avatar: 1, avatar_version: 4,
+      email_verified_at: null, created_at: userRow.created_at, has_avatar: 1, avatar_version: 4, permission_level: 2,
     } as unknown as T];
     return [];
   }
@@ -40,7 +40,7 @@ class FakeDatabase implements MysqlDatabase {
       id: userRow.id, email: userRow.email, email_normalized: userRow.email_normalized,
       display_name: userRow.display_name, status: userRow.status, email_verified_at: null,
       credential_version: 2, auth_version: 3, avatar_version: 4, created_at: userRow.created_at,
-      updated_at: userRow.updated_at, has_avatar: 1,
+      updated_at: userRow.updated_at, has_avatar: 1, permission_level: 2,
     } as unknown as T;
     if (sql.includes('FROM auth_users')) {
       if (sql.includes('FOR UPDATE') && String(values[0]) !== String(this.authUserRow.id)) return null;
@@ -76,11 +76,11 @@ describe('account MySQL repository', () => {
       scheme: 'hmac-sha256-v1', keyVersion: 'v1',
     });
     await expect(repository.readProfile('9007199254740993')).resolves.toMatchObject({
-      id: '9007199254740993', has_avatar: true, avatar_version: 4,
+      id: '9007199254740993', permission_level: 2, has_avatar: true, avatar_version: 4,
       avatar_url: '/api/v1/users/9007199254740993/avatar?v=4',
     });
     expect(db.calls.every(({ sql }) => !sql.includes('avatar_base64'))).toBe(true);
-    expect(db.calls.find(({ sql }) => sql.includes('EXISTS'))?.sql).toContain('EXISTS');
+    expect(db.calls.find(({ sql }) => sql.includes('EXISTS'))?.sql).toContain('u.permission_level');
   });
 
   it('returns the live session expiry with the joined identity', async () => {

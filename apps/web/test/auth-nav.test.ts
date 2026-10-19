@@ -25,6 +25,7 @@ function session(displayName: string, status: 'ACTIVE' | 'PENDING_EMAIL' = 'ACTI
       email: 'a@example.test',
       display_name: displayName,
       status,
+      permission_level: status === 'ACTIVE' ? 1 : 0,
       email_verified_at: status === 'ACTIVE' ? 1 : null,
       created_at: 1,
       has_avatar: false,

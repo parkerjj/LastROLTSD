@@ -29,10 +29,6 @@ export function acceptedMessage(response: AuthAcceptedResponse, purpose: 'regist
   return availability ? `${base} ${availability}` : base;
 }
 
-export function renderMailAvailability(target: HTMLElement | null, availability: MailAvailability | null, purpose: 'verify' | 'reset'): void {
-  if (target) target.textContent = availability ? formatMailAvailability(availability, purpose) : '';
-}
-
 export function formatMailAvailability(availability: MailAvailability, purpose: 'register' | 'verify' | 'reset'): string {
   if (availability.code === 'MAIL_DAILY_QUOTA') {
     const restoreTime = availability.retry_at === null ? '' : `预计当地恢复时间：${formatTimestamp(availability.retry_at)}。`;
