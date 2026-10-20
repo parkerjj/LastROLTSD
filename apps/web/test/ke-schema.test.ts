@@ -63,4 +63,18 @@ describe('ke config schema', () => {
     const blockTypes = BLOCK_DEFS.map((b) => b.type);
     expect(new Set(blockTypes).size).toBe(blockTypes.length);
   });
+
+  it('smartEncore 文案表示舞娘/诗人专用的自动安可', () => {
+    const field = BLOCK_DEFS.find((block) => block.type === 'useSelf_skill')?.fields.find((item) => item.key === 'smartEncore');
+    expect(field?.label).toBe('自动安可');
+    expect(field?.help).toContain('舞娘/诗人专用');
+  });
+
+  it('新方案默认启用优化寻路、自动出售和自动存仓', () => {
+    const defaults = Object.fromEntries(CONFIG_SCALARS.map(({ key, default: value }) => [key, value]));
+    expect(defaults.route_randomWalk).toBe('2');
+    expect(defaults.sellAuto).toBe('1');
+    expect(defaults.sellAuto_npc).toBe('prontera 105 87');
+    expect(defaults.storageAuto).toBe('1');
+  });
 });

@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildJobSkills } from './ke-job-map.mjs';
+import { buildJobNamesZh, buildJobSkills, buildSkillGroups, flattenJobSkillGroups } from './ke-job-map.mjs';
 import { TIMEOUT_HELP } from './ke-timeout-help.mjs';
 
 const source = process.argv[2] ?? '/home/parker/Development/RO/KoreEngine/data/static';
@@ -54,8 +54,12 @@ function build() {
     name,
   })));
 
-  const jobSkills = buildJobSkills(skills);
-  console.log(`已生成 job_skills（${Object.keys(jobSkills).length} 个职业）。`);
+  const jobSkillGroups = buildJobSkills(skills, jobs);
+  const jobSkills = flattenJobSkillGroups(jobSkillGroups);
+  const jobsZh = buildJobNamesZh(jobs);
+  // 「全部技能」视图：技能 → 所属职业中文名，供编辑器按职业分组展示。
+  const skillGroups = buildSkillGroups(skills, jobSkillGroups, jobs, jobsZh);
+  console.log(`已生成职业技能分组（${Object.keys(jobSkillGroups).length} 个职业）和中文职业名（${Object.keys(jobsZh).length} 个职业）。`);
 
   // 地图名：从 KE 的 maps/portals.json 提取全部出现的源/目标地图代码，供地图选择器做建议。
   const maps = [];
@@ -92,6 +96,7 @@ function build() {
   const options = {
     schemaVersion: 1,
     jobs,
+    jobs_zh: jobsZh,
     skills,
     statuses,
     monsters,
@@ -99,6 +104,8 @@ function build() {
     maps,
     timeouts,
     job_skills: jobSkills,
+    job_skill_groups: jobSkillGroups,
+    skill_groups: skillGroups,
   };
 
   mkdirSync(outDir, { recursive: true });

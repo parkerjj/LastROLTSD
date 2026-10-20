@@ -59,7 +59,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   // —— 路线 ——
   { key: 'lockMap', label: '挂机地图', help: '自动挂机的地图代码（如 prt_fild08）。进入该图后才开始挂机。', type: 'map', group: '路线' },
   { key: 'saveMap', label: '回城地图', help: '死亡/补给后回城的城镇代码（如 prontera）。', type: 'map', group: '路线' },
-  { key: 'route_randomWalk', label: '走动寻怪', help: '在挂机图里怎么找怪。关闭=站在原地等怪；KE模式=随机走动；优化模式=沿地图路线系统扫图。', type: 'enum', default: '1', group: '路线', options: [
+  { key: 'route_randomWalk', label: '走动寻怪', help: '在挂机图里怎么找怪。关闭=站在原地等怪；KE模式=随机走动；优化模式=沿地图路线系统扫图。', type: 'enum', default: '2', group: '路线', options: [
     { value: '0', label: '关闭' },
     { value: '1', label: 'KE 模式' },
     { value: '2', label: '优化模式' },
@@ -143,11 +143,11 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   { key: 'useSelf_skill_smartHeal', label: '智能治疗', help: '根据 HP/SP 情况智能决定用哪个治疗技能，而不是按固定顺序。', type: 'enum', default: '1', group: '技能', options: ON_OFF },
 
   // —— 商店仓库 ——
-  { key: 'sellAuto', label: '自动出售', help: '是否自动把不需要的物品卖给 NPC。', type: 'enum', default: '0', group: '商店仓库', options: ON_OFF },
-  { key: 'sellAuto_npc', label: '出售 NPC 位置', help: '卖东西的 NPC 坐标（格式：地图 x y，如 prontera 156 88）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string', group: '商店仓库' },
+  { key: 'sellAuto', label: '自动出售', help: '是否自动把不需要的物品卖给 NPC。', type: 'enum', default: '1', group: '商店仓库', options: ON_OFF },
+  { key: 'sellAuto_npc', label: '出售 NPC 位置', help: '卖东西的 NPC 坐标（格式：地图 x y，如 prontera 105 87）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string', default: 'prontera 105 87', group: '商店仓库' },
   { key: 'sellAuto_distance', label: '出售距离', help: '离 NPC 多远就触发出售。', type: 'int', default: '3', group: '商店仓库' },
   { key: 'sellAuto_npc_steps', label: '出售对话步骤', help: '与出售 NPC 的对话指令（默认 s）。', type: 'string', default: 's', group: '商店仓库' },
-  { key: 'storageAuto', label: '自动存仓', help: '是否自动把物品存入仓库。', type: 'enum', default: '0', group: '商店仓库', options: ON_OFF },
+  { key: 'storageAuto', label: '自动存仓', help: '是否自动把物品存入仓库。', type: 'enum', default: '1', group: '商店仓库', options: ON_OFF },
   { key: 'storageAuto_npc', label: '仓库 NPC 位置', help: '仓库 NPC 的坐标（格式：地图 x y，如 prontera 146 89）。OpenKore 只需要坐标，不需要 NPC 名字。', type: 'string', default: 'prontera 146 89', group: '商店仓库' },
   { key: 'storageAuto_npc_type', label: '仓库 NPC 类型', help: '仓库 NPC 的类型编号。', type: 'int', default: '1', group: '商店仓库' },
   { key: 'storageAuto_type', label: '仓库类型', help: '仓库类型编号。', type: 'int', default: '0', group: '商店仓库' },
@@ -219,7 +219,7 @@ export const BLOCK_DEFS: BlockDef[] = [
       { key: 'lvl', label: '技能等级', help: '使用该技能的等级。', type: 'int' },
       { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间不自动放。', type: 'int' },
       { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间不自动放。', type: 'int' },
-      { key: 'smartEncore', label: '智能重复', help: '状态快消失时自动补，而不是等消失再放。', type: 'enum', options: ON_OFF },
+      { key: 'smartEncore', label: '自动安可', help: '舞娘/诗人专用：演奏技能结束后自动对自己使用安可，重复上一首演奏。', type: 'enum', options: ON_OFF },
       { key: 'noSmartHeal', label: '关闭智能治疗', help: '该技能不参与智能治疗，按固定规则放。', type: 'enum', options: ON_OFF },
     ],
     conditions: ['self'],
