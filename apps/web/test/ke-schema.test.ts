@@ -136,15 +136,17 @@ describe('ke config schema', () => {
     // bool 条件填了非 0/1 + 物品数量格式错误 + enum 越界（放进 equipAuto 的条件）
     doc.blocks.equipAuto = [{
       selector: '',
-      fields: { weight: '很多' },
+      fields: { weight: '50' },
       conditions: { stopWhenHit: 'yes', inInventory: '红色药水很多', manualAI: '9' },
     }];
+    // autoSwitch 的 distance 是数值字段：非数字应报错
+    doc.blocks.autoSwitch = [{ selector: '', fields: { distance: '很远' }, conditions: {} }];
     const errors = validateConfigDoc(doc);
     expect(errors.some((e) => e.includes('未选择技能'))).toBe(true);
-    expect(errors.some((e) => e.includes('技能等级') && e.includes('整数'))).toBe(true);
+    expect(errors.some((e) => e.includes('技能等级') && e.includes('数字'))).toBe(true);
     expect(errors.some((e) => e.includes('自身 HP') && e.includes('格式错误'))).toBe(true);
     expect(errors.some((e) => e.includes('冷却时间') && e.includes('应为数字'))).toBe(true);
-    expect(errors.some((e) => e.includes('负重触发线') && e.includes('整数'))).toBe(true);
+    expect(errors.some((e) => e.includes('距离') && e.includes('数字'))).toBe(true);
     expect(errors.some((e) => e.includes('被打时禁用') && e.includes('开启(1)或关闭(0)'))).toBe(true);
     expect(errors.some((e) => e.includes('背包物品（名称）') && e.includes('格式错误'))).toBe(true);
     expect(errors.some((e) => e.includes('AI 模式') && e.includes('取值无效'))).toBe(true);
@@ -154,7 +156,7 @@ describe('ke config schema', () => {
     const doc = emptyDoc();
     doc.scalars['attackDistance'] = '很远';
     const errors = validateConfigDoc(doc);
-    expect(errors.some((e) => e.includes('攻击距离') && e.includes('整数'))).toBe(true);
+    expect(errors.some((e) => e.includes('攻击距离') && e.includes('数字'))).toBe(true);
 
     const ok = emptyDoc();
     ok.blocks.attackSkillSlot = [{
@@ -163,5 +165,36 @@ describe('ke config schema', () => {
       conditions: { target_hp: '30%..80%', aggressives: '2-5', sp: '> 10%' },
     }];
     expect(validateConfigDoc(ok)).toEqual([]);
+  });
+
+  it('validateConfigDoc：数值字段允许小数（dist 1.5 / minCastTime 0.1）', () => {
+    const doc = emptyDoc();
+    doc.blocks.attackSkillSlot = [{
+      selector: '1',
+      fields: { lvl: '10', dist: '1.5', maxDist: '12.5' },
+      conditions: {},
+    }];
+    doc.blocks.useSelf_skill = [{
+      selector: '28',
+      fields: { lvl: '5' },
+      conditions: {},
+    }];
+    expect(validateConfigDoc(doc)).toEqual([]);
+  });
+
+  it('autoSwitch 旧配置可解析并序列化保留', () => {
+    const text = 'autoSwitch {\n\trightHand 弓\n\tdistance 10\n\tuseWeapon 1\n}\n';
+    const doc = parseConfig(text);
+    expect(doc.blocks.autoSwitch).toHaveLength(1);
+    expect(doc.blocks.autoSwitch![0]!.fields['rightHand']).toBe('弓');
+    expect(serializeConfig(doc)).toContain('autoSwitch {');
+    expect(serializeConfig(doc)).toContain('\trightHand 弓');
+  });
+
+  it('equipSelf 条件不包含 weight（避免与块级字段重复）', () => {
+    expect(CONDITION_KEYS.equipSelf.map((k) => k.key)).not.toContain('weight');
+    // 块级字段保留 weight，接受纯数字或比较式
+    const def = BLOCK_DEFS.find((d) => d.type === 'equipAuto')!;
+    expect(def.fields.some((f) => f.key === 'weight')).toBe(true);
   });
 });

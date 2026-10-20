@@ -313,11 +313,24 @@ export const BLOCK_DEFS: BlockDef[] = [
       { key: 'armor', label: '铠甲', help: '换上的铠甲。', type: 'string', picker: 'item' },
       { key: 'shoes', label: '鞋子', help: '换上的鞋子。', type: 'string', picker: 'item' },
       { key: 'arrow', label: '箭矢', help: '换上的箭矢。', type: 'string', picker: 'item' },
-      { key: 'weight', label: '负重触发线', help: '纯数字：负重百分比达到（≥）这个值才触发换装。', type: 'int' },
+      { key: 'weight', label: '负重触发条件', help: '纯数字如 50 表示负重 ≥50% 触发；也可写比较式如 < 80%。带 < > % 时当作通用负重条件。', type: 'string' },
       { key: 'whileSitting', label: '只在坐下时触发', help: '开启后只在坐下时触发换装。', type: 'enum', options: ON_OFF },
       { key: 'target', label: '攻击目标限定', help: '必须正在攻击名单里的怪物才触发（逗号分隔，all 表示任意）。没在攻击时不触发。', type: 'monsters' },
     ],
     conditions: ['equipSelf', 'equipMonster'],
+  },
+  // autoSwitch：OpenKore 传统自动换武器块，与 equipAuto 并存以兼容旧配置
+  {
+    type: 'autoSwitch', label: '自动切换武器', selectorKind: 'none',
+    help: '根据距离等条件自动切换武器（如近战切远程）。',
+    fields: [
+      { key: 'rightHand', label: '右手武器', help: '切换的右手武器。', type: 'string', picker: 'item' },
+      { key: 'leftHand', label: '左手武器', help: '切换的左手武器。', type: 'string', picker: 'item' },
+      { key: 'arrow', label: '箭矢', help: '切换的箭矢。', type: 'string', picker: 'item' },
+      { key: 'distance', label: '距离', help: '目标在此距离内切换。', type: 'int' },
+      { key: 'useWeapon', label: '使用武器', help: '切换后是否用武器普攻。', type: 'enum', options: ON_OFF },
+    ],
+    conditions: [],
   },
 ];
 
@@ -359,7 +372,6 @@ export const CONDITION_KEYS: Record<ConditionGroup, ConditionKeyDef[]> = {
     { key: 'ap', label: '自身 AP', widget: 'comparisonPercent', help: '自身 AP 满足条件才触发（可带 %）。' },
     { key: 'zeny', label: '金币', widget: 'comparisonNum', help: '身上金币满足条件才触发。' },
     { key: 'spirit', label: '气球/子弹数', widget: 'comparisonNum', help: '气球/子弹数量满足条件才触发，缺失按 0。' },
-    { key: 'weight', label: '负重', widget: 'comparisonPercent', help: '通用负重条件（带 < > %）。' },
     { key: 'aggressives', label: '被围攻数量', widget: 'comparisonNum', help: '正在攻击你的怪物数量满足条件才触发。' },
     { key: 'partyAggressives', label: '队友被围攻数量', widget: 'comparisonNum', help: '正在攻击队友的怪物数量满足条件才触发。' },
     { key: 'stopWhenHit', label: '被打时禁用', widget: 'bool', help: '开启后：有怪物正在攻击你时禁用这个块。' },
@@ -481,7 +493,8 @@ function isValidComparisonValue(text: string): boolean {
 /** text 控件中要求纯数字的条件 key（秒数/格数）。 */
 const NUMERIC_TEXT_CONDITION_KEYS = new Set(['timeout', 'target_timeout', 'monstersCountDist']);
 
-const INTEGER_PATTERN = /^-?\d+$/;
+/** 数值字段（type 'int'）允许整数或小数（OpenKore 接受 dist 1.5 / minCastTime 0.1）。 */
+const NUMBER_PATTERN = /^-?\d+(?:\.\d+)?$/;
 
 /**
  * 保存前校验整个配置文档，返回人类可读的错误列表（空数组 = 通过）。
@@ -500,8 +513,8 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
       for (const field of def.fields) {
         const value = block.fields[field.key];
         if (value === undefined || value.trim() === '') continue;
-        if (field.type === 'int' && !INTEGER_PATTERN.test(value.trim())) {
-          errors.push(`「${name}」的「${field.label}」应为整数，当前值「${value}」。`);
+        if (field.type === 'int' && !NUMBER_PATTERN.test(value.trim())) {
+          errors.push(`「${name}」的「${field.label}」应为数字，当前值「${value}」。`);
         }
         if (field.type === 'enum' && field.options && !field.options.some((o) => o.value === value.trim())) {
           errors.push(`「${name}」的「${field.label}」取值无效：「${value}」。`);
@@ -544,8 +557,8 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
   }
   for (const scalar of CONFIG_SCALARS) {
     const value = doc.scalars[scalar.key];
-    if (value !== undefined && value.trim() !== '' && scalar.type === 'int' && !INTEGER_PATTERN.test(value.trim())) {
-      errors.push(`「${scalar.label}」应为整数，当前值「${value}」。`);
+    if (value !== undefined && value.trim() !== '' && scalar.type === 'int' && !NUMBER_PATTERN.test(value.trim())) {
+      errors.push(`「${scalar.label}」应为数字，当前值「${value}」。`);
     }
   }
   return errors;

@@ -395,7 +395,7 @@ describe("ke page", () => {
     root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="equip_auto"]')!.click();
     await wait(20);
     const equipAddBtns = Array.from(root.querySelectorAll<HTMLButtonElement>('.ke-block-add')).map((b) => b.textContent);
-    expect(equipAddBtns).toEqual(['＋ 自动换装']);
+    expect(equipAddBtns).toEqual(['＋ 自动换装', '＋ 自动切换武器']);
 
     // 物品使用 / 自动购买 / 自动取物各自独立
     root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="item_use"]')!.click();
@@ -423,7 +423,7 @@ describe("ke page", () => {
     for (const label of ['头上', '头中', '头下', '右手', '左手', '左饰品', '右饰品', '披肩', '铠甲', '鞋子', '箭矢']) {
       expect(fieldLabels.some((t) => t.includes(label))).toBe(true);
     }
-    expect(fieldLabels.some((t) => t.includes('负重触发线'))).toBe(true);
+    expect(fieldLabels.some((t) => t.includes('负重触发条件'))).toBe(true);
     expect(fieldLabels.some((t) => t.includes('只在坐下时触发'))).toBe(true);
     expect(fieldLabels.some((t) => t.includes('攻击目标限定'))).toBe(true);
 
@@ -534,6 +534,65 @@ describe("ke page", () => {
     const body = JSON.parse(put[1]!.body as string) as { config_text: string };
     expect(body.config_text).toContain('\tinInventoryID 501 > 5');
     expect(body.config_text).toContain('\tstopWhenHit 1');
+  });
+
+  it('怪物多选/技能选择器：搜索输入不提交中间态，仅点选生效', async () => {
+    const { dom, root } = await mountProfileEditor('equipAuto {\n\tmonsters 1001\n}\nuseSelf_skill 28 {\n}\n');
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="equip_auto"]')!.click();
+    await wait(20);
+    const card = root.querySelector<HTMLElement>('.ke-block-card')!;
+    card.querySelector<HTMLButtonElement>('.ke-block-head')!.click();
+    const selfCond = Array.from(card.querySelectorAll<HTMLElement>('.ke-cond'))
+      .find((el) => el.textContent?.includes('自身条件'))!;
+    const monstersRow = Array.from(selfCond.querySelectorAll<HTMLElement>('.ke-cond-row'))
+      .find((r) => (r.querySelector('select') as HTMLSelectElement).value === 'monsters')!;
+
+    // 已有波利 chip；在追加 picker 里输入"绿"（不点选）不应新增 chip
+    expect(monstersRow.querySelectorAll('.ke-tag').length).toBe(1);
+    const pickerInput = monstersRow.querySelector<HTMLInputElement>('.ke-picker input')!;
+    pickerInput.value = '绿';
+    pickerInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(monstersRow.querySelectorAll('.ke-tag').length).toBe(1);
+
+    // 点选「绿棉虫」选项后才新增
+    const option = Array.from(monstersRow.querySelectorAll<HTMLElement>('.ke-picker-item'))
+      .find((el) => el.textContent?.includes('绿棉虫'))!;
+    option.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+    await wait(10);
+    expect(monstersRow.querySelectorAll('.ke-tag').length).toBe(2);
+  });
+
+  it('范围/不等号条件回退为文本输入并保留原文', async () => {
+    const { root } = await mountProfileEditor('useSelf_skill 28 {\n\thp 20..80%\n}\n');
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="skills"]')!.click();
+    await wait(20);
+    const card = root.querySelector<HTMLElement>('.ke-block-card')!;
+    card.querySelector<HTMLButtonElement>('.ke-block-head')!.click();
+    const selfCond = Array.from(card.querySelectorAll<HTMLElement>('.ke-cond'))
+      .find((el) => el.textContent?.includes('自身条件'))!;
+    const hpRow = Array.from(selfCond.querySelectorAll<HTMLElement>('.ke-cond-row'))
+      .find((r) => (r.querySelector('select') as HTMLSelectElement).value === 'hp')!;
+    // 范围写法无法三段式表达 → 回退文本输入，原文完整保留
+    const fallback = hpRow.querySelector<HTMLInputElement>('.ke-cond-expr input[type="text"]')!;
+    expect(fallback).not.toBeNull();
+    expect(fallback.value).toBe('20..80%');
+    expect(hpRow.querySelector('.ke-cond-op')).toBeNull();
+  });
+
+  it('多项背包物品条件回退为文本输入并保留原文', async () => {
+    const { root } = await mountProfileEditor('equipAuto {\n\tinInventory 红色药水 > 1, 橙色药水 > 2\n}\n');
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="equip_auto"]')!.click();
+    await wait(20);
+    const card = root.querySelector<HTMLElement>('.ke-block-card')!;
+    card.querySelector<HTMLButtonElement>('.ke-block-head')!.click();
+    const selfCond = Array.from(card.querySelectorAll<HTMLElement>('.ke-cond'))
+      .find((el) => el.textContent?.includes('自身条件'))!;
+    const invRow = Array.from(selfCond.querySelectorAll<HTMLElement>('.ke-cond-row'))
+      .find((r) => (r.querySelector('select') as HTMLSelectElement).value === 'inInventory')!;
+    const fallback = invRow.querySelector<HTMLInputElement>('.ke-cond-item input[type="text"]')!;
+    expect(fallback).not.toBeNull();
+    expect(fallback.value).toBe('红色药水 > 1, 橙色药水 > 2');
   });
 
   it('保存前校验：错误配置被拦截并逐条提示，修正后可保存', async () => {

@@ -248,7 +248,7 @@ const NAV: NavEntry[] = [
     title: "自动换装",
     sub: "按自身/怪物条件自动切换装备槽位",
     kind: "skills",
-    blockTypes: ["equipAuto"],
+    blockTypes: ["equipAuto", "autoSwitch"],
   },
   {
     id: "mon_control",
@@ -868,6 +868,13 @@ export function mountKePage(root: HTMLElement): void {
     onSelect: (v: string) => void,
     resetOnSelect = false,
     placeholder = "搜索并选择…",
+    /**
+     * freeText=true：输入框文本本身就是值（标量/块级物品名字段、地图码等），
+     *   input 事件同步 onSelect(input.value)，支持清空与自由文本。
+     * freeText=false（默认）：值是 option 的映射值（技能/怪物/状态 ID、职业英文名等），
+     *   input 事件只过滤下拉列表，onSelect 仅在点中选项时触发——避免把搜索中间态写进配置。
+     */
+    freeText = false,
   ): HTMLElement {
     const wrapper = document.createElement("div");
     wrapper.className = "ke-picker";
@@ -959,9 +966,10 @@ export function mountKePage(root: HTMLElement): void {
       list.hidden = false;
     });
     input.addEventListener("input", () => {
-      // 选择器的值与显示文本一一对应（标量 item 字段、技能 selector 等 value 即用户输入），
-      // 因此输入/清空必须同步回数据源，否则保存时旧值仍会被写回 config.txt。
-      onSelect(input.value);
+      // freeText 场景（物品名/地图码等）输入框文本本身就是值，必须同步回数据源，
+      // 否则清空后保存时旧值仍会被写回 config.txt。
+      // mapped 场景（技能/怪物/状态 ID 等）搜索文本不是合法值，只过滤列表不提交。
+      if (freeText) onSelect(input.value);
       render(input.value);
       list.hidden = false;
     });
@@ -1090,9 +1098,10 @@ export function mountKePage(root: HTMLElement): void {
   function parseConditionExpr(text: string): ConditionExpr | null {
     const trimmed = text.trim();
     if (trimmed === "") return null;
-    const match = trimmed.match(/^([<>=!]+)\s*([\d.]+)\s*(%)?$/);
+    // 数字部分用严格小数格式，避免把范围写法 "20..80" 误吞为单个数字
+    const match = trimmed.match(/^([<>=!]+)\s*(\d+(?:\.\d+)?)\s*(%)?$/);
     if (match) return { op: match[1]!, value: match[2]!, percent: match[3] === "%" };
-    const numMatch = trimmed.match(/^([\d.]+)\s*(%)?$/);
+    const numMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*(%)?$/);
     if (numMatch) return { op: "=", value: numMatch[1]!, percent: numMatch[2] === "%" };
     return null;
   }
@@ -1115,6 +1124,16 @@ export function mountKePage(root: HTMLElement): void {
     wrapper.className = "ke-cond-expr";
 
     const parsed = parseConditionExpr(initialText);
+    // 范围（3..8 / 20..80%）或 != 等三段式无法表达的合法写法：回退为纯文本输入，保留原文不丢失。
+    if (parsed === null && initialText.trim() !== "") {
+      const fallback = document.createElement("input");
+      fallback.type = "text";
+      fallback.value = initialText;
+      fallback.placeholder = "例：< 50% 或 3..8";
+      fallback.addEventListener("input", () => onChange(fallback.value));
+      wrapper.appendChild(fallback);
+      return wrapper;
+    }
     const expr: ConditionExpr = parsed ?? {
       op: "<",
       value: "",
@@ -1243,15 +1262,28 @@ export function mountKePage(root: HTMLElement): void {
     initialText: string,
     onChange: (text: string) => void,
     pool: PickerOption[],
+    /** true 表示物品值是自由文本（名称）；false 表示物品值必须是 option 的映射值（ID）。 */
+    itemFreeText = false,
   ): HTMLElement {
     const wrapper = document.createElement("div");
     wrapper.className = "ke-cond-expr ke-cond-item";
 
-    // 解析 "红色药水 > 1" / "501 >= 2"
-    const match = initialText.trim().match(/^(.+?)\s*([<>=!]+)\s*([\d.]+)$/);
-    let item = match?.[1]?.trim() ?? "";
-    let op = match?.[2] ?? ">";
-    let num = match?.[3] ?? "";
+    // 含逗号（多项）或无法解析为单条「物品 op 数值」时回退为纯文本输入，保留原文不丢失。
+    // 数字部分用严格小数格式，避免把 "1..5" 之类误吞为单个数字
+    const match = initialText.trim().match(/^(.+?)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)$/);
+    if (!match || !match[1] || !match[2] || !match[3] || initialText.includes(",")) {
+      const fallback = document.createElement("input");
+      fallback.type = "text";
+      fallback.value = initialText;
+      fallback.placeholder = "格式：物品 > 数量";
+      fallback.addEventListener("input", () => onChange(fallback.value));
+      wrapper.appendChild(fallback);
+      return wrapper;
+    }
+
+    let item = match[1].trim();
+    let op: string = match[2];
+    let num: string = match[3];
 
     const opSelect = document.createElement("select");
     opSelect.className = "ke-cond-op";
@@ -1278,7 +1310,7 @@ export function mountKePage(root: HTMLElement): void {
     const itemPicker = createPicker(pool, item, (value) => {
       item = value;
       sync();
-    }, false, "搜索物品…");
+    }, false, "搜索物品…", itemFreeText);
 
     opSelect.addEventListener("change", sync);
     numInput.addEventListener("input", sync);
@@ -1525,6 +1557,9 @@ export function mountKePage(root: HTMLElement): void {
           markDirty();
           updatePreview();
         },
+        false,
+        "搜索并选择…",
+        true, // 物品名是自由文本：输入/清空必须同步（teleportAuto_item1 清空修复）
       );
       field.appendChild(picker);
       return field;
@@ -1826,7 +1861,7 @@ export function mountKePage(root: HTMLElement): void {
           chips[0]!.hidden = !label;
         }
         renderFields();
-      });
+      }, false, "搜索并选择…", def.selectorKind === "item"); // 物品名自由文本；技能存 ID 仅选项提交
       field.appendChild(picker);
       body.appendChild(field);
     }
@@ -1889,6 +1924,9 @@ export function mountKePage(root: HTMLElement): void {
             markDirty();
             updatePreview();
           },
+          false,
+          "搜索并选择…",
+          true, // 装备槽位接受物品 ID/名称/片段，自由文本
         ),
       );
       return field;
@@ -1995,7 +2033,7 @@ export function mountKePage(root: HTMLElement): void {
           );
         } else if (widget === "itemAmount") {
           valueSlot.appendChild(
-            createItemAmountEditor(currentValue, setValue, itemNameOptions()),
+            createItemAmountEditor(currentValue, setValue, itemNameOptions(), true),
           );
         } else if (widget === "itemAmountId") {
           valueSlot.appendChild(
@@ -2003,7 +2041,7 @@ export function mountKePage(root: HTMLElement): void {
           );
         } else if (widget === "map") {
           valueSlot.appendChild(
-            createPicker(mapOptions(), currentValue, setValue),
+            createPicker(mapOptions(), currentValue, setValue, false, "搜索地图…", true),
           );
         } else if (widget === "job") {
           valueSlot.appendChild(
@@ -2163,6 +2201,7 @@ export function mountKePage(root: HTMLElement): void {
         },
         false,
         isMonster ? "搜索怪物，或选 all 兜底…" : "搜索物品，或选 all 兜底…",
+        !isMonster, // 物品名自由文本；怪物行存 ID，仅选项提交
       );
       wrap.appendChild(picker);
     }
