@@ -160,7 +160,7 @@ export type ConfigValues = Record<string, string>;
 
 // —— block ——
 
-export type ConditionGroup = 'self' | 'monster' | 'player';
+export type ConditionGroup = 'self' | 'monster' | 'player' | 'equipSelf' | 'equipMonster';
 
 export interface BlockFieldDef {
   key: string;
@@ -168,6 +168,8 @@ export interface BlockFieldDef {
   help: string;
   type: 'int' | 'string' | 'enum' | 'monsters';
   options?: ScalarOption[];
+  /** 特殊输入控件：'item' = 道具搜索选择器（存道具名称）。 */
+  picker?: 'item';
 }
 
 export interface BlockDef {
@@ -192,6 +194,22 @@ export interface ConditionKeyDef {
   label: string;
   hint?: string;
   help: string;
+  /**
+   * 条件值的输入控件类型，默认 'text'：
+   * - comparisonPercent：操作符 + 数值 + % 后缀（默认 %）
+   * - comparisonNum：操作符 + 数值
+   * - status：Buff 状态搜索选择器
+   * - bool：是/否分段开关（存 0/1）
+   * - monsters：怪物多选（chips + 搜索，存逗号分隔 ID）
+   * - itemAmount：物品单选 + 操作符 + 数值（存 "名称 > 1"）
+   * - itemAmountId：同上，但物品存 ID（存 "501 > 1"）
+   * - map：地图搜索选择器
+   * - job：职业搜索选择器（存职业英文名）
+   * - enum：options 分段选择
+   */
+  widget?: 'text' | 'comparisonPercent' | 'comparisonNum' | 'status' | 'bool' | 'monsters' | 'itemAmount' | 'itemAmountId' | 'map' | 'job' | 'enum';
+  /** widget 为 'enum' 时的选项。 */
+  options?: ScalarOption[];
 }
 
 export const BLOCK_DEFS: BlockDef[] = [
@@ -200,7 +218,8 @@ export const BLOCK_DEFS: BlockDef[] = [
     help: '用技能攻击怪物。可以加多个，配条件决定什么时候用哪个技能。',
     fields: [
       { key: 'lvl', label: '技能等级', help: '使用该技能的等级（1-10）。', type: 'int' },
-      { key: 'dist', label: '最小距离', help: '和目标至少这个距离才放这个技能。', type: 'int' },
+      { key: 'dist', label: '施放距离', help: '逼近到与目标距离不超过此值时开始放技能。', type: 'int' },
+      { key: 'maxDist', label: '最大距离', help: '最远能放多远，不写则等于施放距离。', type: 'int' },
       { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间的技能不自动放。', type: 'int' },
       { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间的技能不自动放。', type: 'int' },
       { key: 'maxAttempts', label: '最大尝试次数', help: '这个技能最多连续尝试几次。', type: 'int' },
@@ -220,7 +239,7 @@ export const BLOCK_DEFS: BlockDef[] = [
       { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间不自动放。', type: 'int' },
       { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间不自动放。', type: 'int' },
       { key: 'smartEncore', label: '自动安可', help: '舞娘/诗人专用：演奏技能结束后自动对自己使用安可，重复上一首演奏。', type: 'enum', options: ON_OFF },
-      { key: 'noSmartHeal', label: '关闭智能治疗', help: '该技能不参与智能治疗，按固定规则放。', type: 'enum', options: ON_OFF },
+      { key: 'noSmartHeal', label: '不使用智能治疗', help: '开启后该技能不使用智能治疗，按固定规则放。默认关闭（即使用智能治疗）。', type: 'enum', options: ON_OFF },
     ],
     conditions: ['self'],
   },
@@ -229,7 +248,8 @@ export const BLOCK_DEFS: BlockDef[] = [
     help: '对队友放的技能（如给队友加血、加速）。',
     fields: [
       { key: 'lvl', label: '技能等级', help: '使用该技能的等级。', type: 'int' },
-      { key: 'dist', label: '最小距离', help: '和队友至少这个距离才放。', type: 'int' },
+      { key: 'dist', label: '施放距离', help: '逼近到与队友距离不超过此值时开始放技能。', type: 'int' },
+      { key: 'maxDist', label: '最大距离', help: '最远能放多远，不写则等于施放距离。', type: 'int' },
       { key: 'maxCastTime', label: '最大咏唱（秒）', help: '咏唱超过这个时间不自动放。', type: 'int' },
       { key: 'minCastTime', label: '最小咏唱（秒）', help: '咏唱低于这个时间不自动放。', type: 'int' },
       { key: 'target', label: '目标', help: '对哪个队友放（角色名）。', type: 'string' },
@@ -278,47 +298,107 @@ export const BLOCK_DEFS: BlockDef[] = [
     conditions: ['self'],
   },
   {
-    type: 'autoSwitch', label: '自动换装', selectorKind: 'none',
-    help: '根据距离等条件自动切换武器（如近战切远程）。',
+    type: 'equipAuto', label: '自动换装', selectorKind: 'none',
+    help: '按条件自动换装备：每个槽位写要换上的物品名（留空或写 0 表示不管该槽位），满足自身/怪物条件时触发。',
     fields: [
-      { key: 'rightHand', label: '右手武器', help: '切换的右手武器。', type: 'string' },
-      { key: 'leftHand', label: '左手武器', help: '切换的左手武器。', type: 'string' },
-      { key: 'arrow', label: '箭矢', help: '切换的箭矢。', type: 'string' },
-      { key: 'distance', label: '距离', help: '目标在此距离内切换。', type: 'int' },
-      { key: 'useWeapon', label: '使用武器', help: '切换后是否用武器普攻。', type: 'enum', options: ON_OFF },
+      { key: 'topHead', label: '头上', help: '换上的上头部装备（物品名/ID）。留空或 0 表示不管。', type: 'string', picker: 'item' },
+      { key: 'midHead', label: '头中', help: '换上的中头部装备。', type: 'string', picker: 'item' },
+      { key: 'lowHead', label: '头下', help: '换上的下头部装备。', type: 'string', picker: 'item' },
+      { key: 'rightHand', label: '右手', help: '换上的右手武器。', type: 'string', picker: 'item' },
+      { key: 'leftHand', label: '左手', help: '换上的左手武器/盾牌。', type: 'string', picker: 'item' },
+      { key: 'leftAccessory', label: '左饰品', help: '换上的左饰品。', type: 'string', picker: 'item' },
+      { key: 'rightAccessory', label: '右饰品', help: '换上的右饰品。', type: 'string', picker: 'item' },
+      { key: 'robe', label: '披肩', help: '换上的披肩。', type: 'string', picker: 'item' },
+      { key: 'armor', label: '铠甲', help: '换上的铠甲。', type: 'string', picker: 'item' },
+      { key: 'shoes', label: '鞋子', help: '换上的鞋子。', type: 'string', picker: 'item' },
+      { key: 'arrow', label: '箭矢', help: '换上的箭矢。', type: 'string', picker: 'item' },
+      { key: 'weight', label: '负重触发线', help: '纯数字：负重百分比达到（≥）这个值才触发换装。', type: 'int' },
+      { key: 'whileSitting', label: '只在坐下时触发', help: '开启后只在坐下时触发换装。', type: 'enum', options: ON_OFF },
+      { key: 'target', label: '攻击目标限定', help: '必须正在攻击名单里的怪物才触发（逗号分隔，all 表示任意）。没在攻击时不触发。', type: 'monsters' },
     ],
-    conditions: [],
+    conditions: ['equipSelf', 'equipMonster'],
   },
 ];
 
 export const CONDITION_KEYS: Record<ConditionGroup, ConditionKeyDef[]> = {
   self: [
-    { key: 'hp', label: '自身 HP', hint: '例：< 50%', help: '自身 HP 满足这个条件才触发（用 <、>、= 加数值和 %）。' },
-    { key: 'sp', label: '自身 SP', hint: '例：< 30%', help: '自身 SP 满足这个条件才触发。' },
-    { key: 'weight', label: '负重', hint: '例：< 50%', help: '负重满足这个条件才触发。' },
-    { key: 'zeny', label: '金币', hint: '例：> 1000', help: '身上金币满足这个条件才触发。' },
-    { key: 'spirit', label: '气弹数', hint: '例：>= 5', help: '气弹（念气）数量满足这个条件才触发。' },
-    { key: 'aggressives', label: '被围攻数量', hint: '例：>= 3', help: '正在围攻你的怪物数量满足条件才触发。' },
-    { key: 'whenStatusActive', label: '状态生效时', hint: '选择 Buff 状态', help: '身上有某个 Buff 状态时才触发。' },
-    { key: 'whenStatusInactive', label: '状态未生效时', hint: '选择 Buff 状态', help: '身上没有某个 Buff 状态时才触发。' },
-    { key: 'inMap', label: '在地图内', hint: '例：prt_fild08', help: '在当前地图时才触发。' },
-    { key: 'notInMap', label: '不在地图内', hint: '例：prt_fild08', help: '不在某个地图时才触发。' },
-    { key: 'monstersCount', label: '周围可见怪物数量', hint: '例：> 2', help: '周围可见怪物数量满足条件才触发。' },
+    { key: 'hp', label: '自身 HP', widget: 'comparisonPercent', help: '自身 HP 满足这个条件才触发（用 <、>、= 加数值和 %）。' },
+    { key: 'sp', label: '自身 SP', widget: 'comparisonPercent', help: '自身 SP 满足这个条件才触发。' },
+    { key: 'weight', label: '负重', widget: 'comparisonPercent', help: '负重满足这个条件才触发。' },
+    { key: 'zeny', label: '金币', widget: 'comparisonNum', help: '身上金币满足这个条件才触发。' },
+    { key: 'spirit', label: '气弹数', widget: 'comparisonNum', help: '气弹（念气）数量满足这个条件才触发。' },
+    { key: 'aggressives', label: '被围攻数量', widget: 'comparisonNum', help: '正在围攻你的怪物数量满足条件才触发。' },
+    { key: 'whenStatusActive', label: '状态生效时', widget: 'status', help: '身上有某个 Buff 状态时才触发。' },
+    { key: 'whenStatusInactive', label: '状态未生效时', widget: 'status', help: '身上没有某个 Buff 状态时才触发。' },
+    { key: 'inMap', label: '在地图内', widget: 'map', help: '在当前地图时才触发。' },
+    { key: 'notInMap', label: '不在地图内', widget: 'map', help: '不在某个地图时才触发。' },
+    { key: 'monstersCount', label: '周围可见怪物数量', widget: 'comparisonNum', help: '周围可见怪物数量满足条件才触发。' },
+    { key: 'monstersCountDist', label: '怪物数量统计范围', hint: '例：5', help: '统计多少格范围内的怪物数量（配合周围可见怪物数量使用）。' },
     { key: 'timeout', label: '冷却时间', hint: '例：10', help: '上次使用后至少隔这么多秒才再次触发。' },
   ],
   monster: [
-    { key: 'target_hp', label: '目标 HP', hint: '例：< 30%', help: '目标的 HP 满足条件才触发。' },
-    { key: 'target_dist', label: '目标距离', hint: '例：< 3', help: '和目标距离满足条件才触发。' },
-    { key: 'target_deltaHp', label: '目标掉血', hint: '例：> 500', help: '目标掉血量满足条件才触发。' },
-    { key: 'target_whenStatusActive', label: '目标状态生效', hint: '选择 Buff 状态', help: '目标身上有某个状态才触发。' },
+    { key: 'target_hp', label: '目标 HP', widget: 'comparisonPercent', help: '目标的 HP 满足条件才触发。' },
+    { key: 'target_dist', label: '目标距离', widget: 'comparisonNum', help: '和目标距离满足条件才触发。' },
+    { key: 'target_deltaHp', label: '目标掉血', widget: 'comparisonNum', help: '目标掉血量满足条件才触发。' },
+    { key: 'target_whenStatusActive', label: '目标状态生效', widget: 'status', help: '目标身上有某个状态才触发。' },
     { key: 'target_timeout', label: '目标冷却', hint: '例：5', help: '对同一目标隔这么多秒才再次触发。' },
   ],
   player: [
-    { key: 'target_hp', label: '目标 HP', hint: '例：< 50%', help: '目标玩家 HP 满足条件才触发。' },
-    { key: 'target_dist', label: '目标距离', hint: '例：< 8', help: '和目标玩家距离满足条件才触发。' },
-    { key: 'target_isJob', label: '目标职业', hint: '例：Priest', help: '目标玩家是某个职业才触发。' },
-    { key: 'target_whenStatusActive', label: '目标状态生效', hint: '选择 Buff 状态', help: '目标玩家身上有某个状态才触发。' },
+    { key: 'target_hp', label: '目标 HP', widget: 'comparisonPercent', help: '目标玩家 HP 满足条件才触发。' },
+    { key: 'target_dist', label: '目标距离', widget: 'comparisonNum', help: '和目标玩家距离满足条件才触发。' },
+    { key: 'target_isJob', label: '目标职业', widget: 'job', help: '目标玩家是某个职业才触发。' },
+    { key: 'target_whenStatusActive', label: '目标状态生效', widget: 'status', help: '目标玩家身上有某个状态才触发。' },
     { key: 'target_timeout', label: '目标冷却', hint: '例：5', help: '对同一目标玩家隔这么多秒才再次触发。' },
+  ],
+  // equipAuto 专用：自身条件（每个块都判断）
+  equipSelf: [
+    { key: 'disabled', label: '禁用此规则', widget: 'bool', help: '开启后禁用这个换装块。' },
+    { key: 'hp', label: '自身 HP', widget: 'comparisonPercent', help: '自身 HP 满足条件才触发（可带 %）。' },
+    { key: 'sp', label: '自身 SP', widget: 'comparisonPercent', help: '自身 SP 满足条件才触发（可带 %）。' },
+    { key: 'ap', label: '自身 AP', widget: 'comparisonPercent', help: '自身 AP 满足条件才触发（可带 %）。' },
+    { key: 'zeny', label: '金币', widget: 'comparisonNum', help: '身上金币满足条件才触发。' },
+    { key: 'spirit', label: '气球/子弹数', widget: 'comparisonNum', help: '气球/子弹数量满足条件才触发，缺失按 0。' },
+    { key: 'weight', label: '负重', widget: 'comparisonPercent', help: '通用负重条件（带 < > %）。' },
+    { key: 'aggressives', label: '被围攻数量', widget: 'comparisonNum', help: '正在攻击你的怪物数量满足条件才触发。' },
+    { key: 'partyAggressives', label: '队友被围攻数量', widget: 'comparisonNum', help: '正在攻击队友的怪物数量满足条件才触发。' },
+    { key: 'stopWhenHit', label: '被打时禁用', widget: 'bool', help: '开启后：有怪物正在攻击你时禁用这个块。' },
+    { key: 'whenIdle', label: '空闲时', widget: 'bool', help: '开启后要求 AI 空闲才触发。' },
+    { key: 'whenNotIdle', label: '非空闲时', widget: 'bool', help: '开启后要求 AI 不空闲才触发。' },
+    { key: 'manualAI', label: 'AI 模式', widget: 'enum', options: [
+      { value: '0', label: '全自动模式' },
+      { value: '1', label: '半自动模式' },
+      { value: '2', label: '全模式下启用' },
+    ], help: '0（默认）只在全自动时生效，1 只在半自动，2 两者都行。' },
+    { key: 'notWhileSitting', label: '坐着时禁用', widget: 'bool', help: '开启后：坐着时不触发。' },
+    { key: 'whenFollowing', label: '跟随中时', widget: 'bool', help: '开启后要求正在跟随才触发。' },
+    { key: 'whenStatusActive', label: '状态生效时', widget: 'status', help: '身上有某个状态才触发。' },
+    { key: 'whenStatusInactive', label: '状态未生效时', widget: 'status', help: '身上没有某个状态才触发（没有状态证据时视为成立）。' },
+    { key: 'timeout', label: '冷却时间', hint: '例：30', help: '距离上次触发超过这么多秒才再次触发。' },
+    { key: 'monsters', label: '攻击者含怪物', widget: 'monsters', help: '正在攻击你的怪里有名单里的怪才触发。' },
+    { key: 'notMonsters', label: '攻击者不含怪物', widget: 'monsters', help: '正在攻击你的怪里没有名单里的怪才触发。' },
+    { key: 'defendMonsters', label: '必须被这些怪攻击', widget: 'monsters', help: '正在攻击你的怪里必须有名单里的怪才触发。' },
+    { key: 'monstersCount', label: '视野内怪物数量', widget: 'comparisonNum', help: '视野内（可被 monsters/notMonsters 过滤）的怪物数量满足条件才触发。' },
+    { key: 'monstersCountDist', label: '怪物数量统计范围', hint: '例：5', help: '统计多少格范围内的怪物数量（最大距离）。' },
+    { key: 'inInventory', label: '背包物品（名称）', widget: 'itemAmount', help: '背包里某物品数量满足条件（如 红色药水 > 1），逗号分隔多项必须都满足。' },
+    { key: 'inInventoryID', label: '背包物品（ID）', widget: 'itemAmountId', help: '按物品 ID 判断背包数量（如 501 > 1），逗号分隔多项必须都满足。' },
+    { key: 'whenGround', label: '地面技能在场', hint: '例：1', help: '你释放的地面技能在场才触发。' },
+    { key: 'whenNotGround', label: '地面技能不在场', hint: '例：1', help: '你释放的地面技能不在场才触发。' },
+    { key: 'inMap', label: '在地图内', widget: 'map', help: '当前地图在列表里才触发。' },
+    { key: 'notInMap', label: '不在地图内', widget: 'map', help: '当前地图不在列表里才触发。' },
+  ],
+  // equipAuto 专用：怪物条件（只在正在攻击怪物时判断，没攻击时不参与；目标已死则不成立）
+  equipMonster: [
+    { key: 'target_hp', label: '怪物 HP', widget: 'comparisonPercent', help: '怪物血量满足条件（带 % 按百分比）。需要服务器提供血量，拿不到就不成立。' },
+    { key: 'target_dist', label: '怪物距离', widget: 'comparisonNum', help: '与怪物的距离（格，取横纵差的较大值）满足条件才触发。' },
+    { key: 'target_deltaHp', label: '怪物掉血', widget: 'comparisonNum', help: '怪物血量最近一次的变化量满足条件才触发。' },
+    { key: 'target_misses', label: '连续打偏次数', widget: 'comparisonNum', help: '该怪连续打偏你的次数满足条件才触发。' },
+    { key: 'target_totalMisses', label: '累计 Miss 次数', widget: 'comparisonNum', help: '累计 Miss 次数满足条件才触发。' },
+    { key: 'target_whenStatusActive', label: '怪物状态生效', widget: 'status', help: '怪物身上有某状态（名字或 ID，逗号分隔）才触发。' },
+    { key: 'target_whenStatusInactive', label: '怪物状态未生效', widget: 'status', help: '怪物身上没有某状态才触发。' },
+    { key: 'target_whenGround', label: '怪物脚下有技能', hint: '例：1', help: '怪物脚下有它放的地面技能才触发。' },
+    { key: 'target_whenNotGround', label: '怪物脚下无技能', hint: '例：1', help: '怪物脚下没有它放的地面技能才触发。' },
+    { key: 'target_is_aggressive', label: '怪物主动攻击你', widget: 'bool', help: '开启表示该怪正在攻击你，关闭表示没有。' },
+    { key: 'target_is_aggressive_party', label: '怪物主动攻击队友', widget: 'bool', help: '开启表示该怪正在攻击队友，关闭表示没有。' },
   ],
 };
 
@@ -329,6 +409,8 @@ export function conditionKeysOf(group: ConditionGroup): ConditionKeyDef[] {
 export function conditionGroupLabel(group: ConditionGroup): string {
   if (group === 'self') return '自身条件';
   if (group === 'monster') return '怪物条件';
+  if (group === 'equipSelf') return '自身条件';
+  if (group === 'equipMonster') return '怪物条件';
   return '玩家条件';
 }
 

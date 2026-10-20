@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLOCK_DEFS, CONFIG_SCALARS, emptyDoc, parseConfig, serializeConfig } from '../src/ke-schema';
+import { BLOCK_DEFS, CONFIG_SCALARS, CONDITION_KEYS, emptyDoc, parseConfig, serializeConfig } from '../src/ke-schema';
 
 describe('ke config schema', () => {
   it('serializeConfig 只输出有值的标量，格式为 "key value"', () => {
@@ -34,12 +34,13 @@ describe('ke config schema', () => {
     const doc = emptyDoc();
     doc.blocks.attackSkillSlot = [{
       selector: 'Coldbolt',
-      fields: { lvl: '5', dist: '9', maxCastTime: '0' },
+      fields: { lvl: '5', dist: '9', maxDist: '12', maxCastTime: '0' },
       conditions: { 'hp': '< 50%', 'target_hp': '< 30%' },
     }];
     const text = serializeConfig(doc);
     expect(text).toContain('attackSkillSlot Coldbolt {');
     expect(text).toContain('\tlvl 5');
+    expect(text).toContain('\tmaxDist 12');
     expect(text).toContain('\thp < 50%');
     const parsed = parseConfig(text);
     expect(parsed.blocks.attackSkillSlot).toEqual(doc.blocks.attackSkillSlot);
@@ -76,5 +77,36 @@ describe('ke config schema', () => {
     expect(defaults.sellAuto).toBe('1');
     expect(defaults.sellAuto_npc).toBe('prontera 105 87');
     expect(defaults.storageAuto).toBe('1');
+  });
+
+  it('equipAuto：槽位/块级字段/双条件组序列化后还原', () => {
+    const doc = emptyDoc();
+    doc.blocks.equipAuto = [{
+      selector: '',
+      fields: { topHead: 'Poring Hat', rightHand: '+5 深红之弓', arrow: '银箭矢', weight: '50', whileSitting: '1', target: '1002' },
+      conditions: { hp: '> 30%', target_hp: '> 50%', target_dist: '< 8', inInventoryID: '501 > 1', target_is_aggressive: '1' },
+    }];
+    const text = serializeConfig(doc);
+    expect(text).toContain('equipAuto {');
+    expect(text).toContain('\ttopHead Poring Hat');
+    expect(text).toContain('\tarrow 银箭矢');
+    expect(text).toContain('\tweight 50');
+    expect(text).toContain('\ttarget 1002');
+    expect(text).toContain('\thp > 30%');
+    expect(text).toContain('\ttarget_hp > 50%');
+    expect(text).toContain('\ttarget_is_aggressive 1');
+    const parsed = parseConfig(text);
+    expect(parsed.blocks.equipAuto).toEqual(doc.blocks.equipAuto);
+  });
+
+  it('equipAuto 的 11 个槽位字段都走 item picker，怪物条件不含 target_timeout', () => {
+    const def = BLOCK_DEFS.find((b) => b.type === 'equipAuto')!;
+    const slots = def.fields.filter((f) => f.picker === 'item').map((f) => f.key);
+    expect(slots).toEqual(['topHead', 'midHead', 'lowHead', 'rightHand', 'leftHand', 'leftAccessory', 'rightAccessory', 'robe', 'armor', 'shoes', 'arrow']);
+    expect(def.conditions).toEqual(['equipSelf', 'equipMonster']);
+    const monsterKeys = CONDITION_KEYS.equipMonster.map((k) => k.key);
+    expect(monsterKeys).not.toContain('target_timeout');
+    expect(monsterKeys).toContain('target_misses');
+    expect(monsterKeys).toContain('target_is_aggressive');
   });
 });
