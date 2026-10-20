@@ -64,7 +64,10 @@ function assertClockSkew(now: number, ts: number): void {
   }
 }
 
-/** 实例在 bind 时即与角色一一绑定；之后的 start/heartbeat/bind 重试都不得换成别的角色（换角色须使用新 instance_id）。 */
+/**
+ * start/heartbeat 必须与实例当前绑定的角色一致。同一浏览器窗口（同一 instance_id）切换角色时，
+ * 由 bind 显式换绑（见 `bind`），之后 start/heartbeat 才会携带新角色；两者不能越过 bind 悄悄换角色。
+ */
 function assertSameCharacter(instance: InstanceRow, report: CharacterReport): void {
   if (instance.aid !== report.aid || instance.cid !== report.cid || instance.nid !== report.nid) {
     throw new KeFailure('KE_BAD_REQUEST', 400, '角色与实例不匹配');
@@ -134,8 +137,10 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
           await tx.insertInstance(input.instanceId, ownerId, input.report, input.buildId, input.ipHash, input.uaHash, timestamp);
         } else if (instance.user_id !== ownerId) {
           throw new KeFailure('KE_AUTH_FORBIDDEN', 403, '实例已绑定到其他账号');
-        } else {
-          assertSameCharacter(instance, input.report);
+        } else if (instance.aid !== input.report.aid || instance.cid !== input.report.cid || instance.nid !== input.report.nid) {
+          // 同一窗口切换角色（换角色、换账号、换服务器）：实例沿用，额度仍按实例计，不会多占名额。
+          // 目标角色的归属/30 天独占已在上方校验；运行中的实例会被置为 STOPPED，新角色须重新 start。
+          await tx.rebindInstance(input.instanceId, input.report, input.buildId, input.ipHash, input.uaHash, timestamp);
         }
       });
       const bundles = await keyBundles(input);

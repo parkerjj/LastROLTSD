@@ -142,7 +142,7 @@ describe.skipIf(!runMysqlTests)('KE × MySQL', () => {
       await service.bind(String(alice), input(INST_A));
       await service.bind(String(alice), input(INST_A)); // 幂等重试
       await expect(service.bind(String(bob), input(INST_B))).rejects.toMatchObject({ code: 'KE_CHARACTER_BOUND' });
-      await expect(service.bind(String(alice), input(INST_A, { cid: 9999 }))).rejects.toMatchObject({ code: 'KE_BAD_REQUEST' });
+      await expect(service.start(String(alice), { ...input(INST_A, { cid: 9999 }), kickInstanceId: null })).rejects.toMatchObject({ code: 'KE_BAD_REQUEST' });
 
       expect((await service.start(String(alice), { ...input(INST_A), kickInstanceId: null })).license.split('.')).toHaveLength(2);
       await heartbeat(alice, INST_A);
@@ -177,6 +177,21 @@ describe.skipIf(!runMysqlTests)('KE × MySQL', () => {
       await service.bind(String(alice), input(INST_ALICE_2, { ...bobChar, char_name: '新主人' }));
       const owner = await database.first<{ user_id: number | string }>('SELECT user_id FROM ke_characters WHERE aid = 5001 AND cid = 5002 AND nid = 5003');
       expect(Number(owner!.user_id)).toBe(alice);
+
+      // 同一窗口换角色：bind 换绑；运行中的实例置为 STOPPED（旧角色授权失效，验证 UPDATE 的 SET 求值顺序），新角色须重新 start
+      const INST_SWITCH = '55555555-5555-4555-8555-555555555555';
+      const before = { aid: 6001, cid: 6002, nid: 6003, char_name: '换绑前' };
+      const after = { aid: 6001, cid: 6012, nid: 6003, char_name: '换绑后' };
+      await service.bind(String(alice), input(INST_SWITCH, before));
+      await service.start(String(alice), { ...input(INST_SWITCH, before), kickInstanceId: null });
+      await service.bind(String(alice), input(INST_SWITCH, after));
+      const rebound = await database.first<{ state: string; cid: number | string; char_name: string; stopped_at: number | string | null }>(
+        'SELECT state, cid, char_name, stopped_at FROM ke_instances WHERE instance_id = ?', [INST_SWITCH]);
+      expect(rebound).toMatchObject({ state: 'STOPPED', char_name: '换绑后' });
+      expect(Number(rebound!.cid)).toBe(6012);
+      expect(Number(rebound!.stopped_at)).toBe(nowMs);
+      await expect(heartbeat(alice, INST_SWITCH, after)).rejects.toMatchObject({ code: 'KE_INSTANCE_NOT_ACTIVE' });
+      expect((await service.start(String(alice), { ...input(INST_SWITCH, after), kickInstanceId: null })).license.split('.')).toHaveLength(2);
 
       await repository.cleanup(nowMs + 8 * DAY_MS);
     });

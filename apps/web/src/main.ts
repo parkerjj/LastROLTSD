@@ -37,6 +37,7 @@ import { mountClientPage } from "./client-page";
 import { mountSponsorPage } from "./sponsor-page";
 import { mountKePage } from "./ke-page";
 import { mountKeDevicePage } from "./ke-device-page";
+import { mountVipPage } from "./vip-page";
 import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi } from "./auth/api";
@@ -58,6 +59,8 @@ const isClientPage = /^\/client\/?$/u.test(pathname);
 const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 const isKePage = /^\/ke\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
+// 会员定价页刻意不进导航，只能通过 URL 直达。
+const isVipPage = /^\/vip\/price\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -1192,4 +1195,5 @@ else if (isGuestbookPage) mountGuestbookPage(root);
 else if (isAccountsPage) mountAccountsPage(root);
 else if (isKePage) mountKePage(root);
 else if (isKeDevicePage) mountKeDevicePage(root);
+else if (isVipPage) mountVipPage(root);
 else mountSearchPage();

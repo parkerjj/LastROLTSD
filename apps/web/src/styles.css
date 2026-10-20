@@ -9790,3 +9790,705 @@ a.sponsor-honor-card:hover {
 .guestbook-main button {
   border-radius: 8px;
 }
+
+/* ==========================================================================
+   会员定价页（/vip/price）
+   只能通过 URL 直达，不加入主导航与页脚链接。
+   复用站点既有令牌（--forest / --red / --gold / --line / --tip-*）与
+   .section-heading / .meta-chip / .site-notice / .compare-table 体系。
+   ========================================================================== */
+
+.vip-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.vip-main {
+  padding-top: 46px;
+  padding-bottom: 8px;
+}
+
+/* ---- Hero：左侧文案 + 右侧会员状态卡 ---- */
+.vip-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 372px;
+  align-items: start;
+  gap: 48px;
+  padding: 26px 0 46px;
+  border-bottom: 1px solid var(--line);
+}
+
+.vip-hero-copy {
+  padding: 14px 0 12px 26px;
+  border-left: 3px solid var(--red);
+}
+
+.vip-hero-copy .eyebrow {
+  color: var(--gold);
+}
+
+.vip-hero-copy h1 {
+  margin: 0 0 16px;
+  color: var(--forest-deep);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: clamp(2.6rem, 5vw, 4.2rem);
+  font-weight: 700;
+  letter-spacing: -.04em;
+  line-height: .98;
+}
+
+.vip-hero-copy h1 span {
+  color: var(--red);
+}
+
+.vip-hero-subtitle {
+  max-width: 600px;
+  margin: 0 0 22px;
+  color: #46574c;
+  font-size: .96rem;
+  line-height: 1.85;
+}
+
+.vip-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ---- 会员状态卡（与化缘页资金卡同族的深色块） ---- */
+.vip-status-card {
+  display: grid;
+  gap: 13px;
+  padding: 26px 24px 22px;
+  color: #cfd8ce;
+  background: var(--forest);
+  border: 1px solid #0f1f19;
+  border-radius: 4px;
+  box-shadow: 0 22px 46px rgba(23, 42, 35, .28);
+}
+
+.status-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gold);
+  font-size: .66rem;
+  font-weight: 900;
+  letter-spacing: .2em;
+}
+
+.status-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-avatar {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  color: #f0d9a8;
+  background: rgba(198, 148, 69, .22);
+  border: 1px solid rgba(255, 248, 238, .35);
+  border-radius: 50%;
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.status-account strong {
+  display: block;
+  color: #f4efe2;
+  font-size: .98rem;
+}
+
+.status-account small {
+  display: block;
+  margin-top: 3px;
+  color: #93a296;
+  font-size: .72rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  padding: 4px 10px;
+  color: #d9cfba;
+  background: rgba(255, 248, 238, .1);
+  border: 1px solid rgba(255, 248, 238, .22);
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.status-level {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 248, 238, .14);
+}
+
+.status-level dt {
+  color: #93a296;
+  font-size: .74rem;
+}
+
+.status-level dd {
+  margin: 0;
+  color: #f4efe2;
+  font-size: .86rem;
+  font-weight: 800;
+}
+
+.vip-status-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  margin-top: 2px;
+  color: #241a0a;
+  background: linear-gradient(180deg, #d6a454, var(--gold));
+  border: 1px solid #a97b2c;
+  border-radius: 3px;
+  font: inherit;
+  font-size: .86rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.vip-status-cta:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 10px 24px rgba(166, 123, 44, .35);
+  transform: translateY(-1px);
+}
+
+.vip-status-note {
+  margin: 0;
+  color: #93a296;
+  font-size: .72rem;
+  line-height: 1.7;
+}
+
+/* ---- 章节 ---- */
+.vip-section {
+  padding-top: 62px;
+}
+
+/* ---- 会员服务（权益）---- */
+.vip-benefit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.vip-benefit-card {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 22px 20px 20px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(74, 57, 35, .07);
+}
+
+.vip-benefit-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--red-dark);
+  background: var(--tip-soft);
+  border: 1px solid var(--tip-line);
+  border-radius: 9px;
+  font-size: 1.15rem;
+}
+
+.vip-benefit-card h3 {
+  margin: 2px 0 0;
+  color: var(--forest-deep);
+  font-size: .96rem;
+}
+
+.vip-benefit-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.75;
+}
+
+.vip-benefit-tag {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 3px 9px;
+  color: var(--forest);
+  background: rgba(198, 148, 69, .16);
+  border-radius: 999px;
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+/* ---- 套餐与价格 ---- */
+.vip-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 1160px;
+  margin: 0 auto;
+  align-items: stretch;
+}
+
+.vip-plan-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 24px 20px 22px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 26px rgba(74, 57, 35, .08);
+}
+
+.vip-plan-card--featured {
+  background: #fffaf3;
+  border: 2px solid var(--red);
+  box-shadow: 0 20px 40px rgba(184, 77, 63, .18);
+}
+
+.vip-plan-badge {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  color: var(--cream);
+  background: var(--red);
+  border-radius: 999px;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .14em;
+  white-space: nowrap;
+}
+
+.vip-plan-name {
+  color: var(--forest-deep);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.vip-plan-for {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.vip-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--forest-deep);
+  line-height: 1.05;
+}
+
+.vip-plan-currency {
+  color: var(--gold);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.vip-plan-price strong {
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+}
+
+.vip-plan-per {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.vip-plan-compare {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 1.2rem;
+  font-size: .72rem;
+}
+
+.vip-plan-was {
+  color: #a39a8b;
+  text-decoration: line-through;
+}
+
+.vip-plan-save {
+  color: var(--red-dark);
+  font-weight: 800;
+}
+
+.vip-plan-features {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vip-plan-features li {
+  display: flex;
+  gap: 8px;
+  color: #46574c;
+  font-size: .78rem;
+  line-height: 1.6;
+}
+
+.vip-plan-features .ph {
+  flex: 0 0 auto;
+  margin-top: .08rem;
+  font-size: .95rem;
+}
+
+.vip-plan-features .ph-check-circle {
+  color: var(--buy);
+}
+
+.vip-plan-features .ph-minus-circle {
+  color: #b6ada0;
+}
+
+.vip-plan-features li.is-off {
+  color: #9aa398;
+}
+
+.vip-plan-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.vip-plan-foot {
+  margin: 2px 0 0;
+  color: #9aa398;
+  font-size: .68rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ---- 购买按钮：支付宝入口与 Stripe 入口共用同一收款链接 ---- */
+.vip-pay-alipay,
+.vip-pay-stripe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  font-size: .82rem;
+  font-weight: 800;
+  transition: filter .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.vip-pay-alipay {
+  color: #1677ff;
+  background: #fffdf8;
+  border: 1px solid rgba(22, 119, 255, .45);
+}
+
+.vip-pay-alipay:hover {
+  background: rgba(22, 119, 255, .06);
+}
+
+.vip-pay-stripe {
+  color: #241a0a;
+  background: linear-gradient(180deg, #d6a454, var(--gold));
+  border: 1px solid #a97b2c;
+}
+
+.vip-pay-stripe:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 10px 24px rgba(166, 123, 44, .32);
+  transform: translateY(-1px);
+}
+
+/* ---- 支付方式 ---- */
+.vip-pay-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.vip-pay-method {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 22px 22px 20px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.vip-pay-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 1.5rem;
+}
+
+.vip-pay-mark--alipay {
+  background: #1677ff;
+}
+
+.vip-pay-mark--stripe {
+  background: linear-gradient(180deg, #d6a454, var(--gold));
+}
+
+.vip-pay-method h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--forest-deep);
+  font-size: .96rem;
+}
+
+.vip-pay-tag {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: .6rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+
+.vip-pay-method--alipay .vip-pay-tag {
+  color: #1677ff;
+  background: rgba(22, 119, 255, .12);
+}
+
+.vip-pay-method--stripe .vip-pay-tag {
+  color: #7a5a16;
+  background: rgba(198, 148, 69, .24);
+}
+
+.vip-pay-method p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.75;
+}
+
+.vip-pay-method ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vip-pay-method li {
+  padding: 3px 9px;
+  color: #5f6d62;
+  background: #f4efe4;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+/* ---- 权益对比表（复用 .compare-table，仅补居中与页脚行） ---- */
+.vip-compare-wrap {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.vip-compare-caption {
+  padding: 12px 18px;
+  color: #8a9189;
+  font-size: .7rem;
+  text-align: left;
+}
+
+.vip-compare th,
+.vip-compare td {
+  text-align: center;
+}
+
+.vip-compare th:first-child,
+.vip-compare td:first-child {
+  text-align: left;
+}
+
+.vip-compare tbody th.col-feature {
+  color: #46574c;
+  font-weight: 700;
+  white-space: normal;
+}
+
+.vip-compare-yes {
+  color: var(--buy);
+  font-size: 1rem;
+}
+
+.vip-compare-no {
+  color: #c2b8a8;
+  font-size: 1rem;
+}
+
+.vip-compare tfoot th {
+  color: var(--forest-deep);
+  background: #f7f2e8;
+  font-weight: 900;
+}
+
+.vip-compare tfoot td {
+  color: var(--forest-deep);
+  background: #fbf6ec;
+  font-weight: 900;
+}
+
+.vip-compare tfoot td.col-new {
+  background: rgba(198, 148, 69, .12);
+}
+
+.vip-compare tfoot tr:first-child th,
+.vip-compare tfoot tr:first-child td {
+  border-top: 2px solid var(--line);
+}
+
+/* ---- 购买须知（复用 .site-notice 外壳，行距对齐） ---- */
+.vip-notice {
+  max-width: 1060px;
+  margin-right: auto;
+  margin-left: auto;
+  align-items: flex-start;
+  padding: 18px 20px;
+  border-color: var(--tip-line);
+  border-left: 3px solid var(--gold);
+  background: var(--tip-soft);
+  box-shadow: none;
+}
+
+.vip-notice .notice-body p+p {
+  margin-top: 8px;
+}
+
+.vip-notice .notice-body strong {
+  color: var(--red-dark);
+}
+
+.vip-notice .notice-body a {
+  color: var(--forest);
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---- 常见问题 ---- */
+.vip-faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 1060px;
+  margin: 0 auto;
+}
+
+.vip-faq-item {
+  padding: 18px 20px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.vip-faq-item h3 {
+  margin: 0 0 7px;
+  color: var(--forest-deep);
+  font-size: .9rem;
+}
+
+.vip-faq-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: .78rem;
+  line-height: 1.75;
+}
+
+.vip-footer {
+  margin-top: 72px;
+}
+
+@media (max-width: 1080px) {
+  .vip-hero {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .vip-status-card {
+    max-width: 440px;
+  }
+
+  .vip-plan-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 640px;
+  }
+
+  .vip-plan-card--featured {
+    order: -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .vip-benefit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vip-pay-methods,
+  .vip-faq-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .vip-main {
+    padding-top: 28px;
+  }
+
+  .vip-hero {
+    padding: 20px 0 34px;
+  }
+
+  .vip-hero-copy {
+    padding-left: 18px;
+  }
+
+  .vip-benefit-grid,
+  .vip-plan-grid {
+    grid-template-columns: 1fr;
+    max-width: 440px;
+  }
+
+  .vip-status-card {
+    max-width: none;
+  }
+}

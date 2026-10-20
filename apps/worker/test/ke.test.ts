@@ -92,6 +92,15 @@ function makeFakeRepository(): FakeRepository {
     async findInstance(instanceId) {
       return instances.get(instanceId) ?? null;
     },
+    async rebindInstance(instanceId, r, buildId, _ipHash, _uaHash, now) {
+      const instance = instances.get(instanceId);
+      if (!instance) return;
+      const wasActive = instance.state === 'ACTIVE';
+      Object.assign(instance, {
+        aid: r.aid, cid: r.cid, nid: r.nid, char_name: r.char_name, map_name: r.map_name, build_id: buildId,
+        ...(wasActive ? { state: 'STOPPED', stopped_at: now } : {}),
+      });
+    },
     async updateInstanceReport(instanceId, r, licenseExpiresAt, _buildId, _ipHash, _uaHash, now) {
       const instance = instances.get(instanceId);
       if (instance) Object.assign(instance, {
@@ -298,13 +307,66 @@ describe('ke service', () => {
     expect(repository.instances.get(INST_A)).toMatchObject({ aid: 1000001, cid: 2000002, nid: 3000003 });
   });
 
-  it('start / bind 重试携带与实例不同的角色同样被拒绝', async () => {
+  it('start 携带与实例不同的角色仍被拒绝（须先 bind 换绑）', async () => {
     const { service } = serviceAndClock();
     await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
     await expect(service.start('10000', { ...bindInput(INST_A, { aid: 9, cid: 9, nid: 9 }), kickInstanceId: null }))
       .rejects.toMatchObject({ code: 'KE_BAD_REQUEST' });
+  });
+
+  it('bind 允许同账号把已有实例换绑到另一个角色（同窗口切换角色），且仍占同一个实例名额', async () => {
+    const { repository, service, advance } = serviceAndClock();
+    await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+    advance(1000);
+
+    const second = { aid: 1000001, cid: 2000009, nid: 3000003, char_name: 'Bob' };
+    await service.bind('10000', bindInput(INST_A, second));
+
+    expect(repository.instances.size).toBe(1);
+    expect(repository.instances.get(INST_A)).toMatchObject({ cid: 2000009, char_name: 'Bob', state: 'IDLE' });
+    expect(repository.characters.get('1000001:2000009:3000003')?.user_id).toBe(10000);
+    const started = await service.start('10000', { ...bindInput(INST_A, second), kickInstanceId: null });
+    expect(typeof started.license).toBe('string');
+  });
+
+  it('换绑也适用于换账号 / 换服务器（aid、cid、nid 全部不同）', async () => {
+    const { repository, service } = serviceAndClock();
+    await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+    await service.bind('10000', bindInput(INST_A, { aid: 7, cid: 8, nid: 9, char_name: 'Other' }));
+    expect(repository.instances.get(INST_A)).toMatchObject({ aid: 7, cid: 8, nid: 9, char_name: 'Other' });
+  });
+
+  it('换绑运行中的实例会让旧角色的授权失效，新角色须重新 start', async () => {
+    const { repository, service, now } = serviceAndClock();
+    await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+    await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null });
+    const second = { cid: 2000009, char_name: 'Bob' };
+
+    await service.bind('10000', bindInput(INST_A, second));
+
+    expect(repository.instances.get(INST_A)).toMatchObject({ cid: 2000009, state: 'STOPPED' });
+    await expect(service.heartbeat('10000', INST_A, report(second), Math.floor(now() / 1000), noAttestation()))
+      .rejects.toMatchObject({ code: 'KE_INSTANCE_NOT_ACTIVE' });
+    const started = await service.start('10000', { ...bindInput(INST_A, second), kickInstanceId: null });
+    expect(typeof started.license).toBe('string');
+  });
+
+  it('换绑不能绕过角色归属：目标角色 30 天内属于其他账号时被拒绝且实例保持原角色', async () => {
+    const { repository, service } = serviceAndClock();
+    await service.bind('10001', bindInput(INST_B, { aid: 9, cid: 9, nid: 9, char_name: 'Victim' }));
+    await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+
     await expect(service.bind('10000', bindInput(INST_A, { aid: 9, cid: 9, nid: 9 })))
-      .rejects.toMatchObject({ code: 'KE_BAD_REQUEST' });
+      .rejects.toMatchObject({ code: 'KE_CHARACTER_BOUND' });
+    expect(repository.instances.get(INST_A)).toMatchObject({ aid: 1000001, cid: 2000002, nid: 3000003 });
+  });
+
+  it('换绑不能夺取其他账号的实例', async () => {
+    const { repository, service } = serviceAndClock();
+    await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+    await expect(service.bind('10001', bindInput(INST_A, { aid: 9, cid: 9, nid: 9 })))
+      .rejects.toMatchObject({ code: 'KE_AUTH_FORBIDDEN' });
+    expect(repository.instances.get(INST_A)).toMatchObject({ user_id: 10000, aid: 1000001 });
   });
 
   it('心跳超时的 ACTIVE 实例不占额度，被他人顶位后复活（heartbeat/start）须重新过额度判定', async () => {
