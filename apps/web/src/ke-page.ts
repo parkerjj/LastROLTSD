@@ -11,6 +11,7 @@ import {
   emptyDoc,
   parseConfig,
   serializeConfig,
+  validateConfigDoc,
   type BlockDef,
   type BlockFieldDef,
   type BlockValue,
@@ -497,7 +498,7 @@ export function mountKePage(root: HTMLElement): void {
     .ke-dirty { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; color: #835f18; background: var(--tip-soft); border: 1px solid var(--tip-line); border-radius: 999px; font-size: .7rem; font-weight: 800; white-space: nowrap; }
     .ke-dirty i { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
     .ke-editor-actions { display: flex; gap: 8px; }
-    .ke-error { margin: 0; padding: 10px 20px 0; color: var(--red-dark); font-size: .82rem; font-weight: 700; }
+    .ke-error { margin: 0; padding: 10px 20px 0; color: var(--red-dark); font-size: .82rem; font-weight: 700; white-space: pre-line; }
     .ke-error[hidden] { display: none; }
 
     .ke-editor-body { display: grid; grid-template-columns: 196px minmax(0, 1fr) 272px; }
@@ -2008,6 +2009,10 @@ export function mountKePage(root: HTMLElement): void {
           valueSlot.appendChild(
             createPicker(jobOptions(), currentValue, setValue),
           );
+        } else if (widget === "skill") {
+          valueSlot.appendChild(
+            createPicker(skillOptions(), currentValue, setValue),
+          );
         } else if (widget === "enum") {
           valueSlot.appendChild(
             segEl(def?.options ?? [], currentValue, setValue, "", true),
@@ -2587,6 +2592,15 @@ export function mountKePage(root: HTMLElement): void {
       return;
     }
     formError.hidden = true;
+    // 保存前校验：格式/取值错误的配置项逐条列出并阻止保存，避免写坏 config.txt。
+    const configErrors = validateConfigDoc(configDoc);
+    if (configErrors.length > 0) {
+      formError.hidden = false;
+      formError.textContent =
+        `发现 ${configErrors.length} 处配置问题，请修正后再保存：\n` +
+        configErrors.map((message, index) => `${index + 1}. ${message}`).join("\n");
+      return;
+    }
     // 保存前兜底：所有 control 文件必须生成，mon/pickup/items 必须带 all 兜底行，绝不落 NULL。
     ensureAllFallback(controlDoc);
     if ((controlDoc["timeouts.txt"] ?? []).length === 0) fillTimeoutRows();

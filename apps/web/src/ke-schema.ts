@@ -205,9 +205,10 @@ export interface ConditionKeyDef {
    * - itemAmountId：同上，但物品存 ID（存 "501 > 1"）
    * - map：地图搜索选择器
    * - job：职业搜索选择器（存职业英文名）
+   * - skill：技能搜索选择器（存技能 ID）
    * - enum：options 分段选择
    */
-  widget?: 'text' | 'comparisonPercent' | 'comparisonNum' | 'status' | 'bool' | 'monsters' | 'itemAmount' | 'itemAmountId' | 'map' | 'job' | 'enum';
+  widget?: 'text' | 'comparisonPercent' | 'comparisonNum' | 'status' | 'bool' | 'monsters' | 'itemAmount' | 'itemAmountId' | 'map' | 'job' | 'skill' | 'enum';
   /** widget 为 'enum' 时的选项。 */
   options?: ScalarOption[];
 }
@@ -381,8 +382,8 @@ export const CONDITION_KEYS: Record<ConditionGroup, ConditionKeyDef[]> = {
     { key: 'monstersCountDist', label: '怪物数量统计范围', hint: '例：5', help: '统计多少格范围内的怪物数量（最大距离）。' },
     { key: 'inInventory', label: '背包物品（名称）', widget: 'itemAmount', help: '背包里某物品数量满足条件（如 红色药水 > 1），逗号分隔多项必须都满足。' },
     { key: 'inInventoryID', label: '背包物品（ID）', widget: 'itemAmountId', help: '按物品 ID 判断背包数量（如 501 > 1），逗号分隔多项必须都满足。' },
-    { key: 'whenGround', label: '地面技能在场', hint: '例：1', help: '你释放的地面技能在场才触发。' },
-    { key: 'whenNotGround', label: '地面技能不在场', hint: '例：1', help: '你释放的地面技能不在场才触发。' },
+    { key: 'whenGround', label: '地面技能在场', widget: 'skill', help: '你释放的该地面技能在场才触发。' },
+    { key: 'whenNotGround', label: '地面技能不在场', widget: 'skill', help: '你释放的该地面技能不在场才触发。' },
     { key: 'inMap', label: '在地图内', widget: 'map', help: '当前地图在列表里才触发。' },
     { key: 'notInMap', label: '不在地图内', widget: 'map', help: '当前地图不在列表里才触发。' },
   ],
@@ -395,8 +396,8 @@ export const CONDITION_KEYS: Record<ConditionGroup, ConditionKeyDef[]> = {
     { key: 'target_totalMisses', label: '累计 Miss 次数', widget: 'comparisonNum', help: '累计 Miss 次数满足条件才触发。' },
     { key: 'target_whenStatusActive', label: '怪物状态生效', widget: 'status', help: '怪物身上有某状态（名字或 ID，逗号分隔）才触发。' },
     { key: 'target_whenStatusInactive', label: '怪物状态未生效', widget: 'status', help: '怪物身上没有某状态才触发。' },
-    { key: 'target_whenGround', label: '怪物脚下有技能', hint: '例：1', help: '怪物脚下有它放的地面技能才触发。' },
-    { key: 'target_whenNotGround', label: '怪物脚下无技能', hint: '例：1', help: '怪物脚下没有它放的地面技能才触发。' },
+    { key: 'target_whenGround', label: '怪物脚下有技能', widget: 'skill', help: '怪物脚下有该地面技能才触发。' },
+    { key: 'target_whenNotGround', label: '怪物脚下无技能', widget: 'skill', help: '怪物脚下没有该地面技能才触发。' },
     { key: 'target_is_aggressive', label: '怪物主动攻击你', widget: 'bool', help: '开启表示该怪正在攻击你，关闭表示没有。' },
     { key: 'target_is_aggressive_party', label: '怪物主动攻击队友', widget: 'bool', help: '开启表示该怪正在攻击队友，关闭表示没有。' },
   ],
@@ -464,6 +465,90 @@ export function serializeConfig(doc: ConfigDoc): string {
     }
   }
   return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+// —— 保存前校验 ——
+
+/** 比较表达式合法格式：> 5、>= 5、< 5%、= 5、3..8、3-8、纯数字（等于）。 */
+const COMPARISON_VALUE_PATTERN = /^(?:[<>=!]+\s*)?[\d.]+\s*%?$/;
+const RANGE_VALUE_PATTERN = /^[\d.]+%?\s*(?:\.\.|-)\s*[\d.]+%?$/;
+
+function isValidComparisonValue(text: string): boolean {
+  const trimmed = text.trim();
+  return COMPARISON_VALUE_PATTERN.test(trimmed) || RANGE_VALUE_PATTERN.test(trimmed);
+}
+
+/** text 控件中要求纯数字的条件 key（秒数/格数）。 */
+const NUMERIC_TEXT_CONDITION_KEYS = new Set(['timeout', 'target_timeout', 'monstersCountDist']);
+
+const INTEGER_PATTERN = /^-?\d+$/;
+
+/**
+ * 保存前校验整个配置文档，返回人类可读的错误列表（空数组 = 通过）。
+ * 覆盖：block 未选技能/物品、int 字段非整数、enum 取值越界、比较条件格式、
+ * bool 非 0/1、物品数量条件格式、timeout 类非数字、标量 int。
+ */
+export function validateConfigDoc(doc: ConfigDoc): string[] {
+  const errors: string[] = [];
+  for (const def of BLOCK_DEFS) {
+    const blocks = doc.blocks[def.type] ?? [];
+    blocks.forEach((block, index) => {
+      const name = `${def.label}${blocks.length > 1 ? ` #${index + 1}` : ''}`;
+      if (def.selectorKind !== 'none' && block.selector.trim() === '') {
+        errors.push(`「${name}」未选择${def.selectorKind === 'skill' ? '技能' : '物品'}，该规则保存后不会生效。`);
+      }
+      for (const field of def.fields) {
+        const value = block.fields[field.key];
+        if (value === undefined || value.trim() === '') continue;
+        if (field.type === 'int' && !INTEGER_PATTERN.test(value.trim())) {
+          errors.push(`「${name}」的「${field.label}」应为整数，当前值「${value}」。`);
+        }
+        if (field.type === 'enum' && field.options && !field.options.some((o) => o.value === value.trim())) {
+          errors.push(`「${name}」的「${field.label}」取值无效：「${value}」。`);
+        }
+      }
+      for (const group of def.conditions) {
+        const keyDefs = conditionKeysOf(group);
+        for (const [key, raw] of Object.entries(block.conditions)) {
+          const keyDef = keyDefs.find((k) => k.key === key);
+          if (!keyDef) continue;
+          const value = raw.trim();
+          if (value === '') continue;
+          const where = `「${name}」条件「${keyDef.label}」`;
+          const widget = keyDef.widget ?? 'text';
+          if (widget === 'comparisonPercent' || widget === 'comparisonNum') {
+            if (!isValidComparisonValue(value)) {
+              errors.push(`${where}格式错误：「${raw}」（支持 > 5、>= 5、< 5、<= 5、= 5、3..8、3-8 或纯数字，可带 %）。`);
+            }
+          } else if (widget === 'bool') {
+            if (value !== '0' && value !== '1') {
+              errors.push(`${where}应为开启(1)或关闭(0)，当前值「${raw}」。`);
+            }
+          } else if (widget === 'enum') {
+            if (keyDef.options && !keyDef.options.some((o) => o.value === value)) {
+              errors.push(`${where}取值无效：「${raw}」。`);
+            }
+          } else if (widget === 'itemAmount' || widget === 'itemAmountId') {
+            const bad = value.split(',').map((p) => p.trim()).filter((p) => p !== '' && !/^.+?\s*[<>=!]+\s*[\d.]+$/.test(p));
+            if (bad.length > 0) {
+              errors.push(`${where}格式错误：「${bad[0]}」（应为：物品 + 比较符 + 数量，如「红色药水 > 1」）。`);
+            }
+          } else if (widget === 'text') {
+            if (NUMERIC_TEXT_CONDITION_KEYS.has(key) && !/^-?[\d.]+$/.test(value)) {
+              errors.push(`${where}应为数字，当前值「${raw}」。`);
+            }
+          }
+        }
+      }
+    });
+  }
+  for (const scalar of CONFIG_SCALARS) {
+    const value = doc.scalars[scalar.key];
+    if (value !== undefined && value.trim() !== '' && scalar.type === 'int' && !INTEGER_PATTERN.test(value.trim())) {
+      errors.push(`「${scalar.label}」应为整数，当前值「${value}」。`);
+    }
+  }
+  return errors;
 }
 
 /** 从 config.txt 文本解析出标量与 block（忽略注释、空行与未支持的 block）。 */

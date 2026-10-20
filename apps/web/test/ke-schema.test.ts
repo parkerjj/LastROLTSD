@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLOCK_DEFS, CONFIG_SCALARS, CONDITION_KEYS, emptyDoc, parseConfig, serializeConfig } from '../src/ke-schema';
+import { BLOCK_DEFS, CONFIG_SCALARS, CONDITION_KEYS, emptyDoc, parseConfig, serializeConfig, validateConfigDoc } from '../src/ke-schema';
 
 describe('ke config schema', () => {
   it('serializeConfig 只输出有值的标量，格式为 "key value"', () => {
@@ -108,5 +108,60 @@ describe('ke config schema', () => {
     expect(monsterKeys).not.toContain('target_timeout');
     expect(monsterKeys).toContain('target_misses');
     expect(monsterKeys).toContain('target_is_aggressive');
+  });
+
+  it('validateConfigDoc：合法配置通过', () => {
+    const doc = emptyDoc();
+    doc.blocks.useSelf_skill = [{
+      selector: '28',
+      fields: { lvl: '10', dist: '9' },
+      conditions: { hp: '< 50%', aggressives: '>= 2', timeout: '10', whenStatusActive: 'EFST_BLESSING' },
+    }];
+    doc.blocks.equipAuto = [{
+      selector: '',
+      fields: { weight: '50', whileSitting: '1', target: '1002' },
+      conditions: { target_dist: '3..8', target_misses: '> 2', inInventory: '红色药水 > 1', manualAI: '2', stopWhenHit: '1' },
+    }];
+    expect(validateConfigDoc(doc)).toEqual([]);
+  });
+
+  it('validateConfigDoc：逐类错误都能报出', () => {
+    const doc = emptyDoc();
+    // 未选技能 + int 字段非整数 + 比较条件格式错误 + timeout 非数字
+    doc.blocks.useSelf_skill = [{
+      selector: '',
+      fields: { lvl: 'abc' },
+      conditions: { hp: '半血', timeout: '十秒' },
+    }];
+    // bool 条件填了非 0/1 + 物品数量格式错误 + enum 越界（放进 equipAuto 的条件）
+    doc.blocks.equipAuto = [{
+      selector: '',
+      fields: { weight: '很多' },
+      conditions: { stopWhenHit: 'yes', inInventory: '红色药水很多', manualAI: '9' },
+    }];
+    const errors = validateConfigDoc(doc);
+    expect(errors.some((e) => e.includes('未选择技能'))).toBe(true);
+    expect(errors.some((e) => e.includes('技能等级') && e.includes('整数'))).toBe(true);
+    expect(errors.some((e) => e.includes('自身 HP') && e.includes('格式错误'))).toBe(true);
+    expect(errors.some((e) => e.includes('冷却时间') && e.includes('应为数字'))).toBe(true);
+    expect(errors.some((e) => e.includes('负重触发线') && e.includes('整数'))).toBe(true);
+    expect(errors.some((e) => e.includes('被打时禁用') && e.includes('开启(1)或关闭(0)'))).toBe(true);
+    expect(errors.some((e) => e.includes('背包物品（名称）') && e.includes('格式错误'))).toBe(true);
+    expect(errors.some((e) => e.includes('AI 模式') && e.includes('取值无效'))).toBe(true);
+  });
+
+  it('validateConfigDoc：标量 int 校验；范围与带 % 写法均合法', () => {
+    const doc = emptyDoc();
+    doc.scalars['attackDistance'] = '很远';
+    const errors = validateConfigDoc(doc);
+    expect(errors.some((e) => e.includes('攻击距离') && e.includes('整数'))).toBe(true);
+
+    const ok = emptyDoc();
+    ok.blocks.attackSkillSlot = [{
+      selector: '1',
+      fields: { lvl: '10' },
+      conditions: { target_hp: '30%..80%', aggressives: '2-5', sp: '> 10%' },
+    }];
+    expect(validateConfigDoc(ok)).toEqual([]);
   });
 });

@@ -535,4 +535,19 @@ describe("ke page", () => {
     expect(body.config_text).toContain('\tinInventoryID 501 > 5');
     expect(body.config_text).toContain('\tstopWhenHit 1');
   });
+
+  it('保存前校验：错误配置被拦截并逐条提示，修正后可保存', async () => {
+    const { root } = await mountProfileEditor('useSelf_skill 28 {\n\tlvl abc\n\thp 半血\n}\n');
+    root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
+    await wait(20);
+
+    // 被拦截：没有 PUT 请求，错误面板显示明细
+    const calls = vi.mocked(fetch).mock.calls as unknown as Array<[string, RequestInit | undefined]>;
+    expect(calls.some(([path, init]) => path === '/api/v1/ke/profiles/9' && init?.method === 'PUT')).toBe(false);
+    const errorEl = root.querySelector<HTMLElement>('#ke-form-error')!;
+    expect(errorEl.hidden).toBe(false);
+    expect(errorEl.textContent).toContain('发现 2 处配置问题');
+    expect(errorEl.textContent).toContain('技能等级');
+    expect(errorEl.textContent).toContain('自身 HP');
+  });
 });
