@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONTROL_SCHEMAS, TIMEOUT_DEFAULT_OVERRIDES, parseControl, serializeControl } from '../src/ke-controls';
+import { CONTROL_SCHEMAS, TIMEOUT_DEFAULT_OVERRIDES, allFallbackRows, defaultControlDoc, emptyControlDoc, ensureAllFallback, parseControl, serializeControl } from '../src/ke-controls';
 
 const monControl = CONTROL_SCHEMAS.find((s) => s.file === 'mon_control.txt')!;
 const pickupitems = CONTROL_SCHEMAS.find((s) => s.file === 'pickupitems.txt')!;
@@ -21,6 +21,36 @@ describe('ke control files', () => {
   it('timeouts 序列化/解析还原', () => {
     const rows = [{ name: 'ai_move_retry', values: { value: '0.4' } }];
     expect(parseControl(timeouts, serializeControl(timeouts, rows))).toEqual(rows);
+  });
+
+  it('ensureAllFallback 为缺失 all 行的规则文件补上兜底（置于最前），已有 all 行则不动', () => {
+    const doc = emptyControlDoc();
+    doc['mon_control.txt'] = [{ name: '1555', values: { attack_auto: '0' } }];
+
+    ensureAllFallback(doc);
+
+    expect(doc['mon_control.txt']![0]!.name).toBe('all');
+    expect(doc['mon_control.txt']).toHaveLength(2);
+    // 用户自定义行保持在 all 之后。
+    expect(doc['mon_control.txt']![1]).toEqual({ name: '1555', values: { attack_auto: '0' } });
+    expect(doc['pickupitems.txt']).toEqual([{ name: 'all', values: { flag: '1' } }]);
+    expect(doc['items_control.txt']).toEqual([{ name: 'all', values: { keep: '0', storage: '0', sell: '0' } }]);
+
+    // 已有 all 行时保持原样（不重复插入）。
+    ensureAllFallback(doc);
+    expect(doc['mon_control.txt']).toHaveLength(2);
+    expect(doc['pickupitems.txt']).toHaveLength(1);
+  });
+
+  it('allFallbackRows 返回深拷贝，改动不影响后续调用与 defaultControlDoc', () => {
+    const rows = allFallbackRows('mon_control.txt');
+    rows[0]!.values.attack_auto = '9';
+
+    expect(allFallbackRows('mon_control.txt')[0]!.values.attack_auto).toBe('1');
+    expect(defaultControlDoc()['mon_control.txt']).toEqual([
+      { name: 'all', values: { attack_auto: '1', teleport_auto: '0', teleport_search: '0' } },
+    ]);
+    expect(allFallbackRows('timeouts.txt')).toEqual([]);
   });
 
   it('提供 LastRO 请求的 timeouts 新方案默认值', () => {

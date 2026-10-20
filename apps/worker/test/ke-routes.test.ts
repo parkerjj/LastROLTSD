@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { MysqlDatabase } from '../src/db/mysql-client';
 import type { AppEnv } from '../src/env';
-import { registerKeRoutes } from '../src/ke/router';
+import { parseProfileInput, registerKeRoutes } from '../src/ke/router';
 
 const SITE = 'https://lastro.example';
 const INSTANCE = '11111111-1111-4111-8111-111111111111';
@@ -59,6 +59,27 @@ describe('ke routes: Origin 校验（/ke 网页编辑器的无 body 写操作）
       expect(await call(app, method, path, { origin: SITE })).toEqual({ status: 401, code: 'KE_AUTH_UNAUTHENTICATED' });
     });
   }
+});
+
+describe('ke routes: profile 输入解析的 all 兜底', () => {
+  it('mon/pickup/items 缺失或为空时回退到 all 兜底文本，绝不落 NULL', () => {
+    expect(parseProfileInput({})).toMatchObject({
+      mon_control: 'all 1 0 0\n',
+      pickupitems: 'all 1\n',
+      items_control: 'all 0 0 0\n',
+      timeouts: null,
+    });
+    expect(parseProfileInput({ mon_control: '   ', pickupitems: null, items_control: 123 })).toMatchObject({
+      mon_control: 'all 1 0 0\n',
+      pickupitems: 'all 1\n',
+      items_control: 'all 0 0 0\n',
+    });
+    // 有效内容原样保留。
+    expect(parseProfileInput({ mon_control: '1555 0 0 0\n', timeouts: 'ai_attack 0.3' })).toMatchObject({
+      mon_control: '1555 0 0 0\n',
+      timeouts: 'ai_attack 0.3',
+    });
+  });
 });
 
 describe('ke routes: license 配置与 Profile 路由解耦', () => {

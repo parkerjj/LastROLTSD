@@ -21,8 +21,10 @@ import {
 import {
   CONTROL_SCHEMAS,
   TIMEOUT_DEFAULT_OVERRIDES,
+  allFallbackRows,
   defaultControlDoc,
   emptyControlDoc,
+  ensureAllFallback,
   parseControl,
   serializeControl,
   type ControlColumn,
@@ -2176,6 +2178,19 @@ export function mountKePage(root: HTMLElement): void {
     clearDirty();
   }
 
+  /** 按 KE 默认值（+ LastRO 覆盖值）填满 timeouts 规则。 */
+  function fillTimeoutRows(): void {
+    const rows = controlDoc["timeouts.txt"] ?? (controlDoc["timeouts.txt"] = []);
+    for (const timeout of options?.timeouts ?? []) {
+      rows.push({
+        name: timeout.key,
+        values: {
+          value: TIMEOUT_DEFAULT_OVERRIDES[timeout.key] ?? timeout.value,
+        },
+      });
+    }
+  }
+
   async function openEditor(id: number | null): Promise<void> {
     formError.hidden = true;
     editor.hidden = false;
@@ -2187,14 +2202,7 @@ export function mountKePage(root: HTMLElement): void {
       nameInput.value = "";
       configDoc = defaultDoc();
       controlDoc = defaultControlDoc();
-      for (const timeout of options?.timeouts ?? []) {
-        controlDoc["timeouts.txt"]!.push({
-          name: timeout.key,
-          values: {
-            value: TIMEOUT_DEFAULT_OVERRIDES[timeout.key] ?? timeout.value,
-          },
-        });
-      }
+      fillTimeoutRows();
       clearDirty();
       renderNav();
       renderActivePanel();
@@ -2219,6 +2227,9 @@ export function mountKePage(root: HTMLElement): void {
           schema,
           profileText[schema.file] ?? "",
         );
+      // 历史 profile 的规则文件可能为空/缺 all 兜底，加载时即补齐，保证再保存不落 NULL。
+      ensureAllFallback(controlDoc);
+      if ((controlDoc["timeouts.txt"] ?? []).length === 0) fillTimeoutRows();
       clearDirty();
       renderNav();
       renderActivePanel();
@@ -2278,11 +2289,35 @@ export function mountKePage(root: HTMLElement): void {
       return;
     }
     formError.hidden = true;
-    const controlText = (file: string): string | null => {
+    // 保存前兜底：所有 control 文件必须生成，mon/pickup/items 必须带 all 兜底行，绝不落 NULL。
+    ensureAllFallback(controlDoc);
+    if ((controlDoc["timeouts.txt"] ?? []).length === 0) fillTimeoutRows();
+    const controlText = (file: string): string => {
       const schema = CONTROL_SCHEMAS.find((s) => s.file === file)!;
-      const text = serializeControl(schema, controlDoc[file] ?? []);
-      return text.trim() === "" ? null : text;
+      const text = serializeControl(schema, controlDoc[file] ?? []).trim();
+      if (text !== "" || file === "timeouts.txt") return text;
+      return serializeControl(schema, allFallbackRows(file)).trim();
     };
+    const missing: string[] = [];
+    const ruleFiles = [
+      ["mon_control.txt", "怪物规则"],
+      ["pickupitems.txt", "拾取物品"],
+      ["items_control.txt", "物品规则"],
+    ] as const;
+    for (const [file, label] of ruleFiles) {
+      const hasAll = controlText(file)
+        .split("\n")
+        .some((line) => line.trim().split(/\s+/u)[0] === "all");
+      if (!hasAll) missing.push(label);
+    }
+    if (controlText("timeouts.txt") === "") missing.push("超时配置");
+    if (missing.length > 0) {
+      formError.hidden = false;
+      formError.textContent = `以下配置文件未能生成：${missing.join(
+        "、",
+      )}，请刷新页面后重试。`;
+      return;
+    }
     const values = {
       name: nameInput.value,
       config_text: serializeConfig(configDoc),

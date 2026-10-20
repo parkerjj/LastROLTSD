@@ -115,13 +115,24 @@ function parsePublicKey(body: Record<string, unknown>): Uint8Array | null {
   }
 }
 
-function parseProfileInput(body: Record<string, unknown>): ProfileInput {
+// 三个规则文件的 all 兜底文本：缺失 all 规则会导致 KE 挂机行为异常，因此任何客户端提交的空值都用它兜底，绝不落 NULL。
+const DEFAULT_CONTROL_TEXT = {
+  mon_control: 'all 1 0 0\n',
+  pickupitems: 'all 1\n',
+  items_control: 'all 0 0 0\n',
+} as const;
+
+function parseControlText(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() !== '' ? value : fallback;
+}
+
+export function parseProfileInput(body: Record<string, unknown>): ProfileInput {
   return {
     name: typeof body.name === 'string' ? body.name : '',
     config_text: typeof body.config_text === 'string' ? body.config_text : '',
-    mon_control: typeof body.mon_control === 'string' ? body.mon_control : null,
-    pickupitems: typeof body.pickupitems === 'string' ? body.pickupitems : null,
-    items_control: typeof body.items_control === 'string' ? body.items_control : null,
+    mon_control: parseControlText(body.mon_control, DEFAULT_CONTROL_TEXT.mon_control),
+    pickupitems: parseControlText(body.pickupitems, DEFAULT_CONTROL_TEXT.pickupitems),
+    items_control: parseControlText(body.items_control, DEFAULT_CONTROL_TEXT.items_control),
     timeouts: typeof body.timeouts === 'string' ? body.timeouts : null,
   };
 }

@@ -259,19 +259,44 @@ export function emptyControlDoc(): ControlDoc {
   return doc;
 }
 
-/** 新 Profile 的默认 control 文件：all 规则 + 空超时（超时由编辑器按 KE 默认值填充）。 */
-export function defaultControlDoc(): ControlDoc {
-  const doc = emptyControlDoc();
-  doc["mon_control.txt"] = [
+/** 三个规则文件的 all 兜底行：KE 依赖 all 规则作为未匹配条目的默认行为，缺失会导致挂机行为异常。 */
+const ALL_FALLBACK_ROWS: Record<string, ControlRow[]> = {
+  "mon_control.txt": [
     {
       name: "all",
       values: { attack_auto: "1", teleport_auto: "0", teleport_search: "0" },
     },
-  ];
-  doc["pickupitems.txt"] = [{ name: "all", values: { flag: "1" } }];
-  doc["items_control.txt"] = [
+  ],
+  "pickupitems.txt": [{ name: "all", values: { flag: "1" } }],
+  "items_control.txt": [
     { name: "all", values: { keep: "0", storage: "0", sell: "0" } },
-  ];
+  ],
+};
+
+/** all 兜底行的深拷贝。 */
+export function allFallbackRows(file: string): ControlRow[] {
+  return (ALL_FALLBACK_ROWS[file] ?? []).map((row) => ({
+    name: row.name,
+    values: { ...row.values },
+  }));
+}
+
+/** 确保 mon/pickup/items 三个规则文件都有 all 兜底行（缺失时插到最前）。 */
+export function ensureAllFallback(doc: ControlDoc): void {
+  for (const file of Object.keys(ALL_FALLBACK_ROWS)) {
+    const rows = doc[file] ?? [];
+    if (!rows.some((row) => row.name === "all")) {
+      doc[file] = [...allFallbackRows(file), ...rows];
+    }
+  }
+}
+
+/** 新 Profile 的默认 control 文件：all 规则 + 空超时（超时由编辑器按 KE 默认值填充）。 */
+export function defaultControlDoc(): ControlDoc {
+  const doc = emptyControlDoc();
+  for (const file of Object.keys(ALL_FALLBACK_ROWS)) {
+    doc[file] = allFallbackRows(file);
+  }
   doc["timeouts.txt"] = [];
   return doc;
 }

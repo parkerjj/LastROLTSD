@@ -55,7 +55,10 @@ const PROFILE_OPTIONS = {
   monsters: [{ id: 1001, name: '波利' }],
   items: [],
   maps: [],
-  timeouts: [],
+  timeouts: [
+    { key: 'ai_attack', value: '1', desc: '攻击间隔', range: '0-10' },
+    { key: 'ai_teleport_idle', value: '5', desc: '空闲传送', range: '0-100' },
+  ],
   job_skills: { '176': [1, 29, 40, 41] },
   job_skill_groups: { '176': { '通用技能': [1], '一转技能': [29], '二转技能': [40, 41] } },
 };
@@ -180,6 +183,23 @@ describe("ke page", () => {
     const labels = Array.from(body.querySelectorAll('.ke-picker-item')).map((item) => item.textContent);
     expect(labels).toEqual(['测试技能100 (Test100)']);
     expect(body.querySelector('.ke-picker-more')).toBeNull();
+  });
+
+  it('保存时未点开的规则区块也生成配置并带 all 兜底，不落 NULL', async () => {
+    const { dom, root } = await mountProfileEditor();
+    // fixture 里 profile 9 的 mon/pickup/items/timeouts 全是 null，且用户不进入这些区块，直接保存。
+    root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
+    await wait(20);
+
+    const calls = vi.mocked(fetch).mock.calls as unknown as Array<[string, RequestInit | undefined]>;
+    const put = calls.find(([path, init]) => path === '/api/v1/ke/profiles/9' && init?.method === 'PUT');
+    expect(put).toBeTruthy();
+    const body = JSON.parse(put![1]!.body as string) as Record<string, string>;
+    expect(body.mon_control).toBe('all 1 0 0');
+    expect(body.pickupitems).toBe('all 1');
+    expect(body.items_control).toBe('all 0 0 0');
+    // timeouts 为空时按 KE 默认值 + LastRO 覆盖值填满，而非存空/NULL。
+    expect(body.timeouts).toBe('ai_attack 0.3\nai_teleport_idle 10');
   });
 
   it('保留卡片可获得的服侍技能，但不把 ALL 命名空间技能放进职业候选', async () => {
