@@ -709,6 +709,8 @@ body.password-open .login-dialog { transform: none; }
 }
 .dialog-secondary:hover:not(:disabled) { background: #fffdf8; border-color: var(--forest); }
 .dialog-secondary:disabled { opacity: .62; cursor: progress; }
+.login-dialog-register { width: 100%; min-height: 46px; border-color: var(--forest); color: var(--forest); letter-spacing: .04em; }
+.login-dialog-register:hover:not(:disabled) { background: #f4f0e6; border-color: var(--forest-deep); color: var(--forest-deep); }
 
 main {
   padding: 0px 0 86px;

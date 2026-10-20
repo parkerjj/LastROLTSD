@@ -11,6 +11,7 @@ import {
   emptyDoc,
   parseConfig,
   serializeConfig,
+  validateConfigDoc,
   type BlockDef,
   type BlockFieldDef,
   type BlockValue,
@@ -111,6 +112,8 @@ interface NavEntry {
   kind: "scalars" | "skills" | "controls";
   groups?: string[];
   file?: string;
+  /** kind 为 skills 时，本 tab 渲染哪些 block 类型（默认全部）。 */
+  blockTypes?: string[];
 }
 
 const KE_FETCH_CACHE = "no-store";
@@ -205,6 +208,47 @@ const NAV: NavEntry[] = [
     title: "技能规则",
     sub: "按类型分组：每种技能逻辑一张卡片，可折叠",
     kind: "skills",
+    blockTypes: ["attackSkillSlot", "useSelf_skill", "partySkill"],
+  },
+  {
+    id: "item_use",
+    label: "物品使用",
+    group: "物品装备",
+    icon: "supply",
+    title: "物品使用 · 自身使用物品",
+    sub: "自动使用消耗品（如药水），满足条件时触发",
+    kind: "skills",
+    blockTypes: ["useSelf_item"],
+  },
+  {
+    id: "buy_auto",
+    label: "自动购买",
+    group: "物品装备",
+    icon: "supply",
+    title: "自动购买",
+    sub: "库存不足时自动从 NPC 买补给",
+    kind: "skills",
+    blockTypes: ["buyAuto"],
+  },
+  {
+    id: "get_auto",
+    label: "自动取物",
+    group: "物品装备",
+    icon: "items_control",
+    title: "自动取物（仓库）",
+    sub: "身上数量不足时自动从仓库取补给",
+    kind: "skills",
+    blockTypes: ["getAuto"],
+  },
+  {
+    id: "equip_auto",
+    label: "自动换装",
+    group: "物品装备",
+    icon: "items_control",
+    title: "自动换装",
+    sub: "按自身/怪物条件自动切换装备槽位",
+    kind: "skills",
+    blockTypes: ["equipAuto", "autoSwitch"],
   },
   {
     id: "mon_control",
@@ -454,7 +498,7 @@ export function mountKePage(root: HTMLElement): void {
     .ke-dirty { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; color: #835f18; background: var(--tip-soft); border: 1px solid var(--tip-line); border-radius: 999px; font-size: .7rem; font-weight: 800; white-space: nowrap; }
     .ke-dirty i { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
     .ke-editor-actions { display: flex; gap: 8px; }
-    .ke-error { margin: 0; padding: 10px 20px 0; color: var(--red-dark); font-size: .82rem; font-weight: 700; }
+    .ke-error { margin: 0; padding: 10px 20px 0; color: var(--red-dark); font-size: .82rem; font-weight: 700; white-space: pre-line; }
     .ke-error[hidden] { display: none; }
 
     .ke-editor-body { display: grid; grid-template-columns: 196px minmax(0, 1fr) 272px; }
@@ -512,6 +556,11 @@ export function mountKePage(root: HTMLElement): void {
     .ke-cond-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: .68rem; font-weight: 900; letter-spacing: .05em; }
     .ke-cond-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 8px; align-items: start; margin-bottom: 8px; }
     .ke-cond-row input, .ke-cond-row select { min-height: 34px; padding: 5px 10px; font-size: .78rem; }
+    .ke-cond-expr { display: flex; gap: 4px; align-items: center; }
+    .ke-cond-expr input, .ke-cond-expr select { width: auto; }
+    .ke-cond-expr .ke-cond-op { flex: 0 0 52px; width: 52px; }
+    .ke-cond-expr input { flex: 1 1 0; min-width: 0; }
+    .ke-cond-expr .ke-cond-suffix { flex: 0 0 60px; width: 60px; }
     .ke-icon-btn { min-height: 34px; width: 34px; padding: 0; display: grid; place-items: center; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 7px; font-weight: 400; font-size: 1rem; }
     .ke-icon-btn:hover:not(:disabled) { color: var(--red-dark); border-color: #d8b3a9; background: #fdf6f3; }
 
@@ -681,8 +730,10 @@ export function mountKePage(root: HTMLElement): void {
       );
       if (!el) continue;
       if (entry.kind === "skills") {
-        const total = Object.values(configDoc.blocks).reduce(
-          (sum, list) => sum + list.length,
+        const types = entry.blockTypes;
+        const total = Object.entries(configDoc.blocks).reduce(
+          (sum, [type, list]) =>
+            types && !types.includes(type) ? sum : sum + list.length,
           0,
         );
         el.textContent = String(total);
@@ -811,17 +862,19 @@ export function mountKePage(root: HTMLElement): void {
     return wrap;
   }
 
-  const ON_OFF: SegOption[] = [
-    { value: "0", label: "关闭" },
-    { value: "1", label: "开启" },
-  ];
-
   function createPicker(
     listOptions: PickerOption[],
     value: string,
     onSelect: (v: string) => void,
     resetOnSelect = false,
     placeholder = "搜索并选择…",
+    /**
+     * freeText=true：输入框文本本身就是值（标量/块级物品名字段、地图码等），
+     *   input 事件同步 onSelect(input.value)，支持清空与自由文本。
+     * freeText=false（默认）：值是 option 的映射值（技能/怪物/状态 ID、职业英文名等），
+     *   input 事件只过滤下拉列表，onSelect 仅在点中选项时触发——避免把搜索中间态写进配置。
+     */
+    freeText = false,
   ): HTMLElement {
     const wrapper = document.createElement("div");
     wrapper.className = "ke-picker";
@@ -913,6 +966,10 @@ export function mountKePage(root: HTMLElement): void {
       list.hidden = false;
     });
     input.addEventListener("input", () => {
+      // freeText 场景（物品名/地图码等）输入框文本本身就是值，必须同步回数据源，
+      // 否则清空后保存时旧值仍会被写回 config.txt。
+      // mapped 场景（技能/怪物/状态 ID 等）搜索文本不是合法值，只过滤列表不提交。
+      if (freeText) onSelect(input.value);
       render(input.value);
       list.hidden = false;
     });
@@ -1027,13 +1084,256 @@ export function mountKePage(root: HTMLElement): void {
     });
   }
 
-  function isStatusKey(key: string): boolean {
-    return (
-      key === "whenStatusActive" ||
-      key === "whenStatusInactive" ||
-      key === "target_whenStatusActive" ||
-      key === "target_whenStatusInactive"
+  // —— 比较条件编辑器 ——
+
+  const COMPARISON_OPS = ["<", "<=", "=", ">=", ">"] as const;
+
+  interface ConditionExpr {
+    op: string;
+    value: string;
+    percent: boolean;
+  }
+
+  /** 解析比较表达式文本，如 "< 50%" → { op: "<", value: "50", percent: true }。无法解析时返回 null。 */
+  function parseConditionExpr(text: string): ConditionExpr | null {
+    const trimmed = text.trim();
+    if (trimmed === "") return null;
+    // 数字部分用严格小数格式，避免把范围写法 "20..80" 误吞为单个数字
+    const match = trimmed.match(/^([<>=!]+)\s*(\d+(?:\.\d+)?)\s*(%)?$/);
+    if (match) return { op: match[1]!, value: match[2]!, percent: match[3] === "%" };
+    const numMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*(%)?$/);
+    if (numMatch) return { op: "=", value: numMatch[1]!, percent: numMatch[2] === "%" };
+    return null;
+  }
+
+  function serializeConditionExpr(expr: ConditionExpr): string {
+    if (expr.value === "") return "";
+    return `${expr.op} ${expr.value}${expr.percent ? "%" : ""}`;
+  }
+
+  /**
+   * 三段式比较条件编辑器：操作符下拉 + 数值输入 + （可选）百分比后缀下拉。
+   * allowPercent 为 false 时不渲染后缀，纯数值。
+   */
+  function createComparisonEditor(
+    initialText: string,
+    onChange: (text: string) => void,
+    allowPercent: boolean,
+  ): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "ke-cond-expr";
+
+    const parsed = parseConditionExpr(initialText);
+    // 范围（3..8 / 20..80%）或 != 等三段式无法表达的合法写法：回退为纯文本输入，保留原文不丢失。
+    if (parsed === null && initialText.trim() !== "") {
+      const fallback = document.createElement("input");
+      fallback.type = "text";
+      fallback.value = initialText;
+      fallback.placeholder = "例：< 50% 或 3..8";
+      fallback.addEventListener("input", () => onChange(fallback.value));
+      wrapper.appendChild(fallback);
+      return wrapper;
+    }
+    const expr: ConditionExpr = parsed ?? {
+      op: "<",
+      value: "",
+      percent: allowPercent, // 百分比类条件新建时默认 %
+    };
+    // 纯数值条件强制 percent=false
+    if (!allowPercent) expr.percent = false;
+
+    const opSelect = document.createElement("select");
+    opSelect.className = "ke-cond-op";
+    for (const op of COMPARISON_OPS) {
+      const option = document.createElement("option");
+      option.value = op;
+      option.textContent = op;
+      opSelect.appendChild(option);
+    }
+    opSelect.value = expr.op;
+
+    const numInput = document.createElement("input");
+    numInput.type = "text";
+    numInput.inputMode = "decimal";
+    numInput.value = expr.value;
+    numInput.placeholder = "数值";
+
+    let suffixSelect: HTMLSelectElement | null = null;
+    if (allowPercent) {
+      suffixSelect = document.createElement("select");
+      suffixSelect.className = "ke-cond-suffix";
+      const percentOption = document.createElement("option");
+      percentOption.value = "%";
+      percentOption.textContent = "%";
+      suffixSelect.appendChild(percentOption);
+      const noneOption = document.createElement("option");
+      noneOption.value = "";
+      noneOption.textContent = "数值";
+      suffixSelect.appendChild(noneOption);
+      suffixSelect.value = expr.percent ? "%" : "";
+    }
+
+    function sync(): void {
+      expr.op = opSelect.value;
+      expr.value = numInput.value;
+      expr.percent = suffixSelect?.value === "%";
+      onChange(serializeConditionExpr(expr));
+    }
+
+    opSelect.addEventListener("change", sync);
+    numInput.addEventListener("input", sync);
+    suffixSelect?.addEventListener("change", sync);
+
+    wrapper.append(opSelect, numInput);
+    if (suffixSelect) wrapper.appendChild(suffixSelect);
+    return wrapper;
+  }
+
+  // —— 条件控件：怪物多选 / 物品数量 / 地图 / 职业 ——
+
+  /**
+   * 怪物多选编辑器：已选怪物以 chips 展示（可逐个移除）+ 搜索选择器追加。
+   * 值为逗号分隔的怪物 ID 串；空串回调 '' 表示清空。
+   */
+  function createMonsterChipsEditor(
+    initialValue: string,
+    onChange: (csv: string) => void,
+    emptyText = "未指定，对全部怪物生效",
+  ): HTMLElement {
+    const wrap = document.createElement("div");
+    const pool = monsterOptions();
+    const chips = document.createElement("div");
+    chips.className = "ke-tags";
+    let current = initialValue;
+    const idsOf = (): string[] =>
+      current.split(",").map((s) => s.trim()).filter(Boolean);
+    function renderChips(): void {
+      chips.innerHTML = "";
+      const ids = idsOf();
+      if (ids.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "ke-tags-empty";
+        empty.textContent = emptyText;
+        chips.appendChild(empty);
+        return;
+      }
+      for (const id of ids) {
+        const name = pool.find((o) => o.value === id)?.label ?? `怪物 #${id}`;
+        const tag = document.createElement("span");
+        tag.className = "ke-tag";
+        const label = document.createElement("span");
+        label.textContent = name;
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "ke-tag-x";
+        removeBtn.title = `移除 ${name}`;
+        removeBtn.setAttribute("aria-label", `移除 ${name}`);
+        removeBtn.textContent = "×";
+        removeBtn.addEventListener("click", () => {
+          const rest = idsOf().filter((v) => v !== id);
+          current = rest.join(", ");
+          onChange(current);
+          renderChips();
+        });
+        tag.append(label, removeBtn);
+        chips.appendChild(tag);
+      }
+    }
+    renderChips();
+    wrap.appendChild(chips);
+    wrap.appendChild(
+      createPicker(pool, "", (value) => {
+        const ids = idsOf();
+        if (!ids.includes(value)) ids.push(value);
+        current = ids.join(", ");
+        onChange(current);
+        renderChips();
+      }, true, "＋ 搜索怪物加入列表…"),
     );
+    return wrap;
+  }
+
+  /**
+   * 物品数量条件编辑器：物品单选搜索 + 操作符 + 数值。
+   * 序列化为 "物品 > 1"；物品或数值为空时回调 ''。
+   * pool 的 value 决定存物品名还是物品 ID。
+   */
+  function createItemAmountEditor(
+    initialText: string,
+    onChange: (text: string) => void,
+    pool: PickerOption[],
+    /** true 表示物品值是自由文本（名称）；false 表示物品值必须是 option 的映射值（ID）。 */
+    itemFreeText = false,
+  ): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "ke-cond-expr ke-cond-item";
+
+    // 含逗号（多项）或无法解析为单条「物品 op 数值」时回退为纯文本输入，保留原文不丢失。
+    // 数字部分用严格小数格式，避免把 "1..5" 之类误吞为单个数字
+    const match = initialText.trim().match(/^(.+?)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)$/);
+    if (!match || !match[1] || !match[2] || !match[3] || initialText.includes(",")) {
+      const fallback = document.createElement("input");
+      fallback.type = "text";
+      fallback.value = initialText;
+      fallback.placeholder = "格式：物品 > 数量";
+      fallback.addEventListener("input", () => onChange(fallback.value));
+      wrapper.appendChild(fallback);
+      return wrapper;
+    }
+
+    let item = match[1].trim();
+    let op: string = match[2];
+    let num: string = match[3];
+
+    const opSelect = document.createElement("select");
+    opSelect.className = "ke-cond-op";
+    for (const opItem of COMPARISON_OPS) {
+      const option = document.createElement("option");
+      option.value = opItem;
+      option.textContent = opItem;
+      opSelect.appendChild(option);
+    }
+    opSelect.value = COMPARISON_OPS.includes(op as (typeof COMPARISON_OPS)[number]) ? op : ">";
+
+    const numInput = document.createElement("input");
+    numInput.type = "text";
+    numInput.inputMode = "decimal";
+    numInput.value = num;
+    numInput.placeholder = "数量";
+
+    function sync(): void {
+      op = opSelect.value;
+      num = numInput.value.trim();
+      onChange(item === "" || num === "" ? "" : `${item} ${op} ${num}`);
+    }
+
+    const itemPicker = createPicker(pool, item, (value) => {
+      item = value;
+      sync();
+    }, false, "搜索物品…", itemFreeText);
+
+    opSelect.addEventListener("change", sync);
+    numInput.addEventListener("input", sync);
+
+    wrapper.append(itemPicker, opSelect, numInput);
+    return wrapper;
+  }
+
+  function mapOptions(): PickerOption[] {
+    return (options?.maps ?? []).map((m) => ({ label: m.code, value: m.code }));
+  }
+
+  /** 职业选择器：value 存职业英文名（OpenKore target_isJob 语义），label 显示中文 + 英文。 */
+  function jobOptions(): PickerOption[] {
+    const jobs = options?.jobs ?? {};
+    const jobsZh = options?.jobs_zh ?? {};
+    return Object.entries(jobs).map(([id, name]) => {
+      const zh = jobsZh[id];
+      return {
+        label: zh && zh !== name ? `${zh} (${name})` : name,
+        value: name,
+      };
+    });
   }
 
   // —— 角色卡 ——
@@ -1257,6 +1557,9 @@ export function mountKePage(root: HTMLElement): void {
           markDirty();
           updatePreview();
         },
+        false,
+        "搜索并选择…",
+        true, // 物品名是自由文本：输入/清空必须同步（teleportAuto_item1 清空修复）
       );
       field.appendChild(picker);
       return field;
@@ -1290,7 +1593,8 @@ export function mountKePage(root: HTMLElement): void {
   // —— 技能分区（block 卡片） ——
 
   function renderSkillsTab(entry: NavEntry): void {
-    if (selectedJobId !== null && options?.job_skills !== undefined) {
+    const isMainSkillTab = entry.id === "skills";
+    if (isMainSkillTab && selectedJobId !== null && options?.job_skills !== undefined) {
       const row = document.createElement("div");
       row.className = "ke-hint";
       row.style.marginTop = "8px";
@@ -1319,8 +1623,8 @@ export function mountKePage(root: HTMLElement): void {
       tabPanels.appendChild(row);
     }
 
-    // 智能治疗等「技能」组标量：属于技能行为，跟随技能规则页展示（不再放在补给页）。
-    const smartScalars = CONFIG_SCALARS.filter((s) => s.group === "技能");
+    // 智能治疗等「技能」组标量：属于技能行为，只跟随主技能规则页展示。
+    const smartScalars = isMainSkillTab ? CONFIG_SCALARS.filter((s) => s.group === "技能") : [];
     if (smartScalars.length > 0) {
       const groupEl = document.createElement("div");
       groupEl.className = "ke-group";
@@ -1336,10 +1640,13 @@ export function mountKePage(root: HTMLElement): void {
       tabPanels.appendChild(groupEl);
     }
 
-    const withBlocks = BLOCK_DEFS.filter(
+    const defs = BLOCK_DEFS.filter(
+      (def) => !entry.blockTypes || entry.blockTypes.includes(def.type),
+    );
+    const withBlocks = defs.filter(
       (def) => (configDoc.blocks[def.type] ?? []).length > 0,
     );
-    const withoutBlocks = BLOCK_DEFS.filter(
+    const withoutBlocks = defs.filter(
       (def) => (configDoc.blocks[def.type] ?? []).length === 0,
     );
 
@@ -1502,6 +1809,19 @@ export function mountKePage(root: HTMLElement): void {
     body.className = "ke-block-body";
     body.hidden = !isOpen;
 
+    const fields = document.createElement("div");
+    fields.className = "ke-fields";
+    fields.style.paddingBottom = "0";
+
+    function renderFields(): void {
+      fields.innerHTML = "";
+      for (const fieldDef of def.fields) {
+        // noSmartHeal 仅对治愈术（技能 ID 28）显示
+        if (fieldDef.key === 'noSmartHeal' && block.selector !== '28') continue;
+        fields.appendChild(renderBlockField(fieldDef, block));
+      }
+    }
+
     if (def.selectorKind !== "none") {
       const field = document.createElement("div");
       field.className = "ke-field";
@@ -1540,15 +1860,13 @@ export function mountKePage(root: HTMLElement): void {
           chips[0]!.textContent = label;
           chips[0]!.hidden = !label;
         }
-      });
+        renderFields();
+      }, false, "搜索并选择…", def.selectorKind === "item"); // 物品名自由文本；技能存 ID 仅选项提交
       field.appendChild(picker);
       body.appendChild(field);
     }
-    const fields = document.createElement("div");
-    fields.className = "ke-fields";
-    fields.style.paddingBottom = "0";
-    for (const fieldDef of def.fields)
-      fields.appendChild(renderBlockField(fieldDef, block));
+
+    renderFields();
     body.appendChild(fields);
     for (const group of def.conditions)
       body.appendChild(renderConditions(group, block));
@@ -1564,68 +1882,20 @@ export function mountKePage(root: HTMLElement): void {
     field.className = "ke-field";
     field.appendChild(helpTip(fieldDef.label, fieldDef.help));
     if (fieldDef.type === "monsters") {
-      const pool = monsterOptions();
-      const chips = document.createElement("div");
-      chips.className = "ke-tags";
-      const idsOf = (): string[] =>
-        (block.fields[fieldDef.key] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-      const renderChips = (): void => {
-        chips.innerHTML = "";
-        const ids = idsOf();
-        if (ids.length === 0) {
-          const empty = document.createElement("span");
-          empty.className = "ke-tags-empty";
-          empty.textContent =
-            fieldDef.key === "notMonsters"
-              ? "未排除任何怪物"
-              : "未指定，对全部怪物生效";
-          chips.appendChild(empty);
-          return;
-        }
-        for (const id of ids) {
-          const name = pool.find((o) => o.value === id)?.label ?? `怪物 #${id}`;
-          const tag = document.createElement("span");
-          tag.className = "ke-tag";
-          const label = document.createElement("span");
-          label.textContent = name;
-          const removeBtn = document.createElement("button");
-          removeBtn.type = "button";
-          removeBtn.className = "ke-tag-x";
-          removeBtn.title = `移除 ${name}`;
-          removeBtn.setAttribute("aria-label", `移除 ${name}`);
-          removeBtn.textContent = "×";
-          removeBtn.addEventListener("click", () => {
-            const rest = idsOf().filter((v) => v !== id);
-            if (rest.length === 0) delete block.fields[fieldDef.key];
-            else block.fields[fieldDef.key] = rest.join(", ");
+      field.appendChild(
+        createMonsterChipsEditor(
+          block.fields[fieldDef.key] ?? "",
+          (csv) => {
+            if (csv === "") delete block.fields[fieldDef.key];
+            else block.fields[fieldDef.key] = csv;
             markDirty();
             updatePreview();
-            renderChips();
-          });
-          tag.append(label, removeBtn);
-          chips.appendChild(tag);
-        }
-      };
-      renderChips();
-      field.appendChild(chips);
-      const picker = createPicker(
-        pool,
-        "",
-        (value) => {
-          const current = idsOf();
-          if (!current.includes(value)) current.push(value);
-          block.fields[fieldDef.key] = current.join(", ");
-          markDirty();
-          updatePreview();
-          renderChips();
-        },
-        true,
-        "＋ 搜索怪物加入列表…",
+          },
+          fieldDef.key === "notMonsters"
+            ? "未排除任何怪物"
+            : "未指定，对全部怪物生效",
+        ),
       );
-      field.appendChild(picker);
       return field;
     }
     if (fieldDef.type === "enum") {
@@ -1640,6 +1910,23 @@ export function mountKePage(root: HTMLElement): void {
           },
           "",
           true,
+        ),
+      );
+      return field;
+    }
+    if (fieldDef.picker === "item") {
+      field.appendChild(
+        createPicker(
+          itemOptions(),
+          block.fields[fieldDef.key] ?? "",
+          (value) => {
+            block.fields[fieldDef.key] = value;
+            markDirty();
+            updatePreview();
+          },
+          false,
+          "搜索并选择…",
+          true, // 装备槽位接受物品 ID/名称/片段，自由文本
         ),
       );
       return field;
@@ -1707,16 +1994,70 @@ export function mountKePage(root: HTMLElement): void {
       }
       function renderValue(): void {
         valueSlot.innerHTML = "";
-        keySelect.title = keys.find((k) => k.key === currentKey)?.help ?? "";
+        const def = keys.find((k) => k.key === currentKey);
+        keySelect.title = def?.help ?? "";
         const currentValue = block.conditions[currentKey] ?? "";
-        if (isStatusKey(currentKey)) {
+        const widget = def?.widget ?? "text";
+        if (widget === "status") {
           valueSlot.appendChild(
             createPicker(statusOptions(), currentValue, setValue),
           );
+        } else if (widget === "comparisonPercent" || widget === "comparisonNum") {
+          valueSlot.appendChild(
+            createComparisonEditor(
+              currentValue,
+              setValue,
+              widget === "comparisonPercent",
+            ),
+          );
+        } else if (widget === "bool") {
+          valueSlot.appendChild(
+            segEl(
+              [
+                { value: "0", label: "关闭" },
+                { value: "1", label: "开启" },
+              ],
+              currentValue,
+              setValue,
+              "",
+              true,
+            ),
+          );
+        } else if (widget === "monsters") {
+          valueSlot.appendChild(
+            createMonsterChipsEditor(
+              currentValue,
+              setValue,
+              currentKey === "notMonsters" ? "未排除任何怪物" : "未指定怪物",
+            ),
+          );
+        } else if (widget === "itemAmount") {
+          valueSlot.appendChild(
+            createItemAmountEditor(currentValue, setValue, itemNameOptions(), true),
+          );
+        } else if (widget === "itemAmountId") {
+          valueSlot.appendChild(
+            createItemAmountEditor(currentValue, setValue, itemOptions()),
+          );
+        } else if (widget === "map") {
+          valueSlot.appendChild(
+            createPicker(mapOptions(), currentValue, setValue, false, "搜索地图…", true),
+          );
+        } else if (widget === "job") {
+          valueSlot.appendChild(
+            createPicker(jobOptions(), currentValue, setValue),
+          );
+        } else if (widget === "skill") {
+          valueSlot.appendChild(
+            createPicker(skillOptions(), currentValue, setValue),
+          );
+        } else if (widget === "enum") {
+          valueSlot.appendChild(
+            segEl(def?.options ?? [], currentValue, setValue, "", true),
+          );
         } else {
           const input = document.createElement("input");
-          input.placeholder =
-            keys.find((k) => k.key === currentKey)?.hint ?? "值";
+          input.placeholder = def?.hint ?? "值";
           input.value = currentValue;
           input.addEventListener("input", () => setValue(input.value));
           valueSlot.appendChild(input);
@@ -1860,6 +2201,7 @@ export function mountKePage(root: HTMLElement): void {
         },
         false,
         isMonster ? "搜索怪物，或选 all 兜底…" : "搜索物品，或选 all 兜底…",
+        !isMonster, // 物品名自由文本；怪物行存 ID，仅选项提交
       );
       wrap.appendChild(picker);
     }
@@ -2289,6 +2631,15 @@ export function mountKePage(root: HTMLElement): void {
       return;
     }
     formError.hidden = true;
+    // 保存前校验：格式/取值错误的配置项逐条列出并阻止保存，避免写坏 config.txt。
+    const configErrors = validateConfigDoc(configDoc);
+    if (configErrors.length > 0) {
+      formError.hidden = false;
+      formError.textContent =
+        `发现 ${configErrors.length} 处配置问题，请修正后再保存：\n` +
+        configErrors.map((message, index) => `${index + 1}. ${message}`).join("\n");
+      return;
+    }
     // 保存前兜底：所有 control 文件必须生成，mon/pickup/items 必须带 all 兜底行，绝不落 NULL。
     ensureAllFallback(controlDoc);
     if ((controlDoc["timeouts.txt"] ?? []).length === 0) fillTimeoutRows();

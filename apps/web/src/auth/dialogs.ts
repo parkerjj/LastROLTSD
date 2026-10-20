@@ -598,6 +598,7 @@ function loginDialogMarkup(): string {
         <p class="login-dialog-status" data-dialog-status role="status" aria-live="polite" hidden></p>
         <button type="submit" class="login-dialog-submit">登录</button>
       </form>
+      <button type="button" class="dialog-secondary login-dialog-register" data-open-register>注册新账号</button>
       <p class="login-dialog-note">在城市之间，快速找到你要的装备与词条。</p>
     </section>
   </div>`;
