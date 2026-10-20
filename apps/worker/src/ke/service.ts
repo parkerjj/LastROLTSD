@@ -8,6 +8,7 @@ import {
   KE_LIVENESS_WINDOW_MS,
   KeFailure,
   type CharacterReport,
+  type KeLicenseMode,
   type LicensePayload,
   type WrappedKeyBundle,
 } from './types';
@@ -28,6 +29,8 @@ export interface BindInput extends Attestation {
 
 export interface StartInput extends BindInput {
   kickInstanceId: string | null;
+  /** 缺省按 auto 处理（向后兼容）；manual 需要授权但不占额度，也不踢人。 */
+  mode?: KeLicenseMode;
 }
 
 export interface BindResponse {
@@ -74,9 +77,9 @@ function assertSameCharacter(instance: InstanceRow, report: CharacterReport): vo
   }
 }
 
-/** 仅「ACTIVE 且近期有心跳」的实例占用额度；心跳超时的 ACTIVE 视同让出名额，再次运行前须重新过额度判定。 */
+/** 仅「ACTIVE、auto 模式且近期有心跳」的实例占用额度；心跳超时的 ACTIVE 视同让出名额，再次运行前须重新过额度判定。manual 从不占额度。 */
 function holdsSlot(instance: InstanceRow, threshold: number): boolean {
-  return instance.state === 'ACTIVE' && (instance.last_heartbeat_at ?? 0) > threshold;
+  return instance.state === 'ACTIVE' && instance.mode === 'auto' && (instance.last_heartbeat_at ?? 0) > threshold;
 }
 
 function assertKeyRequest(needWasmKey: boolean, kePublicKey: Uint8Array | null): void {
@@ -152,6 +155,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
       assertKeyRequest(input.needWasmKey, input.kePublicKey);
       const ownerId = Number(userId);
       const timestamp = now();
+      const mode = input.mode ?? 'auto';
       const instance = await repository.transaction(async (tx) => {
         await tx.lockUser(ownerId);
         const found = await tx.findInstance(input.instanceId);
@@ -159,22 +163,25 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         if (found.user_id !== ownerId) throw new KeFailure('KE_AUTH_FORBIDDEN', 403, '实例不属于当前账号');
         assertSameCharacter(found, input.report);
         const threshold = timestamp - KE_LIVENESS_WINDOW_MS;
-        // 仅踢掉「近期心跳」的 ACTIVE 实例（真正占用额度的）；陈旧 ACTIVE 不占额度，无需踢。
-        if (input.kickInstanceId !== null && input.kickInstanceId !== found.instance_id) {
-          const victim = await tx.findInstance(input.kickInstanceId);
-          if (victim !== null && victim.user_id === ownerId && victim.state === 'ACTIVE' && (victim.last_heartbeat_at ?? 0) > threshold) {
-            await tx.markKicked(victim.instance_id, found.instance_id, timestamp);
+        // manual（半自动）需要授权但不占额度：不做额度判定，也不踢人。
+        if (mode === 'auto') {
+          // 仅踢掉「近期心跳」的 ACTIVE auto 实例（真正占用额度的）；陈旧 ACTIVE 与 manual 不占额度，无需踢。
+          if (input.kickInstanceId !== null && input.kickInstanceId !== found.instance_id) {
+            const victim = await tx.findInstance(input.kickInstanceId);
+            if (victim !== null && victim.user_id === ownerId && victim.state === 'ACTIVE' && victim.mode === 'auto' && (victim.last_heartbeat_at ?? 0) > threshold) {
+              await tx.markKicked(victim.instance_id, found.instance_id, timestamp);
+            }
+          }
+          // KICKED/STOPPED 也允许重新 start（同账号在角色间切换/重启），与 IDLE、心跳超时的 ACTIVE 走同一额度判定。
+          const activeCount = await tx.countActive(ownerId, found.instance_id, threshold);
+          if (!holdsSlot(found, threshold) && activeCount >= config.instanceLimit) {
+            const active = await tx.listActive(ownerId, threshold);
+            throw new KeFailure('KE_QUOTA_EXCEEDED', 409, '已达实例额度，请先停用一名正在运行的角色', { active_instances: active });
           }
         }
-        // KICKED/STOPPED 也允许重新 start（同账号在角色间切换/重启），与 IDLE、心跳超时的 ACTIVE 走同一额度判定。
-        const activeCount = await tx.countActive(ownerId, found.instance_id, threshold);
-        if (!holdsSlot(found, threshold) && activeCount >= config.instanceLimit) {
-          const active = await tx.listActive(ownerId, threshold);
-          throw new KeFailure('KE_QUOTA_EXCEEDED', 409, '已达实例额度，请先停用一名正在运行的角色', { active_instances: active });
-        }
         const licenseExpiresAt = timestamp + KE_LICENSE_LEASE_MS;
-        await tx.activateInstance(found.instance_id, JSON.stringify(['core']), input.buildId, input.ipHash, input.uaHash, licenseExpiresAt, timestamp);
-        return { ...found, state: 'ACTIVE', build_id: input.buildId, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp };
+        await tx.activateInstance(found.instance_id, mode, JSON.stringify(['core']), input.buildId, input.ipHash, input.uaHash, licenseExpiresAt, timestamp);
+        return { ...found, state: 'ACTIVE', mode, build_id: input.buildId, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp };
       });
       const license = await buildLicenseFor(config, instance, timestamp);
       const bundles = await keyBundles(input);
@@ -196,7 +203,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         assertSameCharacter(found, report);
         // 心跳已超时的 ACTIVE 实例名额可能已被顶替：额度已被他人占满时不得凭心跳「复活」，按被顶替处理。
         const threshold = timestamp - KE_LIVENESS_WINDOW_MS;
-        if (!holdsSlot(found, threshold) && await tx.countActive(ownerId, instanceId, threshold) >= config.instanceLimit) {
+        if (found.mode === 'auto' && !holdsSlot(found, threshold) && await tx.countActive(ownerId, instanceId, threshold) >= config.instanceLimit) {
           throw new KeFailure('KE_INSTANCE_KICKED', 409, '该实例已被顶替');
         }
         const licenseExpiresAt = timestamp + KE_LICENSE_LEASE_MS;

@@ -1,5 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
-import type { ActiveInstanceInfo, CharacterReport } from './types';
+import type { ActiveInstanceInfo, CharacterReport, KeLicenseMode } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -26,6 +26,7 @@ export interface InstanceRow {
   char_name: string | null;
   map_name: string | null;
   state: string;
+  mode: KeLicenseMode;
   features: string | null;
   build_id: string | null;
   license_expires_at: number | null;
@@ -74,6 +75,7 @@ function readInstance(row: MysqlRow): InstanceRow {
     char_name: asNullableString(row.char_name),
     map_name: asNullableString(row.map_name),
     state: String(row.state),
+    mode: row.mode === 'manual' ? 'manual' : 'auto',
     features: asNullableString(row.features),
     build_id: asNullableString(row.build_id),
     license_expires_at: asNullableNumber(row.license_expires_at),
@@ -99,9 +101,10 @@ export interface KeTx {
   /** 把已有实例换绑到另一个角色；ACTIVE 的实例同时置为 STOPPED（旧角色的授权不再有效）。 */
   rebindInstance(instanceId: string, report: CharacterReport, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
   updateInstanceReport(instanceId: string, report: CharacterReport, licenseExpiresAt: number, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
-  activateInstance(instanceId: string, featuresJson: string, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, licenseExpiresAt: number, now: number): Promise<void>;
+  activateInstance(instanceId: string, mode: KeLicenseMode, featuresJson: string, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, licenseExpiresAt: number, now: number): Promise<void>;
   markKicked(instanceId: string, kickedBy: string, now: number): Promise<void>;
   markStopped(instanceId: string, now: number): Promise<void>;
+  /** 只统计占额度的 auto 实例；manual（半自动）实例不计入。 */
   countActive(userId: number, excludeInstanceId: string, threshold: number): Promise<number>;
   listActive(userId: number, threshold: number): Promise<ActiveInstanceInfo[]>;
 }
@@ -159,7 +162,7 @@ function txFor(db: MysqlDatabase): KeTx {
 
     async findInstance(instanceId) {
       const rows = await db.all<MysqlRow>(
-        'SELECT instance_id, user_id, aid, cid, nid, char_name, map_name, state, features, build_id, license_expires_at, last_heartbeat_at, started_at, kicked_at, kicked_by_instance_id, stopped_at FROM ke_instances WHERE instance_id = ?',
+        'SELECT instance_id, user_id, aid, cid, nid, char_name, map_name, state, mode, features, build_id, license_expires_at, last_heartbeat_at, started_at, kicked_at, kicked_by_instance_id, stopped_at FROM ke_instances WHERE instance_id = ?',
         [instanceId],
       );
       return rows.length > 0 ? readInstance(rows[0]!) : null;
@@ -180,10 +183,10 @@ function txFor(db: MysqlDatabase): KeTx {
       );
     },
 
-    async activateInstance(instanceId, featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now) {
+    async activateInstance(instanceId, mode, featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now) {
       await db.run(
-        'UPDATE ke_instances SET state = ?, features = ?, build_id = ?, ip_hash = ?, ua_hash = ?, license_expires_at = ?, started_at = ?, last_heartbeat_at = ?, kicked_at = NULL, kicked_by_instance_id = NULL, stopped_at = NULL, updated_at = ? WHERE instance_id = ?',
-        ['ACTIVE', featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now, now, now, instanceId],
+        'UPDATE ke_instances SET state = ?, mode = ?, features = ?, build_id = ?, ip_hash = ?, ua_hash = ?, license_expires_at = ?, started_at = ?, last_heartbeat_at = ?, kicked_at = NULL, kicked_by_instance_id = NULL, stopped_at = NULL, updated_at = ? WHERE instance_id = ?',
+        ['ACTIVE', mode, featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now, now, now, instanceId],
       );
     },
 
@@ -203,16 +206,16 @@ function txFor(db: MysqlDatabase): KeTx {
 
     async countActive(userId, excludeInstanceId, threshold) {
       const rows = await db.all<MysqlRow>(
-        'SELECT COUNT(*) AS cnt FROM ke_instances WHERE user_id = ? AND state = ? AND instance_id != ? AND last_heartbeat_at > ?',
-        [userId, 'ACTIVE', excludeInstanceId, threshold],
+        'SELECT COUNT(*) AS cnt FROM ke_instances WHERE user_id = ? AND state = ? AND mode = ? AND instance_id != ? AND last_heartbeat_at > ?',
+        [userId, 'ACTIVE', 'auto', excludeInstanceId, threshold],
       );
       return rows.length > 0 ? asNumber(rows[0]!.cnt) : 0;
     },
 
     async listActive(userId, threshold) {
       const rows = await db.all<MysqlRow>(
-        'SELECT instance_id, char_name, map_name, last_heartbeat_at FROM ke_instances WHERE user_id = ? AND state = ? AND last_heartbeat_at > ?',
-        [userId, 'ACTIVE', threshold],
+        'SELECT instance_id, char_name, map_name, last_heartbeat_at FROM ke_instances WHERE user_id = ? AND state = ? AND mode = ? AND last_heartbeat_at > ?',
+        [userId, 'ACTIVE', 'auto', threshold],
       );
       return rows.map((row) => ({
         instance_id: String(row.instance_id),

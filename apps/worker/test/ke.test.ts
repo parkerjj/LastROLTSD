@@ -84,7 +84,7 @@ function makeFakeRepository(): FakeRepository {
     async insertInstance(instanceId, userId, r, buildId, _ipHash, _uaHash, now) {
       instances.set(instanceId, {
         instance_id: instanceId, user_id: userId, aid: r.aid, cid: r.cid, nid: r.nid,
-        char_name: r.char_name, map_name: r.map_name, state: 'IDLE', features: null, build_id: buildId,
+        char_name: r.char_name, map_name: r.map_name, state: 'IDLE', mode: 'auto', features: null, build_id: buildId,
         license_expires_at: null, last_heartbeat_at: null, started_at: null,
         kicked_at: null, kicked_by_instance_id: null, stopped_at: null,
       });
@@ -107,10 +107,10 @@ function makeFakeRepository(): FakeRepository {
         char_name: r.char_name, map_name: r.map_name, last_heartbeat_at: now, license_expires_at: licenseExpiresAt,
       });
     },
-    async activateInstance(instanceId, featuresJson, buildId, _ipHash, _uaHash, licenseExpiresAt, now) {
+    async activateInstance(instanceId, mode, featuresJson, buildId, _ipHash, _uaHash, licenseExpiresAt, now) {
       const instance = instances.get(instanceId);
       if (instance) Object.assign(instance, {
-        state: 'ACTIVE', features: featuresJson, build_id: buildId,
+        state: 'ACTIVE', mode, features: featuresJson, build_id: buildId,
         license_expires_at: licenseExpiresAt, started_at: now, last_heartbeat_at: now,
         kicked_at: null, kicked_by_instance_id: null, stopped_at: null,
       });
@@ -126,14 +126,14 @@ function makeFakeRepository(): FakeRepository {
     async countActive(userId, excludeInstanceId, threshold) {
       let count = 0;
       for (const instance of instances.values()) {
-        if (instance.user_id === userId && instance.state === 'ACTIVE' && instance.instance_id !== excludeInstanceId && (instance.last_heartbeat_at ?? 0) > threshold) count += 1;
+        if (instance.user_id === userId && instance.state === 'ACTIVE' && instance.mode === 'auto' && instance.instance_id !== excludeInstanceId && (instance.last_heartbeat_at ?? 0) > threshold) count += 1;
       }
       return count;
     },
     async listActive(userId, threshold) {
       const active: { instance_id: string; char_name: string | null; map_name: string | null; last_heartbeat_at: number | null }[] = [];
       for (const instance of instances.values()) {
-        if (instance.user_id === userId && instance.state === 'ACTIVE' && (instance.last_heartbeat_at ?? 0) > threshold) {
+        if (instance.user_id === userId && instance.state === 'ACTIVE' && instance.mode === 'auto' && (instance.last_heartbeat_at ?? 0) > threshold) {
           active.push({ instance_id: instance.instance_id, char_name: instance.char_name, map_name: instance.map_name, last_heartbeat_at: instance.last_heartbeat_at });
         }
       }
@@ -176,7 +176,19 @@ describe('ke crypto', () => {
     const signature = parts[1]!;
     expect(JSON.parse(decoder.decode(base64UrlDecode(payloadText)))).toEqual(payload);
     const verifyKey = await crypto.subtle.importKey('raw', toArrayBuffer(rawPublic), { name: 'Ed25519' }, false, ['verify']);
-    expect(await crypto.subtle.verify('Ed25519', verifyKey, toArrayBuffer(base64UrlDecode(signature)), toArrayBuffer(encoder.encode(payloadText)))).toBe(true);
+    expect(await crypto.subtle.verify('Ed25519', verifyKey, toArrayBuffer(base64UrlDecode(signature)), toArrayBuffer(base64UrlDecode(payloadText)))).toBe(true);
+    // 对 base64url 文本签名是过去的错误约定（KE 永远验不过），必须保持为 false。
+    expect(await crypto.subtle.verify('Ed25519', verifyKey, toArrayBuffer(base64UrlDecode(signature)), toArrayBuffer(encoder.encode(payloadText)))).toBe(false);
+  });
+
+  it('金标准：固定密钥签出的 license 与 KE（Rust 验签）侧测试里的常量逐字一致', async () => {
+    // 同一个常量在 KoreEngine 的 crates/kore-license/tests/license_contract.rs 里被 Rust 验签；任一侧改了签名约定都会失败。
+    const pkcs8 = new Uint8Array(Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.alloc(32, 7)]));
+    const license = await buildLicense({
+      v: 1, kid: 'ke-license-ed25519-v1', iid: '11111111-1111-4111-8111-111111111111', uid: '10000',
+      aid: 1, cid: 2, nid: 3, features: ['core'], key_versions: { core: 1 }, iat: 1768700000, exp: 1768701800,
+    }, pkcs8);
+    expect(license).toBe('eyJ2IjoxLCJraWQiOiJrZS1saWNlbnNlLWVkMjU1MTktdjEiLCJpaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ1aWQiOiIxMDAwMCIsImFpZCI6MSwiY2lkIjoyLCJuaWQiOjMsImZlYXR1cmVzIjpbImNvcmUiXSwia2V5X3ZlcnNpb25zIjp7ImNvcmUiOjF9LCJpYXQiOjE3Njg3MDAwMDAsImV4cCI6MTc2ODcwMTgwMH0.8AfVOOQMdzc6UidZoxhQho5O-jhdnXRKIaD8uMG03hoK6xZfSixR1mJJtDiHkyCSfBgq443EQH5zqqcZdMGaAg');
   });
 
   it('wrapChunkKey 可用 KE 私钥解包还原', async () => {
@@ -392,6 +404,79 @@ describe('ke service', () => {
     advance(11 * 60 * 1000);
     const renewed = await service.heartbeat('10000', INST_A, report(), Math.floor(now() / 1000), noAttestation());
     expect(typeof renewed.license).toBe('string');
+  });
+
+  describe('manual（半自动）模式：需要授权但不占额度', () => {
+    const second = { aid: 5, cid: 5, nid: 5, char_name: 'Bob' };
+
+    it('manual 的 start 签发 license，但不占额度：auto 额度满时仍可启动，且 auto 实例不受影响', async () => {
+      const { repository, service } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' });
+      await service.bind('10000', bindInput(INST_B, second));
+
+      const started = await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'manual' });
+      expect(typeof started.license).toBe('string');
+      expect(repository.instances.get(INST_B)).toMatchObject({ state: 'ACTIVE', mode: 'manual' });
+      expect(repository.instances.get(INST_A)).toMatchObject({ state: 'ACTIVE', mode: 'auto' });
+    });
+
+    it('manual 实例不占额度：它运行时，另一个实例仍可 auto，满额列表里也不会出现 manual 实例', async () => {
+      const { service } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'manual' });
+      await service.bind('10000', bindInput(INST_B, second));
+      await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' });
+
+      await service.bind('10000', bindInput('33333333-3333-4333-8333-333333333333', { aid: 6, cid: 6, nid: 6, char_name: 'Carol' }));
+      await expect(service.start('10000', { ...bindInput('33333333-3333-4333-8333-333333333333', { aid: 6, cid: 6, nid: 6, char_name: 'Carol' }), kickInstanceId: null, mode: 'auto' }))
+        .rejects.toMatchObject({
+          code: 'KE_QUOTA_EXCEEDED',
+          details: { active_instances: [expect.objectContaining({ instance_id: INST_B })] },
+        });
+    });
+
+    it('auto 切到 manual 会释放额度（同一实例再次 start），manual 切回 auto 要重新过额度判定', async () => {
+      const { repository, service } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' });
+      await service.bind('10000', bindInput(INST_B, second));
+
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'manual' });
+      await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' });
+
+      await expect(service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' }))
+        .rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
+      expect(repository.instances.get(INST_A)).toMatchObject({ state: 'ACTIVE', mode: 'manual' });
+    });
+
+    it('manual 的 start 不会踢人，即使带了 kick_instance_id', async () => {
+      const { repository, service } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' });
+      await service.bind('10000', bindInput(INST_B, second));
+      await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: INST_A, mode: 'manual' });
+      expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
+    });
+
+    it('缺省 mode 按 auto 处理（旧客户端）', async () => {
+      const { repository, service } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      expect(repository.instances.get(INST_A)?.mode).toBe('auto');
+    });
+
+    it('心跳超时的 manual 实例不会因 auto 额度被占满而被判为被顶替', async () => {
+      const { service, advance, now } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'manual' });
+      advance(11 * 60 * 1000);
+      await service.bind('10000', bindInput(INST_B, second));
+      await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' });
+
+      const renewed = await service.heartbeat('10000', INST_A, report({ char_name: 'Alice' }), Math.floor(now() / 1000), noAttestation());
+      expect(typeof renewed.license).toBe('string');
+    });
   });
 
   it('无主角色（账号已删除，user_id 为空）30 天内也可被重新绑定', async () => {
