@@ -17,7 +17,7 @@ import { createProfileRepository, type ProfileInput, type ProfileRepository } fr
 import { createProfileService } from './profile-service';
 import { createTokenRepository, type TokenRepository } from './token-repository';
 import { createTokenService } from './token-service';
-import { KeFailure, type CharacterReport } from './types';
+import { KeFailure, type CharacterReport, type KeLicenseMode } from './types';
 
 const GENERAL_JSON_LIMIT = 8 * 1024;
 const HOUR_MS = 60 * 60 * 1000;
@@ -88,6 +88,13 @@ function parseCharacterReport(body: Record<string, unknown>): CharacterReport {
     job_id: positiveInt(body.job_id),
     map_name: typeof body.map_name === 'string' && body.map_name.length <= 64 ? body.map_name : null,
   };
+}
+
+/** 缺省按 auto（旧客户端不带 mode）；出现但不是 auto/manual 视为非法请求。 */
+function parseLicenseMode(value: unknown): KeLicenseMode {
+  if (value === undefined || value === 'auto') return 'auto';
+  if (value === 'manual') return 'manual';
+  throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
 }
 
 function parseBuildId(body: Record<string, unknown>): string | null {
@@ -262,6 +269,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
       const input: StartInput = {
         instanceId: parseInstanceId(c.req.param('id')),
         kickInstanceId: typeof body.kick_instance_id === 'string' && body.kick_instance_id.length > 0 && body.kick_instance_id.length <= 36 ? body.kick_instance_id : null,
+        mode: parseLicenseMode(body.mode),
         report: parseCharacterReport(body),
         needWasmKey: body.need_wasm_key === true,
         kePublicKey: parsePublicKey(body),

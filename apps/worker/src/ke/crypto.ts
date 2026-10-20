@@ -33,9 +33,10 @@ export async function ed25519Sign(privateKeyPkcs8: Uint8Array, data: Uint8Array)
 
 /** 组装紧凑 license 字符串：`base64url(payload).base64url(signature)`。签名覆盖 base64url(payload) 原文。 */
 export async function buildLicense(payload: LicensePayload, privateKeyPkcs8: Uint8Array): Promise<string> {
-  const payloadText = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  const signature = await ed25519Sign(privateKeyPkcs8, encoder.encode(payloadText));
-  return `${payloadText}.${base64UrlEncode(signature)}`;
+  // 契约：签名对象是 payload 的原文字节（JSON），不是它的 base64url 文本；KE 解码后对原文字节验签。
+  const payloadBytes = encoder.encode(JSON.stringify(payload));
+  const signature = await ed25519Sign(privateKeyPkcs8, payloadBytes);
+  return `${base64UrlEncode(payloadBytes)}.${base64UrlEncode(signature)}`;
 }
 
 async function x25519SharedSecret(ephemeralPrivate: CryptoKey, peerPublic: CryptoKey): Promise<Uint8Array> {

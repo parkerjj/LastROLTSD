@@ -193,6 +193,22 @@ describe.skipIf(!runMysqlTests)('KE × MySQL', () => {
       await expect(heartbeat(alice, INST_SWITCH, after)).rejects.toMatchObject({ code: 'KE_INSTANCE_NOT_ACTIVE' });
       expect((await service.start(String(alice), { ...input(INST_SWITCH, after), kickInstanceId: null })).license.split('.')).toHaveLength(2);
 
+      // manual（半自动）：需要授权但不占额度；auto↔manual 通过同一实例再次 start 切换（迁移 016 的 mode 列）
+      const asBob = { ...bobChar, char_name: '新主人' };
+      const modeOf = async (instanceId: string) =>
+        (await database.first<{ mode: string }>('SELECT mode FROM ke_instances WHERE instance_id = ?', [instanceId]))!.mode;
+      expect(await modeOf(INST_SWITCH)).toBe('auto');
+      expect((await service.start(String(alice), { ...input(INST_ALICE_2, asBob), kickInstanceId: null, mode: 'manual' })).license.split('.')).toHaveLength(2);
+      expect(await modeOf(INST_ALICE_2)).toBe('manual');
+      await heartbeat(alice, INST_ALICE_2, asBob);
+      const manualToAuto = await service.start(String(alice), { ...input(INST_ALICE_2, asBob), kickInstanceId: null, mode: 'auto' }).catch((error: unknown) => error);
+      expect(manualToAuto).toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
+      expect((manualToAuto as { details: { active_instances: { instance_id: string }[] } }).details.active_instances.map((item) => item.instance_id)).toEqual([INST_SWITCH]);
+      await service.start(String(alice), { ...input(INST_SWITCH, after), kickInstanceId: null, mode: 'manual' });
+      expect(await modeOf(INST_SWITCH)).toBe('manual');
+      await service.start(String(alice), { ...input(INST_ALICE_2, asBob), kickInstanceId: null, mode: 'auto' });
+      expect(await modeOf(INST_ALICE_2)).toBe('auto');
+
       await repository.cleanup(nowMs + 8 * DAY_MS);
     });
   }, 120_000);

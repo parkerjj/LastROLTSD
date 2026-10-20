@@ -66,10 +66,11 @@ describe('generate-ke-secrets', () => {
     const publicRaw = Uint8Array.from(Buffer.from(secrets.licensePublicKeyHex, 'hex'));
     expect(Buffer.from(publicRaw).toString('base64')).toBe(secrets.licensePublicKeyBase64);
     const verifyKey = await crypto.subtle.importKey('raw', toArrayBuffer(publicRaw), { name: 'Ed25519' }, false, ['verify']);
-    const signed = toArrayBuffer(new TextEncoder().encode(payloadText));
+    // 约定：对 payload 的原文字节（base64url 解码后的 JSON）验签，与 KE 的 Rust 验签一致。
+    const signed = toArrayBuffer(base64UrlDecode(payloadText));
     expect(await crypto.subtle.verify('Ed25519', verifyKey, toArrayBuffer(base64UrlDecode(signature)), signed)).toBe(true);
 
-    const tampered = toArrayBuffer(new TextEncoder().encode(`${payloadText}x`));
+    const tampered = toArrayBuffer(new TextEncoder().encode(`${new TextDecoder().decode(base64UrlDecode(payloadText))} `));
     expect(await crypto.subtle.verify('Ed25519', verifyKey, toArrayBuffer(base64UrlDecode(signature)), tampered)).toBe(false);
   });
 });

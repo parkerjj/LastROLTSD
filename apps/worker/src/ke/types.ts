@@ -1,5 +1,7 @@
 export type UserId = string;
 export type KeInstanceState = 'IDLE' | 'ACTIVE' | 'KICKED' | 'STOPPED';
+/** 授权模式：auto 占实例额度；manual（半自动）需要授权但不占额度。 */
+export type KeLicenseMode = 'auto' | 'manual';
 
 export const KE_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 export const KE_LICENSE_LEASE_MS = 30 * 60 * 1000;
