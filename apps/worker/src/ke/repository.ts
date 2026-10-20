@@ -96,6 +96,8 @@ export interface KeTx {
   transferCharacter(userId: number, report: CharacterReport, now: number): Promise<void>;
   insertInstance(instanceId: string, userId: number, report: CharacterReport, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
   findInstance(instanceId: string): Promise<InstanceRow | null>;
+  /** 把已有实例换绑到另一个角色；ACTIVE 的实例同时置为 STOPPED（旧角色的授权不再有效）。 */
+  rebindInstance(instanceId: string, report: CharacterReport, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
   updateInstanceReport(instanceId: string, report: CharacterReport, licenseExpiresAt: number, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
   activateInstance(instanceId: string, featuresJson: string, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, licenseExpiresAt: number, now: number): Promise<void>;
   markKicked(instanceId: string, kickedBy: string, now: number): Promise<void>;
@@ -161,6 +163,14 @@ function txFor(db: MysqlDatabase): KeTx {
         [instanceId],
       );
       return rows.length > 0 ? readInstance(rows[0]!) : null;
+    },
+
+    async rebindInstance(instanceId, report, buildId, ipHash, uaHash, now) {
+      // MySQL 的 SET 从左到右求值，后面的列会读到前面已更新的值：stopped_at 必须排在 state 之前。
+      await db.run(
+        "UPDATE ke_instances SET aid = ?, cid = ?, nid = ?, char_name = ?, map_name = ?, build_id = ?, ip_hash = ?, ua_hash = ?, stopped_at = CASE WHEN state = 'ACTIVE' THEN ? ELSE stopped_at END, state = CASE WHEN state = 'ACTIVE' THEN 'STOPPED' ELSE state END, updated_at = ? WHERE instance_id = ?",
+        [report.aid, report.cid, report.nid, report.char_name, report.map_name, buildId, ipHash, uaHash, now, now, instanceId],
+      );
     },
 
     async updateInstanceReport(instanceId, report, licenseExpiresAt, buildId, ipHash, uaHash, now) {
