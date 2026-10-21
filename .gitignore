@@ -31,3 +31,15 @@ worktrees/
 formal-ui-*.png
 lastro-ui-*.png
 lastro-ui-prototype.html
+
+# Trae / AI 生成的临时文件
+.trae/
+.taste-skill/
+.agents/
+.claude/
+.superpowers/
+.codegraph/
+agent/skills/
+skills-lock.json
+apps/web/public/ke-mockup.html
+apps/web/public/ui/jobs-bad/

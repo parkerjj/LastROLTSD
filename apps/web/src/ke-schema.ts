@@ -55,6 +55,10 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   { key: 'attackEquip_armor', label: '攻击装备：铠甲', help: '开打前切换的铠甲。', type: 'string', group: '攻击' },
   { key: 'attackEquip_shoes', label: '攻击装备：鞋子', help: '开打前切换的鞋子。', type: 'string', group: '攻击' },
   { key: 'attackEquip_arrow', label: '攻击装备：箭矢', help: '开打前切换的箭矢。', type: 'string', group: '攻击' },
+  // autoSwitch 兜底：未命中任何 autoSwitch block 的怪物时使用此武器
+  { key: 'autoSwitch_default_rightHand', label: '默认右手武器', help: '未命中 autoSwitch 怪物名单时默认右手武器。写 [NONE] 表示空手。', type: 'string', group: '攻击', picker: 'item' },
+  { key: 'autoSwitch_default_leftHand', label: '默认左手武器/盾', help: '未命中 autoSwitch 怪物名单时默认左手装备。双手武器请留空。', type: 'string', group: '攻击', picker: 'item' },
+  { key: 'autoSwitch_default_arrow', label: '默认箭矢', help: '未命中 autoSwitch 怪物名单时默认箭矢（远程职业）。', type: 'string', group: '攻击', picker: 'item' },
 
   // —— 路线 ——
   { key: 'lockMap', label: '挂机地图', help: '自动挂机的地图代码（如 prt_fild08）。进入该图后才开始挂机。', type: 'map', group: '路线' },
@@ -176,7 +180,7 @@ export interface BlockDef {
   type: string;
   label: string;
   help: string;
-  selectorKind: 'skill' | 'item' | 'none';
+  selectorKind: 'skill' | 'item' | 'none' | 'monsters';
   fields: BlockFieldDef[];
   conditions: ConditionGroup[];
   /** 新增卡片时预填的字段/条件（如 buyAuto 默认指向普隆德拉道具商人）。 */
@@ -319,16 +323,16 @@ export const BLOCK_DEFS: BlockDef[] = [
     ],
     conditions: ['equipSelf', 'equipMonster'],
   },
-  // autoSwitch：OpenKore 传统自动换武器块，与 equipAuto 并存以兼容旧配置
+  // autoSwitch：按怪物名单触发的自动换武器（OpenKore 传统机制，equipAuto 是更灵活的现代版）
   {
-    type: 'autoSwitch', label: '自动切换武器', selectorKind: 'none',
-    help: '根据距离等条件自动切换武器（如近战切远程）。',
+    type: 'autoSwitch', label: '自动切换武器', selectorKind: 'monsters',
+    help: '遇到指定怪物时自动切换武器/盾牌/箭矢。未命中任何 autoSwitch 块的怪物，会退回 autoSwitch_default_* 默认武器。distance 会临时覆盖攻击距离，useWeapon 会临时覆盖「使用武器攻击」，切到别的怪物后复原。',
     fields: [
-      { key: 'rightHand', label: '右手武器', help: '切换的右手武器。', type: 'string', picker: 'item' },
-      { key: 'leftHand', label: '左手武器', help: '切换的左手武器。', type: 'string', picker: 'item' },
-      { key: 'arrow', label: '箭矢', help: '切换的箭矢。', type: 'string', picker: 'item' },
-      { key: 'distance', label: '距离', help: '目标在此距离内切换。', type: 'int' },
-      { key: 'useWeapon', label: '使用武器', help: '切换后是否用武器普攻。', type: 'enum', options: ON_OFF },
+      { key: 'rightHand', label: '右手武器', help: '切换的右手武器名称。写 [NONE] 表示空手。', type: 'string', picker: 'item' },
+      { key: 'leftHand', label: '左手装备', help: '切换的左手武器/盾牌。双手武器请留空。', type: 'string', picker: 'item' },
+      { key: 'arrow', label: '箭矢', help: '切换的箭矢（远程职业）。', type: 'string', picker: 'item' },
+      { key: 'distance', label: '临时攻击距离', help: '命中此怪物时临时改成这个攻击距离（覆盖全局 attackDistance），切走复原。留空则不改。', type: 'int' },
+      { key: 'useWeapon', label: '临时使用武器攻击', help: '命中此怪物时临时覆盖全局「使用武器攻击」开关，切走复原。留空则不改。', type: 'enum', options: ON_OFF },
     ],
     conditions: [],
   },
@@ -462,6 +466,9 @@ export function serializeConfig(doc: ConfigDoc): string {
     for (const block of doc.blocks[def.type] ?? []) {
       if (def.selectorKind === 'none') {
         lines.push(`${def.type} {`);
+      } else if (def.selectorKind === 'monsters' && block.selector.trim() === '') {
+        // autoSwitch 允许空 monster names = 对所有怪生效
+        lines.push(`${def.type} {`);
       } else {
         if (block.selector === '') continue;
         lines.push(`${def.type} ${block.selector} {`);
@@ -507,8 +514,10 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
     const blocks = doc.blocks[def.type] ?? [];
     blocks.forEach((block, index) => {
       const name = `${def.label}${blocks.length > 1 ? ` #${index + 1}` : ''}`;
-      if (def.selectorKind !== 'none' && block.selector.trim() === '') {
-        errors.push(`「${name}」未选择${def.selectorKind === 'skill' ? '技能' : '物品'}，该规则保存后不会生效。`);
+      // monsters selectorKind 空值合法：autoSwitch 空 selector = 对所有怪生效
+      if (def.selectorKind !== 'none' && def.selectorKind !== 'monsters' && block.selector.trim() === '') {
+        const label = def.selectorKind === 'skill' ? '技能' : '物品';
+        errors.push(`「${name}」未选择${label}，该规则保存后不会生效。`);
       }
       for (const field of def.fields) {
         const value = block.fields[field.key];

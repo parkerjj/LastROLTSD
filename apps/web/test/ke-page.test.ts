@@ -104,7 +104,7 @@ describe("ke page", () => {
     vi.unstubAllGlobals();
   });
 
-  it("角色下拉把 KE 自报的 char_name / map_name 当作纯文本，不解析为 HTML", async () => {
+  it("角色切换卡片把 KE 自报的 char_name / map_name 当作纯文本，不解析为 HTML", async () => {
     const dom = new JSDOM('<main id="app"></main>', { url: "http://localhost/ke" });
     vi.stubGlobal("document", dom.window.document);
     vi.stubGlobal("window", dom.window);
@@ -124,11 +124,12 @@ describe("ke page", () => {
     mountKePage(root);
     await wait(20);
 
-    const select = root.querySelector<HTMLSelectElement>("#ke-char-select")!;
-    expect(select.options).toHaveLength(1);
-    expect(select.options[0]!.value).toBe("1:2:3");
-    expect(select.options[0]!.textContent).toBe(`${MALICIOUS_NAME}（${MALICIOUS_MAP}）`);
-    expect(select.querySelector("img, svg")).toBeNull();
+    const strip = root.querySelector<HTMLElement>("#ke-char-strip")!;
+    const chip = strip.querySelector<HTMLButtonElement>(".ke-char-card-chip")!;
+    expect(chip.dataset.key).toBe("1:2:3");
+    const nameEl = chip.querySelector(".ke-char-card-name")!;
+    expect(nameEl.textContent).toBe(MALICIOUS_NAME);
+    expect(strip.querySelector("script")).toBeNull();
     expect(root.querySelector("img[onerror], svg[onload]")).toBeNull();
   });
 
@@ -608,5 +609,64 @@ describe("ke page", () => {
     expect(errorEl.textContent).toContain('发现 2 处配置问题');
     expect(errorEl.textContent).toContain('技能等级');
     expect(errorEl.textContent).toContain('自身 HP');
+  });
+  it('block 卡片有删除按钮', async () => {
+    const { root } = await mountProfileEditor(
+      'useSelf_skill 28 {\n\thp < 50%\n}\nuseSelf_skill 29 {\n\tlvl 5\n}\n',
+    );
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="skills"]')!.click();
+    await wait(20);
+
+    const cards = () => Array.from(root.querySelectorAll<HTMLElement>('.ke-block-card'));
+    const dels = () => Array.from(root.querySelectorAll<HTMLButtonElement>('.ke-block-del'));
+    expect(cards()).toHaveLength(2);
+    expect(dels()).toHaveLength(2);
+    // 点第一张卡的 head（非 del 区域）应正常展开
+    const firstHead = cards()[0]!.querySelector<HTMLButtonElement>('.ke-block-head')!;
+    firstHead.click();
+    await wait(10);
+    expect(cards()[0]!.classList.contains('is-open')).toBe(true);
+  });
+
+  it('删除按钮点击不冒泡到 head 展开卡片', async () => {
+    const { root } = await mountProfileEditor('useSelf_skill 28 {\n}\n');
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="skills"]')!.click();
+    await wait(20);
+
+    const card = root.querySelector<HTMLElement>('.ke-block-card')!;
+    const del = card.querySelector<HTMLButtonElement>('.ke-block-del')!;
+    expect(card.classList.contains('is-open')).toBe(false);
+    del.click();
+    await wait(10);
+    // delete handler 的 stopPropagation 应阻止 head 的展开行为
+    expect(card.classList.contains('is-open')).toBe(false);
+  });
+
+  it('确认删除后 block 从 DOM 和 configDoc 移除，保存后不再出现在 config_text', async () => {
+    const { root } = await mountProfileEditor(
+      'useSelf_skill 28 {\n\thp < 50%\n}\nuseSelf_skill 29 {\n\tlvl 5\n}\n',
+    );
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="skills"]')!.click();
+    await wait(20);
+
+    const cards = () => Array.from(root.querySelectorAll<HTMLElement>('.ke-block-card'));
+    expect(cards()).toHaveLength(2);
+
+    // jsdom 环境无 confirm 函数 → delete handler 跳过确认直接执行
+    const firstDel = cards()[0]!.querySelector<HTMLButtonElement>('.ke-block-del')!;
+    firstDel.click();
+    await wait(20);
+
+    // DOM 和 nav 计数都应只剩 1 条
+    expect(cards()).toHaveLength(1);
+
+    // 保存验证序列化结果
+    root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
+    await wait(20);
+    const calls = vi.mocked(fetch).mock.calls as unknown as Array<[string, RequestInit | undefined]>;
+    const put = calls.find(([p, init]) => p === '/api/v1/ke/profiles/9' && init?.method === 'PUT')!;
+    const body = JSON.parse(put[1]!.body as string) as { config_text: string };
+    expect(body.config_text).not.toContain('useSelf_skill 28');
+    expect(body.config_text).toContain('useSelf_skill 29');
   });
 });
