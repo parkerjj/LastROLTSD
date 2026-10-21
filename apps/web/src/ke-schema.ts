@@ -514,8 +514,9 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
     const blocks = doc.blocks[def.type] ?? [];
     blocks.forEach((block, index) => {
       const name = `${def.label}${blocks.length > 1 ? ` #${index + 1}` : ''}`;
-      if (def.selectorKind !== 'none' && block.selector.trim() === '') {
-        const label = def.selectorKind === 'skill' ? '技能' : def.selectorKind === 'item' ? '物品' : '触发怪物';
+      // monsters selectorKind 空值合法：autoSwitch 空 selector = 对所有怪生效
+      if (def.selectorKind !== 'none' && def.selectorKind !== 'monsters' && block.selector.trim() === '') {
+        const label = def.selectorKind === 'skill' ? '技能' : '物品';
         errors.push(`「${name}」未选择${label}，该规则保存后不会生效。`);
       }
       for (const field of def.fields) {

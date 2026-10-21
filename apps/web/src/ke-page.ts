@@ -156,7 +156,7 @@ async function loadPticonMap(): Promise<Record<string, string>> {
   return pticonMap ?? {};
 }
 function iconUrl(jobId: number | null): string | null {
-  if (!jobId || !pticonMap) return null;
+  if (jobId === null || jobId === undefined || !pticonMap) return null;
   // 精确匹配 job_id（基础/一转/扩展 23 个独立图标）
   const exact = pticonMap[String(jobId)];
   if (exact) return exact;
@@ -1195,18 +1195,24 @@ export function mountKePage(root: HTMLElement): void {
   function monsterOptions(): PickerOption[] {
     return (options?.monsters ?? []).map((m) => ({
       label: m.name,
-      value: String(m.id),
+      value: m.name, // KO config 用怪物名字，不用 ID
     }));
   }
 
-  /** 把逗号分隔的怪物 ID 串解析成中文名（找不到的保留原值）。 */
+  /** 把逗号分隔的怪物名字/ID 串解析成中文名（找不到的保留原值）。 */
   function monsterNamesOf(csv: string): string {
     const pool = monsterOptions();
     return csv
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((id) => pool.find((o) => o.value === id)?.label ?? id)
+      .map((v) => {
+        // 先按名字查（新格式），找不到按 ID 查（旧格式），都找不到保留原值
+        const byName = pool.find((o) => o.value === v);
+        if (byName) return byName.label;
+        const byId = (options?.monsters ?? []).find((m) => String(m.id) === v);
+        return byId?.name ?? v;
+      })
       .join("、");
   }
 
@@ -1334,14 +1340,26 @@ export function mountKePage(root: HTMLElement): void {
    */
   function createMonsterChipsEditor(
     initialValue: string,
-    onChange: (csv: string) => void,
+    onChange: (csv: string, silent?: boolean) => void,
     emptyText = "未指定，对全部怪物生效",
   ): HTMLElement {
     const wrap = document.createElement("div");
     const pool = monsterOptions();
     const chips = document.createElement("div");
     chips.className = "ke-tags";
-    let current = initialValue;
+    // 初始化时把旧的怪物 ID 格式转成名字格式（KO config 用名字）
+    let current = initialValue
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((v) => {
+        if (pool.some((o) => o.value === v)) return v; // 已经是名字
+        const byId = (options?.monsters ?? []).find((m) => String(m.id) === v);
+        return byId?.name ?? v; // 旧 ID → 名字；找不到保留原值
+      })
+      .join(", ");
+    // 如果发生了转换，无声回写到数据源（不触发 markDirty）
+    if (current !== initialValue) onChange(current, true);
     const idsOf = (): string[] =>
       current.split(",").map((s) => s.trim()).filter(Boolean);
     function renderChips(): void {
@@ -2008,9 +2026,9 @@ export function mountKePage(root: HTMLElement): void {
         field.appendChild(
           createMonsterChipsEditor(
             block.selector ?? "",
-            (csv) => {
+            (csv, silent) => {
               block.selector = csv;
-              markDirty();
+              if (!silent) markDirty();
               updatePreview();
               renderFields();
             },
@@ -2079,10 +2097,10 @@ export function mountKePage(root: HTMLElement): void {
       field.appendChild(
         createMonsterChipsEditor(
           block.fields[fieldDef.key] ?? "",
-          (csv) => {
+          (csv, silent) => {
             if (csv === "") delete block.fields[fieldDef.key];
             else block.fields[fieldDef.key] = csv;
-            markDirty();
+            if (!silent) markDirty();
             updatePreview();
           },
           fieldDef.key === "notMonsters"
@@ -2180,10 +2198,10 @@ export function mountKePage(root: HTMLElement): void {
       removeBtn.textContent = "×";
 
       let currentKey = initialKey;
-      function setValue(value: string): void {
+      function setValue(value: string, silent = false): void {
         if (value === "") delete block.conditions[currentKey];
         else block.conditions[currentKey] = value;
-        markDirty();
+        if (!silent) markDirty();
         updatePreview();
       }
       function renderValue(): void {
@@ -2930,8 +2948,13 @@ export function mountKePage(root: HTMLElement): void {
 
   async function init(): Promise<void> {
     const demo = new URLSearchParams(window.location.search).has("demo");
-    // 并行加载职业图标映射（不阻塞 UI）
-    void loadPticonMap();
+    // 并行加载职业图标映射；加载完后重绘角色卡，让 fallback 字首替换成真图标
+    void loadPticonMap().then(() => {
+      if (characters.length > 0) {
+        renderCharCard();
+        renderCharacterStrip();
+      }
+    });
     options = await keFetch<KeOptions>("/ke/options.json").catch(() => null);
     if (options) {
       mapsList.innerHTML = options.maps
