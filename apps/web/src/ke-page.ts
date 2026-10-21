@@ -26,8 +26,10 @@ import {
   defaultControlDoc,
   emptyControlDoc,
   ensureAllFallback,
+  newControlRow,
   parseControl,
   serializeControl,
+  validateControlDoc,
   type ControlColumn,
   type ControlRow,
   type ControlSchema,
@@ -138,6 +140,37 @@ const ICONS: Record<string, string> = {
     '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
   timeouts: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 3"/>',
 };
+
+// RO 官方 renewalparty 职业图标映射（从客户端 icon_jobs_{job_id}.bmp 转 PNG）
+// 高阶二转复用一转图标
+const PTICON_MAP_URL = "/ui/pticons/pticon-map.json";
+let pticonMap: Record<string, string> | null = null;
+async function loadPticonMap(): Promise<Record<string, string>> {
+  if (pticonMap) return pticonMap;
+  try {
+    const r = await fetch(PTICON_MAP_URL, { cache: "force-cache" });
+    if (r.ok) pticonMap = await r.json();
+  } catch {
+    /* offline / asset unavailable — fall through to text fallback */
+  }
+  return pticonMap ?? {};
+}
+function iconUrl(jobId: number | null): string | null {
+  if (!jobId || !pticonMap) return null;
+  // 精确匹配 job_id（基础/一转/扩展 23 个独立图标）
+  const exact = pticonMap[String(jobId)];
+  if (exact) return exact;
+  // 高阶二转（161-181）→ 同系列一转图标
+  const HIGH_TO_BASE: Record<string, string> = {
+    "161": "0", "162": "1", "163": "2", "164": "3", "165": "4",
+    "166": "5", "167": "6", "168": "7", "169": "8", "170": "9",
+    "171": "10", "172": "11", "173": "12", "174": "13", "175": "14",
+    "176": "15", "177": "16", "178": "17", "179": "18", "180": "19",
+    "181": "20",
+  };
+  const base = HIGH_TO_BASE[String(jobId)];
+  return base ? pticonMap[base] ?? null : null;
+}
 
 const NAV: NavEntry[] = [
   {
@@ -304,7 +337,7 @@ const CONTROL_TAB_HINTS: Record<string, string> = {
   "mon_control.txt":
     "单独配置的怪物优先于 all 兜底规则。「仅反击」＝平时不打、被打才还手；「打坐也攻击」＝把这种怪视作主动怪，坐下回血时也会起身追打；「遇怪传送」可选见到就飞、被打才飞，或按距离飞。",
   "pickupitems.txt":
-    "「优先拾取」＝物品一出现就马上去捡；「拾取」＝路过时顺手捡；「不拾取」＝完全无视（写入 0，与 -1 等效）。",
+    "「优先拾取」＝物品一出现就马上去捡；「拾取」＝路过时顺手捡；「不拾取」＝完全无视（写入 0）；「丢弃」＝不捡并让物品消失（写入 -1）。",
   "items_control.txt":
     "工作方式：身上数量多于「身上保留」→ 多余的自动存仓 / 出售 / 放进推车；少于它 → 自动从推车补回。同时开启存仓和出售时先存仓（仓库满才卖）。",
 };
@@ -374,15 +407,19 @@ export function mountKePage(root: HTMLElement): void {
     </section>
 
     <section class="ke-char-card" id="ke-char-card" aria-label="当前角色" hidden>
-      <div class="ke-avatar" id="ke-char-avatar">?</div>
-      <div class="ke-char-main">
-        <div class="ke-char-name"><span id="ke-char-name">—</span><span class="ke-chip" id="ke-char-job" hidden></span></div>
-        <div class="ke-char-meta" id="ke-char-meta"></div>
+      <!-- 当前角色卡 -->
+      <div class="ke-char-current">
+        <div class="ke-char-avatar" id="ke-char-avatar">
+          <img alt="" hidden />
+          <span class="ke-char-avatar-fallback">?</span>
+        </div>
+        <div class="ke-char-main">
+          <div class="ke-char-name"><span id="ke-char-name">—</span><span class="ke-chip" id="ke-char-job" hidden></span></div>
+          <div class="ke-char-meta" id="ke-char-meta"></div>
+        </div>
       </div>
-      <div class="ke-char-switch">
-        <span>切换角色</span>
-        <select id="ke-char-select"><option value="">加载中…</option></select>
-      </div>
+      <!-- 角色切换横排卡片 strip -->
+      <div class="ke-char-strip" id="ke-char-strip" aria-label="切换角色"></div>
     </section>
 
     <div class="section-heading" id="ke-profiles-head" hidden>
@@ -451,20 +488,49 @@ export function mountKePage(root: HTMLElement): void {
     .ke-hero-sub { max-width: 560px; margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.7; }
     .ke-status { margin: 8px 0 0; color: var(--muted); font-size: .84rem; min-height: 1.2em; }
 
-    .ke-char-card { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 20px; padding: 14px 18px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
-    .ke-avatar { display: grid; place-items: center; width: 46px; height: 46px; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 10px; font-family: Georgia, serif; font-weight: 900; font-size: 1.05rem; }
-    .ke-char-main { flex: 1; min-width: 200px; }
+    .ke-char-card { display: grid; gap: 10px; margin-top: 20px; padding: 14px 18px 16px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
+    .ke-char-current { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--line-light); }
+    .ke-char-avatar { display: grid; place-items: center; width: 46px; height: 46px; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 10px; overflow: hidden; flex: none; }
+    .ke-char-avatar img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+    .ke-char-avatar-fallback { font-family: Georgia, serif; font-weight: 900; font-size: 1.05rem; }
+    .ke-char-main { min-width: 200px; }
     .ke-char-name { display: flex; align-items: center; gap: 9px; color: var(--forest); font-weight: 800; font-size: .95rem; }
     .ke-char-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+
+    /* 角色切换横排 strip */
+    .ke-char-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+    .ke-char-strip-label { grid-column: 1 / -1; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .04em; }
+    .ke-char-card-chip {
+      position: relative; display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; min-height: 44px;
+      background: #fff; border: 1px solid var(--rule); border-radius: 8px;
+      cursor: pointer; text-align: left; transition: border-color .12s, background .12s, transform .12s;
+    }
+    .ke-char-card-chip:hover { border-color: var(--line-light); background: #fff6e6; transform: translateY(-1px); }
+    .ke-char-card-chip.is-active { color: var(--forest); background: var(--cream); border-color: var(--buy); box-shadow: 0 0 0 2px var(--buy-soft); }
+    .ke-char-card-chip.is-live::after {
+      content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--gold); border: 2px solid #fff;
+    }
+    .ke-char-card-icon { width: 28px; height: 28px; object-fit: contain; image-rendering: pixelated; flex: none; }
+    .ke-char-card-icon-fallback {
+      display: grid; place-items: center; width: 28px; height: 28px; flex: none;
+      color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 6px;
+      font-family: Georgia, serif; font-weight: 900; font-size: .85rem;
+    }
+    .ke-char-card-info { display: grid; gap: 0; min-width: 0; }
+    .ke-char-card-name { color: var(--forest); font-weight: 800; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-char-card-job { color: var(--muted); font-size: .66rem; font-weight: 600; }
+    .ke-char-card-more {
+      display: grid; place-items: center; min-height: 44px;
+      color: var(--muted); background: transparent;
+      border: 1px dashed var(--line-light); border-radius: 8px;
+      font-size: .74rem; font-weight: 800; cursor: pointer;
+    }
+    .ke-char-card-more:hover { color: var(--forest); border-color: var(--red); }
+
     .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; color: #56604f; background: #efe9dc; border: 1px solid var(--line); border-radius: 999px; font-size: .7rem; font-weight: 700; }
     .ke-chip--map { color: var(--red-dark); background: #f6ece6; border-color: #dcc0b4; font-family: ui-monospace, Menlo, Consolas, monospace; }
-    .ke-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-    .ke-tags-empty { color: #9a937f; font-size: .74rem; }
-    .ke-tag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px 2px 10px; color: var(--red-dark); background: #f6ece6; border: 1px solid #dcc0b4; border-radius: 999px; font-size: .74rem; font-weight: 700; }
-    .ke-tag-x { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; min-height: 0; padding: 0; color: inherit; background: transparent; border: none; border-radius: 50%; font-size: .82rem; font-weight: 400; line-height: 1; cursor: pointer; }
-    .ke-tag-x:hover:not(:disabled) { color: #7c3325; background: rgba(184,77,63,.16); }
-    .ke-char-switch { width: 250px; }
-    .ke-char-switch > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .03em; }
 
     .ke-profile-grid { display: grid; grid-template-columns: repeat(auto-fill, 258px); justify-content: start; gap: 14px; }
     .ke-profile-card { display: flex; flex-direction: column; gap: 9px; padding: 14px 15px; background: #fffdf8; border: 1px solid #b9ab94; border-radius: 10px; box-shadow: 0 10px 22px rgba(80,62,38,.07); }
@@ -548,8 +614,11 @@ export function mountKePage(root: HTMLElement): void {
     .ke-block-head:hover:not(:disabled) { background: rgba(239,233,220,.5); }
     .ke-b-name { color: var(--forest); font-weight: 800; font-size: .84rem; }
     .ke-b-skill { color: var(--red-dark); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .74rem; }
-    .ke-chev { margin-left: auto; color: var(--muted); transition: transform .18s ease; }
+    .ke-b-tail { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .ke-chev { color: var(--muted); transition: transform .18s ease; }
     .ke-block-card.is-open .ke-chev { transform: rotate(180deg); }
+    .ke-block-del { background: transparent; border: 1px solid transparent; color: #c97869; font-size: .85rem; width: 22px; height: 22px; border-radius: 6px; line-height: 1; padding: 0; cursor: pointer; opacity: .55; transition: opacity .15s, background .15s, border-color .15s; }
+    .ke-block-del:hover { opacity: 1; background: rgba(201,120,105,.12); border-color: #c97869; }
     .ke-block-body { padding: 4px 16px 14px; border-top: 1px dashed var(--line); }
 
     .ke-cond { margin-top: 12px; padding: 10px 12px 4px; background: var(--forest-card); border: 1px solid var(--line); border-radius: 8px; }
@@ -631,7 +700,7 @@ export function mountKePage(root: HTMLElement): void {
       .ke-main { padding: 14px 14px 20px; }
       .ke-side { grid-template-columns: 1fr; }
       .ke-fields { grid-template-columns: 1fr; }
-      .ke-char-switch { width: 100%; }
+      .ke-char-strip { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
       .ke-profile-grid { grid-template-columns: 1fr 1fr; }
       .ke-cond-row { grid-template-columns: 1fr auto; }
       .ke-cond-row > :first-child { grid-column: 1 / -1; }
@@ -651,11 +720,13 @@ export function mountKePage(root: HTMLElement): void {
 
   const status = root.querySelector<HTMLElement>("#ke-status")!;
   const charCard = root.querySelector<HTMLElement>("#ke-char-card")!;
-  const avatar = root.querySelector<HTMLElement>("#ke-char-avatar")!;
+  const avatarWrap = root.querySelector<HTMLElement>("#ke-char-avatar")!;
+  const avatarImg = avatarWrap.querySelector<HTMLImageElement>("img")!;
+  const avatarFallback = avatarWrap.querySelector<HTMLElement>(".ke-char-avatar-fallback")!;
   const charName = root.querySelector<HTMLElement>("#ke-char-name")!;
   const jobChip = root.querySelector<HTMLElement>("#ke-char-job")!;
   const charMeta = root.querySelector<HTMLElement>("#ke-char-meta")!;
-  const charSelect = root.querySelector<HTMLSelectElement>("#ke-char-select")!;
+  const charStrip = root.querySelector<HTMLElement>("#ke-char-strip")!;
   const profilesHead = root.querySelector<HTMLElement>("#ke-profiles-head")!;
   const profileList = root.querySelector<HTMLElement>("#ke-profile-list")!;
   const editor = root.querySelector<HTMLElement>("#ke-editor")!;
@@ -680,16 +751,82 @@ export function mountKePage(root: HTMLElement): void {
     );
   }
 
-  /** char_name / map_name 由 KE 客户端自报，属于不可信输入，必须按纯文本写入（禁止拼进 innerHTML）。 */
-  function fillCharacterSelect(): void {
-    charSelect.replaceChildren(
-      ...characters.map((character) => {
-        const option = document.createElement("option");
-        option.value = `${character.aid}:${character.cid}:${character.nid}`;
-        option.textContent = `${character.char_name}（${character.map_name ?? "未知地图"}）`;
-        return option;
-      }),
-    );
+  /** char_name / map_name / job_id 由 KE 客户端自报或 RO 配置，必须纯文本写入。 */
+  function renderCharacterStrip(): void {
+    charStrip.replaceChildren();
+    const label = document.createElement("p");
+    label.className = "ke-char-strip-label";
+    label.textContent = "切换角色 · 点击下方卡片";
+    charStrip.appendChild(label);
+    const currentKey = selectedKey;
+    for (const c of characters) {
+      const key = `${c.aid}:${c.cid}:${c.nid}`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `ke-char-card-chip${key === currentKey ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
+      btn.dataset.key = key;
+      // 职业图标（只有没图标时才 fallback 字首）
+      const iconSrc = iconUrl(c.job_id);
+      if (iconSrc) {
+        const icon = document.createElement("img");
+        icon.alt = "";
+        icon.className = "ke-char-card-icon";
+        icon.src = iconSrc;
+        btn.appendChild(icon);
+      } else {
+        const fallback = document.createElement("span");
+        fallback.className = "ke-char-card-icon-fallback";
+        fallback.textContent = c.char_name.slice(0, 1) || "?";
+        btn.appendChild(fallback);
+      }
+      // 信息
+      const info = document.createElement("span");
+      info.className = "ke-char-card-info";
+      const name = document.createElement("span");
+      name.className = "ke-char-card-name";
+      name.textContent = c.char_name;
+      const zh = options?.jobs_zh?.[String(c.job_id)] ?? options?.jobs[String(c.job_id)] ?? "";
+      const job = document.createElement("span");
+      job.className = "ke-char-card-job";
+      job.textContent = zh || "未知职业";
+      info.append(name, job);
+      btn.appendChild(info);
+      btn.addEventListener("click", () => {
+        if (!confirmDiscard()) return;
+        selectedKey = key;
+        const sel = selectedCharacter();
+        selectedJobId = sel?.job_id ?? null;
+        hideForm();
+        renderCharCard();
+        renderCharacterStrip(); // 刷新 active 状态
+        void reloadProfiles();
+      });
+      charStrip.appendChild(btn);
+    }
+    if (characters.length > 5) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "ke-char-card-more";
+      more.textContent = `+${characters.length - 5}`;
+      more.title = "点击查看全部角色";
+      // 简单展开：折叠前 5 之后的
+      const chips = Array.from(charStrip.querySelectorAll<HTMLButtonElement>(".ke-char-card-chip"));
+      const collapsed = chips.slice(5);
+      const isCollapsed = collapsed.some(c => c.style.display === "none");
+      for (const c of chips) c.style.display = "";
+      charStrip.appendChild(more);
+      if (!isCollapsed) {
+        for (const c of collapsed) c.style.display = "none";
+        more.textContent = `展开 ${collapsed.length} 个角色`;
+      }
+      more.addEventListener("click", () => {
+        const nowCollapsed = collapsed.some(c => c.style.display === "none");
+        for (const c of collapsed) c.style.display = nowCollapsed ? "" : "none";
+        more.textContent = nowCollapsed
+          ? `收起 ${collapsed.length} 个`
+          : `展开 ${collapsed.length} 个角色`;
+      });
+    }
   }
 
   // —— 状态徽章 / 预览 / 统计 ——
@@ -1345,7 +1482,17 @@ export function mountKePage(root: HTMLElement): void {
       return;
     }
     charCard.hidden = false;
-    avatar.textContent = character.char_name.slice(0, 1) || "?";
+    // 职业图标
+    const iconSrc = iconUrl(character.job_id);
+    if (iconSrc) {
+      avatarImg.src = iconSrc;
+      avatarImg.hidden = false;
+      avatarFallback.hidden = true;
+    } else {
+      avatarImg.hidden = true;
+      avatarFallback.hidden = false;
+      avatarFallback.textContent = character.char_name.slice(0, 1) || "?";
+    }
     charName.textContent = character.char_name;
     const jobName =
       character.job_id !== null
@@ -1784,6 +1931,9 @@ export function mountKePage(root: HTMLElement): void {
       chip.textContent = part.length > 24 ? `${part.slice(0, 23)}…` : part;
       head.appendChild(chip);
     }
+    const tail = document.createElement("span");
+    tail.className = "ke-b-tail";
+
     const chev = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     chev.setAttribute("class", "ke-chev");
     chev.setAttribute("width", "14");
@@ -1793,7 +1943,30 @@ export function mountKePage(root: HTMLElement): void {
     chev.setAttribute("stroke", "currentColor");
     chev.setAttribute("stroke-width", "2");
     chev.innerHTML = '<path d="M6 9l6 6 6-6"/>';
-    head.appendChild(chev);
+    tail.appendChild(chev);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "ke-block-del";
+    delBtn.setAttribute("aria-label", `删除 ${def.label}`);
+    delBtn.title = `删除这条${def.label}规则`;
+    delBtn.textContent = "✕";
+    delBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      // confirm 在 jsdom 等无头环境可能不存在，此时跳过确认直接删
+      if (typeof confirm === "function" && !confirm(`确认删除这条${def.label}规则吗？`)) return;
+      const arr = configDoc.blocks[def.type];
+      if (arr) {
+        const idx = arr.indexOf(block);
+        if (idx >= 0) arr.splice(idx, 1);
+      }
+      card.remove();
+      markDirty();
+      updatePreview();
+      updateNavCounts();
+    });
+    tail.appendChild(delBtn);
+    head.appendChild(tail);
     head.addEventListener("click", () => {
       const open = !card.classList.contains("is-open");
       card.classList.toggle("is-open", open);
@@ -1825,44 +1998,65 @@ export function mountKePage(root: HTMLElement): void {
     if (def.selectorKind !== "none") {
       const field = document.createElement("div");
       field.className = "ke-field";
-      field.appendChild(
-        helpTip(
-          def.selectorKind === "skill" ? "技能" : "物品",
-          "输入名称搜索选择；这是这条规则作用的技能或物品。",
-        ),
-      );
-      const pool =
-        def.selectorKind === "skill" ? skillOptions() : itemOptions();
-      if (def.selectorKind === "skill" && block.selector) {
-        const savedSkill = options?.skills.find(
-          (skill) => String(skill.id) === block.selector,
+      if (def.selectorKind === "monsters") {
+        field.appendChild(
+          helpTip(
+            "触发怪物",
+            "遇到这些怪物时自动切这套装备（逗号分隔，如：High Orc, Black Mushroom）。",
+          ),
         );
-        if (
-          savedSkill &&
-          !pool.some((option) => option.value === block.selector)
-        ) {
-          pool.unshift({
-            label: skillLabel(savedSkill),
-            value: block.selector,
-            group: "已保存技能",
-          });
+        field.appendChild(
+          createMonsterChipsEditor(
+            block.selector ?? "",
+            (csv) => {
+              block.selector = csv;
+              markDirty();
+              updatePreview();
+              renderFields();
+            },
+            "未指定，对所有怪物生效",
+          ),
+        );
+      } else {
+        field.appendChild(
+          helpTip(
+            def.selectorKind === "skill" ? "技能" : "物品",
+            "输入名称搜索选择；这是这条规则作用的技能或物品。",
+          ),
+        );
+        const pool =
+          def.selectorKind === "skill" ? skillOptions() : itemOptions();
+        if (def.selectorKind === "skill" && block.selector) {
+          const savedSkill = options?.skills.find(
+            (skill) => String(skill.id) === block.selector,
+          );
+          if (
+            savedSkill &&
+            !pool.some((option) => option.value === block.selector)
+          ) {
+            pool.unshift({
+              label: skillLabel(savedSkill),
+              value: block.selector,
+              group: "已保存技能",
+            });
+          }
         }
+        const picker = createPicker(pool, block.selector, (value) => {
+          block.selector = value;
+          markDirty();
+          updatePreview();
+          const chips = card.querySelectorAll<HTMLElement>(
+            ".ke-block-head .ke-chip",
+          );
+          if (chips.length > 0) {
+            const label = pool.find((o) => o.value === value)?.label ?? "";
+            chips[0]!.textContent = label;
+            chips[0]!.hidden = !label;
+          }
+          renderFields();
+        }, false, "搜索并选择…", def.selectorKind === "item"); // 物品名自由文本；技能存 ID 仅选项提交
+        field.appendChild(picker);
       }
-      const picker = createPicker(pool, block.selector, (value) => {
-        block.selector = value;
-        markDirty();
-        updatePreview();
-        const chips = card.querySelectorAll<HTMLElement>(
-          ".ke-block-head .ke-chip",
-        );
-        if (chips.length > 0) {
-          const label = pool.find((o) => o.value === value)?.label ?? "";
-          chips[0]!.textContent = label;
-          chips[0]!.hidden = !label;
-        }
-        renderFields();
-      }, false, "搜索并选择…", def.selectorKind === "item"); // 物品名自由文本；技能存 ID 仅选项提交
-      field.appendChild(picker);
       body.appendChild(field);
     }
 
@@ -2129,7 +2323,8 @@ export function mountKePage(root: HTMLElement): void {
         ? "＋ 添加超时项"
         : `＋ 添加${CONTROL_LABELS[schema.file] ?? "规则"}`;
     addBtn.addEventListener("click", () => {
-      rows.push({ name: "", values: {} });
+      // 预填各列默认值，保证新行即便用户不动也能序列化为合法的最小参数行。
+      rows.push(newControlRow(schema));
       markDirty();
       renderActivePanel();
       updateNavCounts();
@@ -2238,20 +2433,15 @@ export function mountKePage(root: HTMLElement): void {
     values: Record<string, string>,
     onChange: () => void,
   ): HTMLElement {
-    const options_ = column.options ?? [];
-    // 拾取 flag：-1 与 0 语义相同（不拾取），合并为一个分段展示，点击写入 0。
-    const segOptions: SegOption[] = options_
-      .filter((o) => !(column.key === "flag" && o.value === "-1"))
-      .map((o) => ({
-        value: o.value === "-1" && column.key === "flag" ? "0" : o.value,
-        label: o.label,
-        hint: o.hint ?? column.help,
-      }));
+    const segOptions: SegOption[] = (column.options ?? []).map((o) => ({
+      value: o.value,
+      label: o.label,
+      hint: o.hint ?? column.help,
+    }));
     const raw = values[column.key] ?? "";
-    const current = column.key === "flag" && raw === "-1" ? "0" : raw;
     return segEl(
       segOptions,
-      current,
+      raw,
       (value) => {
         values[column.key] = value;
         markDirty();
@@ -2633,11 +2823,14 @@ export function mountKePage(root: HTMLElement): void {
     formError.hidden = true;
     // 保存前校验：格式/取值错误的配置项逐条列出并阻止保存，避免写坏 config.txt。
     const configErrors = validateConfigDoc(configDoc);
-    if (configErrors.length > 0) {
+    // 同步校验 control 文件：每行必须选择对象且必填列齐全（items≥4 项、pickup≥2 项、mon≥2 项）。
+    const controlErrors = validateControlDoc(controlDoc);
+    const allErrors = [...configErrors, ...controlErrors];
+    if (allErrors.length > 0) {
       formError.hidden = false;
       formError.textContent =
-        `发现 ${configErrors.length} 处配置问题，请修正后再保存：\n` +
-        configErrors.map((message, index) => `${index + 1}. ${message}`).join("\n");
+        `发现 ${allErrors.length} 处配置问题，请修正后再保存：\n` +
+        allErrors.map((message, index) => `${index + 1}. ${message}`).join("\n");
       return;
     }
     // 保存前兜底：所有 control 文件必须生成，mon/pickup/items 必须带 all 兜底行，绝不落 NULL。
@@ -2733,23 +2926,12 @@ export function mountKePage(root: HTMLElement): void {
     markDirty();
   });
 
-  charSelect.addEventListener("change", () => {
-    if (!confirmDiscard()) {
-      charSelect.value = selectedKey ?? "";
-      return;
-    }
-    selectedKey = charSelect.value;
-    const character = selectedCharacter();
-    selectedJobId = character?.job_id ?? null;
-    hideForm();
-    renderCharCard();
-    void reloadProfiles();
-  });
-
   // —— 初始化 ——
 
   async function init(): Promise<void> {
     const demo = new URLSearchParams(window.location.search).has("demo");
+    // 并行加载职业图标映射（不阻塞 UI）
+    void loadPticonMap();
     options = await keFetch<KeOptions>("/ke/options.json").catch(() => null);
     if (options) {
       mapsList.innerHTML = options.maps
@@ -2764,14 +2946,15 @@ export function mountKePage(root: HTMLElement): void {
           cid: 2000002,
           nid: 3000003,
           char_name: "波利猎人",
-          job_id: 4016,
+          job_id: 11,
           map_name: "prt_fild08",
           last_seen_at: Date.now() - 3 * 60000,
         },
       ];
-      fillCharacterSelect();
-      selectedKey = charSelect.value;
+      const firstKey = `${characters[0]!.aid}:${characters[0]!.cid}:${characters[0]!.nid}`;
+      selectedKey = firstKey;
       selectedJobId = characters[0]!.job_id ?? null;
+      renderCharacterStrip();
       status.textContent = "演示模式：未连接后端，改动不会保存。";
       renderCharCard();
       renderProfiles([]);
@@ -2788,10 +2971,10 @@ export function mountKePage(root: HTMLElement): void {
           "暂无已绑定角色。请先用 KoreEngine 登录角色，然后刷新本页。";
         return;
       }
-      fillCharacterSelect();
-      selectedKey = charSelect.value;
+      selectedKey = `${characters[0]!.aid}:${characters[0]!.cid}:${characters[0]!.nid}`;
       selectedJobId = characters[0]!.job_id ?? null;
       status.textContent = "";
+      renderCharacterStrip();
       renderCharCard();
       await reloadProfiles();
     } catch (error) {

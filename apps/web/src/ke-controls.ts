@@ -16,6 +16,16 @@ export interface ControlColumn {
   options?: ControlOption[];
   /** 输入框占位文案（如「不限」）。 */
   placeholder?: string;
+  /**
+   * 序列化补位默认值：当该列未填、但更靠后的列有值时，用此默认值补齐，
+   * 避免写出 "name  1" 这类含空段的行被 KE 按空格切分时错位解析。
+   */
+  defaultValue?: string;
+  /**
+   * 必填列：保存校验要求该列必须有非空值（未填时阻止保存）。
+   * 通常对应 OpenKore 格式里不可或缺的列（如 items_control 的 keep/storage/sell）。
+   */
+  required?: boolean;
 }
 
 export interface ControlSchema {
@@ -23,6 +33,8 @@ export interface ControlSchema {
   label: string;
   nameKind: "monster" | "item" | "timeout";
   columns: ControlColumn[];
+  /** 保存时该行序列化后至少包含的空格分隔字段数（含首列 name）。 */
+  minTokens?: number;
 }
 
 export interface ControlRow {
@@ -40,12 +52,15 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
     file: "mon_control.txt",
     label: "怪物规则",
     nameKind: "monster",
+    minTokens: 2,
     columns: [
       {
         key: "attack_auto",
         label: "攻击策略",
         help: "对这只怪物的攻击方式（OpenKore mon_control 第 1 列）。",
         type: "enum",
+        defaultValue: "1",
+        required: true,
         options: [
           {
             value: "-1",
@@ -75,6 +90,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         label: "遇怪传送",
         help: "遇到这只怪物时是否瞬移躲避（第 2 列）。",
         type: "enum",
+        defaultValue: "0",
         options: [
           { value: "0", label: "不传送", hint: "遇到也不躲。" },
           {
@@ -90,6 +106,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         label: "搜索标记",
         help: "标记为「搜索目标」：配合瞬移找怪开关，屏幕上出现这种怪时才激活自动攻击（用于主动瞬移寻找稀有怪）。",
         type: "enum",
+        defaultValue: "0",
         options: ON_OFF,
       },
       {
@@ -97,6 +114,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         label: "打断咏唱",
         help: "这种怪物施法时尝试打断：切换目标去打它，或躲开范围技能。",
         type: "enum",
+        defaultValue: "0",
         options: ON_OFF,
       },
       {
@@ -105,6 +123,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         help: "自身基础等级 ≥ 此值才会攻击该怪物。留空不限。",
         type: "int",
         placeholder: "不限",
+        defaultValue: "0",
       },
       {
         key: "attack_jlvl",
@@ -112,6 +131,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         help: "自身职业等级 ≥ 此值才会攻击。留空不限。",
         type: "int",
         placeholder: "不限",
+        defaultValue: "0",
       },
       {
         key: "attack_hp",
@@ -119,6 +139,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         help: "当前 HP ≥ 此值才攻击（绝对数值，不是百分比）。留空不限。",
         type: "int",
         placeholder: "不限",
+        defaultValue: "0",
       },
       {
         key: "attack_sp",
@@ -126,6 +147,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         help: "当前 SP ≥ 此值才攻击（绝对数值，不是百分比）。留空不限。",
         type: "int",
         placeholder: "不限",
+        defaultValue: "0",
       },
       {
         key: "weight",
@@ -133,6 +155,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         help: "统计「围攻数」时这只怪算几只：支持小数（如 0.2），-1 表示不计入围攻，0 视作 1 只。配合 teleportAuto_minAggressives 使用。",
         type: "int",
         placeholder: "默认按 1 只",
+        defaultValue: "0",
       },
     ],
   },
@@ -140,22 +163,25 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
     file: "pickupitems.txt",
     label: "拾取物品",
     nameKind: "item",
+    minTokens: 2,
     columns: [
       {
         key: "flag",
         label: "拾取",
-        help: "该物品是否拾取：0（或 -1）=不拾取，1=拾取，2=出现立刻捡。",
+        help: "该物品是否拾取：-1=不拾取并丢弃（扔地上），0=不拾取（留在地上），1=拾取，2=出现立刻捡。",
         type: "enum",
+        defaultValue: "1",
+        required: true,
         options: [
           {
             value: "-1",
-            label: "不拾取",
-            hint: "不捡这个物品（-1 与 0 效果相同）。",
+            label: "丢弃",
+            hint: "不捡这个物品，并让它消失（写入 -1）。",
           },
           {
             value: "0",
             label: "不拾取",
-            hint: "不捡这个物品（-1 与 0 效果相同）。",
+            hint: "不捡这个物品（写入 0，物品留在地上）。",
           },
           { value: "1", label: "拾取", hint: "路过时顺手捡起。" },
           { value: "2", label: "优先拾取", hint: "物品一出现就马上去捡。" },
@@ -167,6 +193,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
     file: "items_control.txt",
     label: "物品规则",
     nameKind: "item",
+    minTokens: 4,
     columns: [
       {
         key: "keep",
@@ -174,12 +201,16 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         help: "身上至少保留的数量；放推车 / 取推车 / 存仓出售都以它为基准（多于它才处理、少于它补回）。",
         type: "int",
         placeholder: "0",
+        defaultValue: "0",
+        required: true,
       },
       {
         key: "storage",
         label: "存仓",
         help: "去仓库时如何处理这个物品：0=不存仓，1=把身上超过「保留」的部分存进仓库。",
         type: "enum",
+        defaultValue: "0",
+        required: true,
         options: [
           { value: "0", label: "不存仓", hint: "这个物品不进仓库。" },
           {
@@ -194,6 +225,8 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         label: "出售",
         help: "去商店时是否卖掉这个物品（卖掉「身上保留」以外的部分）。",
         type: "enum",
+        defaultValue: "0",
+        required: true,
         options: [
           { value: "0", label: "不出售", hint: "这个物品不卖给 NPC。" },
           { value: "1", label: "出售", hint: "卖掉「身上保留」以外的部分。" },
@@ -204,6 +237,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         label: "放进推车",
         help: "身上的数量超过「身上保留」时，自动把多余的放进推车。",
         type: "enum",
+        defaultValue: "0",
         options: ON_OFF,
       },
       {
@@ -211,6 +245,7 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
         label: "从车取出",
         help: "身上的数量少于「身上保留」时，自动从推车补回来。",
         type: "enum",
+        defaultValue: "0",
         options: ON_OFF,
       },
     ],
@@ -301,28 +336,101 @@ export function defaultControlDoc(): ControlDoc {
   return doc;
 }
 
-/** 序列化（空格分隔；未设置列省略，仅保留从首列到最后一个已设列）。 */
+/** 序列化（空格分隔；未设置列省略，仅保留从首列到最后一个已设列）。
+ * 必填列（required）即使未填也会用 defaultValue 补齐，保证行内参数数量与位置稳定，
+ * 避免空段导致 KE 按空格切分时错位（如「name  1」被解析成 keep=1）。
+ */
 export function serializeControl(
   schema: ControlSchema,
   rows: ControlRow[],
 ): string {
+  // 必填列的最大下标：序列化时至少输出到这一列，保证最小参数数量。
+  let lastRequired = -1;
+  schema.columns.forEach((column, index) => {
+    if (column.required) lastRequired = index;
+  });
   const lines: string[] = [];
   for (const row of rows) {
     if (row.name === "") continue;
-    let lastSet = -1;
+    let lastSet = lastRequired;
     for (let i = 0; i < schema.columns.length; i += 1) {
       const value = row.values[schema.columns[i]!.key];
-      if (value !== undefined && value !== "") lastSet = i;
+      if (value !== undefined && value !== "") lastSet = Math.max(lastSet, i);
     }
     if (lastSet < 0) continue;
     const parts = [row.name];
     for (let i = 0; i <= lastSet; i += 1) {
       const column = schema.columns[i]!;
-      parts.push(row.values[column.key] ?? "");
+      const value = row.values[column.key];
+      const filled =
+        value === undefined || value === ""
+          ? (column.defaultValue ?? "")
+          : value;
+      parts.push(filled);
     }
     lines.push(parts.join(" "));
   }
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+}
+
+/** 新建一行的初始值：把带 defaultValue 的列预填上，避免用户留空必填列导致序列化错位。 */
+export function newControlRow(schema: ControlSchema): ControlRow {
+  const values: Record<string, string> = {};
+  for (const column of schema.columns) {
+    if (column.defaultValue !== undefined) values[column.key] = column.defaultValue;
+  }
+  return { name: "", values };
+}
+
+/**
+ * 保存前校验 control 文件，返回人类可读错误列表（空数组 = 通过）。
+ * 检查项：
+ * - 每行必须选择对象（怪物 / 物品 / 超时项）。
+ * - required 列必须填写，否则该行序列化后参数不足 minTokens。
+ */
+export function validateControlDoc(doc: ControlDoc): string[] {
+  const errors: string[] = [];
+  for (const schema of CONTROL_SCHEMAS) {
+    const rows = doc[schema.file] ?? [];
+    const nameLabel =
+      schema.nameKind === "monster"
+        ? "怪物"
+        : schema.nameKind === "item"
+          ? "物品"
+          : "超时项";
+    rows.forEach((row, index) => {
+      const where = `「${schema.label}」第 ${index + 1} 行`;
+      if (row.name.trim() === "") {
+        errors.push(`${where}未选择${nameLabel}，请填写或删除该行。`);
+        return;
+      }
+      for (const column of schema.columns) {
+        if (!column.required) continue;
+        const value = row.values[column.key];
+        if (value === undefined || value.trim() === "") {
+          const minNote = schema.minTokens
+            ? `（该行至少需 ${schema.minTokens} 项参数）`
+            : "";
+          errors.push(
+            `${where}（${row.name}）的「${column.label}」未填写${minNote}。`,
+          );
+        }
+      }
+      // 兜底：序列化后的空格分隔字段数必须达到 minTokens，防止位置错位。
+      if (schema.minTokens !== undefined) {
+        const line = serializeControl(schema, [row]).trim();
+        if (line !== "") {
+          const tokenCount = line.split(/\s+/u).length;
+          if (tokenCount < schema.minTokens) {
+            errors.push(
+              `${where}（${row.name}）序列化后仅 ${tokenCount} 项，少于要求的 ${schema.minTokens} 项，请补全必填列。`,
+            );
+          }
+        }
+      }
+    });
+  }
+  return errors;
 }
 
 /** 解析（按空白切分，首列为 name，后续按列顺序取值）。 */
