@@ -1,4 +1,4 @@
-import { foldEntitlements, KE_PERMANENT_MS } from '../ke/entitlements';
+import { KE_PERMANENT_MS } from '../ke/entitlements';
 import { parseAdjustInput, parseEditInput } from './input';
 import {
   ADMIN_PERMISSION_LEVEL,
@@ -11,25 +11,19 @@ import {
 
 const SEARCH_LIMIT = 20;
 const AUDIT_PAGE_LIMIT = 50;
+const ENTITLEMENT_LIST_LIMIT = 500;
 
 export interface AdminUserDetail {
   user: AdminUserRow;
   effective: { slots: number; modules: string[] };
+  /** 最近的权益流水（最多 ENTITLEMENT_LIST_LIMIT 条）。 */
   entitlements: EntitlementRow[];
+  /** 流水超过展示上限时为 true：列表只是最近的一部分，生效值仍是完整聚合的结果。 */
+  entitlements_truncated: boolean;
 }
 
 function notFound(code: string, message: string): AdminFailure {
   return new AdminFailure(code, 404, message);
-}
-
-function effectiveAt(rows: readonly EntitlementRow[], now: number): AdminUserDetail['effective'] {
-  const totals = new Map<string, number>();
-  for (const row of rows) {
-    if (row.revoked_at !== null || row.starts_at > now || row.expires_at <= now) continue;
-    totals.set(row.resource, (totals.get(row.resource) ?? 0) + row.quantity);
-  }
-  const folded = foldEntitlements([...totals].map(([resource, total]) => ({ resource, total })));
-  return { slots: folded.slots, modules: [...folded.modules].sort() };
 }
 
 export function createAdminService(repository: AdminRepository, now: () => number = () => Date.now()) {
@@ -51,8 +45,17 @@ export function createAdminService(repository: AdminRepository, now: () => numbe
     async getUser(userId: number): Promise<AdminUserDetail> {
       const user = await repository.findUser(userId);
       if (!user) throw notFound('ADMIN_USER_NOT_FOUND', '账号不存在');
-      const entitlements = await repository.listEntitlements(userId);
-      return { user, effective: effectiveAt(entitlements, now()), entitlements };
+      // 生效值走独立的 SQL 聚合；展示用的历史列表多取一条，用来判断是否被截断。
+      const [effective, history] = await Promise.all([
+        repository.readEntitlements(userId, now()),
+        repository.listEntitlements(userId, ENTITLEMENT_LIST_LIMIT + 1),
+      ]);
+      return {
+        user,
+        effective: { slots: effective.slots, modules: [...effective.modules].sort() },
+        entitlements: history.slice(0, ENTITLEMENT_LIST_LIMIT),
+        entitlements_truncated: history.length > ENTITLEMENT_LIST_LIMIT,
+      };
     },
 
     async adjustEntitlement(actorId: number, targetId: number, rawInput: unknown, requestId: string): Promise<{ id: number }> {

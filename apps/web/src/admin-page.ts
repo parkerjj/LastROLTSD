@@ -40,6 +40,7 @@ interface AdminUserDetail {
   user: AdminUser;
   effective: { slots: number; modules: string[] };
   entitlements: AdminEntitlement[];
+  entitlements_truncated?: boolean;
 }
 
 interface AdminAuditRecord {
@@ -150,6 +151,8 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
           </table>
         </div>
 
+        <p id="adm-ent-note" class="adm-hint" hidden>流水较多，这里只显示最近的记录；上面的「当前生效」仍是全部记录汇总的结果。</p>
+
         <h3>赠送 / 扣减</h3>
         <form id="adm-adjust-form" class="adm-form">
           <label>资源
@@ -198,7 +201,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
     .adm-card { margin-top: 20px; padding: 18px 20px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
     .adm-card h2 { margin: 0 0 12px; color: var(--forest); font-size: 1rem; }
     .adm-card h3 { margin: 18px 0 8px; color: var(--forest); font-size: .9rem; }
-    .adm-card[hidden], .adm-btn[hidden], .adm-form label[hidden] { display: none; }
+    .adm-card[hidden], .adm-btn[hidden], .adm-form label[hidden], .adm-hint[hidden] { display: none; }
     .adm-row { display: flex; gap: 10px; flex-wrap: wrap; }
     .adm-row input { flex: 1 1 260px; min-height: 40px; padding: 6px 12px; border-radius: 8px; }
     .adm-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
@@ -236,6 +239,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
   const userInfo = q<HTMLElement>("#adm-user-info");
   const effective = q<HTMLElement>("#adm-effective");
   const entBody = q<HTMLElement>("#adm-ent-body");
+  const entNote = q<HTMLElement>("#adm-ent-note");
   const adjustForm = q<HTMLFormElement>("#adm-adjust-form");
   const adjustResource = q<HTMLInputElement>("#adm-adjust-resource");
   const adjustDelta = q<HTMLInputElement>("#adm-adjust-delta");
@@ -294,6 +298,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
     detail.hidden = false;
     userInfo.textContent = `#${data.user.id} ${data.user.display_name} · ${data.user.email} · 等级 ${data.user.permission_level} · ${data.user.status} · 注册于 ${formatTime(data.user.created_at)}`;
     effective.textContent = `当前生效：实例额度 ${data.effective.slots} · 模块 ${data.effective.modules.length > 0 ? data.effective.modules.join("、") : "无"}`;
+    entNote.hidden = data.entitlements_truncated !== true;
     entBody.replaceChildren();
     const now = Date.now();
     for (const row of data.entitlements) {

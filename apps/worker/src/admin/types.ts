@@ -1,3 +1,5 @@
+import type { KeEntitlements } from '../ke/entitlements';
+
 export class AdminFailure extends Error {
   constructor(
     public readonly code: string,
@@ -91,7 +93,10 @@ export interface AdminRepository {
   readActor(userId: number): Promise<AdminUserRow | null>;
   findUser(userId: number): Promise<AdminUserRow | null>;
   searchUsers(query: string, limit: number): Promise<AdminUserRow[]>;
-  listEntitlements(userId: number): Promise<EntitlementRow[]>;
+  /** 当前生效的额度与模块（SQL 聚合，与 KE 授权同口径，不受历史列表截断影响）。 */
+  readEntitlements(userId: number, now: number): Promise<KeEntitlements>;
+  /** 最近的权益流水（按 id 倒序），最多 limit 条。 */
+  listEntitlements(userId: number, limit: number): Promise<EntitlementRow[]>;
   listAudit(limit: number, beforeId: number | null): Promise<AdminAuditRecord[]>;
   transaction<T>(work: (tx: AdminTx) => Promise<T>): Promise<T>;
 }

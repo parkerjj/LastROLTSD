@@ -92,6 +92,33 @@ describe.skipIf(!runMysqlTests)('Admin × MySQL', () => {
     });
   }, 120_000);
 
+  it('权益流水超过展示上限：列表只返回最近的记录并标记截断，生效值仍按完整数据汇总', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const alice = await insertUser(database, 'alice');
+      const nowMs = Date.now();
+      const service = createAdminService(createAdminRepository(database), () => nowMs);
+      const keRepository = createKeRepository(database);
+      // 最早的两条仍然有效（验证邮箱赠送：1 个额度 + 核心模块）；之后又累积了 510 条已过期的流水，把它们挤出最近 500 条
+      await database.run(
+        "INSERT INTO ke_entitlements (user_id, resource, quantity, starts_at, expires_at, source, source_ref, created_at) VALUES (?, 'slots', 1, 1, ?, 'signup', 'old-slots', 1), (?, 'module:core', 1, 1, ?, 'signup', 'old-core', 1)",
+        [alice, nowMs + DAY_MS, alice, nowMs + DAY_MS],
+      );
+      const placeholders = Array.from({ length: 510 }, () => "(?, 'slots', 1, 1, 2, 'admin', ?, 1)").join(', ');
+      await database.run(
+        `INSERT INTO ke_entitlements (user_id, resource, quantity, starts_at, expires_at, source, source_ref, created_at) VALUES ${placeholders}`,
+        Array.from({ length: 510 }, (_, index) => [alice, `bulk-${index}`]).flat(),
+      );
+
+      const detail = await service.getUser(alice);
+      expect(detail.entitlements).toHaveLength(500);
+      expect(detail.entitlements_truncated).toBe(true);
+      expect(detail.entitlements.some((row) => row.source_ref === 'old-core')).toBe(false);
+      expect(detail.effective).toEqual({ slots: 1, modules: ['core'] });
+      const viaKe = await keRepository.transaction((tx) => tx.readEntitlements(alice, nowMs));
+      expect({ slots: viaKe.slots, modules: [...viaKe.modules] }).toEqual(detail.effective);
+    });
+  }, 120_000);
+
   it('事务原子性：审计写入失败时，业务变更一并回滚', async () => {
     await withAuthTestDatabase(async ({ database }) => {
       const alice = await insertUser(database, 'alice');

@@ -10,7 +10,7 @@ import type {
   GuestbookReplyRow,
   NewEntitlement,
 } from '../src/admin/types';
-import { KE_PERMANENT_MS } from '../src/ke/entitlements';
+import { foldEntitlements, KE_PERMANENT_MS, type KeEntitlements } from '../src/ke/entitlements';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = 1_800_000_000_000;
@@ -18,6 +18,8 @@ const NOW = 1_800_000_000_000;
 interface FakeAdminRepository extends AdminRepository {
   users: Map<number, AdminUserRow>;
   entitlements: Map<number, EntitlementRow>;
+  /** 覆盖「当前生效权益」的汇总结果（模拟 SQL 聚合独立于历史列表）。 */
+  aggregate: KeEntitlements | null;
   entries: Map<number, GuestbookEntryRow>;
   replies: Map<number, GuestbookReplyRow>;
   audit: AdminAuditEntry[];
@@ -37,6 +39,7 @@ function makeRepository(): FakeAdminRepository {
   const replies = new Map<number, GuestbookReplyRow>();
   const audit: AdminAuditEntry[] = [];
   let nextEntitlementId = 1;
+  const state: { aggregate: KeEntitlements | null } = { aggregate: null };
 
   const tx: AdminTx = {
     async lockUser(id) { return users.get(id) ?? null; },
@@ -64,10 +67,21 @@ function makeRepository(): FakeAdminRepository {
 
   return {
     users, entitlements, entries, replies, audit,
+    get aggregate() { return state.aggregate; },
+    set aggregate(value) { state.aggregate = value; },
+    async readEntitlements(userId, at) {
+      if (state.aggregate) return state.aggregate;
+      const totals = new Map<string, number>();
+      for (const row of entitlements.values()) {
+        if (row.user_id !== userId || row.revoked_at !== null || row.starts_at > at || row.expires_at <= at) continue;
+        totals.set(row.resource, (totals.get(row.resource) ?? 0) + row.quantity);
+      }
+      return foldEntitlements([...totals].map(([resource, total]) => ({ resource, total })));
+    },
     async readActor(id) { return users.get(id) ?? null; },
     async findUser(id) { return users.get(id) ?? null; },
     async searchUsers() { return [...users.values()]; },
-    async listEntitlements(userId) { return [...entitlements.values()].filter((row) => row.user_id === userId).sort((a, b) => b.id - a.id); },
+    async listEntitlements(userId, limit) { return [...entitlements.values()].filter((row) => row.user_id === userId).sort((a, b) => b.id - a.id).slice(0, limit); },
     async listAudit() { return audit.map((entry, index) => ({ id: index + 1, ...entry })); },
     transaction: (work) => work(tx),
   };
@@ -233,5 +247,33 @@ describe('admin service · 账号详情', () => {
   it('账号不存在 → 404', async () => {
     const { service } = setup();
     await expect(service.getUser(999)).rejects.toMatchObject({ code: 'ADMIN_USER_NOT_FOUND', status: 404 });
+  });
+
+  it('当前生效的额度与模块来自独立的聚合查询，不依赖（可能被截断的）历史列表', async () => {
+    const { repository, service } = setup();
+    // 历史列表里只有一条，但聚合口径（包含更早、已不在列表里的有效权益）是 7 个额度 + core 与 alpha 两个模块
+    await service.adjustEntitlement(1, 2, { resource: 'slots', delta: 1, duration_days: 5 }, 'req-n');
+    repository.aggregate = { slots: 7, modules: new Set(['core', 'alpha']) };
+    const detail = await service.getUser(2);
+    expect(detail.entitlements).toHaveLength(1);
+    expect(detail.effective).toEqual({ slots: 7, modules: ['alpha', 'core'] });
+  });
+
+  it('历史超过上限时只返回最近的记录，并明确标记已截断', async () => {
+    const { repository, service } = setup();
+    for (let id = 1; id <= 501; id += 1) {
+      repository.entitlements.set(id, {
+        id, user_id: 2, resource: 'slots', quantity: 1, starts_at: NOW - DAY_MS, expires_at: NOW + DAY_MS, source: 'admin', source_ref: `r${id}`,
+        actor_user_id: 1, note: null, revoked_at: null, created_at: NOW,
+      });
+    }
+    const truncated = await service.getUser(2);
+    expect(truncated.entitlements).toHaveLength(500);
+    expect(truncated.entitlements[0]!.id).toBe(501);
+    expect(truncated.entitlements_truncated).toBe(true);
+    expect(truncated.effective.slots).toBe(501);
+
+    repository.entitlements.delete(501);
+    expect((await service.getUser(2)).entitlements_truncated).toBe(false);
   });
 });

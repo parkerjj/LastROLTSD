@@ -1,5 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
-import { foldEntitlements, type KeEntitlements } from './entitlements';
+import { queryEntitlements, type KeEntitlements } from './entitlements';
 import type { ActiveInstanceInfo, CharacterReport, KeLicenseMode } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -127,13 +127,7 @@ function txFor(db: MysqlDatabase): KeTx {
       await db.all('SELECT id FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
     },
 
-    async readEntitlements(userId, now) {
-      const rows = await db.all<MysqlRow>(
-        'SELECT resource, SUM(quantity) AS total FROM ke_entitlements WHERE user_id = ? AND starts_at <= ? AND expires_at > ? AND revoked_at IS NULL GROUP BY resource',
-        [userId, now, now],
-      );
-      return foldEntitlements(rows.map((row) => ({ resource: String(row.resource), total: asNumber(row.total) })));
-    },
+    readEntitlements: (userId, now) => queryEntitlements(db, userId, now),
 
     async findCharacter(aid, cid, nid) {
       const rows = await db.all<MysqlRow>(

@@ -1,4 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
+import { queryEntitlements } from '../ke/entitlements';
 import { insertAdminAudit } from './audit';
 import type {
   AdminAuditRecord,
@@ -12,7 +13,6 @@ import type {
 
 const USER_COLUMNS = 'id, email, display_name, status, permission_level, email_verified_at, created_at';
 const ENTITLEMENT_COLUMNS = 'id, user_id, resource, quantity, starts_at, expires_at, source, source_ref, actor_user_id, note, revoked_at, created_at';
-const ENTITLEMENT_LIST_LIMIT = 500;
 
 function asNumber(value: unknown): number {
   return typeof value === 'number' ? value : Number(value);
@@ -186,9 +186,12 @@ export function createAdminRepository(database: MysqlDatabase): AdminRepository 
       return rows.map(readUser);
     },
 
-    async listEntitlements(userId) {
+    readEntitlements: (userId, now) => queryEntitlements(database, userId, now),
+
+    async listEntitlements(userId, limit) {
+      const size = Math.min(Math.max(Math.trunc(limit), 1), 1000);
       const rows = await database.all<MysqlRow>(
-        `SELECT ${ENTITLEMENT_COLUMNS} FROM ke_entitlements WHERE user_id = ? ORDER BY id DESC LIMIT ${ENTITLEMENT_LIST_LIMIT}`, [userId]);
+        `SELECT ${ENTITLEMENT_COLUMNS} FROM ke_entitlements WHERE user_id = ? ORDER BY id DESC LIMIT ${size}`, [userId]);
       return rows.map(readEntitlement);
     },
 

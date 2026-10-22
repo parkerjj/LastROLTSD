@@ -163,6 +163,17 @@ describe('发布配置回归', () => {
     expect(step).toContain('secrets.KE_LICENSE_PRIVATE_KEY_V1');
   });
 
+  it('workflow 在最终 deploy 之后重跑一次幂等的权益回填，补上「迁移之后、新代码上线之前」才验证邮箱的账号', () => {
+    const migrate = workflow.indexOf('name: Apply MySQL schema migrations');
+    const deploy = workflow.indexOf('name: Deploy production Worker and web assets');
+    const repair = workflow.indexOf('name: Repair signup entitlements');
+    expect(migrate).toBeGreaterThanOrEqual(0);
+    expect(repair).toBeGreaterThan(deploy);
+    const step = workflow.slice(repair);
+    expect(step).toContain('node scripts/backfill-signup-entitlements.mjs');
+    expect(step).toContain('MYSQL_URL: ${{ secrets.MYSQL_URL }}');
+  });
+
   it('.gitignore 明确忽略 KE 密钥目录与 env 文件', () => {
     const gitignore = readFileSync(new URL('../../../.gitignore', import.meta.url), 'utf8').split('\n').map((line) => line.trim());
     expect(gitignore).toContain('.ke-secrets.local/');

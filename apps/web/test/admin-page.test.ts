@@ -116,6 +116,23 @@ describe("admin page", () => {
     expect(rows[2]!.textContent).toContain("已撤销");
   });
 
+  it("权益流水被截断时提示「仅显示最近记录」，未截断时不显示", async () => {
+    const truncated = mount({
+      user: profile(100),
+      get: (path) => (path === "/api/v1/admin/users/2" ? json({ ...DETAIL, entitlements_truncated: true }) : routes(path)),
+    });
+    await openUser(truncated);
+    expect(truncated.root.querySelector<HTMLElement>("#adm-ent-note")!.hidden).toBe(false);
+    expect(truncated.root.querySelector("#adm-ent-note")!.textContent).toContain("最近");
+
+    const complete = mount({
+      user: profile(100),
+      get: (path) => (path === "/api/v1/admin/users/2" ? json({ ...DETAIL, entitlements_truncated: false }) : routes(path)),
+    });
+    await openUser(complete);
+    expect(complete.root.querySelector<HTMLElement>("#adm-ent-note")!.hidden).toBe(true);
+  });
+
   it("搜索框把关键词交给接口", async () => {
     const m = mount({ user: profile(100), get: routes });
     await wait();

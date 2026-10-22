@@ -1,4 +1,4 @@
-import type { MysqlDatabase } from '../db/mysql-client';
+import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
 
 /** KE 权益：实例额度与可用模块，均由 ke_entitlements 流水按「当前时刻」实时求和得出。 */
 
@@ -30,6 +30,18 @@ export function foldEntitlements(totals: readonly ResourceTotal[]): KeEntitlemen
     else if (resource.startsWith(KE_MODULE_PREFIX) && total > 0) modules.add(resource.slice(KE_MODULE_PREFIX.length));
   }
   return { slots, modules };
+}
+
+/**
+ * 账号在 now 时刻生效的额度与模块：对有效流水（未撤销、starts_at <= now < expires_at）在 SQL 里按 resource 求和后折算。
+ * KE 授权与管理后台共用这一个查询，口径保持一致，也不受任何展示用的分页 / 截断影响。
+ */
+export async function queryEntitlements(db: MysqlDatabase, userId: number, now: number): Promise<KeEntitlements> {
+  const rows = await db.all<MysqlRow>(
+    'SELECT resource, SUM(quantity) AS total FROM ke_entitlements WHERE user_id = ? AND starts_at <= ? AND expires_at > ? AND revoked_at IS NULL GROUP BY resource',
+    [userId, now, now],
+  );
+  return foldEntitlements(rows.map((row) => ({ resource: String(row.resource), total: Number(row.total) })));
 }
 
 /**

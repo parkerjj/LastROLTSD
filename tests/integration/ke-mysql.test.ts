@@ -1,5 +1,6 @@
 // KE 全部仓库层 SQL 的真实 MySQL 验证（迁移 009/012–015）。与 auth 集成测试共用 withAuthTestDatabase：
 // 需要 MYSQL_TEST_URL（库名以 _test 结尾、且不同于 MYSQL_URL）与 AUTH_TEST_DB_ALLOW_RESET=1，会清空并重建该库。
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createAuthRepository } from '../../apps/worker/src/auth/repository';
@@ -205,6 +206,36 @@ describe.skipIf(!runMysqlTests)('KE × MySQL', () => {
       expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [erin])).toBe(2);
       // 未通过验证（已验证过的账号）不会赠送额外权益
       expect(await verify(carol, now)).toBe(false);
+    });
+  }, 120_000);
+
+  it('部署后的回填脚本：补上遗漏的已验证账号，重复执行不产生重复，未验证账号不受影响', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.now();
+      const rawUser = async (name: string, status: string, verifiedAt: number | null) => (await database.run(
+        'INSERT INTO auth_users (email, email_normalized, display_name, status, email_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [`${name}@example.test`, `${name}@example.test`, name, status, verifiedAt, 1, 1],
+      )).insertId;
+      // 模拟迁移已执行、新代码尚未上线期间被旧 Worker 验证邮箱的账号：已验证，却没有赠送的权益
+      const missed = await rawUser('missed', 'ACTIVE', now - 3600_000);
+      const pending = await rawUser('pending', 'PENDING_EMAIL', null);
+      const granted = await insertUser(database, 'granted');
+      const run = () => spawnSync(process.execPath, ['scripts/backfill-signup-entitlements.mjs'], {
+        cwd: process.cwd(), env: { ...process.env, MYSQL_URL: process.env.MYSQL_TEST_URL }, encoding: 'utf8',
+      });
+
+      const first = run();
+      expect(first.status, first.stderr).toBe(0);
+      const second = run();
+      expect(second.status, second.stderr).toBe(0);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [missed])).toBe(2);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [pending])).toBe(0);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [granted])).toBe(2);
+      const repaired = await database.first<{ starts_at: number | string; expires_at: number | string }>(
+        "SELECT starts_at, expires_at FROM ke_entitlements WHERE user_id = ? AND resource = 'module:core'", [missed]);
+      expect(Number(repaired!.starts_at)).toBe(now - 3600_000);
+      expect(Number(repaired!.expires_at)).toBe(now - 3600_000 + KE_PERMANENT_MS);
+      expect(first.stdout).toContain('backfill');
     });
   }, 120_000);
 
