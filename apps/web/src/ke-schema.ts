@@ -796,6 +796,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     help: "负重超过这个百分比就停止拾取/收集任何物品，并触发自动出售/存仓（触发存售的阈值可被下方「出售/存仓负重阈值」单独覆盖）。",
     type: "int",
     suffix: "%",
+    default: "90",
     group: "拾取",
   },
   {
@@ -804,6 +805,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     help: "负重达到这个百分比就触发去出售/存仓清包。",
     type: "int",
     suffix: "%",
+    default: "70",
     group: "拾取",
   },
 
