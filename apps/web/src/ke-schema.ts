@@ -527,7 +527,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   },
   {
     key: "teleportAuto_search",
-    label: "专注传送模式",
+    label: "专注模式(只打怪物规则中标记为专注模式的指定怪)",
     help: "只打指定怪、其它怪一律瞬移跳过（适合只刷 BOSS/指定怪的场景）。",
     type: "enum",
     default: "0",
