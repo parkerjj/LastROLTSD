@@ -205,7 +205,7 @@ describe("ke page", () => {
     expect(body.config_text).toContain('lockMap prt_fild08');
   });
 
-  it('保存时未点开的规则区块也生成配置并带 all 兜底，不落 NULL', async () => {
+  it('保存时未点开的规则区块也生成配置并带兜底行，不落 NULL', async () => {
     const { dom, root } = await mountProfileEditor();
     // fixture 里 profile 9 的 mon/pickup/items/timeouts 全是 null，且用户不进入这些区块，直接保存。
     root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
@@ -215,7 +215,10 @@ describe("ke page", () => {
     const put = calls.find(([path, init]) => path === '/api/v1/ke/profiles/9' && init?.method === 'PUT');
     expect(put).toBeTruthy();
     const body = JSON.parse(put![1]!.body as string) as Record<string, string>;
-    expect(body.mon_control).toBe('all 1 0 0');
+    // 已有 profile（字段为 null）加载时走 ensureAllFallback：只补兜底行，不加 *卡片 预设（预设仅新建 profile）。
+    expect(body.mon_control).toBe(
+      'all_miniboss 1 0 0 0 0 0 0 0 0\nall_mvp -1 1 0 0 0 0 0 0 0\nall 1 0 0 0 0 0 0 0 0',
+    );
     expect(body.pickupitems).toBe('all 1');
     expect(body.items_control).toBe('all 0 0 0');
     // timeouts 为空时按 KE 默认值 + LastRO 覆盖值填满，而非存空/NULL。

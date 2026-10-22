@@ -332,18 +332,42 @@ const CONTROL_LABELS: Record<string, string> = {
   "timeouts.txt": "超时",
 };
 
-/** 规则表分区顶部的白话说明（依据 OpenKore 官方文档语义）。 */
+/** 规则表分区顶部的白话说明（依据 KE 配置文档）。 */
 const CONTROL_TAB_HINTS: Record<string, string> = {
-  "mon_control.txt":
-    "单独配置的怪物优先于 all 兜底规则。「仅反击」＝平时不打、被打才还手；「打坐也攻击」＝把这种怪视作主动怪，坐下回血时也会起身追打；「遇怪传送」可选见到就飞、被打才飞，或按距离飞。",
-  "pickupitems.txt":
+  "mon_control.txt": [
+    "优先级（从高到低）：精确怪物名 → class id 数字 → 通配符 → all_mvp / all_miniboss → all。",
+    "通配符：* 匹配任意长度（可空），? 匹配恰好一个字符，中文可用，如「兽人*」「Por*g」「红?药水」；多条通配符同时命中时，取文件里靠前的一条。",
+    "all_mvp 匹配所有 MVP，all_miniboss 匹配所有小 Boss（依据进场包 isBoss 标志位，MVP 小弟无标志位无法区分，需单独列）。两者互不回落：MVP 只看 all_mvp、小 Boss 只看 all_miniboss，都没写时落到 all。",
+    "「仅反击」＝平时不打、被打才还手；「打坐也攻击」＝视作主动怪，坐下回血时也会起身追打；「遇怪传送」可选见到就飞、被打才飞，或按距离飞。",
+  ].join("\n"),
+  "pickupitems.txt": [
+    "优先级与通配符规则同怪物规则：精确物品名 → item id → 通配符 → all。通配符示例：「红*药」「*药草」「?色药水」；多条通配符同时命中时，文件里靠前的优先。",
     "「优先拾取」＝物品一出现就马上去捡；「拾取」＝路过时顺手捡；「不拾取」＝完全无视（写入 0）；「丢弃」＝不捡并让物品消失（写入 -1）。",
-  "items_control.txt":
+  ].join("\n"),
+  "items_control.txt": [
+    "优先级与通配符规则同怪物规则：精确物品名 → item id → 通配符 → all。通配符示例：「红*药」「*药草」「?色药水」；多条通配符同时命中时，文件里靠前的优先。",
     "工作方式：身上数量多于「身上保留」→ 多余的自动存仓 / 出售 / 放进推车；少于它 → 自动从推车补回。同时开启存仓和出售时先存仓（仓库满才卖）。",
+  ].join("\n"),
 };
 
 // 下拉列表最多渲染的条目数（超过时底部提示用户直接输入文字过滤）。
 const PICKER_LIMIT = 100;
+
+/** block 类分区（技能规则 / 物品使用 / 自动购买 / 自动取物 / 自动换装）顶部的简易教程。 */
+const BLOCK_TAB_HINTS: Record<string, string> = {
+  skills: [
+    "每个类型可以添加多张规则卡片。KE 按从上到下顺序逐条检查：第一张条件全部满足的卡片会被执行，后面的同类型卡片不再检查——所以请把「更优先」的卡片放在上面（卡片右上角可上下移动/拖拽排序）。",
+    "「攻击技能槽」决定打怪用什么技能（优先级高于普攻）；「自身技能」是给自己加 buff / 治疗；「队伍技能」是给队友施放。",
+  ].join("\n"),
+  item_use:
+    "满足条件时自动使用消耗品（如 HP 低于百分比喝药水）。KE 按从上到下顺序逐条检查，第一张条件满足的卡片优先执行——优先级高的规则请放上面（卡片右上角可排序）。",
+  buy_auto:
+    "身上数量低于设定值时自动去 NPC 购买补给。KE 按从上到下顺序逐条检查，第一张条件满足的卡片优先执行（卡片右上角可排序）。",
+  get_auto:
+    "身上数量不足时自动从仓库取补给。KE 按从上到下顺序逐条检查，第一张条件满足的卡片优先执行（卡片右上角可排序）。",
+  equip_auto:
+    "满足自身/怪物条件时自动切换装备。KE 按从上到下顺序逐条检查，第一张条件满足的卡片优先执行——专用套装放上面、通用兜底放下面（卡片右上角可排序）。",
+};
 
 export async function keFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -623,8 +647,14 @@ export function mountKePage(root: HTMLElement): void {
     .ke-b-tail { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .ke-chev { color: var(--muted); transition: transform .18s ease; }
     .ke-block-card.is-open .ke-chev { transform: rotate(180deg); }
-    .ke-block-del { background: transparent; border: 1px solid transparent; color: #c97869; font-size: .85rem; width: 22px; height: 22px; border-radius: 6px; line-height: 1; padding: 0; cursor: pointer; opacity: .55; transition: opacity .15s, background .15s, border-color .15s; }
-    .ke-block-del:hover { opacity: 1; background: rgba(201,120,105,.12); border-color: #c97869; }
+    .ke-block-del { background: transparent; border: 1px solid transparent; color: #c97869; font-size: .85rem; width: 22px; height: 22px; min-height: 0; border-radius: 6px; line-height: 1; padding: 0; cursor: pointer; opacity: .55; transition: opacity .15s, background .15s, border-color .15s; }
+    .ke-block-del:hover, .ke-block-card .ke-block-del:hover { opacity: 1; background: rgba(201,120,105,.12); border-color: #c97869; }
+    .ke-block-move { background: transparent; border: 1px solid transparent; color: var(--muted); font-size: .72rem; width: 20px; height: 22px; min-height: 0; border-radius: 6px; line-height: 1; padding: 0; cursor: pointer; opacity: .55; transition: opacity .15s, background .15s, border-color .15s; }
+    .ke-block-move:hover, .ke-block-card .ke-block-move:hover { opacity: 1; color: var(--forest); background: rgba(80,62,38,.08); border-color: var(--line-light); }
+    .ke-block-grip { display: inline-grid; place-items: center; width: 16px; height: 22px; min-height: 0; color: var(--muted); font-size: .8rem; cursor: grab; opacity: .55; }
+    .ke-block-grip:hover { opacity: 1; }
+    .ke-block-card.is-drop-before { box-shadow: 0 -3px 0 var(--gold); }
+    .ke-block-card.is-drop-after { box-shadow: 0 3px 0 var(--gold); }
     .ke-block-body { padding: 4px 16px 14px; border-top: 1px dashed var(--line); }
 
     .ke-cond { margin-top: 12px; padding: 10px 12px 4px; background: var(--forest-card); border: 1px solid var(--line); border-radius: 8px; }
@@ -665,6 +695,11 @@ export function mountKePage(root: HTMLElement): void {
     .ke-rule-remove { align-self: flex-start; }
 
     .ke-picker { position: relative; flex: 1; }
+    .ke-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+    .ke-tags-empty { color: var(--muted); font-size: .74rem; }
+    .ke-tag { display: inline-flex; align-items: center; gap: 6px; background: #fffdf8; border: 1px solid var(--line-light); border-radius: 6px; padding: 3px 6px 3px 9px; font-size: .76rem; font-weight: 600; color: var(--forest); line-height: 1.5; }
+    .ke-tag-x { display: inline-grid; place-items: center; width: 14px; height: 14px; min-height: 0; margin: 0; border: none; background: transparent; color: var(--muted); font-size: .8rem; font-weight: 400; line-height: 1; padding: 0; box-shadow: none; cursor: pointer; }
+    .ke-tag-x:hover, .ke-tags .ke-tag-x:hover { background: transparent; border-color: transparent; color: #b3502f; }
     .ke-picker-list { position: absolute; z-index: 20; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(74, 57, 35, .12); }
     .ke-picker-item { padding: 7px 11px; font-size: .8rem; cursor: pointer; }
     .ke-picker-group { padding: 5px 11px 3px; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .06em; border-top: 1px dashed var(--line); background: #f7f3ea; }
@@ -689,7 +724,7 @@ export function mountKePage(root: HTMLElement): void {
 
     .ke-editor-foot { display: none; position: sticky; bottom: 0; z-index: 5; gap: 10px; padding: 12px 16px; background: rgba(247,243,234,.97); backdrop-filter: blur(10px); border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
 
-    .ke-hint { margin: 14px 2px 0; color: var(--muted); font-size: .72rem; line-height: 1.7; }
+    .ke-hint { margin: 14px 2px 0; color: var(--muted); font-size: .72rem; line-height: 1.7; white-space: pre-line; }
 
     @media (max-width: 1080px) {
       .ke-editor-body { grid-template-columns: 176px minmax(0, 1fr); }
@@ -1108,6 +1143,12 @@ export function mountKePage(root: HTMLElement): void {
       render(input.value);
       list.hidden = false;
     });
+    // 已聚焦时再次点击也要重新弹出下拉（focus 只在未聚焦时触发）。
+    input.addEventListener("click", () => {
+      if (!list.hidden) return;
+      render(input.value);
+      list.hidden = false;
+    });
     input.addEventListener("input", () => {
       // freeText 场景（物品名/地图码等）输入框文本本身就是值，必须同步回数据源，
       // 否则清空后保存时旧值仍会被写回 config.txt。
@@ -1339,6 +1380,74 @@ export function mountKePage(root: HTMLElement): void {
   }
 
   // —— 条件控件：怪物多选 / 物品数量 / 地图 / 职业 ——
+
+  /**
+   * 地图多选编辑器：已选地图以 chips 展示（可逐个移除）+ 搜索选择器追加。
+   * 接受空格/逗号混合分隔的旧输入并规范化为逗号分隔；允许添加列表外的地图代码。
+   */
+  function createMapChipsEditor(
+    initialValue: string,
+    onChange: (csv: string, silent?: boolean) => void,
+  ): HTMLElement {
+    const wrap = document.createElement("div");
+    const pool = (options?.maps ?? []).map((m) => ({
+      value: m.code,
+      label: m.code,
+    }));
+    const chips = document.createElement("div");
+    chips.className = "ke-tags";
+    // KE 允许空白或逗号分隔，统一规范为逗号分隔。
+    let current = initialValue
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(", ");
+    if (current !== initialValue) onChange(current, true);
+    const codesOf = (): string[] =>
+      current.split(",").map((s) => s.trim()).filter(Boolean);
+    function renderChips(): void {
+      chips.innerHTML = "";
+      const codes = codesOf();
+      if (codes.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "ke-tags-empty";
+        empty.textContent = "未添加额外地图";
+        chips.appendChild(empty);
+        return;
+      }
+      for (const code of codes) {
+        const tag = document.createElement("span");
+        tag.className = "ke-tag";
+        const label = document.createElement("span");
+        label.textContent = code;
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "ke-tag-x";
+        removeBtn.title = `移除 ${code}`;
+        removeBtn.setAttribute("aria-label", `移除 ${code}`);
+        removeBtn.textContent = "×";
+        removeBtn.addEventListener("click", () => {
+          current = codesOf().filter((v) => v !== code).join(", ");
+          onChange(current);
+          renderChips();
+        });
+        tag.append(label, removeBtn);
+        chips.appendChild(tag);
+      }
+    }
+    renderChips();
+    wrap.appendChild(chips);
+    wrap.appendChild(
+      createPicker(pool, "", (value) => {
+        const codes = codesOf();
+        if (!codes.includes(value)) codes.push(value);
+        current = codes.join(", ");
+        onChange(current);
+        renderChips();
+      }, true, "＋ 搜索地图加入列表…"),
+    );
+    return wrap;
+  }
 
   /**
    * 怪物多选编辑器：已选怪物以 chips 展示（可逐个移除）+ 搜索选择器追加。
@@ -1736,6 +1845,18 @@ export function mountKePage(root: HTMLElement): void {
       field.appendChild(picker);
       return field;
     }
+    if (scalar.type === "maps") {
+      const editor = createMapChipsEditor(
+        configDoc.scalars[scalar.key] ?? "",
+        (csv) => {
+          configDoc.scalars[scalar.key] = csv;
+          markDirty();
+          updatePreview();
+        },
+      );
+      field.appendChild(editor);
+      return field;
+    }
     if (scalar.type === "map") {
       const input = document.createElement("input");
       input.type = "text";
@@ -1773,6 +1894,14 @@ export function mountKePage(root: HTMLElement): void {
 
   function renderSkillsTab(entry: NavEntry): void {
     const isMainSkillTab = entry.id === "skills";
+    const tabHint = BLOCK_TAB_HINTS[entry.id];
+    if (tabHint) {
+      const hintEl = document.createElement("p");
+      hintEl.className = "ke-hint";
+      hintEl.style.margin = "4px 0 0";
+      hintEl.textContent = tabHint;
+      tabPanels.appendChild(hintEl);
+    }
     if (isMainSkillTab && selectedJobId !== null && options?.job_skills !== undefined) {
       const row = document.createElement("div");
       row.className = "ke-hint";
@@ -1944,6 +2073,9 @@ export function mountKePage(root: HTMLElement): void {
     };
   }
 
+  /** 正在拖拽的 block（同类型卡片之间才允许 drop）。 */
+  let blockDragState: { type: string; block: BlockValue } | null = null;
+
   function renderBlockCard(def: BlockDef, block: BlockValue): HTMLElement {
     const card = document.createElement("div");
     const isOpen = expandedBlocks.has(block);
@@ -1965,6 +2097,94 @@ export function mountKePage(root: HTMLElement): void {
     }
     const tail = document.createElement("span");
     tail.className = "ke-b-tail";
+
+    // —— 排序：KE 先到先得，上面的卡片优先执行。提供 ↑↓ 按钮 + 拖拽把手。 ——
+    const moveBlock = (delta: number): void => {
+      const arr = configDoc.blocks[def.type];
+      if (!arr) return;
+      const idx = arr.indexOf(block);
+      const target = idx + delta;
+      if (idx < 0 || target < 0 || target >= arr.length) return;
+      arr.splice(idx, 1);
+      arr.splice(target, 0, block);
+      markDirty();
+      updatePreview();
+      renderActivePanel();
+    };
+    const mkMove = (
+      label: string,
+      delta: number,
+      title: string,
+    ): HTMLButtonElement => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ke-block-move";
+      btn.textContent = label;
+      btn.title = title;
+      btn.setAttribute("aria-label", title);
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        moveBlock(delta);
+      });
+      return btn;
+    };
+    const grip = document.createElement("span");
+    grip.className = "ke-block-grip";
+    grip.textContent = "⠿";
+    grip.title = "拖拽调整顺序（排在上面的卡片优先执行）";
+    grip.draggable = true;
+    grip.addEventListener("dragstart", (ev) => {
+      blockDragState = { type: def.type, block };
+      ev.dataTransfer?.setData("text/plain", def.type);
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+    });
+    grip.addEventListener("dragend", () => {
+      blockDragState = null;
+    });
+    card.addEventListener("dragover", (ev) => {
+      if (!blockDragState || blockDragState.type !== def.type) return;
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+      const rect = card.getBoundingClientRect();
+      const before = ev.clientY < rect.top + rect.height / 2;
+      card.classList.toggle("is-drop-before", before);
+      card.classList.toggle("is-drop-after", !before);
+    });
+    card.addEventListener("dragleave", () => {
+      card.classList.remove("is-drop-before", "is-drop-after");
+    });
+    card.addEventListener("drop", (ev) => {
+      ev.preventDefault();
+      card.classList.remove("is-drop-before", "is-drop-after");
+      if (!blockDragState || blockDragState.type !== def.type) return;
+      const arr = configDoc.blocks[def.type];
+      if (!arr) {
+        blockDragState = null;
+        return;
+      }
+      const from = arr.indexOf(blockDragState.block);
+      let to = arr.indexOf(block);
+      if (from < 0 || to < 0) {
+        blockDragState = null;
+        return;
+      }
+      const rect = card.getBoundingClientRect();
+      if (ev.clientY >= rect.top + rect.height / 2) to += 1;
+      arr.splice(from, 1);
+      if (from < to) to -= 1;
+      arr.splice(to, 0, blockDragState.block);
+      blockDragState = null;
+      markDirty();
+      updatePreview();
+      renderActivePanel();
+    });
+    tail.appendChild(grip);
+    tail.appendChild(
+      mkMove("↑", -1, `上移这条${def.label}（提高优先级，更早被检查）`),
+    );
+    tail.appendChild(
+      mkMove("↓", 1, `下移这条${def.label}（降低优先级，更晚被检查）`),
+    );
 
     const chev = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     chev.setAttribute("class", "ke-chev");
@@ -2412,12 +2632,24 @@ export function mountKePage(root: HTMLElement): void {
     } else {
       const isMonster = schema.nameKind === "monster";
       const base = isMonster ? monsterOptions() : itemOptions();
-      const allOption: PickerOption = {
-        label: `all（${isMonster ? "所有怪物" : "所有物品"}兜底）`,
-        value: "all",
-      };
+      const specialOptions: PickerOption[] = isMonster
+        ? [
+            {
+              label: "all（所有怪物兜底）",
+              value: "all",
+            },
+            {
+              label: "all_mvp（所有 MVP）",
+              value: "all_mvp",
+            },
+            {
+              label: "all_miniboss（所有小 Boss）",
+              value: "all_miniboss",
+            },
+          ]
+        : [{ label: "all（所有物品兜底）", value: "all" }];
       const picker = createPicker(
-        [allOption, ...base],
+        [...specialOptions, ...base],
         row.name,
         (value) => {
           row.name = value;
@@ -2427,8 +2659,10 @@ export function mountKePage(root: HTMLElement): void {
           updatePreview();
         },
         false,
-        isMonster ? "搜索怪物，或选 all 兜底…" : "搜索物品，或选 all 兜底…",
-        !isMonster, // 物品名自由文本；怪物行存 ID，仅选项提交
+        isMonster
+          ? "搜索怪物，或输入名称 / class id / 通配符（兽人*、Por*g）/ all / all_mvp / all_miniboss…"
+          : "搜索物品，或输入名称 / item id / 通配符（红*药、*药草）/ all…",
+        true, // 全部支持自由文本：数字 ID、中文名称、通配符 * ?、保留名 all / all_mvp / all_miniboss
       );
       wrap.appendChild(picker);
     }
