@@ -2286,13 +2286,46 @@ export function defaultDoc(): ConfigDoc {
   return { scalars, blocks: {} };
 }
 
+/**
+ * 全角符号归一化：把中文输入法下常见的全角符号/数字转成半角。
+ * 用户输入「＜５」这类全角写法既会导致保存校验报错，写进配置文件 KE 也解析不了，
+ * 因此解析、校验、序列化三处统一归一化；输入框中也会即时替换，用户能立刻看到。
+ * 只转换配置语法相关的字符（不含全角括号/引号/字母），避免改动物品名、怪物名。
+ */
+const FULL_WIDTH_SYMBOLS: Record<string, string> = {
+  "＜": "<",
+  "＞": ">",
+  "＝": "=",
+  "！": "!",
+  "～": "~",
+  "，": ",",
+  "％": "%",
+  "＊": "*",
+  "？": "?",
+  "．": ".",
+  "－": "-",
+  "＋": "+",
+  "　": " ",
+};
+const FULL_WIDTH_SYMBOL_RE = /[＜＞＝！～，％＊？．－＋　]/gu;
+const FULL_WIDTH_DIGIT_RE = /[０-９]/gu;
+
+/** 把全角符号/全角数字转成半角，返回规范化后的文本。 */
+export function normalizeFullWidth(value: string): string {
+  return value
+    .replace(FULL_WIDTH_SYMBOL_RE, (ch) => FULL_WIDTH_SYMBOLS[ch] ?? ch)
+    .replace(FULL_WIDTH_DIGIT_RE, (ch) =>
+      String.fromCharCode(ch.charCodeAt(0) - 0xfee0),
+    );
+}
+
 /** 把表单模型序列化成 config.txt 文本。 */
 export function serializeConfig(doc: ConfigDoc): string {
   const lines: string[] = [];
   for (const scalar of CONFIG_SCALARS) {
     const value = doc.scalars[scalar.key];
     if (value !== undefined && value !== "")
-      lines.push(`${scalar.key} ${value}`);
+      lines.push(`${scalar.key} ${normalizeFullWidth(value)}`);
   }
   for (const def of BLOCK_DEFS) {
     for (const block of doc.blocks[def.type] ?? []) {
@@ -2311,11 +2344,11 @@ export function serializeConfig(doc: ConfigDoc): string {
       for (const field of def.fields) {
         const value = block.fields[field.key];
         if (value !== undefined && value !== "")
-          lines.push(`\t${field.key} ${value}`);
+          lines.push(`\t${field.key} ${normalizeFullWidth(value)}`);
       }
       for (const [key, value] of Object.entries(block.conditions)) {
         if (value !== undefined && value !== "")
-          lines.push(`\t${key} ${value}`);
+          lines.push(`\t${key} ${normalizeFullWidth(value)}`);
       }
       lines.push("}");
     }
@@ -2330,7 +2363,7 @@ const COMPARISON_VALUE_PATTERN = /^(?:[<>=!]+\s*)?[\d.]+\s*%?$/;
 const RANGE_VALUE_PATTERN = /^[\d.]+%?\s*(?:\.\.|-)\s*[\d.]+%?$/;
 
 function isValidComparisonValue(text: string): boolean {
-  const trimmed = text.trim();
+  const trimmed = normalizeFullWidth(text).trim();
   return (
     COMPARISON_VALUE_PATTERN.test(trimmed) || RANGE_VALUE_PATTERN.test(trimmed)
   );
@@ -2367,8 +2400,9 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
         errors.push(`「${name}」未选择${label}，该规则保存后不会生效。`);
       }
       for (const field of def.fields) {
-        const value = block.fields[field.key];
-        if (value === undefined || value.trim() === "") continue;
+        const raw = block.fields[field.key];
+        if (raw === undefined || raw.trim() === "") continue;
+        const value = normalizeFullWidth(raw);
         if (field.type === "int" && !NUMBER_PATTERN.test(value.trim())) {
           errors.push(
             `「${name}」的「${field.label}」应为数字，当前值「${value}」。`,
@@ -2396,26 +2430,27 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
         for (const [key, raw] of Object.entries(block.conditions)) {
           const keyDef = keyDefs.find((k) => k.key === key);
           if (!keyDef) continue;
-          const value = raw.trim();
+          // 全角符号先转半角再校验（与序列化保持一致，避免用户输入 ＜５ 时误报）。
+          const value = normalizeFullWidth(raw.trim());
           if (value === "") continue;
           const where = `「${name}」条件「${keyDef.label}」`;
           const widget = keyDef.widget ?? "text";
           if (widget === "comparisonPercent" || widget === "comparisonNum") {
             if (!isValidComparisonValue(value)) {
               errors.push(
-                `${where}格式错误：「${raw}」（支持 > 5、>= 5、< 5、<= 5、= 5、3..8、3-8 或纯数字，可带 %）。`,
+                `${where}格式错误：「${value}」（支持 > 5、>= 5、< 5、<= 5、= 5、3..8、3-8 或纯数字，可带 %）。`,
               );
             }
           } else if (widget === "bool") {
             if (value !== "0" && value !== "1") {
-              errors.push(`${where}应为开启(1)或关闭(0)，当前值「${raw}」。`);
+              errors.push(`${where}应为开启(1)或关闭(0)，当前值「${value}」。`);
             }
           } else if (widget === "enum") {
             if (
               keyDef.options &&
               !keyDef.options.some((o) => o.value === value)
             ) {
-              errors.push(`${where}取值无效：「${raw}」。`);
+              errors.push(`${where}取值无效：「${value}」。`);
             }
           } else if (widget === "itemAmount" || widget === "itemAmountId") {
             const bad = value
@@ -2432,7 +2467,7 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
               NUMERIC_TEXT_CONDITION_KEYS.has(key) &&
               !/^-?[\d.]+$/.test(value)
             ) {
-              errors.push(`${where}应为数字，当前值「${raw}」。`);
+              errors.push(`${where}应为数字，当前值「${value}」。`);
             }
           }
         }
@@ -2440,14 +2475,16 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
     });
   }
   for (const scalar of CONFIG_SCALARS) {
-    const value = doc.scalars[scalar.key];
+    const raw = doc.scalars[scalar.key];
     if (
-      value !== undefined &&
-      value.trim() !== "" &&
+      raw !== undefined &&
+      raw.trim() !== "" &&
       scalar.type === "int" &&
-      !NUMBER_PATTERN.test(value.trim())
+      !NUMBER_PATTERN.test(normalizeFullWidth(raw).trim())
     ) {
-      errors.push(`「${scalar.label}」应为数字，当前值「${value}」。`);
+      errors.push(
+        `「${scalar.label}」应为数字，当前值「${normalizeFullWidth(raw)}」。`,
+      );
     }
   }
   return errors;
@@ -2464,7 +2501,7 @@ export function parseConfig(text: string): ConfigDoc {
       const head = line.slice(0, -1).trim();
       const spaceIndex = head.indexOf(" ");
       const type = spaceIndex >= 0 ? head.slice(0, spaceIndex) : head;
-      const selector = spaceIndex >= 0 ? head.slice(spaceIndex + 1).trim() : "";
+      const selector = spaceIndex >= 0 ? normalizeFullWidth(head.slice(spaceIndex + 1).trim()) : "";
       const def = BLOCK_DEFS.find((d) => d.type === type);
       if (def) {
         current = { type, block: { selector, fields: {}, conditions: {} } };
@@ -2481,7 +2518,8 @@ export function parseConfig(text: string): ConfigDoc {
     const spaceIndex = line.indexOf(" ");
     if (spaceIndex <= 0) continue;
     const key = line.slice(0, spaceIndex);
-    const value = line.slice(spaceIndex + 1).trim();
+    // 旧配置里可能已有全角符号，读入时直接归一化，保存后即为合法半角写法。
+    const value = normalizeFullWidth(line.slice(spaceIndex + 1).trim());
     if (value === "") continue;
     if (current) {
       const def = BLOCK_DEFS.find((d) => d.type === current!.type);

@@ -9,6 +9,7 @@ import {
   conditionKeysOf,
   defaultDoc,
   emptyDoc,
+  normalizeFullWidth,
   parseConfig,
   serializeConfig,
   validateConfigDoc,
@@ -1320,7 +1321,9 @@ export function mountKePage(root: HTMLElement): void {
       fallback.type = "text";
       fallback.value = initialText;
       fallback.placeholder = "例：< 50% 或 3..8";
-      fallback.addEventListener("input", () => onChange(fallback.value));
+      fallback.addEventListener("input", () =>
+        onChange(normalizeFullWidth(fallback.value)),
+      );
       wrapper.appendChild(fallback);
       return wrapper;
     }
@@ -1546,7 +1549,9 @@ export function mountKePage(root: HTMLElement): void {
       fallback.type = "text";
       fallback.value = initialText;
       fallback.placeholder = "格式：物品 > 数量";
-      fallback.addEventListener("input", () => onChange(fallback.value));
+      fallback.addEventListener("input", () =>
+        onChange(normalizeFullWidth(fallback.value)),
+      );
       wrapper.appendChild(fallback);
       return wrapper;
     }
@@ -1874,7 +1879,18 @@ export function mountKePage(root: HTMLElement): void {
       control = input;
     }
     control.addEventListener("input", () => {
-      configDoc.scalars[scalar.key] = control.value;
+      // 全角符号/数字即时转半角，用户能直接看到输入被修正（替换后保持光标位置）。
+      const value = normalizeFullWidth(control.value);
+      if (value !== control.value) {
+        const start = control.selectionStart;
+        const end = control.selectionEnd;
+        control.value = value;
+        // type=number 不支持 selectionStart/SetRange，需跳过以免抛错。
+        if (start !== null && end !== null && control.type !== "number") {
+          control.setSelectionRange(start, end);
+        }
+      }
+      configDoc.scalars[scalar.key] = value;
       markDirty();
       updatePreview();
     });
@@ -2384,7 +2400,7 @@ export function mountKePage(root: HTMLElement): void {
     input.placeholder = "未设置";
     input.value = block.fields[fieldDef.key] ?? "";
     input.addEventListener("input", () => {
-      block.fields[fieldDef.key] = input.value;
+      block.fields[fieldDef.key] = normalizeFullWidth(input.value);
       markDirty();
       updatePreview();
     });
@@ -2433,8 +2449,9 @@ export function mountKePage(root: HTMLElement): void {
 
       let currentKey = initialKey;
       function setValue(value: string, silent = false): void {
-        if (value === "") delete block.conditions[currentKey];
-        else block.conditions[currentKey] = value;
+        const normalized = normalizeFullWidth(value);
+        if (normalized === "") delete block.conditions[currentKey];
+        else block.conditions[currentKey] = normalized;
         if (!silent) markDirty();
         updatePreview();
       }
@@ -2652,7 +2669,7 @@ export function mountKePage(root: HTMLElement): void {
         [...specialOptions, ...base],
         row.name,
         (value) => {
-          row.name = value;
+          row.name = normalizeFullWidth(value);
           syncName();
           markDirty();
           updateSideStats();
@@ -2686,7 +2703,7 @@ export function mountKePage(root: HTMLElement): void {
     input.placeholder = column.placeholder ?? "—";
     input.value = values[column.key] ?? "";
     input.addEventListener("input", () => {
-      values[column.key] = input.value;
+      values[column.key] = normalizeFullWidth(input.value);
       markDirty();
       updatePreview();
     });
@@ -2836,7 +2853,7 @@ export function mountKePage(root: HTMLElement): void {
     input.placeholder = column.placeholder ?? "—";
     input.value = values[column.key] ?? "";
     input.addEventListener("input", () => {
-      values[column.key] = input.value;
+      values[column.key] = normalizeFullWidth(input.value);
       markDirty();
       updatePreview();
     });
