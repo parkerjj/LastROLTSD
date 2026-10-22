@@ -58,6 +58,7 @@ describe('CORS middleware', () => {
     app.get('/api/v1/account/profile', (c) => c.json({ user: {} }));
     app.get('/api/v1/users/:id/avatar', (c) => c.body('image'));
     app.get('/api/v1/authentic', (c) => c.json({ public: true }));
+    app.get('/api/v1/admin/users', (c) => c.json({ users: [] }));
     app.options('/api/v1/auth/csrf', (c) => c.newResponse(null, 204, { 'cache-control': 'no-store' }));
 
     const publicResponse = await app.request('/api/v1/search');
@@ -65,7 +66,7 @@ describe('CORS middleware', () => {
     const neighborResponse = await app.request('/api/v1/authentic');
     expect(neighborResponse.headers.get('access-control-allow-origin')).toBe('*');
 
-    for (const path of ['/api/v1/auth/csrf', '/api/v1/account/profile', '/api/v1/users/10000/avatar']) {
+    for (const path of ['/api/v1/auth/csrf', '/api/v1/account/profile', '/api/v1/users/10000/avatar', '/api/v1/admin/users']) {
       const response = await app.request(path);
       expect(response.headers.get('access-control-allow-origin')).toBeNull();
       expect(response.headers.get('access-control-allow-credentials')).toBeNull();

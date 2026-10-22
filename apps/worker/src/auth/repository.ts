@@ -1,4 +1,7 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
+import { insertAdminAudit } from '../admin/audit';
+import type { AdminAuditEntry } from '../admin/types';
+import { grantSignupEntitlements } from '../ke/entitlements';
 import type {
   AuthRateLimitRule,
   AccountProfile,
@@ -146,6 +149,8 @@ export interface AuthTx {
   saveAvatar(userId: UserId, base64OrNull: string | null, now: number): Promise<void>;
   insertMailJob(input: NewMailJob): Promise<void>;
   appendEvent(input: AuthSecurityEventInput): Promise<void>;
+  /** 管理员后台的审计行；与调用方的账号变更在同一事务里提交。 */
+  insertAdminAudit(entry: AdminAuditEntry): Promise<void>;
 }
 
 export type MailFinishResult =
@@ -792,7 +797,10 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
         WHERE id = ? AND status = 'PENDING_EMAIL' AND email_verified_at IS NULL`, [
         at, at, userId,
       ]);
-      return result.affectedRows === 1;
+      if (result.affectedRows !== 1) return false;
+      // 验证邮箱即赠送 KE 的 1 个额度与核心模块（99 年）；与验证在同一事务里，不会出现「已验证却没额度」。
+      await grantSignupEntitlements(db, userId, at);
+      return true;
     },
 
     async saveDisplayName(userId, displayName, now) {
@@ -841,6 +849,8 @@ function createAuthTx(db: MysqlDatabase): AuthTx {
       ]);
       if (result.affectedRows !== 1) throw new Error('auth security event was not inserted');
     },
+
+    insertAdminAudit: (entry) => insertAdminAudit(db, entry),
   };
 }
 

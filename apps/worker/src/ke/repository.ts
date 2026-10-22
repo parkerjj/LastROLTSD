@@ -1,4 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
+import { foldEntitlements, type KeEntitlements } from './entitlements';
 import type { ActiveInstanceInfo, CharacterReport, KeLicenseMode } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -91,6 +92,8 @@ function readInstance(row: MysqlRow): InstanceRow {
 export interface KeTx {
   /** 串行化同一账号的所有 KE 写操作（SELECT ... FOR UPDATE），消除额度判定的 TOCTOU 竞态。 */
   lockUser(userId: number): Promise<void>;
+  /** 账号在 now 时刻生效的额度与模块（流水按时间窗口求和，过期 / 已撤销的不计）。 */
+  readEntitlements(userId: number, now: number): Promise<KeEntitlements>;
   findCharacter(aid: number, cid: number, nid: number): Promise<CharacterRow | null>;
   insertCharacter(userId: number, report: CharacterReport, now: number): Promise<void>;
   /** 仅更新归属 userId 的角色行：KE 上报的 aid/cid/nid 不可信，不能借此改写他人角色。 */
@@ -122,6 +125,14 @@ function txFor(db: MysqlDatabase): KeTx {
   return {
     async lockUser(userId) {
       await db.all('SELECT id FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
+    },
+
+    async readEntitlements(userId, now) {
+      const rows = await db.all<MysqlRow>(
+        'SELECT resource, SUM(quantity) AS total FROM ke_entitlements WHERE user_id = ? AND starts_at <= ? AND expires_at > ? AND revoked_at IS NULL GROUP BY resource',
+        [userId, now, now],
+      );
+      return foldEntitlements(rows.map((row) => ({ resource: String(row.resource), total: asNumber(row.total) })));
     },
 
     async findCharacter(aid, cid, nid) {
