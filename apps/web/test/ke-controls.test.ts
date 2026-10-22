@@ -58,6 +58,18 @@ describe('ke control files', () => {
     expect(allFallbackRows('timeouts.txt')).toEqual([]);
   });
 
+  it('items_control 默认预设包含特殊道具：不存仓也不卖', () => {
+    const rows = defaultControlDoc()['items_control.txt']!;
+    const special = ['魔法箭矢筒', '魔法苍蝇翅膀', '坐骑缰绳', '乐园团*', '伊甸园*'];
+    // 具名道具与通配符排在 *卡片 之前（通配符先到先得，顺序即优先级）。
+    expect(rows.map((r) => r.name)).toEqual([...special, '*卡片', 'all']);
+    for (const name of special) {
+      const row = rows.find((r) => r.name === name)!;
+      expect(row.values.storage).toBe('0');
+      expect(row.values.sell).toBe('0');
+    }
+  });
+
   it('提供 LastRO 请求的 timeouts 新方案默认值', () => {
     expect(TIMEOUT_DEFAULT_OVERRIDES).toEqual({
       ai_move_retry: '0.3',

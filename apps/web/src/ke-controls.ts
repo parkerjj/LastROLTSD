@@ -360,15 +360,37 @@ export function allFallbackRows(file: string): ControlRow[] {
   }));
 }
 
-/** 默认控制文件自带的实用预设行（仅新 profile，用户可修改/删除）。 */
+/** 默认控制文件自带的实用预设行（仅新 profile，用户可修改/删除）。
+ *  不存仓也不卖的特殊道具：具名道具在前，通配符在后，最后是卡片兜底——
+ *  通配符多条命中时取文件里靠前的一条，所以顺序即优先级。 */
 const DEFAULT_PRESET_ROWS: Record<string, ControlRow[]> = {
-  "pickupitems.txt": [{ name: "*卡片", values: { flag: "2" } }],
   "items_control.txt": [
+    {
+      name: "魔法箭矢筒",
+      values: { keep: "1", storage: "0", sell: "0", cart_add: "0", cart_get: "0" },
+    },
+    {
+      name: "魔法苍蝇翅膀",
+      values: { keep: "1", storage: "0", sell: "0", cart_add: "0", cart_get: "0" },
+    },
+    {
+      name: "坐骑缰绳",
+      values: { keep: "1", storage: "0", sell: "0", cart_add: "0", cart_get: "0" },
+    },
+    {
+      name: "乐园团*",
+      values: { keep: "1", storage: "0", sell: "0", cart_add: "0", cart_get: "0" },
+    },
+    {
+      name: "伊甸园*",
+      values: { keep: "1", storage: "0", sell: "0", cart_add: "0", cart_get: "0" },
+    },
     {
       name: "*卡片",
       values: { keep: "0", storage: "1", sell: "0", cart_add: "0", cart_get: "0" },
     },
   ],
+  "pickupitems.txt": [{ name: "*卡片", values: { flag: "2" } }],
 };
 
 /** 确保 mon/pickup/items 三个规则文件的兜底行都存在（按 ALL_FALLBACK_ROWS 顺序追加到末尾）。
