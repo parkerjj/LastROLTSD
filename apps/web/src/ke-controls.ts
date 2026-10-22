@@ -294,12 +294,54 @@ export function emptyControlDoc(): ControlDoc {
   return doc;
 }
 
-/** 三个规则文件的 all 兜底行：KE 依赖 all 规则作为未匹配条目的默认行为，缺失会导致挂机行为异常。 */
+/**
+ * 三个规则文件的兜底行集合：包含最低优先级的 all + 两个按 isBoss 标志位匹配的保留名。
+ * 兜底行插入到文件末尾（append），保持用户写的规则在前、兜底在最低优先级位置。
+ * 优先级（从高到低）：精确名 → class id / item id → 通配符 → all_mvp / all_miniboss → all。
+ */
 const ALL_FALLBACK_ROWS: Record<string, ControlRow[]> = {
   "mon_control.txt": [
     {
+      name: "all_miniboss",
+      values: {
+        attack_auto: "1",
+        teleport_auto: "0",
+        teleport_search: "0",
+        skillcancel_auto: "0",
+        attack_lvl: "0",
+        attack_jlvl: "0",
+        attack_hp: "0",
+        attack_sp: "0",
+        weight: "0",
+      },
+    },
+    {
+      name: "all_mvp",
+      values: {
+        attack_auto: "-1",
+        teleport_auto: "1",
+        teleport_search: "0",
+        skillcancel_auto: "0",
+        attack_lvl: "0",
+        attack_jlvl: "0",
+        attack_hp: "0",
+        attack_sp: "0",
+        weight: "0",
+      },
+    },
+    {
       name: "all",
-      values: { attack_auto: "1", teleport_auto: "0", teleport_search: "0" },
+      values: {
+        attack_auto: "1",
+        teleport_auto: "0",
+        teleport_search: "0",
+        skillcancel_auto: "0",
+        attack_lvl: "0",
+        attack_jlvl: "0",
+        attack_hp: "0",
+        attack_sp: "0",
+        weight: "0",
+      },
     },
   ],
   "pickupitems.txt": [{ name: "all", values: { flag: "1" } }],
@@ -316,21 +358,41 @@ export function allFallbackRows(file: string): ControlRow[] {
   }));
 }
 
-/** 确保 mon/pickup/items 三个规则文件都有 all 兜底行（缺失时插到最前）。 */
+/** 默认控制文件自带的实用预设行（仅新 profile，用户可修改/删除）。 */
+const DEFAULT_PRESET_ROWS: Record<string, ControlRow[]> = {
+  "pickupitems.txt": [{ name: "*卡片", values: { flag: "2" } }],
+  "items_control.txt": [
+    {
+      name: "*卡片",
+      values: { keep: "0", storage: "1", sell: "0", cart_add: "0", cart_get: "0" },
+    },
+  ],
+};
+
+/** 确保 mon/pickup/items 三个规则文件的兜底行都存在（按 ALL_FALLBACK_ROWS 顺序追加到末尾）。
+ *  只补缺失的，不删除已有的；已有顺序不变，缺失的补到所有现有行之后。 */
 export function ensureAllFallback(doc: ControlDoc): void {
   for (const file of Object.keys(ALL_FALLBACK_ROWS)) {
     const rows = doc[file] ?? [];
-    if (!rows.some((row) => row.name === "all")) {
-      doc[file] = [...allFallbackRows(file), ...rows];
+    const present = new Set(rows.map((row) => row.name));
+    const missing = allFallbackRows(file).filter((row) => !present.has(row.name));
+    if (missing.length > 0) {
+      doc[file] = [...rows, ...missing];
     }
   }
 }
 
-/** 新 Profile 的默认 control 文件：all 规则 + 空超时（超时由编辑器按 KE 默认值填充）。 */
+/** 新 Profile 的默认 control 文件：实用预设行 + 兜底行 + 空超时（超时由编辑器按 KE 默认值填充）。 */
 export function defaultControlDoc(): ControlDoc {
   const doc = emptyControlDoc();
   for (const file of Object.keys(ALL_FALLBACK_ROWS)) {
-    doc[file] = allFallbackRows(file);
+    doc[file] = [
+      ...((DEFAULT_PRESET_ROWS[file] ?? []).map((row) => ({
+        name: row.name,
+        values: { ...row.values },
+      }))),
+      ...allFallbackRows(file),
+    ];
   }
   doc["timeouts.txt"] = [];
   return doc;

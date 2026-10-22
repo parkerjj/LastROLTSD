@@ -24,22 +24,26 @@ describe('ke control files', () => {
     expect(parseControl(timeouts, serializeControl(timeouts, rows))).toEqual(rows);
   });
 
-  it('ensureAllFallback 为缺失 all 行的规则文件补上兜底（置于最前），已有 all 行则不动', () => {
+  it('ensureAllFallback 为缺失的兜底行逐个补上（置于末尾），已有则不动', () => {
     const doc = emptyControlDoc();
     doc['mon_control.txt'] = [{ name: '1555', values: { attack_auto: '0' } }];
 
     ensureAllFallback(doc);
 
-    expect(doc['mon_control.txt']![0]!.name).toBe('all');
-    expect(doc['mon_control.txt']).toHaveLength(2);
-    // 用户自定义行保持在 all 之后。
-    expect(doc['mon_control.txt']![1]).toEqual({ name: '1555', values: { attack_auto: '0' } });
+    // mon_control 补全三个兜底：all_miniboss / all_mvp / all（用户行在前）。
+    const rows = doc['mon_control.txt']!;
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toEqual({ name: '1555', values: { attack_auto: '0' } });
+    expect(rows[1]!.name).toBe('all_miniboss');
+    expect(rows[2]!.name).toBe('all_mvp');
+    expect(rows[3]!.name).toBe('all');
+    // pickupitems / items_control 只有 all。
     expect(doc['pickupitems.txt']).toEqual([{ name: 'all', values: { flag: '1' } }]);
     expect(doc['items_control.txt']).toEqual([{ name: 'all', values: { keep: '0', storage: '0', sell: '0' } }]);
 
-    // 已有 all 行时保持原样（不重复插入）。
+    // 已有兜底行时保持原样（不重复插入）。
     ensureAllFallback(doc);
-    expect(doc['mon_control.txt']).toHaveLength(2);
+    expect(doc['mon_control.txt']).toHaveLength(4);
     expect(doc['pickupitems.txt']).toHaveLength(1);
   });
 
@@ -48,9 +52,9 @@ describe('ke control files', () => {
     rows[0]!.values.attack_auto = '9';
 
     expect(allFallbackRows('mon_control.txt')[0]!.values.attack_auto).toBe('1');
-    expect(defaultControlDoc()['mon_control.txt']).toEqual([
-      { name: 'all', values: { attack_auto: '1', teleport_auto: '0', teleport_search: '0' } },
-    ]);
+    // defaultControlDoc 新 profile：mon_control 只有三个兜底（无预设）。
+    const defaults = defaultControlDoc()['mon_control.txt']!;
+    expect(defaults.map((r) => r.name)).toEqual(['all_miniboss', 'all_mvp', 'all']);
     expect(allFallbackRows('timeouts.txt')).toEqual([]);
   });
 

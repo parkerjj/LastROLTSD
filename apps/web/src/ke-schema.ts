@@ -11,7 +11,7 @@ export interface ScalarDef {
   key: string;
   label: string;
   help: string;
-  type: "enum" | "int" | "string" | "map";
+  type: "enum" | "int" | "string" | "map" | "maps";
   options?: ScalarOption[];
   default?: string;
   suffix?: string;
@@ -174,6 +174,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "不抢怪",
     help: "开启后不抢别人正在打的怪。",
     type: "enum",
+    default: "0",
     options: ON_OFF,
     group: "攻击",
   },
@@ -373,7 +374,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   {
     key: "route_step",
     label: "路线分段步数",
-    help: "路线分段长度：每次下发的最大步数（1-32）。KE 默认 10。",
+    help: "路线分段长度：每次下发的最大步数（1-32，默认 10）。KE 实际下发不会超过 17——LastRO 服务器单次步行请求最远 17 格（实测 17 格能走、18 格被忽略）。建议保持默认 10。",
     type: "int",
     suffix: "格",
     group: "路线",
@@ -383,7 +384,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "瞬移赶路",
     help: "去锁图路上是否用传送快速赶路。",
     type: "enum",
-    default: "0",
+    default: "1",
     group: "路线",
     options: ON_OFF,
   },
@@ -392,7 +393,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "大于此距离使用瞬移赶路",
     help: "离目标超过这个距离就用瞬移赶路，否则走过去。",
     type: "int",
-    default: "75",
+    default: "150",
     suffix: "格",
     group: "路线",
   },
@@ -401,7 +402,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "瞬移最大尝试次数",
     help: "瞬移赶路最多试几次，避免无限瞬移。",
     type: "int",
-    default: "8",
+    default: "30",
     group: "路线",
   },
   {
@@ -413,8 +414,8 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   },
   {
     key: "lastro_airshipRoute",
-    label: "允许飞艇路线",
-    help: "路线规划时允许使用飞艇（KE 默认开启）。关闭后跨图赶路不坐飞艇。",
+    label: "允许直接传送",
+    help: "路线规划时允许使用直接传送（KE 默认开启）。关闭后跨图赶路不走直接传送。",
     type: "enum",
     default: "1",
     options: ON_OFF,
@@ -422,24 +423,31 @@ export const CONFIG_SCALARS: ScalarDef[] = [
   },
   {
     key: "lastro_airshipRoute_timeout",
-    label: "飞艇路线超时",
-    help: "飞艇传送等待确认的最长秒数，超时算失败。",
+    label: "直接传送超时",
+    help: "直接传送等待确认的最长秒数，超时算失败。",
     type: "int",
     suffix: "秒",
     group: "路线",
   },
   {
+    key: "lastro_airshipRoute_extraMaps",
+    label: "直接传送额外白名单地图",
+    help: "追加允许直接传送到达的地图，与内置白名单合并，对路线规划和补给回城都生效。大小写和 .gat 后缀不敏感，可搜索添加多张地图。",
+    type: "maps",
+    group: "路线",
+  },
+  {
     key: "lastro_airship_recovery_timeout",
-    label: "飞艇恢复超时",
-    help: "飞艇失败后的恢复等待秒数。",
+    label: "直接传送恢复超时",
+    help: "直接传送失败后的恢复等待秒数。",
     type: "int",
     suffix: "秒",
     group: "路线",
   },
   {
     key: "lastro_airship_failure_cooldown",
-    label: "飞艇失败冷却",
-    help: "飞艇失败后多久内不再重试。",
+    label: "直接传送失败冷却",
+    help: "直接传送失败后多久内不再重试。",
     type: "int",
     suffix: "秒",
     group: "路线",
@@ -451,7 +459,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "HP 低于（%）传送",
     help: "HP 掉到这个百分比以下就瞬移逃跑保命。",
     type: "int",
-    default: "10",
+    default: "30",
     suffix: "%",
     group: "传送",
   },

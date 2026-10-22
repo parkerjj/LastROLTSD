@@ -43,3 +43,6 @@ agent/skills/
 skills-lock.json
 apps/web/public/ke-mockup.html
 apps/web/public/ui/jobs-bad/
+
+# 本地 KE 选项生成脚本（含本机路径，不上传）
+scripts/build-ke-options.local.mjs
