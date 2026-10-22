@@ -197,4 +197,23 @@ describe('ke config schema', () => {
     const def = BLOCK_DEFS.find((d) => d.type === 'equipAuto')!;
     expect(def.fields.some((f) => f.key === 'weight')).toBe(true);
   });
+
+  it('全角符号/数字自动归一化为半角，校验不误报、序列化写半角', () => {
+    const doc = emptyDoc();
+    doc.blocks.attackSkillSlot = [{
+      selector: '30',
+      fields: { lvl: '10', maxAttempts: '５' },
+      conditions: { sp: '＜５０％', hp: '＞ ３０' },
+    }];
+    expect(validateConfigDoc(doc)).toEqual([]);
+    const text = serializeConfig(doc);
+    expect(text).toContain('\tmaxAttempts 5');
+    expect(text).toContain('\tsp <50%');
+    expect(text).toContain('\thp > 30');
+  });
+
+  it('parseConfig 读入旧配置里的全角符号时归一化', () => {
+    const doc = parseConfig('attackSkillSlot 30 {\n\tsp ＜５０％\n}\n');
+    expect(doc.blocks.attackSkillSlot![0]!.conditions['sp']).toBe('<50%');
+  });
 });
