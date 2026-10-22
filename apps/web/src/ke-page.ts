@@ -231,7 +231,7 @@ const NAV: NavEntry[] = [
     title: "补给 · 修理与商店",
     sub: "装备维护和补给品的买卖流程",
     kind: "scalars",
-    groups: ["修理", "商店仓库"],
+    groups: ["修理", "商店仓库", "NPC 对话"],
   },
   {
     id: "skills",
@@ -588,6 +588,12 @@ export function mountKePage(root: HTMLElement): void {
     .ke-field { display: grid; gap: 5px; }
     .ke-field-label { display: flex; align-items: center; gap: 6px; color: #4c5a50; font-size: .74rem; font-weight: 800; }
     .ke-suffix { color: var(--muted); font-weight: 600; font-size: .7rem; }
+    /* 单位内嵌输入框：外框模拟输入框样式，内部 input 去边框，右侧竖线分隔单位。 */
+    .ke-affix { display: flex; align-items: stretch; border: 1px solid var(--line-light); border-radius: 8px; background: #fffdf8; overflow: hidden; }
+    .ke-affix:focus-within { outline: 2px solid var(--gold); outline-offset: 3px; }
+    .ke-affix input { flex: 1; min-width: 0; min-height: 38px; border: 0; border-radius: 0; background: transparent; }
+    .ke-affix input:focus-visible { outline: none; }
+    .ke-affix .ke-suffix { display: inline-flex; align-items: center; padding: 0 11px; border-left: 1px solid var(--line-light); background: #f7f3ea; }
     .ke-help { position: relative; display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: auto; color: #a99b87; background: #f1ecdf; border: 1px solid var(--line); border-radius: 50%; font-size: .6rem; font-weight: 900; cursor: help; }
     .ke-help .ke-tip { position: absolute; bottom: calc(100% + 8px); right: -6px; z-index: 30; width: 248px; padding: 9px 12px; color: #f3efe6; background: #2f3a34; border-radius: 7px; font-size: .72rem; font-weight: 500; line-height: 1.55; letter-spacing: 0; text-align: left; box-shadow: 0 6px 18px rgba(0,0,0,.22); opacity: 0; visibility: hidden; transform: translateY(3px); transition: .16s ease; }
     .ke-help:hover .ke-tip, .ke-help:focus-visible .ke-tip { opacity: 1; visibility: visible; transform: none; }
@@ -1672,7 +1678,8 @@ export function mountKePage(root: HTMLElement): void {
   function renderScalarsTab(entry: NavEntry): void {
     let shown = 0;
     for (const group of entry.groups ?? []) {
-      const scalars = CONFIG_SCALARS.filter((s) => s.group === group);
+      // legacy 兼容键（如 sitAuto_over_50）不展示，只在解析/序列化时保留。
+      const scalars = CONFIG_SCALARS.filter((s) => s.group === group && !s.legacy);
       if (scalars.length === 0) continue;
       shown += scalars.length;
       const groupEl = document.createElement("div");
@@ -1750,8 +1757,15 @@ export function mountKePage(root: HTMLElement): void {
       markDirty();
       updatePreview();
     });
-    field.appendChild(control);
-    if (scalar.suffix) field.appendChild(suffixEl(scalar.suffix));
+    if (scalar.suffix) {
+      const affix = document.createElement("div");
+      affix.className = "ke-affix";
+      affix.appendChild(control);
+      affix.appendChild(suffixEl(scalar.suffix));
+      field.appendChild(affix);
+    } else {
+      field.appendChild(control);
+    }
     return field;
   }
 
@@ -1789,7 +1803,7 @@ export function mountKePage(root: HTMLElement): void {
     }
 
     // 智能治疗等「技能」组标量：属于技能行为，只跟随主技能规则页展示。
-    const smartScalars = isMainSkillTab ? CONFIG_SCALARS.filter((s) => s.group === "技能") : [];
+    const smartScalars = isMainSkillTab ? CONFIG_SCALARS.filter((s) => s.group === "技能" && !s.legacy) : [];
     if (smartScalars.length > 0) {
       const groupEl = document.createElement("div");
       groupEl.className = "ke-group";
