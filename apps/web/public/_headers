@@ -22,3 +22,9 @@
 /ke/device/
   Cache-Control: no-store
   Referrer-Policy: no-referrer
+/account/admin
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+/account/admin/
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer

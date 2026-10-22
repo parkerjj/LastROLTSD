@@ -2132,6 +2132,17 @@ label {
   border-color: var(--forest);
 }
 
+.gb-delete-btn {
+  color: var(--red-dark);
+  border-color: #d8b3a9;
+}
+
+.gb-delete-btn:hover:not(:disabled) {
+  color: #fff;
+  background: var(--red-dark);
+  border-color: var(--red-dark);
+}
+
 /* ---- 回复区 ---- */
 .guestbook-replies {
   display: grid;

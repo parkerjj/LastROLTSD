@@ -43,6 +43,7 @@ import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi } from "./auth/api";
 import { authStore } from "./auth/store";
 import { isAuthPage, mountAuthPage } from "./auth/pages";
+import { mountAdminPage } from "./admin-page";
 
 const pathname = window.location.pathname;
 const authPage = isAuthPage(pathname);
@@ -59,6 +60,8 @@ const isClientPage = /^\/client\/?$/u.test(pathname);
 const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 const isKePage = /^\/ke\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
+// 管理员后台刻意不进导航；账号页只对 permission_level >= 100 的账号显示入口。
+const isAdminPage = /^\/account\/admin\/?$/u.test(pathname);
 // 会员定价页刻意不进导航，只能通过 URL 直达。
 const isVipPage = /^\/vip\/price\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
@@ -1195,5 +1198,6 @@ else if (isGuestbookPage) mountGuestbookPage(root);
 else if (isAccountsPage) mountAccountsPage(root);
 else if (isKePage) mountKePage(root);
 else if (isKeDevicePage) mountKeDevicePage(root);
+else if (isAdminPage) mountAdminPage(root);
 else if (isVipPage) mountVipPage(root);
 else mountSearchPage();

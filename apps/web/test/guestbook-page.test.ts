@@ -49,6 +49,11 @@ function mount(entries: GuestbookEntry[], options: { store?: object; auth?: obje
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+const adminStore = {
+  getState: () => ({ status: 'active', user: { ...signedInUser, id: '1', permission_level: 100 }, expiresAt: Number.MAX_SAFE_INTEGER, mailAvailability: null }),
+  subscribe: () => () => {},
+};
+
 describe('guestbook page', () => {
   it('renders public entries, escapes user content, and labels expired entries without covering text', async () => {
     const entries = [
@@ -340,5 +345,87 @@ describe('guestbook page', () => {
       vi.stubGlobal('fetch', previousFetch);
       Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
     }
+  });
+  describe('管理员删除', () => {
+    const withReplies = () => entryOf({
+      id: 1, content: '违规留言', author: authorOf({ userId: '10003', displayName: '路人' }),
+      replies: [replyOf({ id: 11, entryId: 1, content: '回复甲' }), replyOf({ id: 12, entryId: 1, content: '回复乙', author: authorOf({ userId: '10004', displayName: '路人乙' }) })],
+      replyCount: 2,
+    });
+    const confirmWith = (dom: JSDOM, answer: boolean) => {
+      const confirm = vi.fn().mockReturnValue(answer);
+      Object.defineProperty(dom.window, 'confirm', { configurable: true, value: confirm });
+      return confirm;
+    };
+
+    it('只有管理员能看到留言与回复上的删除按钮', async () => {
+      const normal = mount([withReplies()], { store: activeStore });
+      try {
+        await tick();
+        expect(normal.root.querySelector('[data-gb-admin-delete-entry], [data-gb-admin-delete-reply]')).toBeNull();
+      } finally {
+        normal.restore();
+      }
+      const admin = mount([withReplies()], { store: adminStore });
+      try {
+        await tick();
+        expect(admin.root.querySelectorAll('[data-gb-admin-delete-entry]')).toHaveLength(1);
+        expect(admin.root.querySelectorAll('[data-gb-admin-delete-reply]')).toHaveLength(2);
+      } finally {
+        admin.restore();
+      }
+    });
+
+    it('删除留言：二次确认（提示会连带删除回复）后调用后台接口，并从列表移除', async () => {
+      const auth = { sessionRequest: vi.fn().mockResolvedValue({ deleted_replies: 2 }) };
+      const { dom, root, restore } = mount([withReplies(), entryOf({ id: 2, content: '另一条' })], { store: adminStore, auth });
+      try {
+        await tick();
+        const confirm = confirmWith(dom, true);
+        root.querySelector<HTMLButtonElement>('[data-gb-admin-delete-entry="1"]')!.click();
+        await tick();
+        expect(confirm.mock.calls[0]![0]).toContain('2 条回复');
+        expect(auth.sessionRequest).toHaveBeenCalledWith('/api/v1/admin/guestbook/entries/1', 'DELETE');
+        expect(root.querySelector('article[data-entry-id="1"]')).toBeNull();
+        expect(root.querySelector('article[data-entry-id="2"]')).not.toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it('删除回复：只移除这一条回复，留言保留', async () => {
+      const auth = { sessionRequest: vi.fn().mockResolvedValue({ ok: true }) };
+      const { dom, root, restore } = mount([withReplies()], { store: adminStore, auth });
+      try {
+        await tick();
+        confirmWith(dom, true);
+        root.querySelector<HTMLButtonElement>('[data-gb-admin-delete-reply]')!.click();
+        await tick();
+        expect(auth.sessionRequest).toHaveBeenCalledWith('/api/v1/admin/guestbook/replies/11', 'DELETE');
+        expect(root.querySelector('[data-reply-id="11"]')).toBeNull();
+        expect(root.querySelector('[data-reply-id="12"]')).not.toBeNull();
+        expect(root.querySelector('article[data-entry-id="1"]')).not.toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it('取消确认不发请求；接口失败时内容保留', async () => {
+      const auth = { sessionRequest: vi.fn().mockRejectedValue(new Error('boom')) };
+      const { dom, root, restore } = mount([withReplies()], { store: adminStore, auth });
+      try {
+        await tick();
+        confirmWith(dom, false);
+        root.querySelector<HTMLButtonElement>('[data-gb-admin-delete-entry="1"]')!.click();
+        await tick();
+        expect(auth.sessionRequest).not.toHaveBeenCalled();
+        confirmWith(dom, true);
+        root.querySelector<HTMLButtonElement>('[data-gb-admin-delete-entry="1"]')!.click();
+        await tick();
+        expect(root.querySelector('article[data-entry-id="1"]')).not.toBeNull();
+      } finally {
+        restore();
+      }
+    });
   });
 });

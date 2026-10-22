@@ -134,6 +134,26 @@ describe('auth pages', () => {
     expect(tierOf(administrator)).toBe('管理员');
   });
 
+  it('shows the admin backend link only for accounts with permission level 100 or above', () => {
+    const linkOf = (level: number): { hidden: boolean; href: string | null } => {
+      const value = session('ACTIVE');
+      value.user.permission_level = level;
+      authStore.setSession(value);
+      const { root, dispose } = mount('/account');
+      try {
+        const row = root.querySelector<HTMLElement>('#account-admin-link');
+        return { hidden: row?.hidden ?? true, href: row?.querySelector('a')?.getAttribute('href') ?? null };
+      } finally {
+        dispose();
+      }
+    };
+    expect(linkOf(1).hidden).toBe(true);
+    expect(linkOf(2).hidden).toBe(true);
+    expect(linkOf(99).hidden).toBe(true);
+    expect(linkOf(100)).toEqual({ hidden: false, href: '/account/admin' });
+    expect(linkOf(120).hidden).toBe(false);
+  });
+
   it('keeps the old account avatar and editable preview after an upload failure', async () => {
     authStore.setSession(session());
     const save = vi.spyOn(authApi, 'setAvatar').mockRejectedValue(new Error('网络连接失败'));
