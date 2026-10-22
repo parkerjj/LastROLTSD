@@ -2307,7 +2307,7 @@ const FULL_WIDTH_SYMBOLS: Record<string, string> = {
   "＋": "+",
   "　": " ",
 };
-const FULL_WIDTH_SYMBOL_RE = /[＜＞＝！～，％＊？．－＋　]/gu;
+const FULL_WIDTH_SYMBOL_RE = /[＜＞＝！～，％＊？．－＋\u3000]/gu;
 const FULL_WIDTH_DIGIT_RE = /[０-９]/gu;
 
 /** 把全角符号/全角数字转成半角，返回规范化后的文本。 */
