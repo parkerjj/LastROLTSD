@@ -63,16 +63,21 @@ function formatTime(value: number): string {
   return new Date(value).toLocaleString("zh-CN");
 }
 
-function replyMarkup(reply: GuestbookReply, currentUserId: string | null): string {
+/** 管理员删除按钮（仅当前用户 permission_level >= 100 时渲染；真正的权限校验在服务端）。 */
+function adminDeleteButton(kind: "entry" | "reply", id: number): string {
+  return `<button type="button" class="gb-edit-btn gb-delete-btn" data-gb-admin-delete-${kind}="${id}"><i class="ph ph-trash" aria-hidden="true"></i> 删除</button>`;
+}
+
+function replyMarkup(reply: GuestbookReply, currentUserId: string | null, isAdmin = false): string {
   const own = currentUserId !== null && reply.author.userId === currentUserId;
   return `<div class="guestbook-reply" data-reply-id="${reply.id}">
-    <div class="guestbook-reply-head">${authorLine(reply.author)}<span class="guestbook-reply-meta"><time datetime="${new Date(reply.createdAt).toISOString()}">${formatTime(reply.createdAt)}</time>${reply.editedAt ? '<span class="gb-edited">已编辑</span>' : ""}${own ? `<button type="button" class="gb-edit-btn" data-gb-reply-edit="${reply.id}"><i class="ph ph-pencil-simple" aria-hidden="true"></i> 编辑</button>` : ""}</span></div>
+    <div class="guestbook-reply-head">${authorLine(reply.author)}<span class="guestbook-reply-meta"><time datetime="${new Date(reply.createdAt).toISOString()}">${formatTime(reply.createdAt)}</time>${reply.editedAt ? '<span class="gb-edited">已编辑</span>' : ""}${own ? `<button type="button" class="gb-edit-btn" data-gb-reply-edit="${reply.id}"><i class="ph ph-pencil-simple" aria-hidden="true"></i> 编辑</button>` : ""}${isAdmin ? adminDeleteButton("reply", reply.id) : ""}</span></div>
     <p class="guestbook-reply-content">${escapeHtml(reply.content)}</p>
   </div>`;
 }
 
-function replyAreaMarkup(entry: GuestbookEntry, currentUserId: string | null): string {
-  const replies = (entry.replies ?? []).map((reply) => replyMarkup(reply, currentUserId)).join("");
+function replyAreaMarkup(entry: GuestbookEntry, currentUserId: string | null, isAdmin = false): string {
+  const replies = (entry.replies ?? []).map((reply) => replyMarkup(reply, currentUserId, isAdmin)).join("");
   const replied = entry.hasReplied !== null
     ? entry.hasReplied
     : !!currentUserId && entry.replies?.some((reply) => reply.author.userId === currentUserId);
@@ -101,6 +106,7 @@ function entryMarkup(
   catalog: EntryCatalog,
   descriptions: EntryDescriptions,
   currentUserId: string | null,
+  isAdmin = false,
 ): string {
   const catalogItem =
     entry.itemId === null ? undefined : catalog.get(entry.itemId);
@@ -126,14 +132,14 @@ function entryMarkup(
   const identity = entry.author
     ? authorLine(entry.author)
     : `${entry.contact ? `<span class="guestbook-contact"><i class="ph ph-identification-card" aria-hidden="true"></i>${escapeHtml(entry.contact)}</span>` : ""}${guestBadge}`;
-  const footerMeta = `<span class="guestbook-entry-expiry"><i class="ph ph-clock" aria-hidden="true"></i>${escapeHtml(expiry)}</span>${entry.editedAt ? '<span class="gb-edited">已编辑</span>' : ""}${own ? `<button type="button" class="gb-edit-btn" data-gb-edit="${entry.id}"><i class="ph ph-pencil-simple" aria-hidden="true"></i> 编辑</button>` : ""}`;
+  const footerMeta = `<span class="guestbook-entry-expiry"><i class="ph ph-clock" aria-hidden="true"></i>${escapeHtml(expiry)}</span>${entry.editedAt ? '<span class="gb-edited">已编辑</span>' : ""}${own ? `<button type="button" class="gb-edit-btn" data-gb-edit="${entry.id}"><i class="ph ph-pencil-simple" aria-hidden="true"></i> 编辑</button>` : ""}${isAdmin ? adminDeleteButton("entry", entry.id) : ""}`;
   return `<article class="guestbook-entry guestbook-entry--${entry.category}${entry.isExpired ? " is-expired" : ""}" data-entry-id="${entry.id}">
     <div class="guestbook-entry-bar"><span class="guestbook-entry-kind"><i class="ph ${kind.icon}" aria-hidden="true"></i>${kind.label}</span><span class="guestbook-entry-bar-meta"><time datetime="${new Date(entry.createdAt).toISOString()}">${formatTime(entry.createdAt)}</time>${entry.isExpired ? '<span class="guestbook-expired-stamp" aria-label="此留言已过期">已过期</span>' : ""}</span></div>
     <div class="guestbook-entry-row${entry.category === "suggestion" ? " guestbook-entry-row--suggestion" : ""}">${itemCells}
       <p class="guestbook-content">${escapeHtml(entry.content)}</p>
     </div>
     <footer class="guestbook-entry-footer"><span class="guestbook-entry-identity">${identity}</span><span class="guestbook-entry-footer-meta">${footerMeta}</span></footer>
-    ${replyAreaMarkup(entry, currentUserId)}
+    ${replyAreaMarkup(entry, currentUserId, isAdmin)}
   </article>`;
 }
 
@@ -233,6 +239,11 @@ export function mountGuestbookPage(
     return state.status === "pending" || state.status === "active"
       ? state.user.id
       : null;
+  };
+
+  const currentIsAdmin = (): boolean => {
+    const state = store.getState();
+    return (state.status === "pending" || state.status === "active") && state.user.permission_level >= 100;
   };
 
   const syncAuthGate = (): void => {
@@ -511,7 +522,7 @@ export function mountGuestbookPage(
       for (const entry of page.items) entriesById.set(entry.id, entry);
       results.innerHTML = page.items.length
         ? page.items
-            .map((entry) => entryMarkup(entry, catalogById, descriptionsById, userId))
+            .map((entry) => entryMarkup(entry, catalogById, descriptionsById, userId, currentIsAdmin()))
             .join("")
         : '<div class="guestbook-state"><i class="ph ph-notebook" aria-hidden="true"></i><strong>暂时没有符合条件的登记</strong><span>调整筛选条件，或发布第一条登记。</span></div>';
       nextCursor = page.nextCursor;
@@ -543,6 +554,7 @@ export function mountGuestbookPage(
       catalogById,
       descriptionsById,
       currentUserId(),
+      currentIsAdmin(),
     ).trim();
     const next2 = template.content.firstElementChild;
     if (next2) article.replaceWith(next2);
@@ -650,8 +662,43 @@ export function mountGuestbookPage(
     }
   }
 
+  async function handleAdminDelete(kind: "entry" | "reply", id: number, button: HTMLButtonElement): Promise<void> {
+    const entryEl = button.closest<HTMLElement>("article[data-entry-id]");
+    const entry = entryEl ? entriesById.get(Number(entryEl.dataset.entryId)) : undefined;
+    const view = root.ownerDocument.defaultView ?? window;
+    const message = kind === "entry"
+      ? `删除这条留言${entry && entry.replyCount > 0 ? `及其 ${entry.replyCount} 条回复` : ""}？此操作不可恢复。`
+      : "删除这条回复？此操作不可恢复。";
+    if (!view.confirm(message)) return;
+    button.disabled = true;
+    try {
+      await auth.sessionRequest(`/api/v1/admin/guestbook/${kind === "entry" ? "entries" : "replies"}/${id}`, "DELETE");
+      if (kind === "entry") {
+        entriesById.delete(id);
+        results.querySelector(`article[data-entry-id="${id}"]`)?.remove();
+      } else if (entry) {
+        entry.replies = (entry.replies ?? []).filter((reply) => reply.id !== id);
+        entry.replyCount = Math.max(0, entry.replyCount - 1);
+        replaceEntry(entry);
+      }
+    } catch (error) {
+      button.disabled = false;
+      view.alert(`删除失败：${errorText(error)}`);
+    }
+  }
+
   results.addEventListener("click", async (event) => {
     const target = event.target as HTMLElement;
+    const entryDelete = target.closest<HTMLButtonElement>("[data-gb-admin-delete-entry]");
+    if (entryDelete) {
+      void handleAdminDelete("entry", Number(entryDelete.dataset.gbAdminDeleteEntry), entryDelete);
+      return;
+    }
+    const replyDelete = target.closest<HTMLButtonElement>("[data-gb-admin-delete-reply]");
+    if (replyDelete) {
+      void handleAdminDelete("reply", Number(replyDelete.dataset.gbAdminDeleteReply), replyDelete);
+      return;
+    }
     const editButton = target.closest<HTMLElement>("[data-gb-edit]");
     if (editButton) {
       const article = editButton.closest<HTMLElement>("article[data-entry-id]");

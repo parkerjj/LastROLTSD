@@ -1,6 +1,7 @@
 import { buildLicense, wrapChunkKey } from './crypto';
 import type { KeConfig } from './config';
-import type { InstanceRow, KeRepository } from './repository';
+import { KE_CORE_MODULE, type KeEntitlements } from './entitlements';
+import type { InstanceRow, KeRepository, KeTx } from './repository';
 import {
   KE_BINDING_EXCLUSIVE_MS,
   KE_CLOCK_SKEW_SECONDS,
@@ -88,7 +89,20 @@ function assertKeyRequest(needWasmKey: boolean, kePublicKey: Uint8Array | null):
   }
 }
 
-function buildLicenseFor(config: KeConfig, instance: InstanceRow, now: number): Promise<string> {
+/** 读取账号当前权益；没有核心模块就不能签发任何授权（start / heartbeat / 下发密钥的 bind）。 */
+async function requireCoreEntitlement(tx: KeTx, userId: number, now: number): Promise<KeEntitlements> {
+  const entitlements = await tx.readEntitlements(userId, now);
+  if (!entitlements.modules.has(KE_CORE_MODULE)) {
+    throw new KeFailure('KE_NOT_ENTITLED', 403, '账号未开通核心模块');
+  }
+  return entitlements;
+}
+
+function featuresOf(entitlements: KeEntitlements): string[] {
+  return [...entitlements.modules].sort();
+}
+
+function buildLicenseFor(config: KeConfig, instance: InstanceRow, features: string[], now: number): Promise<string> {
   const iat = Math.floor(now / 1000);
   const payload: LicensePayload = {
     v: 1,
@@ -98,7 +112,7 @@ function buildLicenseFor(config: KeConfig, instance: InstanceRow, now: number): 
     aid: instance.aid,
     cid: instance.cid,
     nid: instance.nid,
-    features: ['core'],
+    features,
     key_versions: { core: Number(config.coreKeyVersion) },
     iat,
     exp: iat + Math.floor(KE_LICENSE_LEASE_MS / 1000),
@@ -124,6 +138,8 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
       const timestamp = now();
       await repository.transaction(async (tx) => {
         await tx.lockUser(ownerId);
+        // bind 在 need_wasm_key 时会下发分块密钥，等同于授权，同样要求核心模块。
+        if (input.needWasmKey) await requireCoreEntitlement(tx, ownerId, timestamp);
         const existing = await tx.findCharacter(input.report.aid, input.report.cid, input.report.nid);
         if (existing === null) {
           await tx.insertCharacter(ownerId, input.report, timestamp);
@@ -156,12 +172,13 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
       const ownerId = Number(userId);
       const timestamp = now();
       const mode = input.mode ?? 'auto';
-      const instance = await repository.transaction(async (tx) => {
+      const { instance, features } = await repository.transaction(async (tx) => {
         await tx.lockUser(ownerId);
         const found = await tx.findInstance(input.instanceId);
         if (found === null) throw new KeFailure('KE_INSTANCE_NOT_FOUND', 404, '实例不存在');
         if (found.user_id !== ownerId) throw new KeFailure('KE_AUTH_FORBIDDEN', 403, '实例不属于当前账号');
         assertSameCharacter(found, input.report);
+        const entitlements = await requireCoreEntitlement(tx, ownerId, timestamp);
         const threshold = timestamp - KE_LIVENESS_WINDOW_MS;
         // manual（半自动）需要授权但不占额度：不做额度判定，也不踢人。
         if (mode === 'auto') {
@@ -174,16 +191,17 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
           }
           // KICKED/STOPPED 也允许重新 start（同账号在角色间切换/重启），与 IDLE、心跳超时的 ACTIVE 走同一额度判定。
           const activeCount = await tx.countActive(ownerId, found.instance_id, threshold);
-          if (!holdsSlot(found, threshold) && activeCount >= config.instanceLimit) {
+          if (!holdsSlot(found, threshold) && activeCount >= entitlements.slots) {
             const active = await tx.listActive(ownerId, threshold);
             throw new KeFailure('KE_QUOTA_EXCEEDED', 409, '已达实例额度，请先停用一名正在运行的角色', { active_instances: active });
           }
         }
         const licenseExpiresAt = timestamp + KE_LICENSE_LEASE_MS;
-        await tx.activateInstance(found.instance_id, mode, JSON.stringify(['core']), input.buildId, input.ipHash, input.uaHash, licenseExpiresAt, timestamp);
-        return { ...found, state: 'ACTIVE', mode, build_id: input.buildId, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp };
+        const features = featuresOf(entitlements);
+        await tx.activateInstance(found.instance_id, mode, JSON.stringify(features), input.buildId, input.ipHash, input.uaHash, licenseExpiresAt, timestamp);
+        return { instance: { ...found, state: 'ACTIVE', mode, build_id: input.buildId, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp }, features };
       });
-      const license = await buildLicenseFor(config, instance, timestamp);
+      const license = await buildLicenseFor(config, instance, features, timestamp);
       const bundles = await keyBundles(input);
       return { license, ...(bundles ? { key_bundles: bundles } : {}) };
     },
@@ -193,7 +211,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
       assertClockSkew(timestamp, ts);
       assertBuildFingerprint(config, attestation.buildId, attestation.buildHash);
       const ownerId = Number(userId);
-      const instance = await repository.transaction(async (tx) => {
+      const { instance, features } = await repository.transaction(async (tx) => {
         await tx.lockUser(ownerId);
         const found = await tx.findInstance(instanceId);
         if (found === null) throw new KeFailure('KE_INSTANCE_NOT_FOUND', 404, '实例不存在');
@@ -201,17 +219,18 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         if (found.state === 'KICKED') throw new KeFailure('KE_INSTANCE_KICKED', 409, '该实例已被顶替');
         if (found.state !== 'ACTIVE') throw new KeFailure('KE_INSTANCE_NOT_ACTIVE', 409, '实例未处于运行状态');
         assertSameCharacter(found, report);
+        const entitlements = await requireCoreEntitlement(tx, ownerId, timestamp);
         // 心跳已超时的 ACTIVE 实例名额可能已被顶替：额度已被他人占满时不得凭心跳「复活」，按被顶替处理。
         const threshold = timestamp - KE_LIVENESS_WINDOW_MS;
-        if (found.mode === 'auto' && !holdsSlot(found, threshold) && await tx.countActive(ownerId, instanceId, threshold) >= config.instanceLimit) {
+        if (found.mode === 'auto' && !holdsSlot(found, threshold) && await tx.countActive(ownerId, instanceId, threshold) >= entitlements.slots) {
           throw new KeFailure('KE_INSTANCE_KICKED', 409, '该实例已被顶替');
         }
         const licenseExpiresAt = timestamp + KE_LICENSE_LEASE_MS;
         await tx.updateInstanceReport(instanceId, report, licenseExpiresAt, attestation.buildId, attestation.ipHash, attestation.uaHash, timestamp);
         await tx.updateCharacterReport(ownerId, report, timestamp);
-        return { ...found, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp };
+        return { instance: { ...found, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp }, features: featuresOf(entitlements) };
       });
-      return { license: await buildLicenseFor(config, instance, timestamp) };
+      return { license: await buildLicenseFor(config, instance, features, timestamp) };
     },
 
     async stop(userId, instanceId) {

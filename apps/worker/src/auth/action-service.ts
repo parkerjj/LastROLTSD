@@ -13,6 +13,7 @@ import type {
   AuthTx,
   UserRecord,
 } from './repository';
+import { ADMIN_PERMISSION_LEVEL } from '../admin/types';
 import { createSessionService, sessionCookie, type AuthenticatedSessionIdentity } from './session-service';
 import type {
   AuthAcceptedResponse,
@@ -38,6 +39,10 @@ function unauthenticated(): AuthFailure {
 
 function verifiedAccountRequired(): AuthFailure {
   return new AuthFailure('AUTH_VERIFIED_ACCOUNT_REQUIRED', 403, '请先验证邮箱后再修改密码');
+}
+
+function userNotFound(): AuthFailure {
+  return new AuthFailure('AUTH_USER_NOT_FOUND', 404, '账号不存在');
 }
 
 function invalidAction(): AuthFailure {
@@ -319,6 +324,44 @@ export function createActionService(repository: AuthRepository, config: AuthConf
         await tx.revokeActions(user.id, 'all', now);
         await tx.insertMailJob(notification);
         await appendEvent(tx, user.id, 'PASSWORD_CHANGE', now);
+      });
+    },
+
+    /**
+     * 管理员直接为账号指定新密码（强制改密）。与自助改密相同：凭据版本 + 1、认证版本 + 1，
+     * 该账号全部会话与 KE token 随之失效；并给用户发「密码已变更」通知。
+     * 管理员账号（permission_level >= 100，含操作者自己）不允许被强制改密。
+     */
+    async adminSetPassword(actorId: UserId, targetUserId: UserId, newPasswordValue: string, requestId: string): Promise<void> {
+      const newPassword = validatePassword(newPasswordValue);
+      const profile = await repository.readProfile(targetUserId);
+      if (!profile) throw userNotFound();
+      if (profile.permission_level >= ADMIN_PERMISSION_LEVEL) {
+        throw new AuthFailure('AUTH_ADMIN_TARGET_FORBIDDEN', 403, '不能对管理员账号强制改密');
+      }
+
+      const material = await createPasswordMaterial(newPassword, config);
+      const notification = await preparePasswordChangedMail({
+        mailId: crypto.randomUUID(),
+        userId: profile.id,
+        email: profile.email,
+        displayName: profile.display_name,
+        createdAt: runtime.now(),
+      }, config);
+
+      await repository.transaction(async (tx) => {
+        const user = await tx.lockUser(targetUserId);
+        if (!user || !await tx.readCredential(user.id)) throw userNotFound();
+        const now = runtime.now();
+        await tx.saveCredential(user.id, material, user.credentialVersion + 1, now);
+        await tx.bumpAuthVersion(user.id, now);
+        await tx.revokeActions(user.id, 'all', now);
+        await tx.insertMailJob(notification);
+        await appendEvent(tx, user.id, 'PASSWORD_ADMIN_SET', now);
+        await tx.insertAdminAudit({
+          actor_user_id: Number(actorId), action: 'PASSWORD_SET', target_user_id: Number(user.id),
+          detail: null, request_id: requestId, created_at: now,
+        });
       });
     },
 

@@ -34,6 +34,10 @@ import { createSessionService } from './auth/session-service';
 import { assertCsrf } from './auth/csrf';
 import type { GuestbookAuthServices } from './routes/guestbook';
 import { runAuthJobTick } from './auth/jobs';
+import { createAdminRepository } from './admin/repository';
+import { registerAdminAccountRoutes, type AdminAuthServices } from './admin/router';
+import { createAdminService } from './admin/service';
+import { createActionService } from './auth/action-service';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -74,6 +78,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
       rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
       auth: guestbookAuthServices(database, env),
     });
+    registerAdminAccountRoutes(app, createAdminService(createAdminRepository(database)), adminAuthServices(database, env));
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
@@ -197,6 +202,27 @@ function guestbookAuthServices(database: MysqlDatabase, env: AppEnv): GuestbookA
     return {
       authenticate: (request) => sessions.authenticate(request),
       assertSession: (request, identity) => assertCsrf(request, config, 'session', identity),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function adminAuthServices(database: MysqlDatabase, env: AppEnv): AdminAuthServices | null {
+  try {
+    const config = resolveAuthConfig(env);
+    if (!config.enabled) return null;
+    const repository = createAuthRepository(database, {
+      mailDailyLimit: config.mailDailyLimit,
+      mailMonthlyLimit: config.mailMonthlyLimit,
+    });
+    const runtime = { now: () => Date.now(), fetch: globalThis.fetch };
+    const sessions = createSessionService(repository, config, runtime);
+    const actions = createActionService(repository, config, runtime);
+    return {
+      authenticate: (request) => sessions.authenticate(request),
+      assertSession: (request, identity) => assertCsrf(request, config, 'session', identity),
+      setPassword: (actorId, targetUserId, newPassword, requestId) => actions.adminSetPassword(actorId, targetUserId, newPassword, requestId),
     };
   } catch {
     return null;

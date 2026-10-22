@@ -105,8 +105,8 @@ export const CONTROL_SCHEMAS: ControlSchema[] = [
       },
       {
         key: "teleport_search",
-        label: "搜索标记",
-        help: "标记为「搜索目标」：配合瞬移找怪开关，屏幕上出现这种怪时才激活自动攻击（用于主动瞬移寻找稀有怪）。",
+        label: "专注模式标记",
+        help: "标记为「专注模式目标」：配合生存页的专注模式开关，屏幕上出现这种怪时才激活自动攻击（用于主动瞬移寻找稀有怪）。",
         type: "enum",
         defaultValue: "0",
         options: ON_OFF,

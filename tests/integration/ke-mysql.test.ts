@@ -1,10 +1,14 @@
 // KE 全部仓库层 SQL 的真实 MySQL 验证（迁移 009/012–015）。与 auth 集成测试共用 withAuthTestDatabase：
 // 需要 MYSQL_TEST_URL（库名以 _test 结尾、且不同于 MYSQL_URL）与 AUTH_TEST_DB_ALLOW_RESET=1，会清空并重建该库。
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { createAuthRepository } from '../../apps/worker/src/auth/repository';
 import type { AuthConfig } from '../../apps/worker/src/auth/types';
 import type { MysqlDatabase } from '../../apps/worker/src/db/mysql-client';
 import type { AppEnv } from '../../apps/worker/src/env';
 import { resolveKeConfig } from '../../apps/worker/src/ke/config';
+import { KE_PERMANENT_MS } from '../../apps/worker/src/ke/entitlements';
 import { createKeRepository } from '../../apps/worker/src/ke/repository';
 import { createKeService } from '../../apps/worker/src/ke/service';
 import { createProfileRepository } from '../../apps/worker/src/ke/profile-repository';
@@ -29,7 +33,19 @@ async function insertUser(database: MysqlDatabase, name: string): Promise<number
     'INSERT INTO auth_users (email, email_normalized, display_name, status, email_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [`${name}@example.test`, `${name}@example.test`, name, 'ACTIVE', 1, 1, 1],
   );
+  // 模拟「已验证邮箱」的用户：迁移已在建库时跑完，测试里新建的用户需要自己带上验证邮箱赠送的权益。
+  await grantEntitlement(database, result.insertId, 'slots', 1, 1, 1 + KE_PERMANENT_MS, 'signup', 'email-verified:slots');
+  await grantEntitlement(database, result.insertId, 'module:core', 1, 1, 1 + KE_PERMANENT_MS, 'signup', 'email-verified:module:core');
   return result.insertId;
+}
+
+async function grantEntitlement(
+  database: MysqlDatabase, userId: number, resource: string, quantity: number, startsAt: number, expiresAt: number, source: string, sourceRef: string, revokedAt: number | null = null,
+): Promise<void> {
+  await database.run(
+    'INSERT INTO ke_entitlements (user_id, resource, quantity, starts_at, expires_at, source, source_ref, revoked_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [userId, resource, quantity, startsAt, expiresAt, source, sourceRef, revokedAt, 1],
+  );
 }
 
 async function count(database: MysqlDatabase, sql: string, values: unknown[] = []): Promise<number> {
@@ -111,6 +127,115 @@ describe.skipIf(!runMysqlTests)('KE × MySQL', () => {
       nowMs += KE_TOKEN_TTL_MS + 8 * DAY_MS;
       await createKeRepository(database).cleanup(nowMs);
       expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_tokens')).toBe(0);
+    });
+  }, 120_000);
+
+  it('权益：回填 SQL 幂等；按时间窗口求和；验证邮箱时同事务赠送', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.now();
+      const rawUser = async (name: string, status: string, verifiedAt: number | null) => (await database.run(
+        'INSERT INTO auth_users (email, email_normalized, display_name, status, email_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [`${name}@example.test`, `${name}@example.test`, name, status, verifiedAt, 1, 1],
+      )).insertId;
+      const carol = await rawUser('carol', 'ACTIVE', now - DAY_MS);
+      const dave = await rawUser('dave', 'PENDING_EMAIL', null);
+      const erin = await rawUser('erin', 'PENDING_EMAIL', null);
+      const keRepository = createKeRepository(database);
+      const read = (userId: number, at: number) => keRepository.transaction((tx) => tx.readEntitlements(userId, at));
+
+      // 迁移 017 的回填语句（取文件中 INSERT 起的部分原样执行）：已验证用户得到两条 99 年权益；重复执行不产生重复行
+      const migration = readFileSync(new URL('../../migrations/mysql/017_ke_entitlements.sql', import.meta.url), 'utf8');
+      const backfill = migration.slice(migration.indexOf('INSERT INTO ke_entitlements')).trim().replace(/;$/u, '');
+      await database.run(backfill);
+      await database.run(backfill);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [carol])).toBe(2);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id IN (?, ?)', [dave, erin])).toBe(0);
+      const backfilled = await database.first<{ starts_at: number | string; expires_at: number | string }>(
+        "SELECT starts_at, expires_at FROM ke_entitlements WHERE user_id = ? AND resource = 'slots'", [carol]);
+      expect(Number(backfilled!.starts_at)).toBe(now - DAY_MS);
+      expect(Number(backfilled!.expires_at)).toBe(now - DAY_MS + KE_PERMANENT_MS);
+      const base = await read(carol, now);
+      expect(base.slots).toBe(1);
+      expect([...base.modules]).toEqual(['core']);
+
+      // 没有任何流水的用户：额度 0、无模块
+      const none = await read(dave, now);
+      expect(none.slots).toBe(0);
+      expect(none.modules.size).toBe(0);
+
+      // 时间窗口：购买（生效中）+10、已过期 +5、尚未开始 +7、已撤销 +100 → 只有生效中的 +10 计入
+      await grantEntitlement(database, carol, 'slots', 10, now - DAY_MS, now + 30 * DAY_MS, 'purchase', 'order-1');
+      await grantEntitlement(database, carol, 'slots', 5, now - 10 * DAY_MS, now - DAY_MS, 'purchase', 'order-0');
+      await grantEntitlement(database, carol, 'slots', 7, now + DAY_MS, now + 40 * DAY_MS, 'purchase', 'order-2');
+      await grantEntitlement(database, carol, 'slots', 100, now - DAY_MS, now + 30 * DAY_MS, 'purchase', 'order-3', now - 1000);
+      await grantEntitlement(database, carol, 'module:alpha', 1, now - DAY_MS, now + 15 * DAY_MS, 'purchase', 'order-4');
+      expect((await read(carol, now)).slots).toBe(11);
+      expect([...(await read(carol, now)).modules].sort()).toEqual(['alpha', 'core']);
+      // 30 天后购买的额度到期降回 1，模块 alpha（15 天）更早到期，core 仍在；尚未开始的 +7 此时已生效
+      const later = await read(carol, now + 31 * DAY_MS);
+      expect(later.slots).toBe(8);
+      expect([...later.modules]).toEqual(['core']);
+
+      // 管理员扣减（负数）：总和压到 0 以下时钳到 0；对 module:core 的负数流水让该模块失效
+      await grantEntitlement(database, carol, 'slots', -50, now - DAY_MS, now + 5 * DAY_MS, 'admin', 'req-1');
+      await grantEntitlement(database, carol, 'module:core', -1, now - DAY_MS, now + 5 * DAY_MS, 'admin', 'req-2');
+      const penalized = await read(carol, now);
+      expect(penalized.slots).toBe(0);
+      expect([...penalized.modules]).toEqual(['alpha']);
+
+      // 同一 (user, source, source_ref) 不可重复发放；数量不能为 0；到期必须晚于开始
+      await expect(grantEntitlement(database, carol, 'slots', 1, now, now + DAY_MS, 'purchase', 'order-1')).rejects.toBeDefined();
+      await expect(grantEntitlement(database, carol, 'slots', 0, now, now + DAY_MS, 'purchase', 'order-zero')).rejects.toBeDefined();
+      await expect(grantEntitlement(database, carol, 'slots', 1, now, now, 'purchase', 'order-empty')).rejects.toBeDefined();
+
+      // 验证邮箱：同一事务内赠送 1 个额度与 core 模块（99 年）；重复验证不会重复赠送
+      const auth = createAuthRepository(database);
+      const verify = (userId: number, at: number) => auth.transaction(async (tx) => {
+        await tx.lockUser(String(userId));
+        return tx.markEmailVerified(String(userId), at);
+      });
+      expect(await verify(erin, now)).toBe(true);
+      const granted = await read(erin, now + 1);
+      expect(granted.slots).toBe(1);
+      expect([...granted.modules]).toEqual(['core']);
+      const window = await database.first<{ starts_at: number | string; expires_at: number | string }>(
+        "SELECT starts_at, expires_at FROM ke_entitlements WHERE user_id = ? AND resource = 'slots'", [erin]);
+      expect(Number(window!.starts_at)).toBe(now);
+      expect(Number(window!.expires_at)).toBe(now + KE_PERMANENT_MS);
+      expect(await verify(erin, now + 10)).toBe(false);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [erin])).toBe(2);
+      // 未通过验证（已验证过的账号）不会赠送额外权益
+      expect(await verify(carol, now)).toBe(false);
+    });
+  }, 120_000);
+
+  it('部署后的回填脚本：补上遗漏的已验证账号，重复执行不产生重复，未验证账号不受影响', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.now();
+      const rawUser = async (name: string, status: string, verifiedAt: number | null) => (await database.run(
+        'INSERT INTO auth_users (email, email_normalized, display_name, status, email_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [`${name}@example.test`, `${name}@example.test`, name, status, verifiedAt, 1, 1],
+      )).insertId;
+      // 模拟迁移已执行、新代码尚未上线期间被旧 Worker 验证邮箱的账号：已验证，却没有赠送的权益
+      const missed = await rawUser('missed', 'ACTIVE', now - 3600_000);
+      const pending = await rawUser('pending', 'PENDING_EMAIL', null);
+      const granted = await insertUser(database, 'granted');
+      const run = () => spawnSync(process.execPath, ['scripts/backfill-signup-entitlements.mjs'], {
+        cwd: process.cwd(), env: { ...process.env, MYSQL_URL: process.env.MYSQL_TEST_URL }, encoding: 'utf8',
+      });
+
+      const first = run();
+      expect(first.status, first.stderr).toBe(0);
+      const second = run();
+      expect(second.status, second.stderr).toBe(0);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [missed])).toBe(2);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [pending])).toBe(0);
+      expect(await count(database, 'SELECT COUNT(*) AS n FROM ke_entitlements WHERE user_id = ?', [granted])).toBe(2);
+      const repaired = await database.first<{ starts_at: number | string; expires_at: number | string }>(
+        "SELECT starts_at, expires_at FROM ke_entitlements WHERE user_id = ? AND resource = 'module:core'", [missed]);
+      expect(Number(repaired!.starts_at)).toBe(now - 3600_000);
+      expect(Number(repaired!.expires_at)).toBe(now - 3600_000 + KE_PERMANENT_MS);
+      expect(first.stdout).toContain('backfill');
     });
   }, 120_000);
 

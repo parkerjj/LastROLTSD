@@ -9,7 +9,6 @@ export const KE_LICENSE_LEASE_MS = 30 * 60 * 1000;
 export const KE_LIVENESS_WINDOW_MS = 10 * 60 * 1000;
 /** 角色绑定独占期：同一角色 30 天内只能被一个账号绑定。 */
 export const KE_BINDING_EXCLUSIVE_MS = 30 * 24 * 60 * 60 * 1000;
-export const KE_BASE_INSTANCE_LIMIT = 1;
 /** 反重放时钟容忍（秒）。 */
 export const KE_CLOCK_SKEW_SECONDS = 300;
 

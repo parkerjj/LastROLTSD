@@ -1,6 +1,6 @@
 import type { AuthConfig } from '../auth/types';
 import type { AppEnv } from '../env';
-import { KE_BASE_INSTANCE_LIMIT, KeFailure, type KeBindings } from './types';
+import { KeFailure, type KeBindings } from './types';
 
 export interface BuildEntry {
   chunk: string;
@@ -14,7 +14,6 @@ export interface KeConfig {
   coreKey: Uint8Array | null;
   coreKeyVersion: string;
   buildManifest: ReadonlyMap<string, BuildEntry> | null;
-  instanceLimit: number;
 }
 
 function disabled(): KeConfig {
@@ -25,7 +24,6 @@ function disabled(): KeConfig {
     coreKey: null,
     coreKeyVersion: '1',
     buildManifest: null,
-    instanceLimit: KE_BASE_INSTANCE_LIMIT,
   };
 }
 
@@ -87,6 +85,5 @@ export function resolveKeConfig(env: AppEnv & KeBindings, authConfig: AuthConfig
     coreKey: decodeSecret(env.KE_CORE_KEY, 32),
     coreKeyVersion: keyVersion(env.KE_CORE_KEY_VERSION, '1'),
     buildManifest: buildManifest(env.KE_BUILD_MANIFEST),
-    instanceLimit: KE_BASE_INSTANCE_LIMIT,
   };
 }

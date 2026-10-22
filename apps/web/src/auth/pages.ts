@@ -15,6 +15,8 @@ import {
   value,
 } from './utils';
 
+const ADMIN_PERMISSION_LEVEL = 100;
+
 const AUTH_PATHS = new Set([
   '/verify-email',
   '/reset-password',
@@ -214,6 +216,9 @@ export function mountAuthPage(
   // 账号等级与留言板共用同一套 permission_level 映射（0 萌新 / 1 正式 / 2 赞助 / >=100 管理员）
   function renderAccountTier(user: AccountProfile): void {
     setText(root, '#account-tier', tierBadge(user.permission_level).label);
+    // 管理员入口只是便利：后台接口由服务端再次校验管理员身份，这里隐藏并不构成访问控制。
+    const adminLink = root.querySelector<HTMLElement>('#account-admin-link');
+    if (adminLink) adminLink.hidden = user.permission_level < ADMIN_PERMISSION_LEVEL;
   }
 
   function updateAvatarActions(selected: boolean, processing: boolean): void {
@@ -601,6 +606,7 @@ function accountMarkup(): string {
         </div>
         <p id="account-avatar-status" class="auth-status" role="status" aria-live="polite"></p>
       </section>
+      <p id="account-admin-link" class="auth-links" hidden><a href="/account/admin">管理员后台</a></p>
       <p id="account-password-link" class="auth-links"><button type="button" class="auth-text-button" data-open-password>修改密码</button> · <button type="button" class="auth-text-button" data-open-forgot>忘记密码</button></p>
     </section>`;
 }

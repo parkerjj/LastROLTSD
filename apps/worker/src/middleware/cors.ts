@@ -21,6 +21,7 @@ const PREFLIGHT_HEADERS = {
 function isAccountPath(path: string): boolean {
   return path === '/api/v1/auth' || path.startsWith('/api/v1/auth/')
     || path === '/api/v1/account' || path.startsWith('/api/v1/account/')
+    || path.startsWith('/api/v1/admin/')
     || /^\/api\/v1\/users\/[^/]+\/avatar$/u.test(path);
 }
 

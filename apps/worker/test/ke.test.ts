@@ -4,6 +4,7 @@ import { base64UrlDecode, buildLicense, wrapChunkKey } from '../src/ke/crypto';
 import { createKeService, type Attestation } from '../src/ke/service';
 import type { KeConfig, BuildEntry } from '../src/ke/config';
 import type { CharacterRow, InstanceRow, KeRepository, KeTx } from '../src/ke/repository';
+import type { KeEntitlements } from '../src/ke/entitlements';
 import { KeFailure, type CharacterReport } from '../src/ke/types';
 
 const encoder = new TextEncoder();
@@ -27,7 +28,6 @@ function testKeConfig(manifest: ReadonlyMap<string, BuildEntry> | null = null): 
     coreKey: new Uint8Array(32).fill(9),
     coreKeyVersion: '3',
     buildManifest: manifest,
-    instanceLimit: 1,
   };
 }
 
@@ -48,16 +48,22 @@ function report(overrides: Partial<CharacterReport> = {}): CharacterReport {
 interface FakeRepository extends KeRepository {
   characters: Map<string, CharacterRow>;
   instances: Map<string, InstanceRow>;
+  /** 按用户覆盖权益；未设置的用户沿用默认（邮箱已验证：1 个额度 + core 模块）。 */
+  entitlements: Map<number, KeEntitlements>;
 }
 
 function makeFakeRepository(): FakeRepository {
   const characters = new Map<string, CharacterRow>();
   const instances = new Map<string, InstanceRow>();
+  const entitlements = new Map<number, KeEntitlements>();
   const key = (aid: number, cid: number, nid: number): string => `${aid}:${cid}:${nid}`;
 
   const tx: KeTx = {
     async lockUser() {
       // 无真实行锁；测试只验证串行化后的业务分支。
+    },
+    async readEntitlements(userId) {
+      return entitlements.get(userId) ?? { slots: 1, modules: new Set(['core']) };
     },
     async findCharacter(aid, cid, nid) {
       return characters.get(key(aid, cid, nid)) ?? null;
@@ -144,6 +150,7 @@ function makeFakeRepository(): FakeRepository {
   return {
     characters,
     instances,
+    entitlements,
     findCharacter: (aid, cid, nid) => tx.findCharacter(aid, cid, nid),
     findInstance: (instanceId) => tx.findInstance(instanceId),
     listCharacters: async (userId) => [...characters.values()].filter((character) => character.user_id === userId),
@@ -243,6 +250,87 @@ describe('ke service', () => {
   });
 
   const noAttestation = (): Attestation => ({ buildId: null, buildHash: null, ipHash: null, uaHash: null });
+
+  describe('权益（额度与模块）', () => {
+    const grant = (repository: FakeRepository, userId: number, slots: number, modules: string[]) => {
+      repository.entitlements.set(userId, { slots, modules: new Set(modules) });
+    };
+    const startInput = (instanceId: string, extra: Record<string, unknown> = {}) => ({ ...bindInput(instanceId), kickInstanceId: null, ...extra });
+
+    it('没有 core 模块的账号不能 start（auto 与 manual 都不行）', async () => {
+      const { repository, service } = serviceAndClock();
+      grant(repository, 10000, 1, []);
+      await service.bind('10000', bindInput(INST_A));
+      await expect(service.start('10000', startInput(INST_A))).rejects.toMatchObject({ code: 'KE_NOT_ENTITLED', status: 403 });
+      await expect(service.start('10000', startInput(INST_A, { mode: 'manual' }))).rejects.toMatchObject({ code: 'KE_NOT_ENTITLED' });
+      expect(repository.instances.get(INST_A)?.state).toBe('IDLE');
+    });
+
+    it('额度为 0 时 auto 被额度拦下，manual 不占额度仍可 start', async () => {
+      const { repository, service } = serviceAndClock();
+      grant(repository, 10000, 0, ['core']);
+      await service.bind('10000', bindInput(INST_A));
+      await expect(service.start('10000', startInput(INST_A))).rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
+      const started = await service.start('10000', startInput(INST_A, { mode: 'manual' }));
+      expect(typeof started.license).toBe('string');
+    });
+
+    it('auto 实例上限取自账号当前额度，而不是固定常量', async () => {
+      const { repository, service, advance } = serviceAndClock();
+      grant(repository, 10000, 2, ['core']);
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.bind('10000', bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null });
+      advance(1000);
+      await service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: null });
+      expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
+      expect(repository.instances.get(INST_B)?.state).toBe('ACTIVE');
+    });
+
+    it('心跳续租同样要求 core 模块，失效后拒绝签发新 license', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', startInput(INST_A));
+      advance(60_000);
+      grant(repository, 10000, 1, []);
+      await expect(service.heartbeat('10000', INST_A, report(), Math.floor(now() / 1000), noAttestation()))
+        .rejects.toMatchObject({ code: 'KE_NOT_ENTITLED' });
+    });
+
+    it('心跳不改变既有额度判定：额度缩水后仍在心跳的实例继续续租（已知并接受）', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      grant(repository, 10000, 2, ['core']);
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.bind('10000', bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null });
+      await service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: null });
+      advance(60_000);
+      grant(repository, 10000, 1, ['core']);
+      const renewed = await service.heartbeat('10000', INST_A, report({ char_name: 'Alice' }), Math.floor(now() / 1000), noAttestation());
+      expect(typeof renewed.license).toBe('string');
+    });
+
+    it('下发分块密钥的 bind 要求 core 模块；不要密钥的 bind 照常登记角色', async () => {
+      const { repository, service } = serviceAndClock();
+      grant(repository, 10000, 0, []);
+      const publicKey = new Uint8Array(32).fill(7);
+      await expect(service.bind('10000', { ...bindInput(INST_A), needWasmKey: true, kePublicKey: publicKey }))
+        .rejects.toMatchObject({ code: 'KE_NOT_ENTITLED' });
+      expect(repository.instances.has(INST_A)).toBe(false);
+      await service.bind('10000', bindInput(INST_A));
+      expect(repository.instances.get(INST_A)?.state).toBe('IDLE');
+    });
+
+    it('license 的 features 与实例记录的 features 反映账号当前生效的模块', async () => {
+      const { repository, service } = serviceAndClock();
+      grant(repository, 10000, 1, ['core', 'alpha']);
+      await service.bind('10000', bindInput(INST_A));
+      const started = await service.start('10000', startInput(INST_A));
+      const payload = JSON.parse(decoder.decode(base64UrlDecode(started.license.split('.')[0]!)));
+      expect(payload.features).toEqual(['alpha', 'core']);
+      expect(JSON.parse(repository.instances.get(INST_A)!.features!)).toEqual(['alpha', 'core']);
+    });
+  });
 
   it('bind 建角色与实例（IDLE），同角色异账号 30 天内拒绝', async () => {
     const { repository, service, advance } = serviceAndClock();
