@@ -24,7 +24,7 @@ export function createUploadHandler(db: MysqlDatabase, env: AppEnv): UploadHandl
       // retain it, and stale observations cannot invalidate a newer baseline.
       if (request.snapshot_mode === 'delta' && !result.duplicate) {
         const changedIds = result.shops.filter((shop, index) => shop.applied && (request.shops[index]!.items.length > 0 || shop.shop_status === 'dismissed')).map((shop) => shop.shop_id);
-        if (changedIds.length) await tx.run(`UPDATE shops s JOIN JSON_TABLE(?, '$[*]' COLUMNS(public_id VARCHAR(191) PATH '$')) AS changed
+        if (changedIds.length) await tx.run(`UPDATE shops s JOIN JSON_TABLE(?, '$[*]' COLUMNS(public_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$')) AS changed
           ON changed.public_id = s.public_shop_id SET s.full_state_hash = NULL,
             s.last_inventory_observed_at = GREATEST(COALESCE(s.last_inventory_observed_at, 0), ?)
           WHERE s.source_id = ? AND s.last_status_observed_at <= ?`,

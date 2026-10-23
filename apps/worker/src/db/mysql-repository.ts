@@ -12,34 +12,34 @@ type Row = MysqlRow;
 // A JSON parameter keeps a large upload set-based. It is deliberately not expanded
 // into one query per shop, which would make a 1,000-shop snapshot pathological.
 const SHOP_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
-  source_id VARCHAR(191) PATH '$.sourceId',
-  identity_hash CHAR(64) PATH '$.identityHash',
-  public_shop_id VARCHAR(191) PATH '$.shopId',
-  shop_status VARCHAR(16) PATH '$.shopStatus',
-  vendor_account_id VARCHAR(191) PATH '$.vendorAccountId',
-  vendor_name VARCHAR(191) PATH '$.vendorName',
-  vendor_name_normalized VARCHAR(128) PATH '$.vendorNameNormalized',
-  title VARCHAR(191) PATH '$.title',
-  title_normalized VARCHAR(128) PATH '$.titleNormalized',
-  shop_type VARCHAR(4) PATH '$.shopType',
-  map_name VARCHAR(64) PATH '$.mapName',
+  source_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.sourceId',
+  identity_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.identityHash',
+  public_shop_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.shopId',
+  shop_status VARCHAR(16) COLLATE utf8mb4_0900_ai_ci PATH '$.shopStatus',
+  vendor_account_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.vendorAccountId',
+  vendor_name VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.vendorName',
+  vendor_name_normalized VARCHAR(128) COLLATE utf8mb4_0900_ai_ci PATH '$.vendorNameNormalized',
+  title VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.title',
+  title_normalized VARCHAR(128) COLLATE utf8mb4_0900_ai_ci PATH '$.titleNormalized',
+  shop_type VARCHAR(4) COLLATE utf8mb4_0900_ai_ci PATH '$.shopType',
+  map_name VARCHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.mapName',
   x INT UNSIGNED PATH '$.x',
   y INT UNSIGNED PATH '$.y',
-  profile_hash CHAR(64) PATH '$.profileHash',
-  full_state_hash CHAR(64) PATH '$.fullStateHash' NULL ON EMPTY,
-  batch_id VARCHAR(191) PATH '$.batchId',
+  profile_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.profileHash',
+  full_state_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.fullStateHash' NULL ON EMPTY,
+  batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.batchId',
   observed_at BIGINT UNSIGNED PATH '$.observedAt'
 )) AS observation`;
 
 const LISTING_OBSERVATION_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   session_id BIGINT UNSIGNED PATH '$.sessionId',
-  fingerprint CHAR(64) PATH '$.fingerprint'
+  fingerprint CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.fingerprint'
 )) AS observation`;
 
 const LISTING_INPUT_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   session_id BIGINT UNSIGNED PATH '$.sessionId',
-  fingerprint CHAR(64) PATH '$.fingerprint',
-  item_key VARCHAR(191) PATH '$.itemKey' NULL ON EMPTY,
+  fingerprint CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.fingerprint',
+  item_key VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.itemKey' NULL ON EMPTY,
   item_id BIGINT UNSIGNED PATH '$.itemId',
   upgrade INT UNSIGNED PATH '$.upgrade',
   slots INT UNSIGNED PATH '$.slots',
@@ -50,13 +50,13 @@ const LISTING_INPUT_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   price BIGINT UNSIGNED PATH '$.price',
   quantity BIGINT UNSIGNED PATH '$.quantity',
   observed_at BIGINT UNSIGNED PATH '$.observedAt',
-  batch_id VARCHAR(191) PATH '$.batchId'
+  batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.batchId'
 )) AS listing_input`;
 
 const LISTING_OPTIONS_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   session_id BIGINT UNSIGNED PATH '$.sessionId',
-  fingerprint CHAR(64) PATH '$.fingerprint',
-  batch_id VARCHAR(191) PATH '$.batchId',
+  fingerprint CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.fingerprint',
+  batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.batchId',
   NESTED PATH '$.options[*]' COLUMNS(
     option_ordinal FOR ORDINALITY,
     option_type BIGINT UNSIGNED PATH '$.type',
@@ -71,15 +71,15 @@ const LISTING_TRANSITION_JSON_TABLE = `JSON_TABLE(?, '$[*]' COLUMNS(
   expected_version BIGINT UNSIGNED PATH '$.expectedVersion',
   price BIGINT UNSIGNED PATH '$.price',
   quantity BIGINT UNSIGNED PATH '$.quantity',
-  status VARCHAR(16) PATH '$.status',
+  status VARCHAR(16) COLLATE utf8mb4_0900_ai_ci PATH '$.status',
   observed_at BIGINT UNSIGNED PATH '$.observedAt',
-  batch_id VARCHAR(191) PATH '$.batchId',
-  history_event_type VARCHAR(32) PATH '$.historyEventType' NULL ON EMPTY,
+  batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.batchId',
+  history_event_type VARCHAR(32) COLLATE utf8mb4_0900_ai_ci PATH '$.historyEventType' NULL ON EMPTY,
   sold_quantity BIGINT UNSIGNED PATH '$.soldQuantity' NULL ON EMPTY,
   sold_from_quantity BIGINT UNSIGNED PATH '$.soldFromQuantity' NULL ON EMPTY,
   sold_to_quantity BIGINT UNSIGNED PATH '$.soldToQuantity' NULL ON EMPTY,
-  sold_reason VARCHAR(32) PATH '$.soldReason' NULL ON EMPTY,
-  transition_key VARCHAR(255) PATH '$.transitionKey' NULL ON EMPTY
+  sold_reason VARCHAR(32) COLLATE utf8mb4_0900_ai_ci PATH '$.soldReason' NULL ON EMPTY,
+  transition_key VARCHAR(255) COLLATE utf8mb4_0900_ai_ci PATH '$.transitionKey' NULL ON EMPTY
 )) AS transition_input`;
 
 const shopResolutionKey = (sourceId: string, identityHash: string): string => JSON.stringify([sourceId, identityHash]);
@@ -604,8 +604,8 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
         observed_at BIGINT UNSIGNED PATH '$.observedAt',
         price BIGINT UNSIGNED PATH '$.price',
         quantity BIGINT UNSIGNED PATH '$.quantity',
-        event_type VARCHAR(32) PATH '$.eventType',
-        batch_id VARCHAR(191) PATH '$.batchId'
+        event_type VARCHAR(32) COLLATE utf8mb4_0900_ai_ci PATH '$.eventType',
+        batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.batchId'
       )) AS history_input
       ON DUPLICATE KEY UPDATE transition_key = transition_key`, [JSON.stringify(inputs)]);
   };
@@ -688,7 +688,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     async markShopHeartbeats(sourceId, identityHashes, observedAt) {
       if (identityHashes.length === 0) return 0;
       const result = await db.run(`UPDATE shops
-        JOIN JSON_TABLE(?, '$[*]' COLUMNS(identity_hash CHAR(64) PATH '$')) AS heartbeat
+        JOIN JSON_TABLE(?, '$[*]' COLUMNS(identity_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$')) AS heartbeat
           ON shops.identity_hash = heartbeat.identity_hash
         SET shops.last_status_observed_at = ?, shops.last_changed_at = ?,
           shops.status = CASE WHEN shops.status = 'closed' THEN shops.status ELSE 'active' END
@@ -698,7 +698,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     async getUninitializedShopKeys(sourceId, identityHashes) {
       if (identityHashes.length === 0) return [];
       const rows = await db.all<Row>(`SELECT requested.identity_hash AS shop_key
-        FROM JSON_TABLE(?, '$[*]' COLUMNS(identity_hash CHAR(64) PATH '$')) AS requested
+        FROM JSON_TABLE(?, '$[*]' COLUMNS(identity_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$')) AS requested
         LEFT JOIN shops ON shops.source_id = ? AND shops.identity_hash = requested.identity_hash
           AND shops.full_state_hash IS NOT NULL AND shops.status IN ('active', 'stale')
         WHERE shops.id IS NULL`, [JSON.stringify([...new Set(identityHashes)]), sourceId]);
@@ -735,7 +735,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
       await db.run(`UPDATE shops
         JOIN JSON_TABLE(?, '$[*]' COLUMNS(
           shop_id BIGINT UNSIGNED PATH '$.shopId',
-          full_state_hash CHAR(64) PATH '$.fullStateHash'
+          full_state_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.fullStateHash'
         )) AS state_update ON shops.id = state_update.shop_id
         SET shops.full_state_hash = state_update.full_state_hash
         WHERE shops.last_status_observed_at <= ?`, [JSON.stringify(updates), observedAt]);
@@ -783,7 +783,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
               WHERE snapshot_shop.shop_id = shops.id
             )`
           : `NOT EXISTS (
-              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(profile_hash CHAR(64) PATH '$')) AS snapshot_shop
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(profile_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$')) AS snapshot_shop
               WHERE snapshot_shop.profile_hash = shops.profile_hash
             )`;
         const presenceValues = profileHashes === null ? scope : JSON.stringify(profileHashes);
@@ -811,7 +811,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
             AND listings.missing_full_count = 1
             AND listings.quantity > 0
             AND (listings.last_changed_snapshot_id IS NULL OR NOT EXISTS (
-              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(batch_id VARCHAR(191) PATH '$')) AS accepted_batch
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$')) AS accepted_batch
               WHERE accepted_batch.batch_id = listings.last_changed_snapshot_id
             ))`, [scope, batches]);
         const inferredCandidates = await Promise.all(candidateRows.map(async (row) => ({
@@ -832,7 +832,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
             listings.last_changed_at = ?, listings.state_version = listings.state_version + 1
           WHERE listings.status IN ('active', 'missing')
             AND (listings.last_changed_snapshot_id IS NULL OR NOT EXISTS (
-              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(batch_id VARCHAR(191) PATH '$')) AS accepted_batch
+              SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS(batch_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$')) AS accepted_batch
               WHERE accepted_batch.batch_id = listings.last_changed_snapshot_id
             ))`, [scope, input.observedAt, batches]);
 
@@ -850,7 +850,7 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
               to_quantity BIGINT UNSIGNED PATH '$.toQuantity',
               observed_at BIGINT UNSIGNED PATH '$.observedAt',
               new_state_version BIGINT UNSIGNED PATH '$.newStateVersion',
-              transition_key VARCHAR(255) PATH '$.transitionKey'
+              transition_key VARCHAR(255) COLLATE utf8mb4_0900_ai_ci PATH '$.transitionKey'
             )) AS candidate
             JOIN listings ON listings.id = candidate.listing_id
               AND listings.state_version = candidate.new_state_version

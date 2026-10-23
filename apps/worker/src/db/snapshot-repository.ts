@@ -83,8 +83,8 @@ export function createSnapshotRepository(db: MysqlDatabase) {
           SHA2(CAST(JSON_EXTRACT(payload.payload_json, CONCAT('$.shops[', identities.position - 1, '].items')) AS CHAR CHARACTER SET utf8mb4), 256),
           JSON_LENGTH(JSON_EXTRACT(payload.payload_json, CONCAT('$.shops[', identities.position - 1, '].items')))
         FROM upload_batches AS payload
-        JOIN JSON_TABLE(?, '$[*]' COLUMNS(position FOR ORDINALITY, identity_hash CHAR(64) PATH '$.identityHash',
-          public_shop_id VARCHAR(191) PATH '$.shopId')) AS identities
+        JOIN JSON_TABLE(?, '$[*]' COLUMNS(position FOR ORDINALITY, identity_hash CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.identityHash',
+          public_shop_id VARCHAR(191) COLLATE utf8mb4_0900_ai_ci PATH '$.shopId')) AS identities
         WHERE payload.source_id = ? AND payload.batch_id = ?`,
       [JSON.stringify(input.identities), input.sourceId, input.response.batch_id]);
     } catch (error) {
