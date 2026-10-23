@@ -37,6 +37,7 @@ import { mountClientPage } from "./client-page";
 import { mountSponsorPage } from "./sponsor-page";
 import { mountKePage } from "./ke-page";
 import { mountKeDevicePage } from "./ke-device-page";
+import { mountProfileHall } from "./profile-hall-page";
 import { mountVipPage } from "./vip-page";
 import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
@@ -60,6 +61,7 @@ const isClientPage = /^\/client\/?$/u.test(pathname);
 const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 const isKePage = /^\/ke\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
+const isProfileHallPage = /^\/ke\/hall\/?$/u.test(pathname);
 // 管理员后台刻意不进导航；账号页只对 permission_level >= 100 的账号显示入口。
 const isAdminPage = /^\/account\/admin\/?$/u.test(pathname);
 // 会员定价页刻意不进导航，只能通过 URL 直达。
@@ -1198,6 +1200,7 @@ else if (isGuestbookPage) mountGuestbookPage(root);
 else if (isAccountsPage) mountAccountsPage(root);
 else if (isKePage) mountKePage(root);
 else if (isKeDevicePage) mountKeDevicePage(root);
+else if (isProfileHallPage) mountProfileHall(root);
 else if (isAdminPage) mountAdminPage(root);
 else if (isVipPage) mountVipPage(root);
 else mountSearchPage();

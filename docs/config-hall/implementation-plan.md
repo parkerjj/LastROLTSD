@@ -49,12 +49,12 @@
 
 **Interfaces:** 生产上述共享 service / types；扩展个人 profile 保存、读取与删除，保持既有签名。
 
-- [ ] 先写回归测试并运行确认红灯：快照保真、取消不更新、更新/恢复保留码、单源唯一、20 套与重名、点赞/人数按账号、复制幂等、原配置删除撤回。
-- [ ] 新增四表 migration 与摘要排序索引、FK/唯一约束；不修改旧 migration 或回填公开数据。
-- [ ] 实现 repository/service，组合单连接事务，账号→角色/个人配置→共享条目顺序加锁，不嵌套事务。保持 NULL/空值、明确复制回执冲突，使用数据库实际变化更新计数。
-- [ ] 个人 profile 保存与共享更新同事务；公开元数据不暴露角色标识；服务端读取职业、缺失可空。
-- [ ] 在一次性本地 MySQL 测试库验证迁移、冲突、回滚、并发同请求、撤回/复制、更新/复制；不触碰生产连接。
-- [ ] 运行相关数据测试并提交数据范围文件，报告接口、红绿结果和限制。
+- [x] 先写回归测试并运行确认红灯：快照保真、取消不更新、更新/恢复保留码、单源唯一、20 套与重名、点赞/人数按账号、复制幂等、原配置删除撤回。
+- [x] 新增四表 migration 与摘要排序索引、FK/唯一约束；不修改旧 migration 或回填公开数据。
+- [x] 实现 repository/service，组合单连接事务，账号→角色/个人配置→共享条目顺序加锁，不嵌套事务。保持 NULL/空值、明确复制回执冲突，使用数据库实际变化更新计数。
+- [x] 个人 profile 保存与共享更新同事务；公开元数据不暴露角色标识；服务端读取职业，角色解绑/记录缺失时保存 NULL 快照。
+- [x] 在一次性本地 MySQL 测试库验证迁移、冲突、回滚、并发同请求、撤回/复制、更新/复制；不触碰生产连接。
+- [x] 运行相关数据测试；最终测试结果见本计划“最终验证”。
 
 ## Task 2: 会话鉴权与路由整合
 
@@ -62,11 +62,11 @@
 
 **Interfaces:** 消费 Task 1 service；HTTP 路径/JSON 完全遵循设计 §6。共享路由由 registerKeRoutes 注册，共用已有 setup 与 request 生命周期，不增加 DB 全局连接。
 
-- [ ] 先写测试并确认红灯：401/PENDING_EMAIL/不同等级、Origin、错误 JSON、非法排序/页码/职业、分享码归一化、204 兼容、复制 201/200、私有响应 no-store。
-- [ ] 注册列表/码/详情/点赞/复制/撤回路由；code 路径早于 :id。固定参数白名单，解析非负职业与安全整数、分享请求字段。
-- [ ] 仅发布/更新条件新增写请求 Origin/按账号频率保护，旧无 sharing 保存保持兼容；大厅所有写都校验 Origin。
-- [ ] 在个人列表的 map 中保留 sharing 元数据；POST/PUT 响应形状不变。所有数据库与 JSON 异常沿用现有安全 envelope。
-- [ ] 运行路由和既有 KE 路由测试、typecheck，提交该范围。
+- [x] 先写测试并确认红灯：401/PENDING_EMAIL/不同等级、Origin、错误 JSON、非法排序/页码/职业、分享码归一化、204 兼容、复制 201/200、私有响应 no-store。
+- [x] 注册列表/码/详情/点赞/复制/撤回路由；code 路径早于 :id。固定参数白名单，解析非负职业与安全整数、分享请求字段。
+- [x] 仅发布/更新条件新增写请求 Origin/按账号频率保护，旧无 sharing 保存保持兼容；大厅所有写都校验 Origin。
+- [x] 在个人列表的 map 中保留 sharing 元数据；POST/PUT 响应形状不变。所有数据库与 JSON 异常沿用现有安全 envelope。
+- [x] 路由与既有 KE 路由单元/真实 MySQL 集成、typecheck 均通过。
 
 ## Task 3: 编辑器、大厅与站点导航
 
@@ -74,23 +74,32 @@
 
 **Interfaces:** 消费 §6 API 和上面的 metadata/detail；路由与定位参数固定。复用现有 AuthApi / 登录浮层，不要求邮箱验证，兼容站点会话失效事件。
 
-- [ ] 先写 DOM/API 失败测试：默认两种 checkbox 文案，说明可空；关闭只保存个人；异步切换错误防护；匿名不泄露列表；复制目标与请求 UUID；XSS 纯文本。
-- [ ] 从已确认草图移植真实大厅，删除示例数据/场景工具，接真实 API，分页每页20、按职业/人数/点赞/时间查找。
-- [ ] 详情折叠五文件；角色选择、无角色/满额/重名错误可理解；复制重试复用 UUID，主动再次复制换 UUID；成功后定位现有编辑器，不自动激活或再分享。
-- [ ] 用聚焦小模块将分享区域接入完整编辑器，默认勾选、标题沿用 name、说明保存、分享码/撤回/恢复明确；保存时发 sharing 对象，取消勾选 enabled=false；保留未保存防护。
-- [ ] 沿用站点 topbar/登录/字体配色，增加大厅入口；真实 UI 做 1440/768/390 截图和操作检查，保留草图中的简单流程。
-- [ ] 运行相关 web 测试与 build，提交前端范围。
+- [x] 先写 DOM/API 失败测试：默认两种 checkbox 文案，说明可空；关闭只保存个人；异步切换错误防护；匿名不泄露列表；复制目标与请求 UUID；XSS 纯文本。
+- [x] 从已确认草图移植真实大厅，使用真实 API，分页每页20、按职业/人数/点赞/时间查找。
+- [x] 详情折叠五文件；角色选择、无角色/满额/重名错误可理解；复制重试复用 UUID，成功后定位现有编辑器，不自动激活或再分享。
+- [x] 用聚焦小模块将分享区域接入完整编辑器，默认勾选、标题沿用 name、说明保存、分享码/撤回/恢复明确；保存时发 sharing 对象，取消勾选 enabled=false；保留未保存防护。
+- [x] 沿用站点 topbar/登录/字体配色，增加大厅入口；真实 UI 在 1440/768/390 检查并完成跨账号复制、计数、点赞/取消操作。
+- [x] 运行相关 web 测试、定向 ESLint 与 build。
 
 ## Task 4: 整体验证、文档与独立审阅
 
 **Files:** `docs/api.md`、`docs/mysql-migration.md`、`docs/operations.md`、本目录状态/验证记录；必要的整合修正。
 
-- [ ] 更新 API/迁移顺序/回滚说明与运行频率保护值；将设计状态改为实现完成，记载实际行为和验证范围。
-- [ ] 运行相关真实 MySQL 测试和现有 KE MySQL 集成；`pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test:docs`、`pnpm test:migration`、`git diff --check`。
-- [ ] 在真实页面检查登录态、编辑→共享→查码→跨账号复制→唯一人数→点赞/取消→撤回/恢复；无法验证的外部环境明确记录，不以 mock 冒充真实后端。
-- [ ] 独立审阅完整实现，优先关注账号隔离、事务竞态与客户端重试；修复重要问题并重验。
-- [ ] 保留 `codex/profile-hall` 分支，提交可审阅结果，不自动合并、推送或部署。
+- [x] 更新 API/迁移顺序/回滚说明与运行频率保护值；设计、需求与原型文档同步实际状态。
+- [x] 运行相关真实 MySQL 测试和现有 KE MySQL 集成；`pnpm test`、`pnpm typecheck`、`pnpm build`、`pnpm test:docs`、`pnpm test:migration`、`git diff --check`。本次 `pnpm lint` 还扫描本地工具目录副本与 Wrangler 临时 bundle，产生 227 个环境文件错误；全部变更的应用和测试源文件单独 ESLint 通过。
+- [x] 在真实页面检查会话、详情/分享码、跨账号跨职业复制、唯一人数、点赞/取消、作者撤回入口与更新时间；跨账号账号级流程验证记录见 [UX 验收记录](ux-notes.md)。
+- [x] 独立审阅完整实现，优先关注账号隔离、事务竞态与客户端重试；上轮指出的 nullable job snapshot 与大厅作者控制问题已补测试修复；最终审阅未发现 Critical/Important/Minor 问题。
+- [x] 保留 `codex/profile-hall` 分支，完成审阅后提交可审阅结果，不自动合并、推送或部署。
 
 ## 执行记录
 
 2026-10-23：用户已批准设计、草图并授权开发；分支从 `codex/ke-profile-hall` 改名为 `codex/profile-hall`。计划已对照规格逐项检查；数据层/路由/前端接口如上，文件范围分离。使用原 checkout 的用户指定功能分支，不另建 worktree。实现使用有界分工与独立审阅；claude-mem work_state 为任务状态的唯一清单，本文件步骤用于恢复接口与验证依据。
+
+## 最终验证
+
+- 本地 MySQL 8：`shared-profile-mysql.test.ts` 5/5、`shared-profile-routes-mysql.test.ts` 2/2、既有 `ke-mysql.test.ts` 5/5；运行前通过 `mysql-test.env` 配置到一次性 `_test` schema，未连接生产库。
+- 单元测试：`pnpm test` 861 passed、38 skipped；typecheck、build、docs 58 assertions、migration 检查 5/5 和 `git diff --check` 通过。
+- lint：全仓命令受 ignored 工具目录副本和本地 Wrangler 临时 bundle 中的 227 个错误阻塞；所有本次变更的应用/测试源文件单独 ESLint 通过。
+- 浏览器：本地真实 Worker + MySQL 登录页面在 1440/768/390 CSS px 下无横向溢出；跨账号账号级复制与计数验收见 [UX 验收记录](ux-notes.md)。
+- 独立审阅：复核全部已修改与新增实现，无 Critical、Important、Minor 问题；确认来源归属、分享码碰撞处理、纯文本渲染和锁/事务边界符合设计。
+- 功能已提交到 `codex/profile-hall`；不自动合并、推送、部署，也不应用生产 migration。

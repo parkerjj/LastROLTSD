@@ -30,6 +30,13 @@ export interface ProfileService {
 }
 
 function validateInput(input: ProfileInput): void {
+  if (input.sharing !== undefined) {
+    if (!input.sharing || typeof input.sharing !== 'object' || typeof input.sharing.enabled !== 'boolean'
+      || (input.sharing.description !== undefined && (typeof input.sharing.description !== 'string'
+        || new TextEncoder().encode(input.sharing.description).byteLength > 16 * 1024))) {
+      throw new KeFailure('KE_BAD_REQUEST', 400, '共享参数无效');
+    }
+  }
   if (typeof input.name !== 'string' || input.name.length < 1 || input.name.length > MAX_NAME_CHARS) {
     throw new KeFailure('KE_BAD_REQUEST', 400, 'Profile 名称无效');
   }
@@ -89,7 +96,12 @@ export function createProfileService(repository: ProfileRepository, now: () => n
         if (existing.length >= MAX_PROFILES_PER_CHARACTER) {
           throw new KeFailure('KE_BAD_REQUEST', 400, `每个角色最多保存 ${MAX_PROFILES_PER_CHARACTER} 套方案`);
         }
-        return await tx.insert(ownerId, aid, cid, nid, input, timestamp);
+        const profileId = await tx.insert(ownerId, aid, cid, nid, input, timestamp);
+        if (input.sharing?.enabled) {
+          if (!tx.publishSharing) throw new KeFailure('KE_UNAVAILABLE', 503, '共享配置暂时不可用');
+          await tx.publishSharing(ownerId, profileId, input, timestamp);
+        }
+        return profileId;
       });
       return { id };
     },
@@ -108,6 +120,10 @@ export function createProfileService(repository: ProfileRepository, now: () => n
           throw new KeFailure('KE_PROFILE_NAME_TAKEN', 409, 'Profile 名称已存在');
         }
         await tx.update(id, input, timestamp);
+        if (input.sharing?.enabled) {
+          if (!tx.publishSharing) throw new KeFailure('KE_UNAVAILABLE', 503, '共享配置暂时不可用');
+          await tx.publishSharing(ownerId, id, input, timestamp);
+        }
       });
     },
 
@@ -126,10 +142,13 @@ export function createProfileService(repository: ProfileRepository, now: () => n
 
     async remove(userId, id) {
       const ownerId = Number(userId);
+      const timestamp = now();
       await repository.transaction(async (tx) => {
+        await tx.lockUser(ownerId);
         const profile = await tx.findById(id);
         if (profile === null) throw new KeFailure('KE_PROFILE_NOT_FOUND', 404, 'Profile 不存在');
         if (profile.user_id !== ownerId) throw new KeFailure('KE_AUTH_FORBIDDEN', 403, 'Profile 不属于当前账号');
+        await tx.withdrawSharing?.(ownerId, id, timestamp);
         await tx.remove(id);
       });
     },
