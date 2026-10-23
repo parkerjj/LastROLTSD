@@ -457,4 +457,128 @@ describe('auth pages', () => {
     expect(mainMocks.mountAccountsPage).toHaveBeenCalledTimes(1);
     accounts.dom.window.close();
   });
+
+  describe('resend verification email on /account', () => {
+    it('shows the resend button for pending sessions and hides it for active sessions', () => {
+      authStore.setSession(session('PENDING_EMAIL'));
+      const { root: pendingRoot, dispose: disposePending } = mount('/account');
+      try {
+        const notice = pendingRoot.querySelector<HTMLElement>('#account-pending-message');
+        expect(notice?.hidden).toBe(false);
+        const btn = pendingRoot.querySelector<HTMLButtonElement>('#account-resend-email');
+        expect(btn).not.toBeNull();
+        expect(btn?.textContent).toBe('重新发送验证邮件');
+      } finally {
+        disposePending();
+      }
+
+      authStore.setSession(session('ACTIVE'));
+      const { root: activeRoot, dispose: disposeActive } = mount('/account');
+      try {
+        const notice = activeRoot.querySelector<HTMLElement>('#account-pending-message');
+        // ACTIVE 用户下整个 pending 区被隐藏
+        expect(notice?.hidden).toBe(true);
+      } finally {
+        disposeActive();
+      }
+    });
+
+    it('calls requestEmailVerification and shows success feedback with mail availability', async () => {
+      authStore.setSession(session('PENDING_EMAIL'));
+      vi.spyOn(authApi, 'requestEmailVerification').mockResolvedValue({
+        accepted: true,
+        mail_availability: { code: 'AVAILABLE', retry_at: null },
+      });
+      const reconcile = vi.spyOn(authStore, 'reconcile').mockResolvedValue();
+      const { root, dispose } = mount('/account');
+      try {
+        const btn = root.querySelector<HTMLButtonElement>('#account-resend-email')!;
+        const status = root.querySelector<HTMLElement>('#account-resend-status')!;
+        btn.click();
+        expect(btn.disabled).toBe(true);
+        await vi.waitFor(() => expect(authApi.requestEmailVerification).toHaveBeenCalledTimes(1));
+        expect(status.textContent).toContain('已受理');
+        expect(reconcile).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(btn.disabled).toBe(false));
+      } finally {
+        dispose();
+      }
+    });
+
+    it('shows an error message when the resend request fails', async () => {
+      authStore.setSession(session('PENDING_EMAIL'));
+      vi.spyOn(authApi, 'requestEmailVerification').mockRejectedValue(
+        new AuthApiError(503, 'AUTH_UNAVAILABLE', '账号服务暂不可用'),
+      );
+      const { root, dispose } = mount('/account');
+      try {
+        const btn = root.querySelector<HTMLButtonElement>('#account-resend-email')!;
+        const status = root.querySelector<HTMLElement>('#account-resend-status')!;
+        btn.click();
+        await vi.waitFor(() => expect(btn.disabled).toBe(false));
+        expect(status.textContent).toContain('账号服务暂不可用');
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  describe('expired token guidance on /verify-email', () => {
+    it('shows the goto-account link when token is null and user is already pending', () => {
+      authStore.setSession(session('PENDING_EMAIL'));
+      const { root, dispose } = mount('/verify-email');
+      try {
+        const status = root.querySelector<HTMLElement>('#verify-status')!;
+        expect(status.textContent).toContain('验证链接已失效');
+        expect(status.textContent).toContain('我的账号');
+        const link = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
+        expect(link?.hidden).toBe(false);
+        expect(link?.href).toContain('/account');
+      } finally {
+        dispose();
+      }
+    });
+
+    it('shows the goto-account link when token is null and user is anonymous', () => {
+      const { root, dispose } = mount('/verify-email');
+      try {
+        const login = root.querySelector<HTMLFormElement>('#verify-login-form')!;
+        expect(login.hidden).toBe(false);
+        const link = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
+        expect(link?.hidden).toBe(false);
+        expect(link?.href).toContain('/account');
+      } finally {
+        dispose();
+      }
+    });
+
+    it('shows goto-account link on confirm failure due to expired token', async () => {
+      authStore.setSession(session('PENDING_EMAIL'));
+      vi.spyOn(authApi, 'confirmEmailVerification').mockRejectedValue(
+        new AuthApiError(400, 'AUTH_ACTION_INVALID', '链接已失效'),
+      );
+
+      const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost/verify-email#token=expired-token' });
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+
+      const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+      const dispose = mountAuthPage(root, '/verify-email', authApi, authStore);
+      try {
+        const confirmBtn = root.querySelector<HTMLButtonElement>('#verify-confirm')!;
+        // wait for pending state to show confirm button
+        await vi.waitFor(() => expect(confirmBtn.hidden).toBe(false));
+        confirmBtn.click();
+        // wait for the microtask queue to drain so catch/finally run
+        await vi.waitFor(() => expect(confirmBtn.disabled).toBe(false));
+        const link = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
+        expect(link).not.toBeNull();
+        expect(link?.hidden).toBe(false);
+      } finally {
+        dispose();
+        dom.window.close();
+        restoreDom?.();
+      }
+    });
+  });
 });

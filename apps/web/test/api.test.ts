@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MarketApi } from '../src/api';
+import { profileHallApi } from '../src/profile-hall-api';
 
 describe('market API', () => {
   it('loads the options endpoint and maps its Chinese metadata', async () => {
@@ -55,5 +56,18 @@ describe('market API', () => {
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]), 'https://example.test');
     expect(url.pathname).toBe('/api/v1/guestbook');
     expect(url.searchParams.get('itemId')).toBe('100');
+  });
+
+  it('serializes a full job family while retaining the singular job_id query', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 20 }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await profileHallApi.list({ sort: 'newest', page: 1, job_ids: [1, 7, 13, 168, 4252] });
+    await profileHallApi.list({ sort: 'newest', page: 1, job_id: 9 });
+
+    const familyUrl = new URL(String(fetchMock.mock.calls[0]?.[0]), 'https://example.test');
+    const legacyUrl = new URL(String(fetchMock.mock.calls[1]?.[0]), 'https://example.test');
+    expect(familyUrl.searchParams.get('job_ids')).toBe('1,7,13,168,4252');
+    expect(familyUrl.searchParams.has('job_id')).toBe(false);
+    expect(legacyUrl.searchParams.get('job_id')).toBe('9');
   });
 });

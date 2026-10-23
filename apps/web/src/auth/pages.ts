@@ -5,6 +5,7 @@ import { tierBadge } from '../tier';
 import type { AuthStore, AuthStoreState } from './store';
 import type { AccountProfile } from './types';
 import {
+  acceptedMessage,
   authErrorMessage,
   clearPasswordFields,
   formatMailAvailability,
@@ -256,14 +257,18 @@ export function mountAuthPage(
     const actions = root.querySelector<HTMLElement>('#verify-session-actions');
     const confirm = root.querySelector<HTMLButtonElement>('#verify-confirm');
     const logout = root.querySelector<HTMLButtonElement>('#verify-logout');
+    const gotoAccount = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
     if (!login || !actions || !confirm || !logout) return;
     login.hidden = true;
     actions.hidden = true;
     confirm.hidden = true;
     logout.hidden = true;
+    if (gotoAccount) gotoAccount.hidden = true;
 
     if (!actionToken) {
-      setText(root, '#verify-status', '请重新打开邮件链接。');
+      login.hidden = state.status !== 'anonymous';
+      if (gotoAccount) gotoAccount.hidden = false;
+      setText(root, '#verify-status', '验证链接已失效，请登录或前往我的账号重新申请验证邮件。');
       return;
     }
     if (state.status === 'loading') {
@@ -337,10 +342,38 @@ export function mountAuthPage(
         setText(root, '#verify-status', '邮箱已验证。');
       }).catch((error: unknown) => {
         if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        setText(root, '#verify-status', error instanceof AuthApiError && error.status === 403
-          ? '无法使用当前账号完成验证，请确认登录的是邮箱对应的账号。'
-          : handleError(error, '链接已失效，请登录后重新申请。'));
+        if (error instanceof AuthApiError && error.status === 403) {
+          setText(root, '#verify-status', '无法使用当前账号完成验证，请确认登录的是邮箱对应的账号。');
+        } else if (error instanceof AuthApiError && error.code === 'AUTH_ACTION_INVALID') {
+          const gotoAccount = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
+          if (gotoAccount) gotoAccount.hidden = false;
+          setText(root, '#verify-status', '验证链接已失效，请前往我的账号重新申请验证邮件。');
+        } else {
+          setText(root, '#verify-status', handleError(error, '链接已失效，请登录后重新申请。'));
+        }
       }).finally(() => { if (active) verifyConfirm.disabled = false; });
+    });
+  }
+
+  const resendVerificationButton = root.querySelector<HTMLButtonElement>('#account-resend-email');
+  if (resendVerificationButton) {
+    listen(resendVerificationButton, 'click', () => {
+      const state = store.getState();
+      const userId = currentUserId();
+      const submittedEpoch = identityEpoch;
+      const resendStatus = root.querySelector<HTMLElement>('#account-resend-status');
+      if (!active || state.status !== 'pending' || !userId || resendVerificationButton.disabled) return;
+      resendVerificationButton.disabled = true;
+      if (resendStatus) resendStatus.textContent = '正在申请发送验证邮件…';
+      void api.requestEmailVerification().then(async (response) => {
+        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+        if (resendStatus) resendStatus.textContent = acceptedMessage(response, 'verify');
+        await store.reconcile().catch(() => undefined);
+      }).catch((error: unknown) => {
+        if (active && currentUserId() === userId && identityEpoch === submittedEpoch && resendStatus) {
+          resendStatus.textContent = handleError(error, '验证邮件发送失败，请重试。');
+        }
+      }).finally(() => { if (active) resendVerificationButton.disabled = false; });
     });
   }
 
@@ -527,7 +560,7 @@ function pageMarkup(pathname: string): { title: string; content: string } {
 function shell(title: string, content: string): string {
   return `<div class="auth-page">
     <header class="site-header"><div class="topbar page-width">
-      <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
       ${siteNavMarkup(null)}
     </div></header>
     <main class="auth-main page-width"><section class="auth-card" aria-labelledby="auth-page-title">
@@ -550,6 +583,7 @@ function verifyMarkup(): string {
       <button id="verify-confirm" type="button" hidden>确认邮箱验证</button>
       <button id="verify-logout" class="auth-text-button" type="button" hidden>退出并使用其他账号登录</button>
     </section>
+    <p class="auth-links"><a id="verify-goto-account" href="/account" hidden>前往我的账号</a></p>
     <p class="auth-links"><button type="button" class="auth-text-button" data-open-login>登录</button> · <button type="button" class="auth-text-button" data-open-forgot>忘记密码</button></p>`;
 }
 
@@ -586,7 +620,11 @@ function accountMarkup(): string {
           <div><dt>账号等级</dt><dd id="account-tier"></dd></div>
         </dl>
       </div>
-      <p id="account-pending-message" class="auth-notice" hidden>邮箱尚未验证，请打开验证邮件完成验证，晋级正式用户。</p>
+      <section id="account-pending-message" class="auth-notice" hidden>
+        <p>邮箱尚未验证，请打开验证邮件完成验证，晋级正式用户。</p>
+        <button id="account-resend-email" class="secondary-button" type="button">重新发送验证邮件</button>
+        <p id="account-resend-status" class="auth-status" role="status" aria-live="polite"></p>
+      </section>
       <div class="auth-profile-name-row">
         <span class="auth-profile-name-label">昵称</span>
         <span class="auth-profile-name-value" id="account-display-name"></span>

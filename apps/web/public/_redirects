@@ -1,0 +1,3 @@
+# SPA fallback: 所有未匹配到静态文件的路径，全部 rewrite 到 index.html
+# 200 = 内部转发（不改变 URL），这是 SPA 的标准做法
+/*    /index.html   200

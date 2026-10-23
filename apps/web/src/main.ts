@@ -39,6 +39,10 @@ import { mountKePage } from "./ke-page";
 import { mountKeDevicePage } from "./ke-device-page";
 import { mountProfileHall } from "./profile-hall-page";
 import { mountVipPage } from "./vip-page";
+import { mountTermsPage } from "./terms-page";
+import { mountPrivacyPage } from "./privacy-page";
+import { mountRefundsPage } from "./refunds-page";
+import { injectLegalLinksIntoFooters } from "./footer-links";
 import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi } from "./auth/api";
@@ -66,6 +70,9 @@ const isProfileHallPage = /^\/ke\/hall\/?$/u.test(pathname);
 const isAdminPage = /^\/account\/admin\/?$/u.test(pathname);
 // 会员定价页刻意不进导航，只能通过 URL 直达。
 const isVipPage = /^\/vip\/price\/?$/u.test(pathname);
+const isTermsPage = /^\/terms\/?$/u.test(pathname);
+const isPrivacyPage = /^\/privacy\/?$/u.test(pathname);
+const isRefundsPage = /^\/refunds\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -78,7 +85,7 @@ function mountSearchPage(): void {
   root.innerHTML = `
   <header class="site-header">
     <div class="topbar page-width">
-      <a class="brand" href="#top" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <a class="brand" href="#top" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
       ${siteNavMarkup("search")}
     </div>
   </header>
@@ -119,7 +126,7 @@ function mountSearchPage(): void {
       </div>
     </form>
   </main>
-  <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="#top"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+  <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="#top"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
   <aside id="history-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="价格历史" hidden></aside>
   <aside id="map-drawer" class="drawer map-drawer" role="dialog" aria-modal="true" aria-label="地图定位" hidden></aside>
   <div id="drawer-overlay" class="drawer-overlay" aria-hidden="true" hidden></div>
@@ -1189,6 +1196,8 @@ function mountSearchPage(): void {
       renderSearchState();
     });
   void performSearch(initialState.filters);
+  // 向页脚追加法律链接（.footer-links 容器在 root.innerHTML 中已生成）。
+  injectLegalLinksIntoFooters(root);
 }
 
 if (authPage) mountAuthPage(root, pathname, authApi, authStore);
@@ -1203,4 +1212,7 @@ else if (isKeDevicePage) mountKeDevicePage(root);
 else if (isProfileHallPage) mountProfileHall(root);
 else if (isAdminPage) mountAdminPage(root);
 else if (isVipPage) mountVipPage(root);
+else if (isTermsPage) mountTermsPage(root);
+else if (isPrivacyPage) mountPrivacyPage(root);
+else if (isRefundsPage) mountRefundsPage(root);
 else mountSearchPage();

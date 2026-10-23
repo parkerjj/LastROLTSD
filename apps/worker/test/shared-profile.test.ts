@@ -98,6 +98,14 @@ describe('shared profile service', () => {
     }
     for (const request of [{ ...copyRequest, aid: -1 }, { ...copyRequest, request_id: 'bad' }]) await expect(f.service.copy('2', 10, request)).rejects.toMatchObject({ status: 400 });
   });
+  it('accepts bounded family job IDs and rejects malformed lists', async () => {
+    const f = sharedFixture();
+    await expect(f.service.list('2', { sort: 'newest', page: 1, job_ids: [1, 7, 13, 4252] })).resolves.toMatchObject({ total: 1 });
+    for (const job_ids of [[], [-1], [4294967296], [1, 1], Array.from({ length: 65 }, (_, index) => index)]) {
+      await expect(f.service.list('2', { sort: 'newest', page: 1, job_ids })).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(f.service.list('2', { sort: 'newest', page: 1, job_id: 1, job_ids: [1, 7] })).rejects.toMatchObject({ status: 400 });
+  });
   it('likes are idempotent per account and authors cannot self-like', async () => {
     const f = sharedFixture(); await expect(f.service.setLike('1', 10, true)).rejects.toMatchObject({ status: 403 });
     expect(await f.service.setLike('2', 10, true)).toEqual({ liked: true, like_count: 1 });

@@ -17,7 +17,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const profileHallApi = {
   list(query: SharedProfileQuery, signal?: AbortSignal): Promise<SharedProfilePage> {
     const params = new URLSearchParams({ sort: query.sort, page: String(query.page) });
-    if (query.job_id !== undefined) params.set('job_id', String(query.job_id));
+    if (query.job_ids !== undefined) params.set('job_ids', query.job_ids.join(','));
+    else if (query.job_id !== undefined) params.set('job_id', String(query.job_id));
     return request(`/shared-profiles?${params}`, signal ? { signal } : undefined);
   },
   byId(id: number, signal?: AbortSignal): Promise<SharedProfileDetail> { return request(`/shared-profiles/${id}`, signal ? { signal } : undefined); },

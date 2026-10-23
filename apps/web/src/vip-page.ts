@@ -1,5 +1,6 @@
 import { authStore, type AuthStore, type AuthStoreState } from "./auth/store";
 import { mountSiteNav, siteNavMarkup } from "./nav";
+import { injectLegalLinksIntoFooters } from "./footer-links";
 
 /**
  * 会员定价页（/vip/price）。
@@ -193,7 +194,7 @@ export function mountVipPage(
   root.innerHTML = `
     <header class="site-header">
       <div class="topbar page-width">
-        <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+        <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
         ${siteNavMarkup(null)}
       </div>
     </header>
@@ -342,10 +343,11 @@ export function mountVipPage(
         </div>
       </section>
     </main>
-    <footer class="site-footer vip-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>支付由 Stripe 收单 · 账号与付款信息仅用于会员开通，不做他用</small></div></footer>
+    <footer class="site-footer vip-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>支付由 Stripe 收单 · 账号与付款信息仅用于会员开通，不做他用</small></div></footer>
   `;
 
   mountSiteNav(root, store);
+  injectLegalLinksIntoFooters(root);
 
   const statusCard = root.querySelector<HTMLElement>("[data-vip-status]");
   if (statusCard) {

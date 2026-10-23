@@ -56,7 +56,7 @@
 新增 `/ke/hall`，在现有导航与 `/ke` 配置页提供“配置大厅”入口。复用站点登录入口；匿名页面仅显示登录提示，不泄露大厅数据。登录后可继续打开原分享地址。
 
 - 分享码精确查询支持 `ABC-1234`、`abc-1234` 和省略连字符的输入；服务端归一化为大写标准格式。
-- 职业使用现有本地化字典，按具体 `job_id` 过滤，不推断职业系或技能兼容性。
+- 职业显示使用现有本地化字典，筛选项按二阶职业系组织。每项查询其完整职业链对应的具体 `job_id`，覆盖共同前置职业、初心者、一转、进阶初心者、进阶一转、二阶、三转、四转及适用的宝宝/骑乘形态；职业只用于查找，不作为复制条件或技能兼容性判断。
 - 职业由服务端读取源角色记录，发布/更新时保存快照；异常缺失存 NULL，显示“未知职业”，在“全部职业”中可见，不阻止任何分享或复制。
 - 默认 `newest`，另支持 `uses`、`likes`；均降序，并以 `created_at DESC, id DESC` 稳定打破平分。
 - 每页 20 条，页码分页；改变排序/过滤回第一页。热度变化可导致跨页位置变化，不承诺跨页冻结快照。
@@ -137,7 +137,7 @@
 
 | 接口 | 请求/响应 |
 | --- | --- |
-| `GET /shared-profiles` | sort 为 newest/uses/likes，可选 job_id、page；返回 `{ items, page, page_size: 20, total }`，仅发布中 |
+| `GET /shared-profiles` | sort 为 newest/uses/likes，可选单个 `job_id` 或逗号分隔的职业系 `job_ids`，以及 `page`；返回 `{ items, page, page_size: 20, total }`，仅发布中 |
 | `GET /shared-profiles/code/:code` | 归一化分享码后取详情；撤回/不存在统一 404 |
 | `GET /shared-profiles/:id` | 摘要 + 五文件详情；撤回/不存在统一 404 |
 | `PUT /shared-profiles/:id/like` | 无业务 body；幂等点赞；返回 `{ liked: true, like_count }` |
@@ -147,7 +147,7 @@
 
 摘要含 `id`、title、description、job_id、`author: { id, display_name }`、share_code、like_count、use_count、liked_by_me、used_by_me、is_mine、created_at、updated_at。列表说明可截短，详情返回完整说明。
 
-page 为正整数、job_id 为非负整数；参数缺省用默认值，未知排序/非法数字返回 400。分享码路径先于 `:id` 注册。SQL 使用参数绑定与固定排序白名单。
+page 为正整数，`job_id` 和 `job_ids` 中的值为非负整数；两种职业参数不能同时提供，`job_ids` 最多包含 64 个不同 ID。参数缺省用默认值，未知排序/非法数字返回 400。分享码路径先于 `:id` 注册。SQL 使用参数绑定与固定排序白名单。
 
 状态码：401 未登录；403 非拥有者/自赞；404 目标角色或配置或公开共享不存在；409 个人配置满额/复制回执冲突；400 输入无效；413 请求过大；415 非 JSON；429 请求频率保护；503 账号/数据库不可用或分享码生成重试耗尽。具体错误枚举由实施者统一命名并写入 API 文档，不借用含义不符的错误。
 
