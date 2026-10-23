@@ -1,6 +1,6 @@
 // KoreEngine 配置工作台：角色卡 + Profile 卡片网格 + 三栏编辑器（分区导航 / 表单 / 状态与预览）。
 // 设计要点：枚举开关用分段按钮；字段带 ? 帮助提示（hover + 键盘可达）；技能规则按类型分节、卡片可折叠；
-// 规则表行化、低频列收进「高级」；未保存更改在编辑头与右栏双处提示，切换前需确认。仅通过 /ke 访问，站内不挂入口。
+// 规则表行化、低频列收进「高级」；未保存更改在编辑头与右栏双处提示，切换前需确认。仅通过 /ke/my 访问，站内不挂入口。
 
 import {
   BLOCK_DEFS,
@@ -38,6 +38,7 @@ import {
 import { createProfileSharing } from "./profile-sharing";
 import type { ProfileSharingMetadata } from "../../worker/src/ke/shared-profile-types";
 import { isLocalDemoMode } from "./demo-mode";
+import { mountSiteNav, siteNavMarkup } from "./nav";
 
 interface KeCharacter {
   aid: number;
@@ -428,8 +429,7 @@ export function mountKePage(root: HTMLElement): void {
   <header class="site-header">
     <div class="topbar page-width">
       <a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
-      ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
-      <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>
+      ${siteNavMarkup(null)}
     </div>
   </header>
   <main class="page-width">
@@ -438,7 +438,11 @@ export function mountKePage(root: HTMLElement): void {
       <h1 class="ke-title" id="ke-title">挂机配置工作台</h1>
       <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
       <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
-      <p class="ke-hero-sub"><a href="/ke/device">管理已授权的 KoreEngine 设备 →</a></p>
+      <p class="ke-hero-sub ke-hero-links">
+        <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
+        ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
+        <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>
+      </p>
     </section>
 
     <section class="ke-char-card" id="ke-char-card" aria-label="当前角色" hidden>
@@ -522,6 +526,7 @@ export function mountKePage(root: HTMLElement): void {
     .ke-hero .eyebrow { color: var(--red-dark); }
     .ke-title { margin: 8px 0 6px; color: var(--forest); font-family: Georgia, "Microsoft YaHei", serif; font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; }
     .ke-hero-sub { max-width: 560px; margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.7; }
+    .ke-hero-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; max-width: none; }
     .ke-status { margin: 8px 0 0; color: var(--muted); font-size: .84rem; min-height: 1.2em; }
 
     .ke-char-card { display: grid; gap: 10px; margin-top: 20px; padding: 14px 18px 16px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
@@ -774,6 +779,8 @@ export function mountKePage(root: HTMLElement): void {
     }
   </style>
   `;
+
+  mountSiteNav(root);
 
   const status = root.querySelector<HTMLElement>("#ke-status")!;
   const charCard = root.querySelector<HTMLElement>("#ke-char-card")!;

@@ -108,7 +108,7 @@ it('copy retries with one UUID and accepts a different job target', async () => 
   const bodies = calls.map(([, init]) => JSON.parse(String(init?.body)));
   expect(bodies[0]).toEqual({ aid: 8, cid: 9, nid: 10, request_id: bodies[0].request_id });
   expect(bodies[1]).toEqual(bodies[0]);
-  expect(page.root.querySelector<HTMLAnchorElement>('[data-open-copy]')?.getAttribute('href')).toBe('/ke?aid=8&cid=9&nid=10&profile=88');
+  expect(page.root.querySelector<HTMLAnchorElement>('[data-open-copy]')?.getAttribute('href')).toBe('/ke/my?aid=8&cid=9&nid=10&profile=88');
   page.dispose();
 });
 
