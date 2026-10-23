@@ -1,7 +1,10 @@
 import { MysqlDatabaseError, type MysqlDatabase, type MysqlRow } from '../db/mysql-client';
+import type { ProfileSharingInput, ProfileSharingMetadata } from './shared-profile-types';
+import { publishSharedProfile, withdrawSharedProfile } from './shared-profile-repository';
 import { KeFailure } from './types';
 
 export interface ProfileRow {
+  sharing?: ProfileSharingMetadata | null;
   id: number;
   user_id: number;
   aid: number;
@@ -17,6 +20,7 @@ export interface ProfileRow {
 }
 
 export interface ProfileInput {
+  sharing?: ProfileSharingInput;
   name: string;
   config_text: string;
   mon_control: string | null;
@@ -41,6 +45,9 @@ function asNullableString(value: unknown): string | null {
 
 function readProfile(row: MysqlRow): ProfileRow {
   return {
+    sharing: row.sharing_id == null ? null : { id: asNumber(row.sharing_id), share_code: String(row.share_code),
+      status: row.sharing_status === 'PUBLISHED' ? 'PUBLISHED' : 'WITHDRAWN', updated_at: asNumber(row.sharing_updated_at),
+    },
     id: asNumber(row.id),
     user_id: asNumber(row.user_id),
     aid: asNumber(row.aid),
@@ -59,6 +66,8 @@ function readProfile(row: MysqlRow): ProfileRow {
 const PROFILE_COLUMNS = 'id, user_id, aid, cid, nid, name, is_active, config_text, mon_control, pickupitems, items_control, timeouts';
 
 export interface ProfileTx {
+  publishSharing?(userId: number, id: number, input: ProfileInput, now: number): Promise<void>;
+  withdrawSharing?(userId: number, id: number, now: number): Promise<void>;
   /** 串行化同一账号的 profile 写操作（尤其 activate 的「一角色一 active」不变式）。 */
   lockUser(userId: number): Promise<void>;
   /** 角色是否已由该账号绑定（ke_characters.user_id）。 */
@@ -82,20 +91,22 @@ export interface ProfileRepository {
 
 function txFor(db: MysqlDatabase): ProfileTx {
   return {
+    publishSharing: (userId, id, input, now) => publishSharedProfile(db, userId, id, input, now),
+    withdrawSharing: (userId, id, now) => withdrawSharedProfile(db, userId, id, now),
     async lockUser(userId) {
       await db.all('SELECT id FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
     },
 
     async ownsCharacter(userId, aid, cid, nid) {
       const rows = await db.all<MysqlRow>(
-        'SELECT 1 AS owned FROM ke_characters WHERE aid = ? AND cid = ? AND nid = ? AND user_id = ? LIMIT 1',
+        'SELECT 1 AS owned FROM ke_characters WHERE aid = ? AND cid = ? AND nid = ? AND user_id = ? LIMIT 1 FOR UPDATE',
         [aid, cid, nid, userId],
       );
       return rows.length > 0;
     },
 
     async findById(id) {
-      const rows = await db.all<MysqlRow>(`SELECT ${PROFILE_COLUMNS} FROM ke_profiles WHERE id = ?`, [id]);
+      const rows = await db.all<MysqlRow>(`SELECT ${PROFILE_COLUMNS} FROM ke_profiles WHERE id = ? FOR UPDATE`, [id]);
       return rows.length > 0 ? readProfile(rows[0]!) : null;
     },
 
@@ -155,10 +166,22 @@ function txFor(db: MysqlDatabase): ProfileTx {
 }
 
 export function createProfileRepository(database: MysqlDatabase): ProfileRepository {
+  const withSharing = async (profile: ProfileRow): Promise<ProfileRow> => {
+    const row = await database.first('SELECT id, share_code, status, updated_at, description FROM ke_shared_profiles WHERE source_profile_id = ? AND author_user_id = ?', [profile.id, profile.user_id]);
+    return { ...profile, sharing: row ? { id: Number(row.id), share_code: String(row.share_code), status: row.status === 'PUBLISHED' ? 'PUBLISHED' : 'WITHDRAWN', updated_at: Number(row.updated_at), description: String(row.description) } : null };
+  };
   return {
-    findById: (id) => txFor(database).findById(id),
+    async findById(id) {
+      const profile = await txFor(database).findById(id);
+      return profile ? withSharing(profile) : null;
+    },
     findActive: (userId, aid, cid, nid) => txFor(database).findActive(userId, aid, cid, nid),
-    listForCharacter: (userId, aid, cid, nid) => txFor(database).listForCharacter(userId, aid, cid, nid),
+    async listForCharacter(userId, aid, cid, nid) {
+      const rows = await database.all(`SELECT p.*, s.id AS sharing_id, s.share_code, s.status AS sharing_status, s.updated_at AS sharing_updated_at
+        FROM ke_profiles p LEFT JOIN ke_shared_profiles s ON s.source_profile_id = p.id AND s.author_user_id = p.user_id
+        WHERE p.user_id = ? AND p.aid = ? AND p.cid = ? AND p.nid = ? ORDER BY p.id`, [userId, aid, cid, nid]);
+      return rows.map(readProfile);
+    },
     transaction: (work) => database.transaction((db) => work(txFor(db))),
   };
 }

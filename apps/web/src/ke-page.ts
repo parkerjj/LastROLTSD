@@ -35,6 +35,9 @@ import {
   type ControlRow,
   type ControlSchema,
 } from "./ke-controls";
+import { createProfileSharing } from "./profile-sharing";
+import type { ProfileSharingMetadata } from "../../worker/src/ke/shared-profile-types";
+import { isLocalDemoMode } from "./demo-mode";
 
 interface KeCharacter {
   aid: number;
@@ -50,9 +53,13 @@ interface ProfileSummary {
   id: number;
   name: string;
   is_active: boolean;
+  sharing?: ProfileSharingMetadata | null;
 }
 
 interface ProfileDetail extends ProfileSummary {
+  aid: number;
+  cid: number;
+  nid: number;
   config_text: string;
   mon_control: string | null;
   pickupitems: string | null;
@@ -402,6 +409,7 @@ function relativeTime(timestamp: number): string {
 }
 
 export function mountKePage(root: HTMLElement): void {
+  const demo = isLocalDemoMode(root.ownerDocument.defaultView?.location);
   let characters: KeCharacter[] = [];
   let selectedKey: string | null = null;
   let editingId: number | null = null;
@@ -413,13 +421,15 @@ export function mountKePage(root: HTMLElement): void {
   let activeTab = "route";
   let dirty = false;
   let previewCollapsed = false;
+  let demoProfiles: ProfileDetail[] = [];
   const expandedBlocks = new WeakSet<BlockValue>();
 
   root.innerHTML = `
   <header class="site-header">
     <div class="topbar page-width">
-      <a class="brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
-      <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 改动不会保存</span>
+      <a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
+      <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>
     </div>
   </header>
   <main class="page-width">
@@ -505,6 +515,7 @@ export function mountKePage(root: HTMLElement): void {
   <datalist id="ke-maps-list"></datalist>
   <style>
     .ke-demo-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; color: #835f18; background: var(--tip-soft); border: 1px solid var(--tip-line); border-radius: 999px; font-size: .72rem; font-weight: 800; }
+    .ke-demo-hall-link { color: var(--forest); font-size: .78rem; font-weight: 800; white-space: nowrap; }
     .ke-demo-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
 
     .ke-hero { padding: 30px 0 4px; }
@@ -561,6 +572,10 @@ export function mountKePage(root: HTMLElement): void {
     .ke-profile-card { display: flex; flex-direction: column; gap: 9px; padding: 14px 15px; background: #fffdf8; border: 1px solid #b9ab94; border-radius: 10px; box-shadow: 0 10px 22px rgba(80,62,38,.07); }
     .ke-profile-card.is-active { border-color: #7fae94; box-shadow: 0 0 0 1px #7fae94, 0 10px 22px rgba(44,122,89,.1); }
     .ke-profile-name { display: flex; align-items: center; gap: 8px; color: var(--forest); font-weight: 800; font-size: .92rem; overflow-wrap: anywhere; }
+    .ke-profile-share-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: .72rem; }
+    .ke-profile-share-code { color: var(--forest); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
+    .ke-profile-share-row a { color: var(--forest); font-weight: 800; }
+    .ke-profile-share-row button { min-height: 28px; padding: 3px 8px; font-size: .68rem; }
     .ke-badge-live { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; color: var(--buy); background: var(--buy-soft); border: 1px solid #b5d4c4; border-radius: 999px; font-size: .66rem; font-weight: 800; white-space: nowrap; }
     .ke-badge-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--buy); animation: ke-pulse 2.2s ease-in-out infinite; }
     @keyframes ke-pulse { 50% { opacity: .35; } }
@@ -785,6 +800,8 @@ export function mountKePage(root: HTMLElement): void {
   const previewFile = root.querySelector<HTMLElement>("#ke-preview-file")!;
   const preview = root.querySelector<HTMLElement>("#ke-config-preview")!;
   const mapsList = root.querySelector<HTMLDataListElement>("#ke-maps-list")!;
+  const sharingControls = createProfileSharing(root.ownerDocument, () => markDirty(), () => void withdrawSharing());
+  editor.querySelector<HTMLElement>(".ke-editor-head")?.after(sharingControls.root);
 
   function selectedCharacter(): KeCharacter | null {
     return (
@@ -1690,6 +1707,37 @@ export function mountKePage(root: HTMLElement): void {
         badge.className = "ke-badge-live";
         badge.innerHTML = "<i></i>使用中";
         name.appendChild(badge);
+      }
+      if (profile.sharing) {
+        const sharing = document.createElement("div");
+        sharing.className = "ke-profile-share-row";
+        const state = document.createElement("span");
+        state.textContent = profile.sharing.status === "PUBLISHED" ? "已共享" : "已撤回";
+        const shareCode = document.createElement("span");
+        shareCode.className = "ke-profile-share-code";
+        shareCode.textContent = `分享码 ${profile.sharing.share_code}`;
+        shareCode.dataset.shareCode = profile.sharing.share_code;
+        sharing.append(state, shareCode);
+        if (profile.sharing.status === "PUBLISHED") {
+          const hallLink = document.createElement("a");
+          hallLink.href = demo
+            ? "/ke/hall?demo=1"
+            : `/ke/hall?code=${encodeURIComponent(profile.sharing.share_code)}`;
+          hallLink.textContent = demo ? "预览配置大厅" : "查看大厅";
+          sharing.appendChild(hallLink);
+        }
+        const copyCode = document.createElement("button");
+        copyCode.type = "button";
+        copyCode.className = "ke-btn-ghost";
+        copyCode.textContent = "复制分享码";
+        copyCode.addEventListener("click", () => {
+          void navigator.clipboard.writeText(profile.sharing!.share_code).then(
+            () => { status.textContent = "分享码已复制。"; },
+            () => { status.textContent = "复制失败，请手动复制分享码。"; },
+          );
+        });
+        sharing.appendChild(copyCode);
+        card.appendChild(sharing);
       }
       const actions = document.createElement("div");
       actions.className = "ke-profile-actions";
@@ -3014,6 +3062,7 @@ export function mountKePage(root: HTMLElement): void {
     activeTab = "route";
     editorTitle.textContent = id === null ? "新建方案" : "编辑方案";
     if (id === null) {
+      sharingControls.reset(null);
       nameInput.value = "";
       configDoc = defaultDoc();
       controlDoc = defaultControlDoc();
@@ -3025,9 +3074,38 @@ export function mountKePage(root: HTMLElement): void {
       nameInput.focus();
       return;
     }
+    if (demo) {
+      const profile = demoProfiles.find((item) => item.id === id);
+      if (!profile) {
+        editor.hidden = true;
+        status.textContent = "找不到这套演示方案，请刷新后重试。";
+        return;
+      }
+      sharingControls.reset(profile.sharing ?? null);
+      nameInput.value = profile.name;
+      configDoc = parseConfig(profile.config_text);
+      controlDoc = emptyControlDoc();
+      const profileText: Record<string, string> = {
+        "mon_control.txt": profile.mon_control ?? "",
+        "pickupitems.txt": profile.pickupitems ?? "",
+        "items_control.txt": profile.items_control ?? "",
+        "timeouts.txt": profile.timeouts ?? "",
+      };
+      for (const schema of CONTROL_SCHEMAS)
+        controlDoc[schema.file] = parseControl(schema, profileText[schema.file] ?? "");
+      ensureAllFallback(controlDoc);
+      if ((controlDoc["timeouts.txt"] ?? []).length === 0) fillTimeoutRows();
+      clearDirty();
+      renderNav();
+      renderActivePanel();
+      refreshAll();
+      status.textContent = "演示方案已在内存中打开；操作不会写入账号。";
+      return;
+    }
     status.textContent = "正在加载方案…";
     try {
       const profile = await keFetch<ProfileDetail>(`/api/v1/ke/profiles/${id}`);
+      sharingControls.reset(profile.sharing ?? null);
       nameInput.value = profile.name;
       configDoc = parseConfig(profile.config_text);
       controlDoc = emptyControlDoc();
@@ -3066,6 +3144,10 @@ export function mountKePage(root: HTMLElement): void {
       profileList.innerHTML = "";
       return;
     }
+    if (demo) {
+      renderProfiles(demoProfiles);
+      return;
+    }
     const query = `aid=${character.aid}&cid=${character.cid}&nid=${character.nid}`;
     const body = await keFetch<{ profiles: ProfileSummary[] }>(
       `/api/v1/ke/profiles?${query}`,
@@ -3073,7 +3155,39 @@ export function mountKePage(root: HTMLElement): void {
     renderProfiles(body.profiles);
   }
 
+  async function withdrawSharing(): Promise<void> {
+    if (editingId === null || !window.confirm("撤回后，其他玩家将无法在配置大厅查看或复制这套配置。已复制到他人账号的方案不受影响。确定撤回吗？")) return;
+    sharingControls.setBusy(true);
+    sharingControls.message("正在撤回共享配置…");
+    try {
+      if (demo) {
+        const profile = demoProfiles.find((item) => item.id === editingId);
+        if (profile?.sharing) {
+          profile.sharing = { ...profile.sharing, status: "WITHDRAWN", updated_at: Date.now() };
+          sharingControls.markWithdrawn();
+          sharingControls.message("演示中已撤回；实际账号和共享条目没有变化。");
+          renderProfiles(demoProfiles);
+        }
+        return;
+      }
+      await keFetch<void>(`/api/v1/ke/profiles/${editingId}/sharing`, { method: "DELETE" });
+      sharingControls.markWithdrawn();
+      sharingControls.message("已撤回。保存时重新勾选可恢复原分享码。");
+      await reloadProfiles();
+    } catch (error) {
+      sharingControls.message(error instanceof Error ? error.message : "撤回失败");
+    } finally {
+      sharingControls.setBusy(false);
+    }
+  }
+
   async function activateProfile(id: number): Promise<void> {
+    if (demo) {
+      demoProfiles = demoProfiles.map((profile) => ({ ...profile, is_active: profile.id === id }));
+      renderProfiles(demoProfiles);
+      status.textContent = "已在演示中模拟激活；不会写入账号。";
+      return;
+    }
     try {
       await keFetch<void>(`/api/v1/ke/profiles/${id}/activate`, {
         method: "POST",
@@ -3086,6 +3200,13 @@ export function mountKePage(root: HTMLElement): void {
 
   async function deleteProfile(id: number): Promise<void> {
     if (!window.confirm("确定删除该方案？删除后无法恢复。")) return;
+    if (demo) {
+      demoProfiles = demoProfiles.filter((profile) => profile.id !== id);
+      if (editingId === id) hideForm();
+      renderProfiles(demoProfiles);
+      status.textContent = "演示方案已从本次预览移除；刷新后会恢复。";
+      return;
+    }
     try {
       await keFetch<void>(`/api/v1/ke/profiles/${id}`, { method: "DELETE" });
       await reloadProfiles();
@@ -3152,8 +3273,38 @@ export function mountKePage(root: HTMLElement): void {
       pickupitems: controlText("pickupitems.txt"),
       items_control: controlText("items_control.txt"),
       timeouts: controlText("timeouts.txt"),
+      sharing: sharingControls.value(),
     };
+    sharingControls.setBusy(true);
     try {
+      if (demo) {
+        const existing = demoProfiles.find((profile) => profile.id === editingId);
+        const id = editingId ?? Math.max(0, ...demoProfiles.map((profile) => profile.id)) + 1;
+        const currentSharing = existing?.sharing ?? null;
+        const sharing: ProfileSharingMetadata | null = values.sharing.enabled
+          ? {
+            id: currentSharing?.id ?? id,
+            share_code: currentSharing?.share_code ?? `DEM-${String(id).padStart(4, "0")}`,
+            status: "PUBLISHED",
+            updated_at: Date.now(),
+            description: values.sharing.description ?? "",
+          }
+          : currentSharing;
+        const demoProfile: ProfileDetail = {
+          id, aid: character.aid, cid: character.cid, nid: character.nid,
+          name: values.name, is_active: existing?.is_active ?? false, sharing,
+          config_text: values.config_text, mon_control: values.mon_control,
+          pickupitems: values.pickupitems, items_control: values.items_control,
+          timeouts: values.timeouts,
+        };
+        const existingIndex = demoProfiles.findIndex((profile) => profile.id === id);
+        if (existingIndex === -1) demoProfiles = [...demoProfiles, demoProfile];
+        else demoProfiles[existingIndex] = demoProfile;
+        hideForm();
+        renderProfiles(demoProfiles);
+        status.textContent = "仅在演示中模拟保存；刷新后恢复，未写入账号。";
+        return;
+      }
       if (editingId === null) {
         await keFetch<{ id: number }>("/api/v1/ke/profiles", {
           method: "POST",
@@ -3178,6 +3329,8 @@ export function mountKePage(root: HTMLElement): void {
       formError.hidden = false;
       formError.textContent =
         error instanceof Error ? error.message : "保存失败";
+    } finally {
+      sharingControls.setBusy(false);
     }
   }
 
@@ -3212,7 +3365,6 @@ export function mountKePage(root: HTMLElement): void {
   // —— 初始化 ——
 
   async function init(): Promise<void> {
-    const demo = new URLSearchParams(window.location.search).has("demo");
     // 并行加载职业图标映射；加载完后重绘角色卡，让 fallback 字首替换成真图标
     void loadPticonMap().then(() => {
       if (characters.length > 0) {
@@ -3243,9 +3395,9 @@ export function mountKePage(root: HTMLElement): void {
       selectedKey = firstKey;
       selectedJobId = characters[0]!.job_id ?? null;
       renderCharacterStrip();
-      status.textContent = "演示模式：未连接后端，改动不会保存。";
+      status.textContent = "演示模式：示例数据只在当前页面模拟，不会写入账号。";
       renderCharCard();
-      renderProfiles([]);
+      renderProfiles(demoProfiles);
       void openEditor(null);
       return;
     }
@@ -3259,12 +3411,20 @@ export function mountKePage(root: HTMLElement): void {
           "暂无已绑定角色。请先用 KoreEngine 登录角色，然后刷新本页。";
         return;
       }
-      selectedKey = `${characters[0]!.aid}:${characters[0]!.cid}:${characters[0]!.nid}`;
-      selectedJobId = characters[0]!.job_id ?? null;
+      const query = new URLSearchParams(window.location.search);
+      const target = characters.find((character) => character.aid === Number(query.get("aid"))
+        && character.cid === Number(query.get("cid")) && character.nid === Number(query.get("nid"))) ?? characters[0]!;
+      selectedKey = `${target.aid}:${target.cid}:${target.nid}`;
+      selectedJobId = target.job_id ?? null;
       status.textContent = "";
       renderCharacterStrip();
       renderCharCard();
       await reloadProfiles();
+      const requestedProfile = Number(query.get("profile"));
+      if (Number.isSafeInteger(requestedProfile) && requestedProfile > 0) {
+        const profileList = await keFetch<{ profiles: ProfileSummary[] }>(`/api/v1/ke/profiles?aid=${target.aid}&cid=${target.cid}&nid=${target.nid}`);
+        if (profileList.profiles.some((profile) => profile.id === requestedProfile)) await openEditor(requestedProfile);
+      }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("AUTH:")) {
         status.textContent = "请先登录账号，再回到本页配置挂机方案。";

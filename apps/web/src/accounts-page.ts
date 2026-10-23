@@ -1,5 +1,6 @@
 import { MarketApi, type MarketApiClient } from "./api";
 import { siteNavMarkup, mountSiteNav } from "./nav";
+import { injectLegalLinksIntoFooters } from "./footer-links";
 import type { LastroAccountData } from "./types";
 import {
   launchIwaClient,
@@ -171,7 +172,7 @@ export function mountAccountsPage(
 
   root.innerHTML = `
     <header class="site-header"><div class="topbar page-width">
-      <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
       ${siteNavMarkup("accounts")}
     </div></header>
     <main class="accounts-main page-width">
@@ -224,7 +225,7 @@ export function mountAccountsPage(
         <p id="accounts-status" class="accounts-status" role="status" aria-live="polite"></p>
       </section>
     </main>
-    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
 
     <div class="account-modal-overlay" id="account-modal" hidden>
       <div class="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
@@ -246,6 +247,7 @@ export function mountAccountsPage(
     </div>`;
 
   mountSiteNav(root);
+  injectLegalLinksIntoFooters(root);
 
   const grid = root.querySelector<HTMLElement>("#accounts-grid")!;
   const emptyState = root.querySelector<HTMLElement>("#accounts-empty")!;

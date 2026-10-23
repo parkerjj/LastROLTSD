@@ -101,6 +101,28 @@ const JOB_ALIASES = {
   Chaser: 'Shadow Chaser',
 };
 
+const HALL_JOB_FAMILIES = [
+  { value: 'knight', label: '骑士系', category: '二阶职业系', root: 'Knight', baseJobs: ['Novice', 'Swordsman', 'High Novice', 'High Swordsman'] },
+  { value: 'crusader', label: '十字军系', category: '二阶职业系', root: 'Crusader', baseJobs: ['Novice', 'Swordsman', 'High Novice', 'High Swordsman'] },
+  { value: 'priest', label: '牧师系', category: '二阶职业系', root: 'Priest', baseJobs: ['Novice', 'Acolyte', 'High Novice', 'High Acolyte'] },
+  { value: 'monk', label: '武僧系', category: '二阶职业系', root: 'Monk', baseJobs: ['Novice', 'Acolyte', 'High Novice', 'High Acolyte'] },
+  { value: 'wizard', label: '巫师系', category: '二阶职业系', root: 'Wizard', baseJobs: ['Novice', 'Mage', 'High Novice', 'High Magician'] },
+  { value: 'sage', label: '贤者系', category: '二阶职业系', root: 'Sage', baseJobs: ['Novice', 'Mage', 'High Novice', 'High Magician'] },
+  { value: 'hunter', label: '猎人系', category: '二阶职业系', root: 'Hunter', baseJobs: ['Novice', 'Archer', 'High Novice', 'High Archer'] },
+  { value: 'bard', label: '吟游诗人系', category: '二阶职业系', root: 'Bard', baseJobs: ['Novice', 'Archer', 'High Novice', 'High Archer'] },
+  { value: 'dancer', label: '舞娘系', category: '二阶职业系', root: 'Dancer', baseJobs: ['Novice', 'Archer', 'High Novice', 'High Archer'] },
+  { value: 'blacksmith', label: '铁匠系', category: '二阶职业系', root: 'Blacksmith', baseJobs: ['Novice', 'Merchant', 'High Novice', 'High Merchant'] },
+  { value: 'alchemist', label: '炼金术士系', category: '二阶职业系', root: 'Alchemist', baseJobs: ['Novice', 'Merchant', 'High Novice', 'High Merchant'] },
+  { value: 'assassin', label: '刺客系', category: '二阶职业系', root: 'Assassin', baseJobs: ['Novice', 'Thief', 'High Novice', 'High Thief'] },
+  { value: 'rogue', label: '流氓系', category: '二阶职业系', root: 'Rogue', baseJobs: ['Novice', 'Thief', 'High Novice', 'High Thief'] },
+  { value: 'super-novice', label: '超级初心者系', category: 'EX职业系', root: 'Super Novice', baseJobs: ['Novice'] },
+  { value: 'gunslinger', label: '枪手系', category: 'EX职业系', root: 'Gunslinger', baseJobs: ['Novice'] },
+  { value: 'ninja', label: '忍者系', category: 'EX职业系', root: 'Ninja', baseJobs: ['Novice'] },
+  { value: 'star-gladiator', label: '拳圣系', category: 'EX职业系', root: 'Star Gladiator', baseJobs: ['Novice', 'Taekwon'] },
+  { value: 'soul-linker', label: '灵媒系', category: 'EX职业系', root: 'Soul Linker', baseJobs: ['Novice', 'Taekwon'] },
+  { value: 'summoner', label: '召唤师系', category: 'EX职业系', root: 'Summoner', baseJobs: [] },
+];
+
 const TIER_LABELS = ['通用技能', '一转技能', '二转技能', '三转技能', '四转技能'];
 const OTHER_SKILL_LABEL = '其他技能';
 const NOVICE_SHARED_SKILLS = new Set(['NV_BASIC', 'NV_FIRSTAID']);
@@ -205,6 +227,19 @@ function jobLineage(jobName) {
     name = entry.parent;
   }
   return lineage;
+}
+
+export function buildHallJobFamilies(jobs) {
+  return HALL_JOB_FAMILIES.map((family) => {
+    const job_ids = Object.entries(jobs)
+      .filter(([, name]) => {
+        const canonical = canonicalJobName(name);
+        return family.baseJobs.includes(canonical) || jobLineage(name).includes(family.root);
+      })
+      .map(([id]) => Number(id))
+      .sort((a, b) => a - b);
+    return { value: family.value, label: family.label, category: family.category, job_ids };
+  }).filter((family) => family.job_ids.length > 0);
 }
 
 function skillPrefix(skill) {
