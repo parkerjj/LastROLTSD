@@ -2,9 +2,9 @@
 
 日期：2026-10-23
 
-开发分支：`codex/ke-profile-hall`
+开发分支：`codex/profile-hall`
 
-状态：完整设计待确认；尚未进入产品实现。
+状态：用户已确认设计和交互草图，进入实施。
 
 需求来源：[需求确认记录](requirements.md)。
 
