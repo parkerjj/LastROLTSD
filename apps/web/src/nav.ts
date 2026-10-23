@@ -2,7 +2,7 @@ import { mountAuthNav } from './auth/nav';
 import type { AuthApiClient } from './auth/api';
 import type { AuthStore } from './auth/store';
 
-export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors";
+export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors" | "hall";
 
 interface NavEntry {
   readonly page: SitePage;
@@ -30,15 +30,13 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     href: "/client",
     label: "进阶客户端",
     icon: "ph-rocket-launch",
-    isNew: true,
   },
   {
     page: "guestbook",
     href: "/guestbook",
-    label: "玩家登记簿",
+    label: "留言板",
     icon: "ph-address-book",
   },
-  { page: "updates", href: "/updates", label: "更新说明", icon: "ph-scroll" },
   {
     page: "sponsors",
     href: "/sponsor",
@@ -66,10 +64,14 @@ const mountedNavs = new WeakSet<HTMLElement>();
  * 搜索页自身的「搜索市场」链接使用页内锚点 #search。
  * active 传 null 表示当前页面不属于任何导航项（如账号系统页面），无高亮项。
  */
-export function siteNavMarkup(active: SitePage | null): string {
+export function siteNavMarkup(active: SitePage | null, demo = false): string {
   const items = NAV_ENTRIES.map((entry) => {
     const href =
-      entry.page === "search" && active === "search" ? "#search" : entry.href;
+      entry.page === "search" && active === "search"
+        ? "#search"
+        : entry.page === "hall" && demo
+          ? `${entry.href}?demo=1`
+          : entry.href;
     const isActive = entry.page === active;
     const current =
       isActive && active !== "search" ? ' aria-current="page"' : "";

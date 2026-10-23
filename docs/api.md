@@ -24,6 +24,50 @@ Unverified users can sign in as `PENDING_EMAIL`, read their own session, update 
 
 JSON bodies for ordinary account operations are limited to 8 KiB. Registration and avatar writes are limited to 64 KiB. Passwords are 5–256 Unicode code points and are not trimmed; display names are trimmed to 1–32 code points. An avatar is plain Base64 for one static 256×256 WebP image, at most 32 KiB (43,692 Base64 characters); do not send a data URL, animation, or original image. GET only renders an action form; email verification or password reset consumes its one-use token on POST.
 
+## KE configuration profiles and hall
+
+The KE editor and profile hall use the signed-in web session. `PENDING_EMAIL` and `ACTIVE` accounts may use them regardless of `permission_level`; email verification and KE runtime entitlements are not required. Disabled accounts and expired or revoked sessions remain blocked. Responses use `Cache-Control: no-store`. Write requests require an `Origin` matching `AUTH_SITE_URL`.
+
+The existing personal profile routes remain compatible. `POST /api/v1/ke/profiles` keeps its `{ "id": number }` response and `PUT /api/v1/ke/profiles/:id` keeps its `204` response. Either request may include:
+
+```json
+{
+  "sharing": {
+    "enabled": true,
+    "description": "可留空的使用说明"
+  }
+}
+```
+
+When `enabled` is true, the same transaction saves the personal profile and publishes or updates its shared snapshot. The title comes from the personal profile name. The first publication receives a unique `ABC-1234` share code; updates and recovery after withdrawal keep that code and existing counts. An omitted description is empty on first publication and preserves the previous value on update; an explicit empty string clears it. Description is limited to 16 KiB of UTF-8. `sharing` omitted by an older client or `enabled: false` saves only the personal profile and leaves an existing shared snapshot unchanged. `GET /api/v1/ke/profiles` adds nullable sharing metadata; `GET /api/v1/ke/profiles/:id` also returns the description. Deleting the source profile withdraws its shared snapshot in the same transaction.
+
+| Method and path | Behavior |
+| --- | --- |
+| `GET /api/v1/ke/shared-profiles?sort=newest&job_id=...&page=1` | Published summaries only; `sort` is `newest`, `uses`, or `likes`; 20 results per page. `job_id` filters the author's saved job snapshot. |
+| `GET /api/v1/ke/shared-profiles/code/:code` | Find by share code; case and optional hyphen are normalized. |
+| `GET /api/v1/ke/shared-profiles/:id` | Read the summary and the five configuration files. Withdrawn and missing entries both return 404. |
+| `DELETE /api/v1/ke/shared-profiles/:id/withdraw` | Withdraw one of the caller's published entries from the hall; the saved source profile remains available for republishing. |
+| `PUT /api/v1/ke/shared-profiles/:id/like` / `DELETE .../like` | Add or cancel the caller's one like; repeated requests are idempotent. Authors cannot like their own entry. |
+| `POST /api/v1/ke/shared-profiles/:id/copy` | Copy to a caller-owned bound role; body and response below. |
+| `DELETE /api/v1/ke/profiles/:id/sharing` | Withdraw the source profile's shared entry; saving the editor checkbox checked later restores it. |
+
+The list response contains `{ "items": [...], "page": 1, "page_size": 20, "total": 1 }`. Each item includes `id`, `title`, `description`, `job_id`, `author: { id, display_name }`, `share_code`, `like_count`, `use_count`, `liked_by_me`, `used_by_me`, `is_mine`, `created_at`, and `updated_at`. It omits the five file bodies and source role identifiers. `job_id` is only a search filter; copying across jobs is allowed.
+
+Copy uses a UUID `request_id` so a retry of the same operation returns the original profile rather than creating another one:
+
+```json
+{
+  "aid": 10000,
+  "cid": 2,
+  "nid": 3,
+  "request_id": "11111111-1111-4111-8111-111111111111"
+}
+```
+
+A successful first copy returns `201` and `{ "profile_id": 42, "name": "方案", "use_count": 1, "duplicate": false }`; replaying the same request returns `200` with `duplicate: true`. The copy is inactive and independent of later source updates. Repeated copies by the same account increase `use_count` only once. The author's own copies do not count. Name collisions receive a numbered suffix; a character's existing 20-profile limit still applies.
+
+The shared-profile writes use account-scoped limits of 60 copies per hour and 300 likes or publish/update/withdraw operations per hour; a limit returns `429 KE_RATE_LIMITED`. Other notable errors are `403 KE_SHARED_SELF_LIKE`, `404 KE_SHARED_PROFILE_NOT_FOUND`, `409 KE_COPY_REQUEST_CONFLICT`, `409 KE_PROFILE_LIMIT_REACHED`, and `503 KE_SHARE_CODE_EXHAUSTED`.
+
 ## Upload
 
 `POST /api/v1/market/upload` requires `Authorization: Bearer <source-api-key>`, `Content-Type: application/json`, and `Idempotency-Key: <snapshot_id/part_index>`. The authenticated API key determines `source_id`; a JSON `source_id` is never trusted. The body is limited to 512 KiB and each snapshot has at most 64 parts (indexes 0 through 63).

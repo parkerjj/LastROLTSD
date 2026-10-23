@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eee8dc">
+  <title>配置大厅 · 露天商店.Ro · 交互草图</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="preview-bar">
+    <span>交互草图 <span class="preview-note">· 示例数据，操作不会保存到账号</span></span>
+    <label for="scene">查看场景 <select id="scene"><option value="hall">配置大厅</option><option value="new">编辑页 · 首次分享</option><option value="shared">编辑页 · 已经分享</option><option value="empty">大厅 · 无匹配结果</option><option value="error">大厅 · 加载失败</option><option value="login">大厅 · 尚未登录</option></select></label>
+  </div>
+  <header class="site-header">
+    <div class="topbar wrap">
+      <a class="brand" href="?scene=hall" aria-label="露天商店.Ro 配置大厅"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <nav aria-label="主导航"><a href="http://127.0.0.1:5173/" class="market-link">市场查询</a><a href="?scene=hall" data-nav="hall" aria-current="page">配置大厅</a><a href="?scene=shared" data-nav="editor">我的配置</a></nav>
+      <span class="user-name"><span class="user-dot"></span>波利猎人</span>
+    </div>
+  </header>
+  <main class="wrap" id="main"></main>
+  <footer class="wrap page-footer"><span>露天商店.Ro <span class="footer-dot">·</span> 玩家分享的挂机方案</span><span>配置仅供参考，启用前请按自己的角色调整。</span></footer>
+  <dialog id="modal" aria-labelledby="modal-title"></dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

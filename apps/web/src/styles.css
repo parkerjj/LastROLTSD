@@ -197,6 +197,23 @@ a:focus-visible {
   letter-spacing: .13em;
 }
 
+/* LTSD 品牌 Logo 徽标：完整贴纸素材，沿用旧版 RO 徽章的斜角贴纸性格 */
+.brand-mark--logo {
+  width: 46px;
+  height: 46px;
+  background: transparent;
+  border: 0;
+  transform: rotate(-3deg);
+  filter: drop-shadow(0 3px 5px rgba(74, 57, 35, .28));
+}
+
+.brand-mark--logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .site-nav {
   display: flex;
   align-items: stretch;
@@ -536,6 +553,23 @@ body.password-open .login-dialog { transform: none; }
 .login-dialog-close:hover:not(:disabled) { border-color: var(--line); background: #fffdf8; color: var(--forest); }
 .login-dialog-close .ph { font-size: 15px; }
 .login-dialog-eyebrow { margin: 0; color: var(--gold); font-size: .62rem; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+
+/* 账号弹窗顶部：圆形波利头像（favicon 特写素材），文档流内居中，避免被弹窗 overflow 裁切 */
+.login-dialog-brand {
+  display: flex;
+  justify-content: center;
+  margin: -4px 0 -2px;
+}
+
+.login-dialog-brand img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border: 3px solid #fffdf8;
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(74, 57, 35, .22);
+  object-fit: cover;
+}
 .login-dialog-title { margin: 0; color: var(--forest-deep); font-family: Georgia, "Microsoft YaHei", serif; font-size: 1.32rem; letter-spacing: .04em; }
 .login-dialog-sub { margin: -5px 0 3px; color: var(--muted); font-size: .76rem; line-height: 1.7; }
 #dialog-login-form,
@@ -4824,6 +4858,12 @@ mark {
   width: 29px;
   height: 29px;
   font-size: .65rem;
+}
+
+/* 页脚 Logo 徽标较页头缩小，须置于 .footer-brand .brand-mark 之后以同特异性覆盖尺寸 */
+.footer-brand .brand-mark--logo {
+  width: 38px;
+  height: 38px;
 }
 
 .footer-inner p {
@@ -10503,5 +10543,249 @@ a.sponsor-honor-card:hover {
 
   .vip-status-card {
     max-width: none;
+  }
+}
+
+/* ============================================================
+ * Legal pages (/terms, /privacy, /refunds)
+ * 法律页面样式 — 白色简洁风格，与全站一致
+ * ============================================================ */
+
+.legal-page {
+  padding: 32px 0 56px;
+  max-width: 860px;
+}
+
+.legal-breadcrumb {
+  margin: 0 0 24px;
+  font-size: 0.78rem;
+  color: var(--muted, #7a7a7a);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.legal-breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.legal-breadcrumb a:hover {
+  color: var(--gold, #b8860b);
+}
+
+.legal-hero {
+  border-bottom: 1px solid var(--border, #e5e5e5);
+  padding: 0 0 28px;
+  margin: 0 0 32px;
+}
+
+.legal-hero .eyebrow {
+  margin-bottom: 10px;
+}
+
+.legal-hero h1 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+  margin: 0 0 14px;
+  font-weight: 700;
+  color: var(--ink, #1a1a1a);
+}
+
+.legal-hero h1 span {
+  color: var(--gold, #b8860b);
+}
+
+.legal-subtitle {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--ink, #1a1a1a);
+}
+
+.legal-subtitle-zh {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--muted, #7a7a7a);
+}
+
+.legal-updated {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted, #7a7a7a);
+}
+
+.legal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.legal-section {
+  padding: 0;
+}
+
+.legal-section h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--ink, #1a1a1a);
+  letter-spacing: 0.01em;
+}
+
+.legal-section h3.legal-subheading {
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin: 18px 0 6px;
+  color: var(--gold, #b8860b);
+}
+
+.legal-section p {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  line-height: 1.75;
+  color: var(--ink, #1a1a1a);
+}
+
+.legal-section p strong {
+  color: var(--gold, #b8860b);
+  font-weight: 600;
+}
+
+.legal-section ul,
+.legal-section ol {
+  margin: 4px 0 12px;
+  padding-left: 22px;
+}
+
+.legal-section li {
+  font-size: 0.88rem;
+  line-height: 1.75;
+  color: var(--ink, #1a1a1a);
+  margin: 0 0 5px;
+}
+
+.legal-section code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.82rem;
+  background: var(--card, #f7f7f7);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border, #e5e5e5);
+  color: var(--ink, #1a1a1a);
+}
+
+.legal-section a {
+  color: var(--gold, #b8860b);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: inherit;
+}
+
+.legal-section a:hover {
+  color: var(--ink, #1a1a1a);
+}
+
+/* GDPR 法律依据表 / 数据保留表 */
+.legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 14px;
+  font-size: 0.82rem;
+}
+
+.legal-table th,
+.legal-table td {
+  border: 1px solid var(--border, #e5e5e5);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.legal-table thead th {
+  background: var(--card, #f7f7f7);
+  font-weight: 600;
+  color: var(--ink, #1a1a1a);
+  font-size: 0.78rem;
+}
+
+.legal-table tbody tr:nth-child(even) {
+  background: var(--card, #f7f7f7);
+}
+
+/* 运营方实体信息定义列表 */
+.legal-section--entity {
+  background: var(--card, #fafafa);
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin-top: 16px;
+}
+
+.legal-section--entity h2 {
+  color: var(--gold, #b8860b);
+}
+
+.legal-entity-dl {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.legal-entity-dl dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted, #7a7a7a);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-top: 3px;
+}
+
+.legal-entity-dl dd {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--ink, #1a1a1a);
+}
+
+.legal-entity-dl dd a {
+  font-size: inherit;
+}
+
+/* 响应式：窄屏把实体信息改成单列 */
+@media (max-width: 600px) {
+  .legal-page {
+    padding: 20px 0 40px;
+  }
+
+  .legal-hero h1 {
+    font-size: 1.4rem;
+  }
+
+  .legal-section {
+    gap: 18px;
+  }
+
+  .legal-entity-dl {
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+  }
+
+  .legal-entity-dl dt {
+    padding-top: 6px;
+  }
+
+  .legal-table {
+    font-size: 0.75rem;
+  }
+
+  .legal-table th,
+  .legal-table td {
+    padding: 5px 6px;
   }
 }

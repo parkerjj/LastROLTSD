@@ -58,6 +58,12 @@ WHERE name IN ('008_item_catalog_fulltext.sql', '009_read_query_indexes.sql');
 
 The first three queries should show the columns and order described above. The final query only shows the two migration tracking rows **after** a successful deploy. Manual index creation alone does not add tracking rows.
 
+## KE profile hall schema
+
+`migrations/mysql/019_ke_shared_profiles.sql` adds `ke_shared_profiles`, `ke_shared_profile_likes`, `ke_shared_profile_uses`, and `ke_shared_profile_copies`. Shared rows store an independent snapshot of all five configuration files, the author's job id at publication time, a unique case-sensitive share code, lifecycle status, and cached counts. Supporting tables enforce one like and one counted use per account, plus one idempotency receipt per account and request UUID. The migration adds no data backfill and does not publish existing personal profiles.
+
+The migration runner applies `019` after the existing migrations and records its checksum. Run `pnpm db:mysql:migrate` before deploying code that requires the profile hall. Source-profile deletion keeps the shared snapshot for history, withdraws it transactionally, and clears only its source reference; copied personal profiles remain independent. This version has no down migration or automated shared-content retention. If application code needs to be rolled back, keep the tables and use a reviewed forward repair or an approved database restore; do not drop these tables or remove the migration tracker to retry.
+
 ## Cutover and rollback boundary
 
 Only after a successful MySQL validation should the GitHub production deployment set the Worker `MYSQL_URL` secret and deploy. Verify `/api/health` returns `db: "ok"`, then perform a controlled upload/search/history smoke test.

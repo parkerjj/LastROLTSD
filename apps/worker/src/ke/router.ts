@@ -15,6 +15,10 @@ import { createKeRepository, type KeRepository } from './repository';
 import { createKeService, type Attestation, type BindInput, type StartInput } from './service';
 import { createProfileRepository, type ProfileInput, type ProfileRepository } from './profile-repository';
 import { createProfileService } from './profile-service';
+import { createSharedProfileRepository } from './shared-profile-repository';
+import { createSharedProfileService, type SharedProfileService } from './shared-profile-service';
+import { HALL_RATE_LIMITS, registerSharedProfileRoutes } from './shared-profile-router';
+import type { ProfileSharingInput } from './shared-profile-types';
 import { createTokenRepository, type TokenRepository } from './token-repository';
 import { createTokenService } from './token-service';
 import { KeFailure, type CharacterReport, type KeLicenseMode } from './types';
@@ -127,6 +131,16 @@ function parseControlText(value: unknown, fallback: string): string {
 }
 
 export function parseProfileInput(body: Record<string, unknown>): ProfileInput {
+  let sharing: ProfileSharingInput | undefined;
+  if (body.sharing !== undefined) {
+    const value = body.sharing;
+    if (value === null || typeof value !== 'object' || Array.isArray(value)
+      || !('enabled' in value) || typeof value.enabled !== 'boolean'
+      || ('description' in value && typeof value.description !== 'string')) {
+      throw new KeFailure('KE_BAD_REQUEST', 400, '共享配置字段无效');
+    }
+    sharing = { enabled: value.enabled, ...('description' in value ? { description: value.description as string } : {}) };
+  }
   return {
     name: typeof body.name === 'string' ? body.name : '',
     config_text: typeof body.config_text === 'string' ? body.config_text : '',
@@ -134,6 +148,7 @@ export function parseProfileInput(body: Record<string, unknown>): ProfileInput {
     pickupitems: parseControlText(body.pickupitems, DEFAULT_CONTROL_TEXT.pickupitems),
     items_control: parseControlText(body.items_control, DEFAULT_CONTROL_TEXT.items_control),
     timeouts: typeof body.timeouts === 'string' ? body.timeouts : null,
+    ...(sharing === undefined ? {} : { sharing }),
   };
 }
 
@@ -196,6 +211,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   let keRepository: KeRepository | null = null;
   let profileRepository: ProfileRepository | null = null;
   let tokenRepository: TokenRepository | null = null;
+  let sharedProfileService: SharedProfileService | null = null;
   let authConfig: EnabledAuthConfig | null | undefined;
   let keConfig: KeConfig | null = null;
   let keConfigResolved = false;
@@ -219,6 +235,20 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     if (tokenRepository === null) tokenRepository = createTokenRepository(database);
     return { authConfig, authRepository, keRepository, profileRepository, tokenRepository };
   };
+
+  registerSharedProfileRoutes(app, {
+    setup: () => {
+      const handlers = setup();
+      if (!handlers || database === undefined) return null;
+      sharedProfileService ??= createSharedProfileService(createSharedProfileRepository(database), authRuntime.now);
+      return { ...handlers, sharedProfileService };
+    },
+    runtime: authRuntime,
+    readJson: readKeJson,
+    rateLimit: assertKeRateLimit,
+    failure: routeFailure,
+    unavailable,
+  });
 
   // 仅授权端点（bind/start/heartbeat/stop）依赖 license 私钥与 K_core；Profile/角色列表只依赖账号体系，
   // 因此 KE 密钥未配置或配置有误时，配置编辑器仍可使用。
@@ -451,7 +481,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
       const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
       const { aid, cid, nid } = parseCharacterQuery(c);
       const profiles = await createProfileService(handlers.profileRepository, authRuntime.now).list(identity.userId, aid, cid, nid);
-      return c.json({ profiles: profiles.map((profile) => ({ id: profile.id, name: profile.name, is_active: profile.is_active })) }, 200, { 'cache-control': 'no-store' });
+      return c.json({ profiles: profiles.map((profile) => ({ id: profile.id, name: profile.name, is_active: profile.is_active, sharing: profile.sharing ?? null })) }, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
     }
@@ -487,9 +517,11 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     if (!handlers) return unavailable(c);
     try {
       const body = await readKeJson(c.req.raw, env.MAX_BODY_BYTES);
+      const input = parseProfileInput(body);
+      if (input.sharing?.enabled) assertTrustedWriteOrigin(c.req.raw, handlers.authConfig);
       const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
       const { aid, cid, nid } = parseCharacterReport(body);
-      const input = parseProfileInput(body);
+      if (input.sharing?.enabled) await assertKeRateLimit(handlers, { kind: 'action', value: `user:${identity.userId}` }, HALL_RATE_LIMITS.share, authRuntime.now);
       const result = await createProfileService(handlers.profileRepository, authRuntime.now).create(identity.userId, aid, cid, nid, input);
       return c.json(result, 201, { 'cache-control': 'no-store' });
     } catch (error) {
@@ -502,8 +534,10 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     if (!handlers) return unavailable(c);
     try {
       const body = await readKeJson(c.req.raw, env.MAX_BODY_BYTES);
-      const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
       const input = parseProfileInput(body);
+      if (input.sharing?.enabled) assertTrustedWriteOrigin(c.req.raw, handlers.authConfig);
+      const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
+      if (input.sharing?.enabled) await assertKeRateLimit(handlers, { kind: 'action', value: `user:${identity.userId}` }, HALL_RATE_LIMITS.share, authRuntime.now);
       await createProfileService(handlers.profileRepository, authRuntime.now).update(identity.userId, parseRowId(c.req.param('id')), input);
       return c.newResponse(null, 204, { 'cache-control': 'no-store' });
     } catch (error) {

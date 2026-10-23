@@ -1,9 +1,9 @@
-import { AuthApiError, type AuthApiClient } from './api';
-import { mountAvatarEditor, type AvatarEditor } from './avatar-editor';
-import { mountSiteNav, siteNavMarkup } from '../nav';
-import { tierBadge } from '../tier';
-import type { AuthStore, AuthStoreState } from './store';
-import type { AccountProfile } from './types';
+import { AuthApiError, type AuthApiClient } from "./api";
+import { mountAvatarEditor, type AvatarEditor } from "./avatar-editor";
+import { mountSiteNav, siteNavMarkup } from "../nav";
+import { tierBadge } from "../tier";
+import type { AuthStore, AuthStoreState } from "./store";
+import type { AccountProfile } from "./types";
 import {
   acceptedMessage,
   authErrorMessage,
@@ -14,22 +14,19 @@ import {
   setText,
   validatePassword,
   value,
-} from './utils';
+} from "./utils";
 
 const ADMIN_PERMISSION_LEVEL = 100;
 
-const AUTH_PATHS = new Set([
-  '/verify-email',
-  '/reset-password',
-  '/account',
-]);
+const AUTH_PATHS = new Set(["/verify-email", "/reset-password", "/account"]);
 
 type Cleanup = () => void;
 
 export function isAuthPage(pathname: string): boolean {
-  const normalized = pathname.length > 1 && pathname.endsWith('/')
-    ? pathname.slice(0, -1)
-    : pathname;
+  const normalized =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
   return AUTH_PATHS.has(normalized);
 }
 
@@ -44,9 +41,10 @@ export function mountAuthPage(
 
   // Email links use a fragment; query support is kept for older links. Clear both
   // before navigation chrome or any page behavior can run.
-  let actionToken = pathname === '/verify-email' || pathname === '/reset-password'
-    ? takeActionToken(pathname)
-    : null;
+  let actionToken =
+    pathname === "/verify-email" || pathname === "/reset-password"
+      ? takeActionToken(pathname)
+      : null;
   let active = true;
   let identityEpoch = 0;
   const cleanups: Cleanup[] = [];
@@ -64,32 +62,43 @@ export function mountAuthPage(
     listener: (event: HTMLElementEventMap[K]) => void,
   ): void => {
     target.addEventListener(type, listener as EventListener);
-    cleanups.push(() => target.removeEventListener(type, listener as EventListener));
+    cleanups.push(() =>
+      target.removeEventListener(type, listener as EventListener),
+    );
   };
 
   const clearDrafts = (): void => {
     clearPasswordFields(root);
-    const name = root.querySelector<HTMLInputElement>('#auth-display-name');
+    const name = root.querySelector<HTMLInputElement>("#auth-display-name");
     if (name) {
-      name.value = '';
+      name.value = "";
       delete name.dataset.dirty;
     }
-    root.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ''; });
+    root
+      .querySelectorAll<HTMLInputElement>('input[type="file"]')
+      .forEach((input) => {
+        input.value = "";
+      });
     accountAvatarEditor?.destroy();
     accountAvatarEditor = null;
     accountAvatarEditorKey = null;
     accountAvatarSaving = false;
     accountAvatarSelected = false;
     accountAvatarProcessing = false;
-    const deleteConfirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation');
+    const deleteConfirmation = root.querySelector<HTMLElement>(
+      "#account-avatar-delete-confirmation",
+    );
     if (deleteConfirmation) deleteConfirmation.hidden = true;
-    const avatarStatus = root.querySelector<HTMLElement>('#account-avatar-status');
-    if (avatarStatus) avatarStatus.textContent = '';
+    const avatarStatus = root.querySelector<HTMLElement>(
+      "#account-avatar-status",
+    );
+    if (avatarStatus) avatarStatus.textContent = "";
   };
 
   const unsubscribe = store.subscribe((state, event) => {
     if (!active) return;
-    const identityChanged = event?.type === 'identity-changed' && event.clearDrafts;
+    const identityChanged =
+      event?.type === "identity-changed" && event.clearDrafts;
     if (identityChanged) {
       identityEpoch += 1;
       clearDrafts();
@@ -106,109 +115,130 @@ export function mountAuthPage(
 
   const currentUserId = (): string | null => {
     const state = store.getState();
-    return state.status === 'pending' || state.status === 'active' ? state.user.id : null;
+    return state.status === "pending" || state.status === "active"
+      ? state.user.id
+      : null;
   };
 
-  const setFormStatus = (form: HTMLFormElement | null, message: string): void => {
-    const status = form?.querySelector<HTMLElement>('[data-auth-status]');
+  const setFormStatus = (
+    form: HTMLFormElement | null,
+    message: string,
+  ): void => {
+    const status = form?.querySelector<HTMLElement>("[data-auth-status]");
     if (status) status.textContent = message;
   };
 
   const submitButton = (form: HTMLFormElement, busy: boolean): void => {
-    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    const button = form.querySelector<HTMLButtonElement>(
+      'button[type="submit"]',
+    );
     if (button) button.disabled = busy;
-    form.setAttribute('aria-busy', String(busy));
+    form.setAttribute("aria-busy", String(busy));
   };
 
   const handleError = authErrorMessage;
 
   const renderAccountState = (state: Readonly<AuthStoreState>): void => {
-    const shell = root.querySelector<HTMLElement>('#account-content');
-    const guide = root.querySelector<HTMLElement>('#account-login-guide');
-    const unavailable = root.querySelector<HTMLElement>('#account-unavailable');
-    const profile = root.querySelector<HTMLElement>('#account-profile');
-    const retry = root.querySelector<HTMLButtonElement>('[data-auth-retry]');
+    const shell = root.querySelector<HTMLElement>("#account-content");
+    const guide = root.querySelector<HTMLElement>("#account-login-guide");
+    const unavailable = root.querySelector<HTMLElement>("#account-unavailable");
+    const profile = root.querySelector<HTMLElement>("#account-profile");
+    const retry = root.querySelector<HTMLButtonElement>("[data-auth-retry]");
     if (!shell || !guide || !unavailable || !profile || !retry) return;
 
     guide.hidden = true;
     unavailable.hidden = true;
     profile.hidden = true;
     retry.hidden = true;
-    if (state.status !== 'pending' && state.status !== 'active') {
+    if (state.status !== "pending" && state.status !== "active") {
       accountAvatarEditor?.destroy();
       accountAvatarEditor = null;
       accountAvatarEditorKey = null;
       accountHasStoredAvatar = false;
     }
-    if (state.status === 'loading') {
-      shell.textContent = '正在读取账号状态…';
+    if (state.status === "loading") {
+      shell.textContent = "正在读取账号状态…";
       return;
     }
-    if (state.status === 'anonymous') {
-      shell.textContent = '';
+    if (state.status === "anonymous") {
+      shell.textContent = "";
       guide.hidden = false;
       return;
     }
-    if (state.status === 'error' || state.status === 'disabled') {
-      shell.textContent = '';
+    if (state.status === "error" || state.status === "disabled") {
+      shell.textContent = "";
       unavailable.hidden = false;
-      unavailable.querySelector<HTMLElement>('[data-account-error]')!.textContent = state.message;
+      unavailable.querySelector<HTMLElement>(
+        "[data-account-error]",
+      )!.textContent = state.message;
       retry.hidden = false;
       return;
     }
 
-    shell.textContent = '';
+    shell.textContent = "";
     profile.hidden = false;
     const { user } = state;
-    setText(root, '#account-id', user.id);
-    setText(root, '#account-email', user.email);
-    setText(root, '#account-created', formatTimestamp(user.created_at));
+    setText(root, "#account-id", user.id);
+    setText(root, "#account-email", user.email);
+    setText(root, "#account-created", formatTimestamp(user.created_at));
     renderEmailStatus(state, user);
     renderAccountTier(user);
-    setText(root, '#account-avatar-placeholder', initials(user.display_name));
+    setText(root, "#account-avatar-placeholder", initials(user.display_name));
 
-    setText(root, '#account-display-name', user.display_name);
+    setText(root, "#account-display-name", user.display_name);
     renderAccountAvatar(user);
     ensureAccountAvatarEditor(user);
-    const passwordLink = root.querySelector<HTMLElement>('#account-password-link');
-    if (passwordLink) passwordLink.hidden = user.status !== 'ACTIVE';
-    const pendingMessage = root.querySelector<HTMLElement>('#account-pending-message');
-    if (pendingMessage) pendingMessage.hidden = user.status !== 'PENDING_EMAIL';
+    const passwordLink = root.querySelector<HTMLElement>(
+      "#account-password-link",
+    );
+    if (passwordLink) passwordLink.hidden = user.status !== "ACTIVE";
+    const pendingMessage = root.querySelector<HTMLElement>(
+      "#account-pending-message",
+    );
+    if (pendingMessage) pendingMessage.hidden = user.status !== "PENDING_EMAIL";
   };
 
   // 删除头像沿用 AC-24 契约（版本更新，NULL 回默认头像）；紧凑布局下与「保存头像」并排，仅在已有头像时出现
   function renderAccountAvatar(user: AccountProfile): void {
     accountHasStoredAvatar = user.has_avatar;
-    const image = root.querySelector<HTMLImageElement>('#account-avatar-image');
+    const image = root.querySelector<HTMLImageElement>("#account-avatar-image");
     if (image) {
       image.hidden = !user.has_avatar;
-      image.alt = '账号头像';
+      image.alt = "账号头像";
       image.src = user.avatar_url;
     }
-    const placeholder = root.querySelector<HTMLElement>('#account-avatar-placeholder');
+    const placeholder = root.querySelector<HTMLElement>(
+      "#account-avatar-placeholder",
+    );
     if (placeholder) {
       placeholder.hidden = user.has_avatar;
       placeholder.textContent = initials(user.display_name);
     }
-    const remove = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    const remove = root.querySelector<HTMLButtonElement>(
+      "#account-avatar-delete",
+    );
     if (remove) remove.hidden = !user.has_avatar;
   }
 
   // 邮箱状态只展示三种形态：已验证 / 未验证 / 未验证且邮件发送额度用完（追加额度提示）
-  function renderEmailStatus(state: Readonly<AuthStoreState>, user: AccountProfile): void {
-    const target = root.querySelector<HTMLElement>('#account-verified');
+  function renderEmailStatus(
+    state: Readonly<AuthStoreState>,
+    user: AccountProfile,
+  ): void {
+    const target = root.querySelector<HTMLElement>("#account-verified");
     if (!target) return;
-    const verified = user.status === 'ACTIVE';
+    const verified = user.status === "ACTIVE";
     target.replaceChildren();
-    const status = target.ownerDocument.createElement('span');
-    status.textContent = verified ? '已验证' : '未验证';
+    const status = target.ownerDocument.createElement("span");
+    status.textContent = verified ? "已验证" : "未验证";
     target.append(status);
-    const quotaNote = state.status === 'pending' && state.mailAvailability
-      ? formatMailAvailability(state.mailAvailability, 'verify')
-      : '';
+    const quotaNote =
+      state.status === "pending" && state.mailAvailability
+        ? formatMailAvailability(state.mailAvailability, "verify")
+        : "";
     if (!verified && quotaNote) {
-      const note = target.ownerDocument.createElement('small');
-      note.className = 'auth-email-status-note';
+      const note = target.ownerDocument.createElement("small");
+      note.className = "auth-email-status-note";
       note.textContent = quotaNote;
       target.append(note);
     }
@@ -216,18 +246,21 @@ export function mountAuthPage(
 
   // 账号等级与留言板共用同一套 permission_level 映射（0 萌新 / 1 正式 / 2 赞助 / >=100 管理员）
   function renderAccountTier(user: AccountProfile): void {
-    setText(root, '#account-tier', tierBadge(user.permission_level).label);
+    setText(root, "#account-tier", tierBadge(user.permission_level).label);
     // 管理员入口只是便利：后台接口由服务端再次校验管理员身份，这里隐藏并不构成访问控制。
-    const adminLink = root.querySelector<HTMLElement>('#account-admin-link');
-    if (adminLink) adminLink.hidden = user.permission_level < ADMIN_PERMISSION_LEVEL;
+    const adminLink = root.querySelector<HTMLElement>("#account-admin-link");
+    if (adminLink)
+      adminLink.hidden = user.permission_level < ADMIN_PERMISSION_LEVEL;
   }
 
   function updateAvatarActions(selected: boolean, processing: boolean): void {
     accountAvatarSelected = selected;
     accountAvatarProcessing = processing;
-    const save = root.querySelector<HTMLButtonElement>('#account-avatar-save');
+    const save = root.querySelector<HTMLButtonElement>("#account-avatar-save");
     if (save) save.disabled = !selected || processing || accountAvatarSaving;
-    const remove = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
+    const remove = root.querySelector<HTMLButtonElement>(
+      "#account-avatar-delete",
+    );
     if (remove) {
       remove.hidden = !accountHasStoredAvatar;
       remove.disabled = selected || processing || accountAvatarSaving;
@@ -235,9 +268,9 @@ export function mountAuthPage(
   }
 
   function ensureAccountAvatarEditor(user: AccountProfile): void {
-    const container = root.querySelector<HTMLElement>('#account-avatar-editor');
+    const container = root.querySelector<HTMLElement>("#account-avatar-editor");
     if (!container) return;
-    const key = `${user.id}:${user.avatar_version}:${user.has_avatar ? user.avatar_url : ''}`;
+    const key = `${user.id}:${user.avatar_version}:${user.has_avatar ? user.avatar_url : ""}`;
     if (accountAvatarEditor && accountAvatarEditorKey === key) return;
     accountAvatarEditor?.destroy();
     accountAvatarEditor = null;
@@ -253,11 +286,13 @@ export function mountAuthPage(
   }
 
   const renderVerifyState = (state: Readonly<AuthStoreState>): void => {
-    const login = root.querySelector<HTMLFormElement>('#verify-login-form');
-    const actions = root.querySelector<HTMLElement>('#verify-session-actions');
-    const confirm = root.querySelector<HTMLButtonElement>('#verify-confirm');
-    const logout = root.querySelector<HTMLButtonElement>('#verify-logout');
-    const gotoAccount = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
+    const login = root.querySelector<HTMLFormElement>("#verify-login-form");
+    const actions = root.querySelector<HTMLElement>("#verify-session-actions");
+    const confirm = root.querySelector<HTMLButtonElement>("#verify-confirm");
+    const logout = root.querySelector<HTMLButtonElement>("#verify-logout");
+    const gotoAccount = root.querySelector<HTMLAnchorElement>(
+      "#verify-goto-account",
+    );
     if (!login || !actions || !confirm || !logout) return;
     login.hidden = true;
     actions.hidden = true;
@@ -266,211 +301,335 @@ export function mountAuthPage(
     if (gotoAccount) gotoAccount.hidden = true;
 
     if (!actionToken) {
-      if (state.status === 'anonymous') {
+      if (state.status === "anonymous") {
         login.hidden = false;
-        setText(root, '#verify-status', '验证链接已失效或已被使用。请在此页登录账号，再前往「我的账号」页面重新发送验证邮件。');
+        setText(
+          root,
+          "#verify-status",
+          "验证链接已失效或已被使用。请在此页登录账号，再前往「我的账号」页面重新发送验证邮件。",
+        );
         if (gotoAccount) gotoAccount.hidden = false;
         return;
       }
-      if (state.status === 'pending') {
-        setText(root, '#verify-status', '验证链接已失效。请前往「我的账号」页面重新发送验证邮件。');
+      if (state.status === "pending") {
+        setText(
+          root,
+          "#verify-status",
+          "验证链接已失效。请前往「我的账号」页面重新发送验证邮件。",
+        );
         if (gotoAccount) gotoAccount.hidden = false;
         return;
       }
-      if (state.status === 'active') {
-        setText(root, '#verify-status', '当前账号已完成邮箱验证。');
+      if (state.status === "active") {
+        setText(root, "#verify-status", "当前账号已完成邮箱验证。");
         return;
       }
-      setText(root, '#verify-status', '请重新打开邮件链接。');
+      setText(root, "#verify-status", "请重新打开邮件链接。");
       return;
     }
-    if (state.status === 'loading') {
-      setText(root, '#verify-status', '正在读取登录状态…');
+    if (state.status === "loading") {
+      setText(root, "#verify-status", "正在读取登录状态…");
       return;
     }
-    if (state.status === 'anonymous') {
+    if (state.status === "anonymous") {
       login.hidden = false;
-      setText(root, '#verify-status', '请在此页登录邮箱对应的账号，再手动确认验证。');
+      setText(
+        root,
+        "#verify-status",
+        "请在此页登录邮箱对应的账号，再手动确认验证。",
+      );
       return;
     }
-    if (state.status === 'pending') {
+    if (state.status === "pending") {
       actions.hidden = false;
       confirm.hidden = false;
       logout.hidden = false;
-      setText(root, '#verify-status', `登录成功。请确认邮箱是 ${state.user.email}，再手动完成验证。`);
+      setText(
+        root,
+        "#verify-status",
+        `登录成功。请确认邮箱是 ${state.user.email}，再手动完成验证。`,
+      );
       return;
     }
-    if (state.status === 'active') {
-      setText(root, '#verify-status', '当前登录的账号已完成邮箱验证。');
+    if (state.status === "active") {
+      setText(root, "#verify-status", "当前登录的账号已完成邮箱验证。");
       return;
     }
-    setText(root, '#verify-status', state.message);
+    setText(root, "#verify-status", state.message);
   };
 
-  const retryButton = root.querySelector<HTMLButtonElement>('[data-auth-retry]');
+  const retryButton =
+    root.querySelector<HTMLButtonElement>("[data-auth-retry]");
   if (retryButton) {
-    listen(retryButton, 'click', () => { void store.reconcile(); });
+    listen(retryButton, "click", () => {
+      void store.reconcile();
+    });
   }
 
-  const verifyLoginForm = root.querySelector<HTMLFormElement>('#verify-login-form');
+  const verifyLoginForm =
+    root.querySelector<HTMLFormElement>("#verify-login-form");
   if (verifyLoginForm) {
-    listen(verifyLoginForm, 'submit', (event) => {
+    listen(verifyLoginForm, "submit", (event) => {
       event.preventDefault();
-      if (verifyLoginForm.getAttribute('aria-busy') === 'true') return;
-      const email = value(root, '#auth-email').trim();
-      const password = value(root, '#auth-password');
+      if (verifyLoginForm.getAttribute("aria-busy") === "true") return;
+      const email = value(root, "#auth-email").trim();
+      const password = value(root, "#auth-password");
       if (!email || !password) {
-        setFormStatus(verifyLoginForm, '请填写邮箱和密码。');
+        setFormStatus(verifyLoginForm, "请填写邮箱和密码。");
         return;
       }
       const submittedEpoch = identityEpoch;
       submitButton(verifyLoginForm, true);
-      void api.login({ email, password }).then((response) => {
-        if (!active) return;
-        if (identityEpoch !== submittedEpoch) {
-          void store.reconcile();
-          return;
-        }
-        store.setSession(response);
-        setFormStatus(verifyLoginForm, '登录成功。请检查账号后手动确认验证。');
-      }).catch((error: unknown) => {
-        if (active && identityEpoch === submittedEpoch) setFormStatus(verifyLoginForm, handleError(error, '邮箱或密码不正确，或账号暂不可用。'));
-      })
-        .finally(() => { if (active) submitButton(verifyLoginForm, false); });
+      void api
+        .login({ email, password })
+        .then((response) => {
+          if (!active) return;
+          if (identityEpoch !== submittedEpoch) {
+            void store.reconcile();
+            return;
+          }
+          store.setSession(response);
+          setFormStatus(
+            verifyLoginForm,
+            "登录成功。请检查账号后手动确认验证。",
+          );
+        })
+        .catch((error: unknown) => {
+          if (active && identityEpoch === submittedEpoch)
+            setFormStatus(
+              verifyLoginForm,
+              handleError(error, "邮箱或密码不正确，或账号暂不可用。"),
+            );
+        })
+        .finally(() => {
+          if (active) submitButton(verifyLoginForm, false);
+        });
     });
   }
 
-  const verifyConfirm = root.querySelector<HTMLButtonElement>('#verify-confirm');
+  const verifyConfirm =
+    root.querySelector<HTMLButtonElement>("#verify-confirm");
   if (verifyConfirm) {
-    listen(verifyConfirm, 'click', () => {
+    listen(verifyConfirm, "click", () => {
       const submittedToken = actionToken;
       const userId = currentUserId();
       const submittedEpoch = identityEpoch;
-      if (!active || !submittedToken || !userId || verifyConfirm.disabled) return;
+      if (!active || !submittedToken || !userId || verifyConfirm.disabled)
+        return;
       verifyConfirm.disabled = true;
-      void api.confirmEmailVerification({ token: submittedToken }).then((response) => {
-        if (!active || actionToken !== submittedToken || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        actionToken = null;
-        store.setSession(response);
-        setText(root, '#verify-status', '邮箱已验证。');
-      }).catch((error: unknown) => {
-        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        const goto = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
-        if (error instanceof AuthApiError && error.status === 403) {
-          setText(root, '#verify-status', '无法使用当前账号完成验证，请确认登录的是邮箱对应的账号。');
-          if (goto) goto.hidden = true;
-        } else {
-          setText(root, '#verify-status', handleError(error, '链接已失效或已被使用，请前往「我的账号」页面重新发送验证邮件。'));
-          if (goto) goto.hidden = false;
-        }
-      }).finally(() => { if (active) verifyConfirm.disabled = false; });
+      void api
+        .confirmEmailVerification({ token: submittedToken })
+        .then((response) => {
+          if (
+            !active ||
+            actionToken !== submittedToken ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
+          actionToken = null;
+          store.setSession(response);
+          setText(root, "#verify-status", "邮箱已验证。");
+        })
+        .catch((error: unknown) => {
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
+          const goto = root.querySelector<HTMLAnchorElement>(
+            "#verify-goto-account",
+          );
+          if (error instanceof AuthApiError && error.status === 403) {
+            setText(
+              root,
+              "#verify-status",
+              "无法使用当前账号完成验证，请确认登录的是邮箱对应的账号。",
+            );
+            if (goto) goto.hidden = true;
+          } else {
+            setText(
+              root,
+              "#verify-status",
+              handleError(
+                error,
+                "链接已失效或已被使用，请前往「我的账号」页面重新发送验证邮件。",
+              ),
+            );
+            if (goto) goto.hidden = false;
+          }
+        })
+        .finally(() => {
+          if (active) verifyConfirm.disabled = false;
+        });
     });
   }
 
-  const verifyLogout = root.querySelector<HTMLButtonElement>('#verify-logout');
+  const verifyLogout = root.querySelector<HTMLButtonElement>("#verify-logout");
   if (verifyLogout) {
-    listen(verifyLogout, 'click', () => {
+    listen(verifyLogout, "click", () => {
       if (verifyLogout.disabled) return;
       verifyLogout.disabled = true;
-      void store.logout().catch((error: unknown) => setText(root, '#verify-status', handleError(error, '退出失败，请重试。')))
-        .finally(() => { if (active) verifyLogout.disabled = false; });
+      void store
+        .logout()
+        .catch((error: unknown) =>
+          setText(
+            root,
+            "#verify-status",
+            handleError(error, "退出失败，请重试。"),
+          ),
+        )
+        .finally(() => {
+          if (active) verifyLogout.disabled = false;
+        });
     });
   }
 
-  const resetForm = root.querySelector<HTMLFormElement>('#reset-password-form');
+  const resetForm = root.querySelector<HTMLFormElement>("#reset-password-form");
   if (resetForm) {
-    const resetStatus = root.querySelector<HTMLElement>('#reset-status');
-    const resetCsrfButton = root.querySelector<HTMLButtonElement>('#reset-csrf-retry');
+    const resetStatus = root.querySelector<HTMLElement>("#reset-status");
+    const resetCsrfButton =
+      root.querySelector<HTMLButtonElement>("#reset-csrf-retry");
     const loadResetForm = async (): Promise<void> => {
       if (!actionToken) return;
       resetForm.hidden = true;
       if (resetCsrfButton) resetCsrfButton.hidden = true;
-      setText(root, '#reset-status', '正在准备安全表单…');
+      setText(root, "#reset-status", "正在准备安全表单…");
       try {
         await api.getCsrf();
         if (!active || !actionToken) return;
         resetForm.hidden = false;
-        setText(root, '#reset-status', '');
+        setText(root, "#reset-status", "");
       } catch (error) {
         if (!active) return;
-        setText(root, '#reset-status', handleError(error, '无法打开重置表单，请重试。'));
+        setText(
+          root,
+          "#reset-status",
+          handleError(error, "无法打开重置表单，请重试。"),
+        );
         if (resetCsrfButton) resetCsrfButton.hidden = false;
       }
     };
     if (actionToken) void loadResetForm();
     else {
       resetForm.hidden = true;
-      setText(root, '#reset-status', '请重新打开邮件链接。');
+      setText(root, "#reset-status", "请重新打开邮件链接。");
     }
-    if (resetCsrfButton) listen(resetCsrfButton, 'click', () => { void loadResetForm(); });
-    listen(resetForm, 'submit', (event) => {
+    if (resetCsrfButton)
+      listen(resetCsrfButton, "click", () => {
+        void loadResetForm();
+      });
+    listen(resetForm, "submit", (event) => {
       event.preventDefault();
-      if (resetForm.getAttribute('aria-busy') === 'true') return;
+      if (resetForm.getAttribute("aria-busy") === "true") return;
       const submittedToken = actionToken;
-      const password = value(root, '#auth-password');
-      const confirmation = value(root, '#auth-password-confirmation');
+      const password = value(root, "#auth-password");
+      const confirmation = value(root, "#auth-password-confirmation");
       if (!submittedToken) {
-        setText(root, '#reset-status', '请重新打开邮件链接。');
+        setText(root, "#reset-status", "请重新打开邮件链接。");
         return;
       }
       const passwordError = validatePassword(password);
       if (passwordError) {
-        setText(root, '#reset-status', passwordError);
+        setText(root, "#reset-status", passwordError);
         return;
       }
       if (password !== confirmation) {
-        setText(root, '#reset-status', '两次输入的密码不一致。');
+        setText(root, "#reset-status", "两次输入的密码不一致。");
         return;
       }
       submitButton(resetForm, true);
-      void api.confirmPasswordReset({ token: submittedToken, new_password: password, new_password_confirmation: confirmation })
+      void api
+        .confirmPasswordReset({
+          token: submittedToken,
+          new_password: password,
+          new_password_confirmation: confirmation,
+        })
         .then(() => {
           if (!active || actionToken !== submittedToken) return;
           actionToken = null;
           clearPasswordFields(resetForm);
           store.clear();
           resetForm.hidden = true;
-          setText(root, '#reset-status', '密码已重置，请登录。');
-        }).catch((error: unknown) => {
-          if (active && actionToken === submittedToken) setText(root, '#reset-status', handleError(error, '链接已失效或申请失败，请重新申请。'));
-        }).finally(() => { if (active) submitButton(resetForm, false); });
+          setText(root, "#reset-status", "密码已重置，请登录。");
+        })
+        .catch((error: unknown) => {
+          if (active && actionToken === submittedToken)
+            setText(
+              root,
+              "#reset-status",
+              handleError(error, "链接已失效或申请失败，请重新申请。"),
+            );
+        })
+        .finally(() => {
+          if (active) submitButton(resetForm, false);
+        });
     });
   }
 
-  const avatarSaveButton = root.querySelector<HTMLButtonElement>('#account-avatar-save');
+  const avatarSaveButton = root.querySelector<HTMLButtonElement>(
+    "#account-avatar-save",
+  );
   if (avatarSaveButton) {
-    listen(avatarSaveButton, 'click', () => {
+    listen(avatarSaveButton, "click", () => {
       const userId = currentUserId();
       const submittedEpoch = identityEpoch;
       const editor = accountAvatarEditor;
-      if (!userId || !editor || accountAvatarSaving || avatarSaveButton.disabled) return;
+      if (
+        !userId ||
+        !editor ||
+        accountAvatarSaving ||
+        avatarSaveButton.disabled
+      )
+        return;
       accountAvatarSaving = true;
       editor.setDisabled(true);
       updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
-      setText(root, '#account-avatar-status', '正在处理并保存头像…');
+      setText(root, "#account-avatar-status", "正在处理并保存头像…");
       void (async () => {
         try {
           const avatarBase64 = await editor.getValue();
-          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
           if (avatarBase64 === null) {
-            setText(root, '#account-avatar-status', '请先选择要保存的头像。');
+            setText(root, "#account-avatar-status", "请先选择要保存的头像。");
             return;
           }
           const response = await api.setAvatar({ avatar_base64: avatarBase64 });
-          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
           renderAccountAvatar(response.user);
           accountAvatarEditorKey = null;
           ensureAccountAvatarEditor(response.user);
-          setText(root, '#account-avatar-status', '头像已保存。');
+          setText(root, "#account-avatar-status", "头像已保存。");
           await store.reconcile();
         } catch (error) {
-          if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-          const message = error instanceof DOMException && error.name === 'AbortError'
-            ? '图片已更改，请重新保存。'
-            : handleError(error, '头像保存失败，请重试。');
-          setText(root, '#account-avatar-status', message);
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
+          const message =
+            error instanceof DOMException && error.name === "AbortError"
+              ? "图片已更改，请重新保存。"
+              : handleError(error, "头像保存失败，请重试。");
+          setText(root, "#account-avatar-status", message);
         } finally {
-          if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
+          if (
+            active &&
+            currentUserId() === userId &&
+            identityEpoch === submittedEpoch
+          ) {
             accountAvatarSaving = false;
             accountAvatarEditor?.setDisabled(false);
             updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
@@ -480,77 +639,137 @@ export function mountAuthPage(
     });
   }
 
-  const avatarDeleteButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete');
-  const avatarDeleteConfirmation = root.querySelector<HTMLElement>('#account-avatar-delete-confirmation');
-  const avatarDeleteConfirmButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete-confirm');
-  const avatarDeleteCancelButton = root.querySelector<HTMLButtonElement>('#account-avatar-delete-cancel');
-  if (avatarDeleteButton && avatarDeleteConfirmation && avatarDeleteConfirmButton && avatarDeleteCancelButton) {
-    listen(avatarDeleteButton, 'click', () => {
-      if (!avatarDeleteButton.disabled && accountHasStoredAvatar) avatarDeleteConfirmation.hidden = false;
+  const avatarDeleteButton = root.querySelector<HTMLButtonElement>(
+    "#account-avatar-delete",
+  );
+  const avatarDeleteConfirmation = root.querySelector<HTMLElement>(
+    "#account-avatar-delete-confirmation",
+  );
+  const avatarDeleteConfirmButton = root.querySelector<HTMLButtonElement>(
+    "#account-avatar-delete-confirm",
+  );
+  const avatarDeleteCancelButton = root.querySelector<HTMLButtonElement>(
+    "#account-avatar-delete-cancel",
+  );
+  if (
+    avatarDeleteButton &&
+    avatarDeleteConfirmation &&
+    avatarDeleteConfirmButton &&
+    avatarDeleteCancelButton
+  ) {
+    listen(avatarDeleteButton, "click", () => {
+      if (!avatarDeleteButton.disabled && accountHasStoredAvatar)
+        avatarDeleteConfirmation.hidden = false;
     });
-    listen(avatarDeleteCancelButton, 'click', () => {
+    listen(avatarDeleteCancelButton, "click", () => {
       avatarDeleteConfirmation.hidden = true;
       avatarDeleteButton.focus();
     });
-    listen(avatarDeleteConfirmButton, 'click', () => {
+    listen(avatarDeleteConfirmButton, "click", () => {
       const userId = currentUserId();
       const submittedEpoch = identityEpoch;
       if (!userId || !accountHasStoredAvatar || accountAvatarSaving) return;
       accountAvatarSaving = true;
       accountAvatarEditor?.setDisabled(true);
       updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
-      setText(root, '#account-avatar-status', '正在删除头像…');
-      void api.deleteAvatar().then(async (response) => {
-        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        renderAccountAvatar(response.user);
-        accountAvatarEditorKey = null;
-        ensureAccountAvatarEditor(response.user);
-        avatarDeleteConfirmation.hidden = true;
-        setText(root, '#account-avatar-status', '头像已删除。');
-        await store.reconcile();
-      }).catch((error: unknown) => {
-        if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
-          setText(root, '#account-avatar-status', handleError(error, '头像删除失败，请重试。'));
-        }
-      }).finally(() => {
-        if (active && currentUserId() === userId && identityEpoch === submittedEpoch) {
-          accountAvatarSaving = false;
-          accountAvatarEditor?.setDisabled(false);
-          updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
-        }
-      });
+      setText(root, "#account-avatar-status", "正在删除头像…");
+      void api
+        .deleteAvatar()
+        .then(async (response) => {
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
+          renderAccountAvatar(response.user);
+          accountAvatarEditorKey = null;
+          ensureAccountAvatarEditor(response.user);
+          avatarDeleteConfirmation.hidden = true;
+          setText(root, "#account-avatar-status", "头像已删除。");
+          await store.reconcile();
+        })
+        .catch((error: unknown) => {
+          if (
+            active &&
+            currentUserId() === userId &&
+            identityEpoch === submittedEpoch
+          ) {
+            setText(
+              root,
+              "#account-avatar-status",
+              handleError(error, "头像删除失败，请重试。"),
+            );
+          }
+        })
+        .finally(() => {
+          if (
+            active &&
+            currentUserId() === userId &&
+            identityEpoch === submittedEpoch
+          ) {
+            accountAvatarSaving = false;
+            accountAvatarEditor?.setDisabled(false);
+            updateAvatarActions(accountAvatarSelected, accountAvatarProcessing);
+          }
+        });
     });
   }
 
-  const resendEmailButton = root.querySelector<HTMLButtonElement>('#account-resend-email');
+  const resendEmailButton = root.querySelector<HTMLButtonElement>(
+    "#account-resend-email",
+  );
   if (resendEmailButton) {
-    listen(resendEmailButton, 'click', () => {
-      const statusEl = root.querySelector<HTMLElement>('#account-resend-status');
+    listen(resendEmailButton, "click", () => {
+      const statusEl = root.querySelector<HTMLElement>(
+        "#account-resend-status",
+      );
       const userId = currentUserId();
       const submittedEpoch = identityEpoch;
       if (!active || !userId || resendEmailButton.disabled) return;
       resendEmailButton.disabled = true;
-      if (statusEl) statusEl.textContent = '正在发送验证邮件…';
-      void api.requestEmailVerification().then(async (response) => {
-        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        if ('verified' in response) {
-          if (statusEl) statusEl.textContent = '邮箱已完成验证，正在刷新页面…';
+      if (statusEl) statusEl.textContent = "正在发送验证邮件…";
+      void api
+        .requestEmailVerification()
+        .then(async (response) => {
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
+          if ("verified" in response) {
+            if (statusEl)
+              statusEl.textContent = "邮箱已完成验证，正在刷新页面…";
+            await store.reconcile();
+            return;
+          }
+          if (statusEl)
+            statusEl.textContent = acceptedMessage(response, "verify");
           await store.reconcile();
-          return;
-        }
-        if (statusEl) statusEl.textContent = acceptedMessage(response, 'verify');
-        await store.reconcile();
-      }).catch((error: unknown) => {
-        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        if (statusEl) statusEl.textContent = handleError(error, '邮件发送未完成，请稍后重试。');
-      }).finally(() => {
-        if (active && identityEpoch === submittedEpoch) resendEmailButton.disabled = false;
-      });
+        })
+        .catch((error: unknown) => {
+          if (
+            !active ||
+            currentUserId() !== userId ||
+            identityEpoch !== submittedEpoch
+          )
+            return;
+          if (statusEl)
+            statusEl.textContent = handleError(
+              error,
+              "邮件发送未完成，请稍后重试。",
+            );
+        })
+        .finally(() => {
+          if (active && identityEpoch === submittedEpoch)
+            resendEmailButton.disabled = false;
+        });
     });
   }
 
-  if (pathname === '/account') renderState = renderAccountState;
-  else if (pathname === '/verify-email') renderState = renderVerifyState;
+  if (pathname === "/account") renderState = renderAccountState;
+  else if (pathname === "/verify-email") renderState = renderVerifyState;
   renderState(store.getState());
 
   return () => {
@@ -567,17 +786,21 @@ export function mountAuthPage(
 
 function pageMarkup(pathname: string): { title: string; content: string } {
   switch (pathname) {
-    case '/verify-email': return { title: '验证邮箱', content: verifyMarkup() };
-    case '/reset-password': return { title: '重置密码', content: resetMarkup() };
-    case '/account': return { title: '我的账号', content: accountMarkup() };
-    default: return { title: '我的账号', content: accountMarkup() };
+    case "/verify-email":
+      return { title: "验证邮箱", content: verifyMarkup() };
+    case "/reset-password":
+      return { title: "重置密码", content: resetMarkup() };
+    case "/account":
+      return { title: "我的账号", content: accountMarkup() };
+    default:
+      return { title: "我的账号", content: accountMarkup() };
   }
 }
 
 function shell(title: string, content: string): string {
   return `<div class="auth-page">
     <header class="site-header"><div class="topbar page-width">
-      <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
       ${siteNavMarkup(null)}
     </div></header>
     <main class="auth-main page-width"><section class="auth-card" aria-labelledby="auth-page-title">
@@ -593,7 +816,7 @@ function verifyMarkup(): string {
     <a id="verify-goto-account" href="/account" class="auth-text-button" hidden>前往「我的账号」重新发送验证邮件</a>
     <form id="verify-login-form" class="auth-form" novalidate hidden>
       ${emailField()}
-      ${passwordField('auth-password', '密码', 'current-password')}
+      ${passwordField("auth-password", "密码", "current-password")}
       <p class="auth-status" data-auth-status role="status" aria-live="polite"></p>
       <button type="submit">在此页登录</button>
     </form>
@@ -607,8 +830,8 @@ function verifyMarkup(): string {
 function resetMarkup(): string {
   return `<p class="auth-intro">设置新密码后，现有会话会退出；请使用新密码重新登录。</p>
     <form id="reset-password-form" class="auth-form" novalidate hidden>
-      ${passwordField('auth-password', '新密码', 'new-password')}
-      ${passwordField('auth-password-confirmation', '确认新密码', 'new-password')}
+      ${passwordField("auth-password", "新密码", "new-password")}
+      ${passwordField("auth-password-confirmation", "确认新密码", "new-password")}
       <p class="auth-help">密码长度为 5–256 个字符；可使用粘贴和自动填充。</p>
       <button type="submit">重置密码</button>
     </form>
@@ -672,7 +895,11 @@ function emailField(): string {
   return '<label for="auth-email">邮箱<input id="auth-email" name="email" type="email" autocomplete="email" required></label>';
 }
 
-function passwordField(id: string, label: string, autocomplete: string): string {
+function passwordField(
+  id: string,
+  label: string,
+  autocomplete: string,
+): string {
   return `<label class="auth-password-label" for="${id}">${label}<span class="auth-password-control">
     <input id="${id}" name="${id}" data-password-input type="password" autocomplete="${autocomplete}" required>
     <button class="auth-password-toggle" type="button" data-password-toggle="${id}" data-password-label="${label}" aria-label="显示${label}" aria-pressed="false">显示</button>
@@ -681,30 +908,42 @@ function passwordField(id: string, label: string, autocomplete: string): string 
 
 function wirePasswordToggles(
   root: HTMLElement,
-  listen: <K extends keyof HTMLElementEventMap>(target: HTMLElement, type: K, listener: (event: HTMLElementEventMap[K]) => void) => void,
+  listen: <K extends keyof HTMLElementEventMap>(
+    target: HTMLElement,
+    type: K,
+    listener: (event: HTMLElementEventMap[K]) => void,
+  ) => void,
 ): void {
-  root.querySelectorAll<HTMLButtonElement>('[data-password-toggle]').forEach((button) => {
-    listen(button, 'click', () => {
-      const targetId = button.dataset.passwordToggle;
-      const input = targetId ? root.querySelector<HTMLInputElement>(`#${targetId}`) : null;
-      if (!input) return;
-      const visible = input.type === 'password';
-      input.type = visible ? 'text' : 'password';
-      button.setAttribute('aria-pressed', String(visible));
-      button.setAttribute('aria-label', `${visible ? '隐藏' : '显示'}密码`);
-      button.textContent = visible ? '隐藏' : '显示';
+  root
+    .querySelectorAll<HTMLButtonElement>("[data-password-toggle]")
+    .forEach((button) => {
+      listen(button, "click", () => {
+        const targetId = button.dataset.passwordToggle;
+        const input = targetId
+          ? root.querySelector<HTMLInputElement>(`#${targetId}`)
+          : null;
+        if (!input) return;
+        const visible = input.type === "password";
+        input.type = visible ? "text" : "password";
+        button.setAttribute("aria-pressed", String(visible));
+        button.setAttribute("aria-label", `${visible ? "隐藏" : "显示"}密码`);
+        button.textContent = visible ? "隐藏" : "显示";
+      });
     });
-  });
 }
 
 function takeActionToken(pathname: string): string | null {
   const url = new URL(window.location.href);
-  const token = new URLSearchParams(url.hash.slice(1)).get('token') ?? url.searchParams.get('token');
-  window.history.replaceState(window.history.state, '', pathname);
+  const token =
+    new URLSearchParams(url.hash.slice(1)).get("token") ??
+    url.searchParams.get("token");
+  window.history.replaceState(window.history.state, "", pathname);
   return token && token.length > 0 ? token : null;
 }
 
 function normalizePath(path: string): string {
   const pathname = path.split(/[?#]/u, 1)[0] ?? path;
-  return pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+  return pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
 }

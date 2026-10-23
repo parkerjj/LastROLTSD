@@ -123,6 +123,12 @@ Back up MySQL before every production import or schema migration. Apply `pnpm db
 
 Keep a read-only D1 export and the converted SQL outside Git throughout the cutover window. A database rollback is a separate, approved operation; reverting Worker code does not revert MySQL data. Never reset a production schema or use `DROP DATABASE`.
 
+## KE profile hall
+
+Apply MySQL migration `019_ke_shared_profiles.sql` before deploying the Worker and web build that expose the hall. The migration creates four new tables and does not publish existing profiles. New shared entries are snapshots; withdrawal and source-profile deletion hide the snapshot but retain it, its code, likes, use records, and copy receipts. Copied personal profiles remain usable after the source is withdrawn or deleted. There is no scheduled cleanup for shared entries or their relationships in the first version.
+
+Watch `429 KE_RATE_LIMITED` responses and MySQL latency for `shared-profiles` routes. The account-scoped limits are 60 copies per hour and 300 likes or publish/update/withdraw operations per hour. Logs must not include configuration files, descriptions, cookies, session tokens, or share request bodies. A Worker rollback does not reverse migration `019`; repair schema or shared data only through the normal backup and forward-change process.
+
 ## Catalog operations
 
 Catalog imports generate versioned static JSON assets under `apps/web/public/catalog`. They do not query either MySQL or D1 and do not alter listings. Review the generated JSON/checksum, rebuild the web app, and deploy it with the Worker. See [catalog import](catalog-import.md).

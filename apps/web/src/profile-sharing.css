@@ -1,0 +1,107 @@
+.ke-sharing {
+  display: grid;
+  gap: 8px;
+  padding: 14px 20px;
+  background: #efe9dd;
+  border-left: 4px solid var(--red);
+  border-bottom: 1px solid var(--line);
+}
+
+.ke-share-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  color: var(--forest);
+  font-size: .94rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ke-share-toggle input {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  min-height: 21px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--red);
+}
+
+.ke-sharing > p,
+.ke-share-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: .76rem;
+  line-height: 1.55;
+}
+
+.ke-share-description {
+  display: grid;
+  gap: 6px;
+  max-width: 720px;
+  color: var(--ink);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.ke-share-description > span {
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 600;
+}
+
+.ke-share-description textarea {
+  width: 100%;
+  min-height: 64px;
+  padding: 9px 11px;
+  color: var(--ink);
+  background: #fffdf8;
+  border: 1px solid var(--line-light);
+  border-radius: 4px;
+  font: inherit;
+  resize: vertical;
+}
+
+.ke-share-existing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  color: var(--muted);
+  font-size: .76rem;
+}
+
+.ke-share-existing strong {
+  color: var(--forest);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .9rem;
+}
+
+.ke-share-existing a {
+  color: var(--forest);
+  font-weight: 800;
+}
+
+.ke-share-existing button {
+  min-height: 32px;
+  margin-left: auto;
+  padding: 5px 9px;
+  color: var(--red-dark);
+  background: transparent;
+  border-color: var(--line-light);
+  border-radius: 4px;
+  font-size: .74rem;
+}
+
+.ke-share-existing button:hover:not(:disabled) {
+  background: #fff8ee;
+  border-color: var(--red-dark);
+}
+
+@media (max-width: 640px) {
+  .ke-sharing { padding: 12px; }
+  .ke-share-toggle { align-items: start; font-size: .88rem; }
+  .ke-share-existing button { margin-left: 0; }
+}
