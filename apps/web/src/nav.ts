@@ -30,16 +30,13 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     href: "/client",
     label: "进阶客户端",
     icon: "ph-rocket-launch",
-    isNew: true,
   },
-  { page: "hall", href: "/ke/hall", label: "配置大厅", icon: "ph-squares-four" },
   {
     page: "guestbook",
     href: "/guestbook",
     label: "留言板",
     icon: "ph-address-book",
   },
-  { page: "updates", href: "/updates", label: "更新说明", icon: "ph-scroll" },
   {
     page: "sponsors",
     href: "/sponsor",
