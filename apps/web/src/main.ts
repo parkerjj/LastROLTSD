@@ -63,7 +63,8 @@ const isAccountsPage = /^\/accounts\/?$/u.test(pathname);
 const isPlayPage = /^\/play\/?$/u.test(pathname);
 const isClientPage = /^\/client\/?$/u.test(pathname);
 const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
-const isKePage = /^\/ke\/?$/u.test(pathname);
+// 配置工作台已迁移至 /ke/my；旧路径 /ke 继续命中本页，加载后归一地址栏。
+const isKePage = /^\/ke(?:\/my)?\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
 const isProfileHallPage = /^\/ke\/hall\/?$/u.test(pathname);
 // 管理员后台刻意不进导航；账号页只对 permission_level >= 100 的账号显示入口。
@@ -1207,7 +1208,12 @@ else if (isSponsorPage) mountSponsorPage(root);
 else if (isReleasePage) mountReleasePage(root);
 else if (isGuestbookPage) mountGuestbookPage(root);
 else if (isAccountsPage) mountAccountsPage(root);
-else if (isKePage) mountKePage(root);
+else if (isKePage) {
+  if (/^\/ke\/?$/u.test(pathname)) {
+    window.history.replaceState(null, "", `/ke/my${window.location.search}${window.location.hash}`);
+  }
+  mountKePage(root);
+}
 else if (isKeDevicePage) mountKeDevicePage(root);
 else if (isProfileHallPage) mountProfileHall(root);
 else if (isAdminPage) mountAdminPage(root);

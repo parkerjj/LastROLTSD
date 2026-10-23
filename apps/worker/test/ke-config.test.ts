@@ -90,6 +90,15 @@ describe('resolveKeConfig', () => {
     expect(() => resolveKeConfig(envFrom(good, { KE_LICENSE_KEY_VERSION: 'v2' }), enabledAuth)).toThrow();
   });
 
+  it('数据库 enforced 模式完全不读取 legacy manifest，仍保持 disabled 语义', async () => {
+    const { generateKeSecrets } = await loadScripts();
+    const env = envFrom(generateKeSecrets());
+    Object.defineProperty(env, 'KE_BUILD_MANIFEST', { get() { throw new Error('legacy secret must not be read'); } });
+    expect(resolveKeConfig(env, enabledAuth, 'enforced').buildManifest).toBeNull();
+    expect(resolveKeConfig(env, disabledAuth, 'enforced').enabled).toBe(false);
+    expect(() => resolveKeConfig(env, enabledAuth, 'bootstrap')).toThrow();
+  });
+
   it('构建清单：缺省 = 不校验；提供则必须完全有效（坏条目不得静默跳过而让指纹校验失效）', async () => {
     const { generateKeSecrets } = await loadScripts();
     const good = generateKeSecrets();

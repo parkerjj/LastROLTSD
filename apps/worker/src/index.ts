@@ -28,6 +28,7 @@ import { registerIwaRoutes } from './routes/iwa';
 import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
+import { registerKeBuildRoutes } from './ke/build-register-router';
 import { createKeRepository } from './ke/repository';
 import { resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
@@ -68,6 +69,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
   registerAuthRoutes(app, env, database);
+  registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database);
 
   if (database) {

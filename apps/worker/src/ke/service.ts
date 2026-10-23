@@ -123,7 +123,13 @@ function buildLicenseFor(config: KeConfig, instance: InstanceRow, features: stri
   return buildLicense(payload, config.licensePrivateKey);
 }
 
-export function createKeService(repository: KeRepository, config: KeConfig, now: () => number = () => Date.now()): KeService {
+export function createKeService(repository: KeRepository, config: KeConfig, now: () => number = () => Date.now(),
+  databaseBuildGuard?: (buildId: string | null, buildHash: string | null) => Promise<boolean>): KeService {
+  const assertAllowedBuild = async (buildId: string | null, buildHash: string | null) => {
+    // 数据库策略一旦开启即成为权威；旧secret清单不能覆盖新登记结果。
+    if (databaseBuildGuard && await databaseBuildGuard(buildId, buildHash)) return;
+    assertBuildFingerprint(config, buildId, buildHash);
+  };
   async function keyBundles(input: BindInput): Promise<Record<string, WrappedKeyBundle> | undefined> {
     if (!input.needWasmKey) return undefined;
     if (config.coreKey === null) throw new KeFailure('KE_UNAVAILABLE', 503, '授权服务暂不可用');
@@ -132,7 +138,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
 
   return {
     async bind(userId, input) {
-      assertBuildFingerprint(config, input.buildId, input.buildHash);
+      await assertAllowedBuild(input.buildId, input.buildHash);
       assertKeyRequest(input.needWasmKey, input.kePublicKey);
       const ownerId = Number(userId);
       const timestamp = now();
@@ -167,7 +173,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
     },
 
     async start(userId, input) {
-      assertBuildFingerprint(config, input.buildId, input.buildHash);
+      await assertAllowedBuild(input.buildId, input.buildHash);
       assertKeyRequest(input.needWasmKey, input.kePublicKey);
       const ownerId = Number(userId);
       const timestamp = now();
@@ -209,7 +215,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
     async heartbeat(userId, instanceId, report, ts, attestation) {
       const timestamp = now();
       assertClockSkew(timestamp, ts);
-      assertBuildFingerprint(config, attestation.buildId, attestation.buildHash);
+      await assertAllowedBuild(attestation.buildId, attestation.buildHash);
       const ownerId = Number(userId);
       const { instance, features } = await repository.transaction(async (tx) => {
         await tx.lockUser(ownerId);

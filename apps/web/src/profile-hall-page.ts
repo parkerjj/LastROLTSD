@@ -59,7 +59,7 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
   const doc = root.ownerDocument;
   const demo = isLocalDemoMode(doc.defaultView?.location);
   const api = demo ? createProfileHallDemoApi() : profileHallApi;
-  const editorHref = demo ? '/ke?demo=1' : '/ke';
+  const editorHref = demo ? '/ke/my?demo=1' : '/ke/my';
   const editorLabel = demo ? '预览配置编辑器 →' : '我的配置 →';
   root.innerHTML = `<header class="site-header"><div class="topbar page-width"><a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>${siteNavMarkup('hall', demo)}</div></header>
     <main class="page-width hall-page"><header class="hall-heading"><div><p class="eyebrow">KoreEngine · 玩家方案</p><h1>配置大厅</h1><p>找一套适合自己的配置，复制到角色后再按需要调整。</p></div><a href="${editorHref}" class="hall-editor-link">${editorLabel}</a></header>
@@ -299,7 +299,7 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
       );
       const link = element(doc, 'a', 'hall-editor-link', demo ? '继续预览编辑器 →' : '去调整配置 →');
       link.dataset.openCopy = '';
-      link.href = demo ? '/ke?demo=1' : `/ke?aid=${target.aid}&cid=${target.cid}&nid=${target.nid}&profile=${result.profile_id}`;
+      link.href = demo ? '/ke/my?demo=1' : `/ke/my?aid=${target.aid}&cid=${target.cid}&nid=${target.nid}&profile=${result.profile_id}`;
       copyPanel.append(link, button(doc, '关闭', 'closeCopy'));
       if (detail?.id === operation.source) { detail.use_count = result.use_count; renderDetail(); }
       void loadList();

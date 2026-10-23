@@ -64,7 +64,7 @@ const PROFILE_OPTIONS = {
 };
 
 async function mountProfileEditor(configText = 'useSelf_skill 29 {\n\tlvl 10\n\twhenStatusActive EFST_BLESSING\n}\n') {
-  const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/ke' });
+  const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/ke/my' });
   vi.stubGlobal('document', dom.window.document);
   vi.stubGlobal('window', dom.window);
   vi.stubGlobal('fetch', vi.fn(async (path: string) => {
@@ -105,7 +105,7 @@ describe("ke page", () => {
   });
 
   it("角色切换卡片把 KE 自报的 char_name / map_name 当作纯文本，不解析为 HTML", async () => {
-    const dom = new JSDOM('<main id="app"></main>', { url: "http://localhost/ke" });
+    const dom = new JSDOM('<main id="app"></main>', { url: "http://localhost/ke/my" });
     vi.stubGlobal("document", dom.window.document);
     vi.stubGlobal("window", dom.window);
     vi.stubGlobal("fetch", vi.fn(async (path: string) => {
@@ -134,7 +134,7 @@ describe("ke page", () => {
   });
 
   it('远程域名上的 demo 参数不会开启免登录演示模式', async () => {
-    const dom = new JSDOM('<main id="app"></main>', { url: 'https://example.com/ke?demo=1' });
+    const dom = new JSDOM('<main id="app"></main>', { url: 'https://example.com/ke/my?demo=1' });
     vi.stubGlobal('document', dom.window.document);
     vi.stubGlobal('window', dom.window);
     vi.stubGlobal('fetch', vi.fn(async (path: string) => {
