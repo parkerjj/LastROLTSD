@@ -17,6 +17,8 @@ const MAX_TOKEN_BYTES = 16384;
 const MAX_JWKS_BYTES = 65536;
 const CLOCK_SKEW = 60;
 const MAX_TOKEN_LIFETIME = 600;
+// GitHub OIDC 令牌的 nbf 比 iat 早约 600 秒（官方示例），只拒绝明显异常的更早值。
+const MAX_NBF_LEAD = 900;
 
 function unauthorized(): KeFailure {
   return new KeFailure('KE_BUILD_PUBLISHER_UNAUTHORIZED', 401, '构建登记身份无效');
@@ -136,7 +138,7 @@ export async function verifyGithubBuildPublisher(
     if (typeof iat !== 'number' || !Number.isSafeInteger(iat) || typeof nbf !== 'number' || !Number.isSafeInteger(nbf)
       || typeof exp !== 'number' || !Number.isSafeInteger(exp) || !Number.isFinite(now)
       || iat > now + CLOCK_SKEW || nbf > now + CLOCK_SKEW || exp <= now - CLOCK_SKEW
-      || exp <= iat || exp - iat > MAX_TOKEN_LIFETIME || nbf > exp || nbf < iat - CLOCK_SKEW
+      || exp <= iat || exp - iat > MAX_TOKEN_LIFETIME || nbf > exp || nbf < iat - MAX_NBF_LEAD
       || iat < now - MAX_TOKEN_LIFETIME - CLOCK_SKEW) throw unauthorized();
     if (claims.iss !== ISSUER || claims.aud !== await buildRegistrationAudience(payload)
       || claims.repository !== 'parkerjj/KoreEngine' || claims.repository_id !== '1421979322'
