@@ -2,7 +2,7 @@ import { mountAuthNav } from './auth/nav';
 import type { AuthApiClient } from './auth/api';
 import type { AuthStore } from './auth/store';
 
-export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors";
+export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors" | "hall";
 
 interface NavEntry {
   readonly page: SitePage;
@@ -32,6 +32,7 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     icon: "ph-rocket-launch",
     isNew: true,
   },
+  { page: "hall", href: "/ke/hall", label: "配置大厅", icon: "ph-squares-four" },
   {
     page: "guestbook",
     href: "/guestbook",
