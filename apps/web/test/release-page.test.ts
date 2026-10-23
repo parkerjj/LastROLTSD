@@ -17,7 +17,8 @@ describe('release notes page', () => {
 
       expect(root.querySelector('h1')?.textContent).toBe('更新说明');
       expect(root.querySelectorAll('.release-entry')).toHaveLength(releaseNotes.length);
-      expect(root.querySelector('.site-nav a[aria-current="page"]')?.getAttribute('href')).toBe('/updates');
+      // 更新说明入口已从主导航移除，页面不再有高亮导航项。
+      expect(root.querySelector('.site-nav a[aria-current="page"]')).toBeNull();
       expect(root.textContent).toContain(releaseNotes[0]?.changes[0]?.title);
     } finally {
       Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
