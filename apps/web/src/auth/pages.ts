@@ -5,6 +5,7 @@ import { tierBadge } from '../tier';
 import type { AuthStore, AuthStoreState } from './store';
 import type { AccountProfile } from './types';
 import {
+  acceptedMessage,
   authErrorMessage,
   clearPasswordFields,
   formatMailAvailability,
@@ -256,13 +257,30 @@ export function mountAuthPage(
     const actions = root.querySelector<HTMLElement>('#verify-session-actions');
     const confirm = root.querySelector<HTMLButtonElement>('#verify-confirm');
     const logout = root.querySelector<HTMLButtonElement>('#verify-logout');
+    const gotoAccount = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
     if (!login || !actions || !confirm || !logout) return;
     login.hidden = true;
     actions.hidden = true;
     confirm.hidden = true;
     logout.hidden = true;
+    if (gotoAccount) gotoAccount.hidden = true;
 
     if (!actionToken) {
+      if (state.status === 'anonymous') {
+        login.hidden = false;
+        setText(root, '#verify-status', '验证链接已失效或已被使用。请在此页登录账号，再前往「我的账号」页面重新发送验证邮件。');
+        if (gotoAccount) gotoAccount.hidden = false;
+        return;
+      }
+      if (state.status === 'pending') {
+        setText(root, '#verify-status', '验证链接已失效。请前往「我的账号」页面重新发送验证邮件。');
+        if (gotoAccount) gotoAccount.hidden = false;
+        return;
+      }
+      if (state.status === 'active') {
+        setText(root, '#verify-status', '当前账号已完成邮箱验证。');
+        return;
+      }
       setText(root, '#verify-status', '请重新打开邮件链接。');
       return;
     }
@@ -337,9 +355,14 @@ export function mountAuthPage(
         setText(root, '#verify-status', '邮箱已验证。');
       }).catch((error: unknown) => {
         if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
-        setText(root, '#verify-status', error instanceof AuthApiError && error.status === 403
-          ? '无法使用当前账号完成验证，请确认登录的是邮箱对应的账号。'
-          : handleError(error, '链接已失效，请登录后重新申请。'));
+        const goto = root.querySelector<HTMLAnchorElement>('#verify-goto-account');
+        if (error instanceof AuthApiError && error.status === 403) {
+          setText(root, '#verify-status', '无法使用当前账号完成验证，请确认登录的是邮箱对应的账号。');
+          if (goto) goto.hidden = true;
+        } else {
+          setText(root, '#verify-status', handleError(error, '链接已失效或已被使用，请前往「我的账号」页面重新发送验证邮件。'));
+          if (goto) goto.hidden = false;
+        }
       }).finally(() => { if (active) verifyConfirm.disabled = false; });
     });
   }
@@ -499,6 +522,33 @@ export function mountAuthPage(
     });
   }
 
+  const resendEmailButton = root.querySelector<HTMLButtonElement>('#account-resend-email');
+  if (resendEmailButton) {
+    listen(resendEmailButton, 'click', () => {
+      const statusEl = root.querySelector<HTMLElement>('#account-resend-status');
+      const userId = currentUserId();
+      const submittedEpoch = identityEpoch;
+      if (!active || !userId || resendEmailButton.disabled) return;
+      resendEmailButton.disabled = true;
+      if (statusEl) statusEl.textContent = '正在发送验证邮件…';
+      void api.requestEmailVerification().then(async (response) => {
+        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+        if ('verified' in response) {
+          if (statusEl) statusEl.textContent = '邮箱已完成验证，正在刷新页面…';
+          await store.reconcile();
+          return;
+        }
+        if (statusEl) statusEl.textContent = acceptedMessage(response, 'verify');
+        await store.reconcile();
+      }).catch((error: unknown) => {
+        if (!active || currentUserId() !== userId || identityEpoch !== submittedEpoch) return;
+        if (statusEl) statusEl.textContent = handleError(error, '邮件发送未完成，请稍后重试。');
+      }).finally(() => {
+        if (active && identityEpoch === submittedEpoch) resendEmailButton.disabled = false;
+      });
+    });
+  }
+
   if (pathname === '/account') renderState = renderAccountState;
   else if (pathname === '/verify-email') renderState = renderVerifyState;
   renderState(store.getState());
@@ -540,6 +590,7 @@ function shell(title: string, content: string): string {
 
 function verifyMarkup(): string {
   return `<p id="verify-status" class="auth-status" role="status" aria-live="polite"></p>
+    <a id="verify-goto-account" href="/account" class="auth-text-button" hidden>前往「我的账号」重新发送验证邮件</a>
     <form id="verify-login-form" class="auth-form" novalidate hidden>
       ${emailField()}
       ${passwordField('auth-password', '密码', 'current-password')}
@@ -586,7 +637,13 @@ function accountMarkup(): string {
           <div><dt>账号等级</dt><dd id="account-tier"></dd></div>
         </dl>
       </div>
-      <p id="account-pending-message" class="auth-notice" hidden>邮箱尚未验证，请打开验证邮件完成验证，晋级正式用户。</p>
+      <section id="account-pending-message" class="auth-notice" hidden>
+        <p>邮箱尚未验证，请打开验证邮件完成验证，晋级正式用户。</p>
+        <div class="auth-pending-actions">
+          <button id="account-resend-email" type="button" class="secondary-button">重新发送验证邮件</button>
+          <p id="account-resend-status" class="auth-status" role="status" aria-live="polite"></p>
+        </div>
+      </section>
       <div class="auth-profile-name-row">
         <span class="auth-profile-name-label">昵称</span>
         <span class="auth-profile-name-value" id="account-display-name"></span>
