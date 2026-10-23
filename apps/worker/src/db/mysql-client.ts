@@ -1,4 +1,5 @@
 import mysql, { type ResultSetHeader } from 'mysql2/promise';
+import { Buffer } from 'node:buffer';
 import type { Duplex } from 'node:stream';
 import { limitMysqlSocketWrites } from './mysql-socket';
 
@@ -26,6 +27,7 @@ type MysqlQueryResult = MysqlRow[] | ResultSetHeader;
 
 interface MysqlExecutorLike {
   execute<T extends MysqlQueryResult>(sql: string, values?: readonly unknown[]): Promise<[T, unknown]>;
+  query?<T extends MysqlQueryResult>(sql: string, values?: readonly unknown[]): Promise<[T, unknown]>;
 }
 
 interface MysqlConnectionLike extends MysqlExecutorLike {
@@ -164,9 +166,12 @@ export function chunkRows<T>(rows: readonly T[], rowWidth: number, maximumBoundV
 // sockets are not, and must remain scoped to the invocation that opened them.
 let lastMysqlConfig: { url: string; config: MysqlConfig } | undefined;
 
-export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
-  const config = lastMysqlConfig?.url === mysqlUrl ? lastMysqlConfig.config : parseMysqlUrl(mysqlUrl);
-  if (lastMysqlConfig?.url !== mysqlUrl) lastMysqlConfig = { url: mysqlUrl, config };
+export function createMysqlDatabase(source: string | MysqlConfig, protocol: 'prepared' | 'text' = 'prepared'): MysqlDatabase {
+  // Hyperdrive parameters belong to this invocation and bypass the URL cache.
+  const config = typeof source === 'string'
+    ? lastMysqlConfig?.url === source ? lastMysqlConfig.config : parseMysqlUrl(source)
+    : source;
+  if (typeof source === 'string' && lastMysqlConfig?.url !== source) lastMysqlConfig = { url: source, config };
   let pool: MysqlPoolLike | undefined;
   return createMysqlDatabaseForPoolFactory(() => {
     if (pool) return pool;
@@ -200,7 +205,7 @@ export function createMysqlDatabase(mysqlUrl: string): MysqlDatabase {
   }, async () => {
     const poolToClose = pool;
     if (poolToClose) await protect(() => poolToClose.end());
-  });
+  }, protocol === 'text');
 }
 
 export function createMysqlDatabaseForPool(pool: MysqlPoolLike): MysqlDatabase {
@@ -209,10 +214,10 @@ export function createMysqlDatabaseForPool(pool: MysqlPoolLike): MysqlDatabase {
   });
 }
 
-function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePool: () => Promise<void>): MysqlDatabase {
+function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePool: () => Promise<void>, textProtocol = false): MysqlDatabase {
   const databaseFor = (executor: MysqlExecutorLike, close: () => Promise<void>): MysqlDatabase => ({
     all: async <T extends MysqlRow = MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> => {
-      const result = await execute<MysqlRow[]>(executor, sql, values);
+      const result = await execute<MysqlRow[]>(executor, sql, values, textProtocol);
       if (!Array.isArray(result)) throw new MysqlDatabaseError(new TypeError('Expected MySQL rows'), statementOperation(sql));
       return result as T[];
     },
@@ -221,7 +226,7 @@ function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePo
       return rows[0] ?? null;
     },
     run: async (sql: string, values: readonly unknown[] = []): Promise<MysqlWriteResult> => {
-      const result = await execute<ResultSetHeader>(executor, sql, values);
+      const result = await execute<ResultSetHeader>(executor, sql, values, textProtocol);
       if (Array.isArray(result)) throw new MysqlDatabaseError(new TypeError('Expected MySQL write result'), statementOperation(sql));
       return { affectedRows: Number(result.affectedRows), insertId: Number(result.insertId) };
     },
@@ -250,23 +255,42 @@ function createMysqlDatabaseForPoolFactory(poolFor: () => MysqlPoolLike, closePo
       }
     },
     healthcheck: async (): Promise<void> => {
-      await execute<MysqlRow[]>(executor, 'SELECT 1 AS healthy', []);
+      await execute<MysqlRow[]>(executor, 'SELECT 1 AS healthy', [], textProtocol);
     },
     close,
   });
 
   return databaseFor({
     execute: (sql, values) => poolFor().execute(sql, values),
+    query: (sql, values) => poolFor().query!(sql, values),
   }, closePool);
 }
 
-async function execute<T extends MysqlQueryResult>(executor: MysqlExecutorLike, sql: string, values: readonly unknown[]): Promise<T> {
+async function execute<T extends MysqlQueryResult>(executor: MysqlExecutorLike, sql: string, values: readonly unknown[], textProtocol = false): Promise<T> {
   try {
+    if (textProtocol) {
+      // Hyperdrive MySQL does not support protocol-level prepared statements.
+      // Keep placeholders and let mysql2 escape scalar/binary values via query().
+      return (await executor.query!<T>(sql, textQueryValues(values)))[0];
+    }
     return (await executor.execute<T>(sql, values))[0];
   } catch (error) {
     if (error instanceof MysqlDatabaseError) throw error;
     throw new MysqlDatabaseError(error, statementOperation(sql));
   }
+}
+
+function textQueryValues(values: readonly unknown[]): unknown[] {
+  return values.map((value) => {
+    // mysql2.query treats plain Uint8Array as an object, not a binary literal.
+    if (value instanceof Uint8Array) return Buffer.from(value);
+    if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'bigint'
+      || (typeof value === 'number' && Number.isFinite(value))
+      || (value instanceof Date && Number.isFinite(value.getTime()))) return value;
+    // Reject arrays, objects, undefined and toSqlString hooks: these could
+    // otherwise expand into SQL fragments rather than a single bound value.
+    throw new TypeError('Bind parameters must be scalar or binary values');
+  });
 }
 
 async function protect<T>(work: () => Promise<T>, operation?: string): Promise<T> {

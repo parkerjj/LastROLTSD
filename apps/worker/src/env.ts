@@ -1,4 +1,5 @@
-import type { Fetcher } from '@cloudflare/workers-types';
+import type { Fetcher, Hyperdrive } from '@cloudflare/workers-types';
+import { hasMysqlConnection } from './db/mysql-connection';
 import { DEFAULT_CURSOR_SECRET } from './domain/search';
 import type { SnapshotMessage } from './services/full-upload';
 import type { AuthBindings } from './auth/types';
@@ -6,6 +7,8 @@ import type { KeBindings } from './ke/types';
 
 export interface AppEnv extends AuthBindings, KeBindings {
   MYSQL_URL?: string | undefined;
+  MYSQL_CONNECTION_MODE?: 'auto' | 'direct' | 'hyperdrive' | undefined;
+  HYPERDRIVE?: Pick<Hyperdrive, 'host' | 'port' | 'user' | 'password' | 'database'> | undefined;
   ASSETS?: Fetcher | undefined;
   ENVIRONMENT: string;
   BUILD_VERSION: string;
@@ -35,11 +38,17 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
   const configuredCursorSecret = typeof bindings.CURSOR_SECRET === 'string' ? bindings.CURSOR_SECRET : '';
   const guestbookRateSecret = typeof bindings.GUESTBOOK_RATE_SECRET === 'string' ? bindings.GUESTBOOK_RATE_SECRET : '';
   const mysqlUrl = typeof bindings.MYSQL_URL === 'string' && bindings.MYSQL_URL.trim() !== '' ? bindings.MYSQL_URL : undefined;
-  if ((environment === 'staging' || environment === 'production') && !mysqlUrl) throw new Error('MYSQL_URL must be configured outside local environments');
+  const mysqlBindings = {
+    MYSQL_URL: mysqlUrl,
+    MYSQL_CONNECTION_MODE: (bindings.MYSQL_CONNECTION_MODE ?? 'auto') as AppEnv['MYSQL_CONNECTION_MODE'],
+    HYPERDRIVE: bindings.HYPERDRIVE as AppEnv['HYPERDRIVE'],
+  };
+  const configuredDatabase = hasMysqlConnection(mysqlBindings);
+  if ((environment === 'staging' || environment === 'production') && !configuredDatabase) throw new Error('MYSQL_URL must be configured outside local environments unless HYPERDRIVE is bound');
   if ((environment === 'staging' || environment === 'production') && configuredCursorSecret.length < 16) throw new Error('CURSOR_SECRET must be configured with at least 16 characters');
   if ((environment === 'staging' || environment === 'production') && guestbookRateSecret.length < 32) throw new Error('GUESTBOOK_RATE_SECRET must be configured with at least 32 characters');
   return {
-    MYSQL_URL: mysqlUrl,
+    ...mysqlBindings,
     ASSETS: bindings.ASSETS as Fetcher | undefined,
     ENVIRONMENT: environment,
     BUILD_VERSION: String(bindings.BUILD_VERSION ?? 'dev'),

@@ -31,6 +31,7 @@ const local = [
   'BUILD_VERSION=dev',
   'MAX_BODY_BYTES=524288',
   '# Point local development at a MySQL 8 server. Replace before running Wrangler.',
+  'MYSQL_CONNECTION_MODE=direct',
   'MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-database?ssl=true',
   '# Optional integration-test target; never point this at production.',
   'MYSQL_TEST_URL=mysql://replace-user:replace-password@replace-host:3306/replace-test-database?ssl=true',

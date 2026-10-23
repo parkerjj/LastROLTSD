@@ -96,6 +96,26 @@ jobs:
           KE_BUILD_MANIFEST: ${{ secrets.KE_BUILD_MANIFEST }}
           KE_LICENSE_KEY_VERSION: ${{ vars.KE_LICENSE_KEY_VERSION }}
           KE_CORE_KEY_VERSION: ${{ vars.KE_CORE_KEY_VERSION }}
+      - name: Configure production database connection
+        run: node scripts/configure-hyperdrive.mjs --environment production
+        env:
+          MYSQL_CONNECTION_MODE: ${{ vars.MYSQL_CONNECTION_MODE || 'hyperdrive' }}
+          CLOUDFLARE_HYPERDRIVE_ID: ${{ vars.CLOUDFLARE_HYPERDRIVE_ID }}
+      - name: Check Hyperdrive uses MySQL without query caching
+        if: ${{ vars.MYSQL_CONNECTION_MODE != 'direct' }}
+        shell: bash
+        run: |
+          response=$(mktemp)
+          trap 'rm -f "$response"' EXIT
+          curl --fail --silent --show-error \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/hyperdrive/configs/${CLOUDFLARE_HYPERDRIVE_ID}" \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output "$response"
+          jq -e '.success == true and .result.origin.scheme == "mysql" and .result.caching.disabled == true' "$response" > /dev/null
+        env:
+          CLOUDFLARE_HYPERDRIVE_ID: ${{ vars.CLOUDFLARE_HYPERDRIVE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Ensure production snapshot Queue exists
         shell: bash
         run: |
