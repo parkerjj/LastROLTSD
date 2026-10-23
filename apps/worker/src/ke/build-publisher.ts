@@ -81,7 +81,7 @@ async function readJwks(fetcher: typeof fetch): Promise<Record<string, unknown>[
   });
   try {
     return await Promise.race([timedOut, (async () => {
-      const response = await fetcher(JWKS_URL, { redirect: 'error', signal: controller.signal, headers: { accept: 'application/json' } });
+      const response = await fetcher(JWKS_URL, { redirect: 'manual', signal: controller.signal, headers: { accept: 'application/json' } });
       if (!response.ok || response.redirected || !response.body
         || Number(response.headers.get('content-length') ?? 0) > MAX_JWKS_BYTES) throw unavailable();
       const reader = response.body.getReader();

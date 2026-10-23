@@ -29,7 +29,8 @@ async function token(patch: Record<string, unknown> = {}, headerPatch: Record<st
 function jwksFetch(response?: () => Response): typeof fetch {
   return (async (url, options) => {
     expect(url).toBe('https://token.actions.githubusercontent.com/.well-known/jwks');
-    expect(options?.redirect).toBe('error');
+    // workerd 不支持 redirect: 'error'（会抛 TypeError 并让所有登记返回 503），用 manual + 状态码检查。
+    expect(options?.redirect).toBe('manual');
     expect(options?.signal).toBeInstanceOf(AbortSignal);
     return response ? response() : Response.json({ keys: [jwk] });
   }) as typeof fetch;

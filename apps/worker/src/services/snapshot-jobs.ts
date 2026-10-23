@@ -92,7 +92,7 @@ async function materialize(job: SnapshotJob, tx: MysqlDatabase): Promise<ChunkPr
     // The transaction rolls back before any market mutation can escape.
     await tx.run(`INSERT INTO market_snapshot_listings(source_id, snapshot_id, shop_ordinal, fingerprint)
       SELECT ?, ?, present.ordinal, present.fingerprint FROM JSON_TABLE(?, '$[*]' COLUMNS(
-        ordinal INT PATH '$.ordinal', fingerprint CHAR(64) PATH '$.fingerprint')) AS present`, [...scope(job), JSON.stringify(presence)]);
+        ordinal INT PATH '$.ordinal', fingerprint CHAR(64) COLLATE utf8mb4_0900_ai_ci PATH '$.fingerprint')) AS present`, [...scope(job), JSON.stringify(presence)]);
     const source = { id: job.sourceId, name: '', apiKeyHash: '', tokenHash: '', status: 'active' as const };
     await createListingStateService(repo).applyBatchObservationsBulk!(source, sessions, observations, job.snapshotId, job.observedAt);
   }
@@ -136,8 +136,8 @@ async function reconcileListings(job: SnapshotJob, tx: MysqlDatabase, config: Sn
       transitionKey: await makeTransitionKey(Number(row.id), Number(row.state_version), Number(row.quantity), sold > 0 ? 0 : Number(row.quantity), expire ? 'shop_closed' : 'missing_full') };
   }));
   const table = `JSON_TABLE(?, '$[*]' COLUMNS(id BIGINT PATH '$.id', version BIGINT PATH '$.version', price BIGINT PATH '$.price',
-    quantity BIGINT PATH '$.quantity', missing INT PATH '$.missing', status VARCHAR(16) PATH '$.status',
-    event_type VARCHAR(32) PATH '$.event', reason VARCHAR(32) PATH '$.reason', sold BIGINT PATH '$.sold', transition_key VARCHAR(255) PATH '$.transitionKey')) AS change_row`;
+    quantity BIGINT PATH '$.quantity', missing INT PATH '$.missing', status VARCHAR(16) COLLATE utf8mb4_0900_ai_ci PATH '$.status',
+    event_type VARCHAR(32) COLLATE utf8mb4_0900_ai_ci PATH '$.event', reason VARCHAR(32) COLLATE utf8mb4_0900_ai_ci PATH '$.reason', sold BIGINT PATH '$.sold', transition_key VARCHAR(255) COLLATE utf8mb4_0900_ai_ci PATH '$.transitionKey')) AS change_row`;
   const payload = JSON.stringify(changes);
   await tx.run(`INSERT INTO listing_events(listing_id, snapshot_id, observed_at, event_type, from_price, to_price,
       from_quantity, to_quantity, sold_quantity, reason, transition_key)
