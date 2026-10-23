@@ -31,7 +31,7 @@ const encoder = new TextEncoder();
 const KE_RATE_LIMITS = {
   bindPerSession: { scope: 'ke_bind_session', limit: 60, windowMs: HOUR_MS },
   startPerSession: { scope: 'ke_start_session', limit: 60, windowMs: HOUR_MS },
-  deviceCodePerIp: { scope: 'ke_device_code_ip', limit: 10, windowMs: HOUR_MS },
+  deviceCodePerIp: { scope: 'ke_device_code_ip', limit: 20, windowMs: HOUR_MS },
   // 查询 + 决定共用：限制已登录账号对验证码的枚举/猜测。
   devicePerSession: { scope: 'ke_device_session', limit: 20, windowMs: 15 * 60 * 1000 },
 } as const;
