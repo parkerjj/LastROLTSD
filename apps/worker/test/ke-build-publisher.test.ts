@@ -80,6 +80,14 @@ describe('GitHub 构建发布者', () => {
     await expect(verifyGithubBuildPublisher(await token(patch), payload, { fetch: jwksFetch(), nowSeconds: now }))
       .rejects.toMatchObject(unauthorized);
   });
+  it('接受 GitHub 真实形态的时间：nbf 比 iat 早 600 秒、exp 比 iat 晚 300 秒', async () => {
+    await expect(verifyGithubBuildPublisher(await token({ iat: now - 30, nbf: now - 630, exp: now + 270 }), payload,
+      { fetch: jwksFetch(), nowSeconds: now })).resolves.toMatchObject({ runId: '123456' });
+  });
+  it('拒绝 nbf 比 iat 早得离谱的令牌', async () => {
+    await expect(verifyGithubBuildPublisher(await token({ iat: now - 30, nbf: now - 931, exp: now + 270 }), payload,
+      { fetch: jwksFetch(), nowSeconds: now })).rejects.toMatchObject(unauthorized);
+  });
   it('接受 workflow_dispatch', async () => {
     await expect(verifyGithubBuildPublisher(await token({ event_name: 'workflow_dispatch' }), payload,
       { fetch: jwksFetch(), nowSeconds: now })).resolves.toMatchObject({ runId: '123456' });
