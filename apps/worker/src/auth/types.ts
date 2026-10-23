@@ -132,7 +132,7 @@ export interface DisabledAuthConfig extends AuthConfigKeyVersions {
 
 export interface EnabledAuthConfig extends AuthConfigKeyVersions {
   enabled: true;
-  mysqlUrl: string;
+  mysqlUrl: string | null;
   authSiteUrl: string;
   csrfSecret: Uint8Array;
   rateSecret: Uint8Array;

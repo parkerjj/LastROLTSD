@@ -1,6 +1,6 @@
 # LastROWeb
 
-LastROWeb is a Cloudflare Worker + Hono market API with a Vite query UI. Production market state uses MySQL 8 through `mysql2`; the Worker has no D1 binding or SQLite runtime fallback. The Kore adapter remains outside this repository.
+LastROWeb is a Cloudflare Worker + Hono market API with a Vite query UI. Production market state uses MySQL 8 through `mysql2`, with Hyperdrive enabled by default for deployed environments and direct MySQL retained for local development and migrations; the Worker has no D1 binding or SQLite runtime fallback. The Kore adapter remains outside this repository.
 
 ## Local development
 
@@ -33,7 +33,7 @@ pnpm exec wrangler dev --local
 - `/account` — player account page; sign-in and registration open as dialogs from the site navigation; authentication is disabled by default
 - `/api/v1/auth/*`, `/api/v1/account/*` — player account API; authentication is disabled by default
 
-See [deployment](docs/deployment.md), [MySQL migration](docs/mysql-migration.md), [operations](docs/operations.md), and the [API contract](docs/api.md).
+See [deployment](docs/deployment.md), [Hyperdrive setup](docs/hyperdrive.md), [MySQL migration](docs/mysql-migration.md), [operations](docs/operations.md), and the [API contract](docs/api.md).
 
 The player account pages and API are implemented, but authentication remains disabled by default. See the [account operations](docs/operations.md#account-mail-and-cleanup) for enablement and CPU-verification conditions, along with the [account system specification](docs/superpowers/specs/2026-10-12-ltsd-account-system-design.md), reviewed [implementation plan](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan.md), [review record](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan-review.md), and [development handoff prompt](docs/superpowers/plans/2026-10-12-ltsd-account-system-development-prompt.md).
 
@@ -41,7 +41,7 @@ The player account pages and API are implemented, but authentication remains dis
 
 # LastROWeb（中文）
 
-LastROWeb 是一个基于 Cloudflare Worker + Hono 的市场 API，配合 Vite 查询界面使用。生产环境的市场数据使用 MySQL 8（通过 `mysql2` 连接）；Worker 没有 D1 绑定，也没有 SQLite 运行时回退。Kore 适配器不在本仓库中维护。
+LastROWeb 是一个基于 Cloudflare Worker + Hono 的市场 API，配合 Vite 查询界面使用。生产环境的市场数据使用 MySQL 8（通过 `mysql2` 连接），部署环境默认使用 Hyperdrive，本地开发与迁移脚本保留 MySQL 直连；Worker 没有 D1 绑定，也没有 SQLite 运行时回退。Kore 适配器不在本仓库中维护。
 
 ## 本地开发
 
@@ -74,6 +74,6 @@ pnpm exec wrangler dev --local
 - `/account` — 玩家账号页面；登录与注册改为站点导航内的浮层入口；认证默认关闭
 - `/api/v1/auth/*`、`/api/v1/account/*` — 玩家账号接口；认证默认关闭
 
-详见[部署文档](docs/deployment.md)、[MySQL 迁移](docs/mysql-migration.md)、[运维手册](docs/operations.md)与 [API 契约](docs/api.md)。
+详见[部署文档](docs/deployment.md)、[Hyperdrive 配置](docs/hyperdrive.md)、[MySQL 迁移](docs/mysql-migration.md)、[运维手册](docs/operations.md)与 [API 契约](docs/api.md)。
 
 玩家账号页面与API已实现，但认证默认关闭。启用与CPU验证条件见[账号运维说明](docs/operations.md#account-mail-and-cleanup)，设计见[账号系统规格](docs/superpowers/specs/2026-10-12-ltsd-account-system-design.md)，详细步骤见已审阅的[实施计划](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan.md)、[Review记录](docs/superpowers/plans/2026-10-12-ltsd-account-system-plan-review.md)及[开发交接Prompt](docs/superpowers/plans/2026-10-12-ltsd-account-system-development-prompt.md)。

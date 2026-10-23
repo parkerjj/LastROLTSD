@@ -31,13 +31,15 @@ describe('search edge cache', () => {
     vi.stubGlobal('caches', { default: edgeCache });
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const execute = async () => {
+      databaseReads++;
+      if (failDatabase) throw new Error('database unavailable');
+      return [[], []];
+    };
     vi.spyOn(mysql, 'createPool').mockImplementation(() => ({
       on: vi.fn(),
-      async execute() {
-        databaseReads++;
-        if (failDatabase) throw new Error('database unavailable');
-        return [[], []];
-      },
+      query: execute,
+      execute,
       async end() { closed++; },
     }) as unknown as mysql.Pool);
   });
@@ -64,6 +66,26 @@ describe('search edge cache', () => {
     expect(response.status).toBe(200);
     expect(fetchAsset).not.toHaveBeenCalled();
     expect(databaseReads).toBe(1);
+  });
+
+  it('reuses cached searches when Hyperdrive virtual credentials rotate', async () => {
+    for (const host of ['first.internal', 'second.internal']) {
+      const response = await worker.fetch(new Request(url), { ...bindings, MYSQL_CONNECTION_MODE: 'hyperdrive',
+        HYPERDRIVE: { host, port: 3306, user: 'user', password: host, database: 'app' } });
+      expect(response.headers.get('x-search-cache')).toBe(host === 'first.internal' ? 'MISS' : 'HIT');
+    }
+    expect(databaseReads).toBe(1);
+  });
+
+  it('bypasses caching for Hyperdrive without a stable origin identity', async () => {
+    const hyperdriveBindings = { ...bindings, MYSQL_URL: undefined, MYSQL_CONNECTION_MODE: 'hyperdrive',
+      HYPERDRIVE: { host: 'hyperdrive.internal', port: 3306, user: 'user', password: 'secret', database: 'app' } };
+    for (let i = 0; i < 2; i++) {
+      const response = await worker.fetch(new Request(url), hyperdriveBindings);
+      expect(response.headers.get('x-search-cache')).toBe('BYPASS');
+    }
+    expect(databaseReads).toBe(2);
+    expect(entries.size).toBe(0);
   });
   it('reuses one Cache API entry across equivalent query parameter orders', async () => {
     const first = await worker.fetch(new Request(url + '&q=' + encodeURIComponent('波利')), bindings);

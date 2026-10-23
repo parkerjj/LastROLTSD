@@ -1,10 +1,11 @@
 import type { AppEnv } from '../env';
+import { hasMysqlConnection } from '../db/mysql-connection';
 import { MysqlDatabaseError, type MysqlDatabase } from '../db/mysql-client';
 import { logError } from '../observability';
 
 export async function healthPayload(env: AppEnv, database?: Pick<MysqlDatabase, 'healthcheck'>): Promise<{ ok: true; version: string; environment: string; db: 'unconfigured' | 'ok' | 'error' }> {
   let db: 'unconfigured' | 'ok' | 'error' = 'unconfigured';
-  if (env.MYSQL_URL) {
+  if (hasMysqlConnection(env)) {
     try {
       if (!database) throw new Error('database is unavailable');
       await database.healthcheck();

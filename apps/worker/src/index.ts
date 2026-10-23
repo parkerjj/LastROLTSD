@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { resolveAppEnv, type AppEnv } from './env';
 import { healthPayload } from './routes/health';
-import { createMysqlDatabase, type MysqlDatabase } from './db/mysql-client';
+import type { MysqlDatabase } from './db/mysql-client';
+import { createWorkerDatabase, hasMysqlConnection } from './db/mysql-connection';
 import { createMysqlRepository } from './db/mysql-repository';
 import { registerUploadRoute, uploadResponse } from './routes/upload';
 import { registerSearchRoute, searchResponse } from './routes/search';
@@ -44,7 +45,7 @@ export type WorkerVariables = { requestId: string };
 
 export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
-  const database = injectedDatabase ?? (env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined);
+  const database = injectedDatabase ?? createWorkerDatabase(env);
   registerCorsMiddleware(app);
   app.use('*', async (c, next) => {
     const started = Date.now();
@@ -106,11 +107,11 @@ export default {
       throw error;
     }
     const url = new URL(request.url);
-    if (request.method === 'GET' && url.pathname === '/api/v1/market/search' && env.MYSQL_URL) {
+    if (request.method === 'GET' && url.pathname === '/api/v1/market/search' && hasMysqlConnection(env)) {
       return fetchSearch(request, url, env, context);
     }
     // A Worker socket belongs to the invocation that opened it.
-    const database = env.MYSQL_URL ? createMysqlDatabase(env.MYSQL_URL) : undefined;
+    const database = createWorkerDatabase(env);
     try {
       if (request.method === 'POST' && url.pathname === '/api/v1/market/upload' && database) {
         return await fetchUpload(request, env, database);
@@ -122,8 +123,8 @@ export default {
   },
   async queue(batch: { messages: readonly SnapshotQueueMessage[] }, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
-    if (!env.MYSQL_URL) throw new Error('MYSQL_URL is required for snapshot jobs');
-    const database = createMysqlDatabase(env.MYSQL_URL);
+    const database = createWorkerDatabase(env);
+    if (!database) throw new Error('MySQL connection is required for snapshot jobs');
     try {
       await consumeSnapshotBatch(batch.messages, env, createSnapshotRepository(database));
     } finally {
@@ -142,7 +143,7 @@ export default {
       }
       if (!config.enabled) return;
 
-      const database = createMysqlDatabase(config.mysqlUrl);
+      const database = createWorkerDatabase(env)!;
       try {
         const repository = createAuthRepository(database, {
           mailDailyLimit: config.mailDailyLimit,
@@ -157,8 +158,8 @@ export default {
       }
       return;
     }
-    if (!env.MYSQL_URL) return;
-    const database = createMysqlDatabase(env.MYSQL_URL);
+    const database = createWorkerDatabase(env);
+    if (!database) return;
     try {
       if (event.cron === '* * * * *') await processSnapshotWakeup(env, createSnapshotRepository(database));
       else if (event.cron === '*/5 * * * *') {
@@ -259,7 +260,7 @@ async function fetchSearch(request: Request, url: URL, env: AppEnv, context?: Pi
   let errorLogged = false;
   try {
     response = await withSearchCache(request, url, env, async () => {
-      const database = createMysqlDatabase(env.MYSQL_URL!);
+      const database = createWorkerDatabase(env)!;
       try {
         // MySQL validates the cursor before issuing SQL; avoid route-level revalidation.
         // CORS 头必须在进入缓存前写入，否则 HIT 响应不带 access-control-allow-origin。

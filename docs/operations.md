@@ -6,7 +6,7 @@ All operator command examples use PowerShell.
 
 Monitor Worker request metrics and MySQL failures through Workers Logs. Metrics include request ID, route, status, elapsed time, and declared request size. Do not log bearer tokens, complete upload bodies, player identifiers, coordinates, or `MYSQL_URL`.
 
-`GET /api/health` always returns Worker metadata. It reports `db: "unconfigured"` locally when `MYSQL_URL` is absent, `db: "ok"` only after MySQL `SELECT 1`, and `db: "error"` on a sanitized connection failure. It never returns host, username, password, or socket details.
+`GET /api/health` always returns Worker metadata. It reports `db: "unconfigured"` locally when neither the selected Hyperdrive binding nor direct `MYSQL_URL` is available, `db: "ok"` only after MySQL `SELECT 1`, and `db: "error"` on a sanitized connection failure. It never returns host, username, password, or socket details. Explicit Hyperdrive mode requires its binding before the handler starts. Deployed environments default to Hyperdrive with SQL query caching disabled; see [Hyperdrive setup and rollback](hyperdrive.md).
 
 The daily retention trigger removes bounded old listing history and sold events; it does not delete current listings. Monitor MySQL disk, connection, query-latency, backup, and TLS-certificate health before expanding retention or upload volume. The Worker pool is intentionally bounded to two connections per isolate; account for Worker concurrency and VPS `max_connections` together.
 

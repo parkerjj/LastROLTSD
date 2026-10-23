@@ -59,6 +59,8 @@ Keep the raw upload key only in the uploader's secret store. Do not set it as a 
 
 ## Cloudflare and GitHub configuration
 
+Deployed environments now default to Hyperdrive. Complete [Hyperdrive setup](hyperdrive.md) before the next production deployment: create a cache-disabled MySQL Hyperdrive configuration, set the `production` Environment variable `CLOUDFLARE_HYPERDRIVE_ID`, and add Hyperdrive Read permission to the deployment API token. `MYSQL_CONNECTION_MODE` defaults to `hyperdrive`; set it to `direct` to retain the previous connection path. Local development remains direct. Keep `MYSQL_URL` for Node migrations and direct-mode rollback; no schema change is needed for Hyperdrive.
+
 Create the GitHub Environment named `production` with exactly these deployment secrets:
 
 - `MYSQL_URL`

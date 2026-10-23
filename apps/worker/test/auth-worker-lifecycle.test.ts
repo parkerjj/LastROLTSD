@@ -31,12 +31,14 @@ function trackAuthPools(options: { failIdentity?: boolean; dailyCount?: number }
     const pool: TrackedPool & {
       on: ReturnType<typeof vi.fn>;
       execute(sql: string): Promise<unknown>;
+      query(sql: string): Promise<unknown>;
       end(): Promise<void>;
     } = {
       closed: false,
       closeCalls: 0,
       queries: [],
       on: vi.fn(),
+      async query(sql: string) { return pool.execute(sql); },
       async execute(sql: string) {
         if (pool.closed) throw new Error('connection belongs to a completed request');
         pool.queries.push(sql);
@@ -205,13 +207,16 @@ describe('Worker account request lifecycle', () => {
     expect(pools).toHaveLength(0);
   });
 
-  it('runs one cleanup category without Resend and closes its independent cron pool once', async () => {
+  it.each([false, true])('runs one cleanup category without Resend and closes its independent cron pool once (Hyperdrive: %s)', async (hyperdrive) => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-14T10:07:31.000Z'));
     const pools = trackAuthPools();
 
     await worker.scheduled(
       { cron: '*/2 * * * *' } as ScheduledEvent,
-      authBindings({ AUTH_MAIL_DAILY_LIMIT: '25', AUTH_MAIL_MONTHLY_LIMIT: '700' }),
+      authBindings({ AUTH_MAIL_DAILY_LIMIT: '25', AUTH_MAIL_MONTHLY_LIMIT: '700', ...(hyperdrive ? {
+        MYSQL_URL: undefined, MYSQL_CONNECTION_MODE: 'hyperdrive',
+        HYPERDRIVE: { host: 'hyperdrive.internal', port: 3306, user: 'user', password: 'secret', database: 'app' },
+      } : {}) }),
     );
 
     expect(pools).toHaveLength(1);

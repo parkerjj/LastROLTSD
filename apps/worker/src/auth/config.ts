@@ -1,4 +1,5 @@
 import type { AppEnv } from '../env';
+import { hasMysqlConnection } from '../db/mysql-connection';
 import { AuthFailure, type AuthBindings, type AuthConfig, type DisabledAuthConfig, type EnabledAuthConfig, type MailDeliveryConfig } from './types';
 
 const UNAVAILABLE_MESSAGE = '账号服务暂不可用';
@@ -129,8 +130,8 @@ function assertIndependentSecrets(secrets: readonly Uint8Array[]): void {
 export function resolveAuthConfig(env: AppEnv & AuthBindings): AuthConfig {
   if (!isEnabled(env.AUTH_ENABLED)) return disabledConfig();
 
-  const mysqlUrl = requiredValue(env.MYSQL_URL).trim();
-  if (!mysqlUrl) throw unavailable();
+  if (!hasMysqlConnection(env)) throw unavailable();
+  const mysqlUrl = env.MYSQL_URL?.trim() || null;
   const mailDailyLimit = mailLimit(env.AUTH_MAIL_DAILY_LIMIT, MAIL_DAILY_LIMIT, MAIL_DAILY_LIMIT);
   const mailMonthlyLimit = mailLimit(env.AUTH_MAIL_MONTHLY_LIMIT, MAIL_MONTHLY_LIMIT, MAIL_MONTHLY_LIMIT);
   const authSiteUrl = trustedSiteOrigin(env.AUTH_SITE_URL, env.ENVIRONMENT);

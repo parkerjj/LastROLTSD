@@ -77,12 +77,16 @@ describe('Worker MySQL connection ownership', () => {
     }
   });
 
-  it.each([false, true])('closes direct upload pools after a receipt transaction (failure: %s)', async (fail) => {
+  it.each([
+    { fail: false, hyperdrive: false }, { fail: true, hyperdrive: false },
+    { fail: false, hyperdrive: true }, { fail: true, hyperdrive: true },
+  ])('closes upload pools after a receipt transaction (failure: $fail, Hyperdrive: $hyperdrive)', async ({ fail, hyperdrive }) => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const pools: Array<{ closed: boolean; committed: boolean; rolledBack: boolean; released: boolean }> = [];
     vi.spyOn(mysql, 'createPool').mockImplementation(() => {
       const pool = {
         closed: false, committed: false, rolledBack: false, released: false, on: vi.fn(),
+        async query(sql: string) { return pool.execute(sql); },
         async execute(sql: string) {
           if (pool.closed) throw new Error('connection belongs to a completed request');
           if (sql.includes('api_key_hash =')) return [[{ id: 'source', name: 'Synthetic', api_key_hash: '', status: 'active' }], []];
@@ -101,7 +105,8 @@ describe('Worker MySQL connection ownership', () => {
     });
     const response = await worker.fetch(new Request('https://example.test/api/v1/market/upload', {
       method: 'POST', headers: { authorization: 'Bearer synthetic', 'idempotency-key': 'full-1/0' }, body: JSON.stringify(payload),
-    }), bindings);
+    }), { ...bindings, ...(hyperdrive ? { MYSQL_URL: undefined, MYSQL_CONNECTION_MODE: 'hyperdrive',
+      HYPERDRIVE: { host: 'hyperdrive.internal', port: 3306, user: 'user', password: 'secret', database: 'app' } } : {}) });
     expect(response.status).toBe(fail ? 500 : 202);
     expect(pools).toHaveLength(1);
     expect(pools[0]).toMatchObject({ closed: true, released: true, committed: !fail, rolledBack: fail });

@@ -46,6 +46,7 @@ KE_BUILD_MANIFEST=
 
 
 # Set this to the VPS MySQL 8 URL for local Worker development. Never commit a real URL.
+MYSQL_CONNECTION_MODE=direct
 MYSQL_URL=mysql://replace-user:replace-password@replace-host:3306/replace-database?ssl=true
 # Optional Node integration-test target. Use a dedicated MySQL test database, never production.
 MYSQL_TEST_URL=mysql://replace-user:replace-password@replace-host:3306/replace-test-database?ssl=true

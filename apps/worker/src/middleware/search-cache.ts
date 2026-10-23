@@ -10,7 +10,7 @@ const CACHE_VERSION = 'search-response-v1';
 let lastNamespace: { identity: string; secret: string; value: string } | undefined;
 
 function cacheKey(url: URL, env: AppEnv): Request {
-  const identity = JSON.stringify([CACHE_VERSION, env.ENVIRONMENT, env.BUILD_VERSION, env.MYSQL_URL, SEARCH_INDEX_VERSION, OPTION_DEFINITIONS_VERSION]);
+  const identity = JSON.stringify([CACHE_VERSION, env.ENVIRONMENT, env.BUILD_VERSION, env.MYSQL_URL, env.MYSQL_CONNECTION_MODE, env.HYPERDRIVE?.database, SEARCH_INDEX_VERSION, OPTION_DEFINITIONS_VERSION]);
   const secret = env.CURSOR_SECRET ?? DEFAULT_CURSOR_SECRET;
   if (lastNamespace?.identity !== identity || lastNamespace.secret !== secret) {
     lastNamespace = { identity, secret, value: createHmac('sha256', secret).update(identity).digest('hex') };
@@ -25,7 +25,9 @@ function cacheKey(url: URL, env: AppEnv): Request {
 
 export async function withSearchCache(request: Request, url: URL, env: AppEnv, load: () => Promise<Response>, context?: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
   // Public search ignores cookies, including analytics cookies; never vary results by them.
-  const bypass = request.headers.has('authorization') || request.headers.has('range')
+  // Hyperdrive's virtual host/password rotate. Without a stable origin identity,
+  // avoid sharing cached search results between databases across deployments.
+  const bypass = (!env.MYSQL_URL && !!env.HYPERDRIVE) || request.headers.has('authorization') || request.headers.has('range')
     || /(?:no-cache|no-store|max-age\s*=\s*0)/i.test(request.headers.get('cache-control') ?? '')
     || request.headers.get('pragma')?.toLowerCase() === 'no-cache';
   const cache = !bypass && typeof caches !== 'undefined' ? (caches as CacheStorage & { default: Cache }).default : undefined;
