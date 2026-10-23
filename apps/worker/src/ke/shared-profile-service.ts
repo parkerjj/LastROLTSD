@@ -21,8 +21,12 @@ async function fingerprint(id: number, input: SharedProfileCopyInput): Promise<s
 export function createSharedProfileService(repository: SharedProfileRepository, now: () => number = () => Date.now()): SharedProfileService {
   return {
     async list(userId, query) {
+      const jobIdsValid = query.job_ids === undefined || (Array.isArray(query.job_ids) && query.job_ids.length > 0
+        && query.job_ids.length <= 64 && query.job_ids.every((jobId) => integer(jobId) && jobId <= 4294967295)
+        && new Set(query.job_ids).size === query.job_ids.length);
       if (!['newest', 'uses', 'likes'].includes(query.sort) || !Number.isSafeInteger(query.page) || query.page < 1 || !Number.isSafeInteger((query.page - 1) * 20)
-        || (query.job_id !== undefined && !integer(query.job_id))) throw new KeFailure('KE_BAD_REQUEST', 400, '大厅查询参数无效');
+        || (query.job_id !== undefined && (!integer(query.job_id) || query.job_id > 4294967295))
+        || (query.job_id !== undefined && query.job_ids !== undefined) || !jobIdsValid) throw new KeFailure('KE_BAD_REQUEST', 400, '大厅查询参数无效');
       return repository.list(Number(userId), query);
     },
     async getById(userId, id) { return await repository.findById(Number(userId), id) ?? notFound(); },

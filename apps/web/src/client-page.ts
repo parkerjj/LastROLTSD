@@ -1,5 +1,6 @@
 import { AnalyticsEvent, track } from "./analytics";
 import { siteNavMarkup, mountSiteNav } from "./nav";
+import { injectLegalLinksIntoFooters } from "./footer-links";
 
 /**
  * LRO 进阶客户端说明页（/client）。
@@ -202,7 +203,7 @@ export function mountClientPage(root: HTMLElement): void {
   root.innerHTML = `
     <header class="site-header">
       <div class="topbar page-width">
-        <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+        <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
         ${siteNavMarkup("client")}
       </div>
     </header>
@@ -272,10 +273,11 @@ export function mountClientPage(root: HTMLElement): void {
         <p>遇到未列出的问题？加入 QQ 交流群 <button type="button" class="qq-copy" data-copy="725955796" aria-label="复制QQ群号 725955796"><span>725955796</span><span class="copy-hint" aria-hidden="true">复制</span></button> 或前往<a class="feedback-link" href="/guestbook">玩家登记簿（露天商店留言簿）</a>留言反馈。</p>
       </section>
     </main>
-    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
   `;
 
   mountSiteNav(root);
+  injectLegalLinksIntoFooters(root);
 
   const copyButtons = root.querySelectorAll<HTMLButtonElement>("[data-copy]");
   copyButtons.forEach((copyButton) => {

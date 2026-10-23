@@ -583,6 +583,7 @@ function loginDialogMarkup(): string {
   return `<div class="login-scrim" data-login-scrim>
     <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogLoginTitle">
       <button type="button" class="login-dialog-close" data-close-login aria-label="关闭登录浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
+      <div class="login-dialog-brand" aria-hidden="true"><img src="/brand/favicon_180.png" alt="" width="72" height="72" /></div>
       <p class="login-dialog-eyebrow">LTSD 账号</p>
       <h2 class="login-dialog-title" id="dialogLoginTitle">密码登录</h2>
       <p class="login-dialog-sub">登录后查看账号资料与邮箱验证状态。</p>
@@ -612,6 +613,7 @@ function registerDialogMarkup(): string {
   return `<div class="register-scrim" data-register-scrim>
     <section class="login-dialog register-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogRegisterTitle">
       <button type="button" class="login-dialog-close" data-close-register aria-label="关闭注册浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
+      <div class="login-dialog-brand" aria-hidden="true"><img src="/brand/favicon_180.png" alt="" width="72" height="72" /></div>
       <p class="login-dialog-eyebrow">LTSD 账号</p>
       <h2 class="login-dialog-title" id="dialogRegisterTitle">注册账号</h2>
       <p class="login-dialog-sub">创建账号后，可在不同设备查看和管理自己的资料。</p>
@@ -641,6 +643,7 @@ function successDialogMarkup(): string {
     <section class="login-dialog success-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogSuccessTitle">
       <button type="button" class="login-dialog-close" data-close-success aria-label="关闭注册完成浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
       <span class="success-icon" aria-hidden="true"><i class="ph ph-envelope-simple"></i></span>
+      <div class="login-dialog-brand" aria-hidden="true"><img src="/brand/favicon_180.png" alt="" width="72" height="72" /></div>
       <p class="login-dialog-eyebrow">LTSD 账号</p>
       <h2 class="login-dialog-title" id="dialogSuccessTitle">注册完成</h2>
       <p class="login-dialog-sub">注册完成，请检查邮箱并完成验证</p>
@@ -658,6 +661,7 @@ function forgotDialogMarkup(): string {
   return `<div class="forgot-scrim" data-forgot-scrim>
     <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogForgotTitle">
       <button type="button" class="login-dialog-close" data-close-forgot aria-label="关闭账号找回浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
+      <div class="login-dialog-brand" aria-hidden="true"><img src="/brand/favicon_180.png" alt="" width="72" height="72" /></div>
       <p class="login-dialog-eyebrow">LTSD 账号</p>
       <h2 class="login-dialog-title" id="dialogForgotTitle">找回密码</h2>
       <p class="login-dialog-sub">如果该邮箱对应可恢复的账号，你会收到重置邮件。</p>
@@ -682,6 +686,7 @@ function passwordDialogMarkup(): string {
   return `<div class="password-scrim" data-password-scrim>
     <section class="login-dialog password-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogPasswordTitle">
       <button type="button" class="login-dialog-close" data-close-password aria-label="关闭修改密码浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
+      <div class="login-dialog-brand" aria-hidden="true"><img src="/brand/favicon_180.png" alt="" width="72" height="72" /></div>
       <p class="login-dialog-eyebrow">LTSD 账号</p>
       <h2 class="login-dialog-title" id="dialogPasswordTitle">修改密码</h2>
       <p class="login-dialog-sub">修改成功后，当前账号的所有登录会话都会退出。</p>
@@ -708,6 +713,7 @@ function nameDialogMarkup(): string {
   return `<div class="name-scrim" data-name-scrim>
     <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogNameTitle">
       <button type="button" class="login-dialog-close" data-close-name aria-label="关闭修改昵称浮层"><i class="ph ph-x" aria-hidden="true"></i></button>
+      <div class="login-dialog-brand" aria-hidden="true"><img src="/brand/favicon_180.png" alt="" width="72" height="72" /></div>
       <p class="login-dialog-eyebrow">LTSD 账号</p>
       <h2 class="login-dialog-title" id="dialogNameTitle">修改昵称</h2>
       <p class="login-dialog-sub">昵称用于站内公开展示，允许与其他玩家重名。</p>

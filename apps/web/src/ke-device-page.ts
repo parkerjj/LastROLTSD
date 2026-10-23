@@ -68,7 +68,7 @@ export function mountKeDevicePage(root: HTMLElement, deps: KeDevicePageDeps = {}
   root.innerHTML = `
   <header class="site-header">
     <div class="topbar page-width">
-      <a class="brand" href="/"><span class="brand-mark">RO</span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
+      <a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
       ${siteNavMarkup(null)}
     </div>
   </header>

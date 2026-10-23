@@ -178,8 +178,10 @@ export function createSharedProfileRepository(database: MysqlDatabase): SharedPr
   };
   return {
     async list(userId, query) {
-      const filter = query.job_id === undefined ? '' : ' AND s.job_id = ?';
-      const filterValues = query.job_id === undefined ? [] : [query.job_id];
+      const filter = query.job_ids !== undefined
+        ? ` AND s.job_id IN (${query.job_ids.map(() => '?').join(', ')})`
+        : query.job_id === undefined ? '' : ' AND s.job_id = ?';
+      const filterValues = query.job_ids ?? (query.job_id === undefined ? [] : [query.job_id]);
       const order = { newest: 's.created_at DESC, s.id DESC', uses: 's.use_count DESC, s.created_at DESC, s.id DESC', likes: 's.like_count DESC, s.created_at DESC, s.id DESC' }[query.sort];
       const rows = await database.all(`SELECT ${SUMMARY_COLUMNS} FROM ke_shared_profiles s JOIN auth_users u ON u.id = s.author_user_id WHERE s.status = 'PUBLISHED'${filter} ORDER BY ${order} LIMIT 20 OFFSET ?`, [userId, userId, ...filterValues, (query.page - 1) * 20]);
       const count = await database.first(`SELECT COUNT(*) AS n FROM ke_shared_profiles s WHERE s.status = 'PUBLISHED'${filter}`, filterValues);

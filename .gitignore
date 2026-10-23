@@ -39,6 +39,7 @@ lastro-ui-prototype.html
 .claude/
 .superpowers/
 .codegraph/
+.playwright-mcp/
 agent/skills/
 skills-lock.json
 apps/web/public/ke-mockup.html

@@ -133,6 +133,25 @@ describe("ke page", () => {
     expect(root.querySelector("img[onerror], svg[onload]")).toBeNull();
   });
 
+  it('远程域名上的 demo 参数不会开启免登录演示模式', async () => {
+    const dom = new JSDOM('<main id="app"></main>', { url: 'https://example.com/ke?demo=1' });
+    vi.stubGlobal('document', dom.window.document);
+    vi.stubGlobal('window', dom.window);
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+      if (path === '/ke/options.json') return jsonResponse({ jobs: {}, skills: [], statuses: [], monsters: [], items: [], maps: [], timeouts: [] });
+      if (path === '/api/v1/ke/characters') return new Response(JSON.stringify({ error: { message: '请先登录' } }), { status: 401 });
+      return jsonResponse({});
+    }));
+
+    const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+    mountKePage(root);
+    await wait(20);
+
+    expect(root.querySelector<HTMLElement>('#ke-demo-chip')?.hidden).toBe(true);
+    expect(root.textContent).toContain('请先登录账号');
+    expect(vi.mocked(fetch).mock.calls.some(([path]) => path === '/api/v1/ke/characters')).toBe(true);
+  });
+
   it('编辑方案时显示职业中文名和已保存技能名，即使技能不在当前职业列表中', async () => {
     const { root } = await mountProfileEditor();
 

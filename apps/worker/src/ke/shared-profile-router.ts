@@ -38,11 +38,18 @@ function rowId(value: string): number {
   if (!/^[1-9][0-9]*$/u.test(value) || !Number.isSafeInteger(Number(value))) badQuery();
   return Number(value);
 }
-function queryInput(query: Record<string, string>): SharedProfileQuery {
+export function queryInput(query: Record<string, string>): SharedProfileQuery {
   const sort = query.sort ?? 'newest';
   if (sort !== 'newest' && sort !== 'uses' && sort !== 'likes') badQuery();
   const page = query.page === undefined ? 1 : rowId(query.page);
   if (!Number.isSafeInteger((page - 1) * 20)) badQuery();
+  if (query.job_id !== undefined && query.job_ids !== undefined) badQuery();
+  if (query.job_ids !== undefined) {
+    if (!/^[0-9]+(?:,[0-9]+)*$/u.test(query.job_ids)) badQuery();
+    const jobIds = [...new Set(query.job_ids.split(',').map(Number))];
+    if (jobIds.length > 64 || jobIds.some((jobId) => !Number.isSafeInteger(jobId) || jobId > 4294967295)) badQuery();
+    return { sort, page, job_ids: jobIds };
+  }
   if (query.job_id === undefined) return { sort, page };
   if (!/^[0-9]+$/u.test(query.job_id)) badQuery();
   const jobId = Number(query.job_id);

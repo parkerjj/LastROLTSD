@@ -1,4 +1,7 @@
 .hall-page { padding: 28px 0 80px; color: var(--ink); }
+.hall-demo-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -8px 0 18px; padding: 10px 13px; color: #795b25; background: var(--tip-soft); border: 1px solid var(--tip-line); border-radius: 6px; font-size: .8rem; }
+.hall-demo-notice strong { color: #513c19; }
+.hall-demo-notice a { color: var(--forest); font-weight: 800; white-space: nowrap; }
 .hall-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
 .hall-heading h1 { margin: 5px 0; color: var(--forest); font: 700 clamp(1.5rem, 3vw, 2rem) Georgia, "Microsoft YaHei", serif; }
 .hall-heading p:last-child { margin: 0; color: var(--muted); }
@@ -40,4 +43,4 @@
 .hall-copy-panel button { margin: 8px 8px 0 0; }
 .hall-copy-message { color: var(--red-dark); }
 @media (max-width: 900px) { .hall-row { grid-template-columns: minmax(0, 1fr) 75px 60px; }.hall-row > .hall-actions { grid-column: 1 / -1; justify-content: start; }.hall-row-head > :last-child { display: none; } }
-@media (max-width: 640px) { .hall-page { padding-top: 18px; }.hall-heading { align-items: start; }.hall-heading p:last-child { font-size: .8rem; }.hall-tools { gap: 10px; padding: 12px; }.hall-tools label { flex: 1 1 120px; }.hall-tools input, .hall-tools select { width: 100%; }.hall-tools .hall-code-label { margin-left: 0; flex-basis: calc(100% - 75px); }.hall-row-head { display: none; }.hall-row { grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 13px 4px; }.hall-item-main { grid-column: 1 / -1; }.hall-number { text-align: left; color: var(--muted); font-size: .78rem; }.hall-number::before { content: attr(data-label) ' '; }.hall-row > .hall-actions { grid-column: 1 / -1; }.hall-copy-panel { inset: auto 0 0; width: 100%; max-height: 80vh; border-radius: 8px 8px 0 0; } }
+@media (max-width: 640px) { .hall-page { padding-top: 18px; }.hall-heading { align-items: start; }.hall-heading p:last-child { font-size: .8rem; }.hall-demo-notice { align-items: flex-start; flex-direction: column; }.hall-tools { gap: 10px; padding: 12px; }.hall-tools label { flex: 1 1 120px; }.hall-tools input, .hall-tools select { width: 100%; }.hall-tools .hall-code-label { margin-left: 0; flex-basis: calc(100% - 75px); }.hall-row-head { display: none; }.hall-row { grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 13px 4px; }.hall-item-main { grid-column: 1 / -1; }.hall-number { text-align: left; color: var(--muted); font-size: .78rem; }.hall-number::before { content: attr(data-label) ' '; }.hall-row > .hall-actions { grid-column: 1 / -1; }.hall-copy-panel { inset: auto 0 0; width: 100%; max-height: 80vh; border-radius: 8px 8px 0 0; } }

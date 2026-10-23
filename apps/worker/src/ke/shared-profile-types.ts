@@ -35,6 +35,7 @@ export interface SharedProfileQuery {
   sort: 'newest' | 'uses' | 'likes';
   page: number;
   job_id?: number;
+  job_ids?: number[];
 }
 export interface SharedProfilePage {
   items: SharedProfileSummary[];

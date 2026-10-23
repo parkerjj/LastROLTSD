@@ -87,3 +87,55 @@ it('shows the new share code and hall link in the profile list after saving', as
   expect(row?.textContent).toContain('ABC-1234');
   expect(row?.querySelector<HTMLAnchorElement>('a[href="/ke/hall?code=ABC-1234"]')).not.toBeNull();
 });
+
+it('local demo save stays in memory and never sends a KE write request', async () => {
+  const dom = new JSDOM('<div id="app"></div>', { url: 'http://localhost/ke?demo=1' });
+  vi.stubGlobal('document', dom.window.document);
+  vi.stubGlobal('window', dom.window);
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+    if (path === '/ke/options.json') return ok({ jobs: {}, jobs_zh: {}, skills: [], statuses: [], monsters: [], items: [], maps: [], timeouts: [{ key: 'ai_attack', value: '1', desc: '攻击间隔', range: '0-10' }] });
+    return ok({});
+  }));
+  const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+  mountKePage(root);
+  await tick();
+
+  expect(root.querySelector<HTMLElement>('#ke-demo-chip')?.hidden).toBe(false);
+  const name = root.querySelector<HTMLInputElement>('#ke-profile-name')!;
+  name.value = '猎场安全配置';
+  name.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
+  await tick();
+
+  const writes = vi.mocked(fetch).mock.calls.filter(([path, init]) =>
+    String(path).startsWith('/api/v1/ke/') && ['POST', 'PUT', 'DELETE'].includes(init?.method ?? ''),
+  );
+  expect(writes).toHaveLength(0);
+  expect(root.textContent).toContain('猎场安全配置');
+  expect(root.textContent).toContain('仅在演示中');
+
+  let card = root.querySelector<HTMLElement>('.ke-profile-card')!;
+  expect(card.textContent).toContain('DEM-0001');
+  card.querySelector<HTMLButtonElement>('.ke-btn-live')!.click();
+  await tick();
+  expect(root.textContent).toContain('已在演示中模拟激活');
+
+  vi.spyOn(dom.window, 'confirm').mockReturnValue(true);
+  card = root.querySelector<HTMLElement>('.ke-profile-card')!;
+  card.querySelector<HTMLButtonElement>('.ke-profile-actions .ke-btn-ghost')!.click();
+  await tick();
+  root.querySelector<HTMLButtonElement>('[data-share-withdraw]')!.click();
+  await tick();
+  expect(root.querySelector('[data-share-hint]')?.textContent).toContain('演示中已撤回');
+  root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
+  await tick();
+  card = root.querySelector<HTMLElement>('.ke-profile-card')!;
+  expect(card.textContent).toContain('DEM-0001');
+  card.querySelector<HTMLButtonElement>('.ke-btn-danger')!.click();
+  await tick();
+
+  expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(0);
+  expect(vi.mocked(fetch).mock.calls.some(([path, init]) =>
+    String(path).startsWith('/api/v1/ke/') && ['POST', 'PUT', 'DELETE'].includes(init?.method ?? ''),
+  )).toBe(false);
+});

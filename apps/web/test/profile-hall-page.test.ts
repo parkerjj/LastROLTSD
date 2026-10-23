@@ -45,6 +45,26 @@ it('anonymous view does not fetch shared data and login reveals it', async () =>
   page.dispose();
 });
 
+it('demo query on a public host still requires the real session', async () => {
+  const dom = new JSDOM('<div id="app"></div>', { url: 'https://example.com/ke/hall?demo=1' });
+  vi.stubGlobal('window', dom.window);
+  vi.stubGlobal('document', dom.window.document);
+  vi.stubGlobal('fetch', vi.fn(async () => ok({ items: [item], page: 1, page_size: 20, total: 1 })));
+  const store = {
+    getState: () => ({ status: 'anonymous' }) as AuthStoreState,
+    subscribe: () => () => undefined,
+    bootstrap: async () => undefined,
+  };
+  const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+  const dispose = mountProfileHall(root, store);
+  await tick();
+
+  expect(root.textContent).toContain('登录账号');
+  expect(root.querySelectorAll('.hall-item')).toHaveLength(0);
+  expect(vi.mocked(fetch).mock.calls.some(([path]) => String(path).includes('/shared-profiles'))).toBe(false);
+  dispose();
+});
+
 it('renders user text literally, filters with page reset, and normalizes code lookup', async () => {
   const page = setup(active, async (path) => {
     if (path.includes('/code/') || path.endsWith('/7')) return ok(detail);
@@ -122,4 +142,70 @@ it('shows update times and lets an author withdraw from the hall detail', async 
   expect(page.root.textContent).toContain('已撤回');
   expect(page.root.querySelector('[data-detail="7"]')).toBeNull();
   page.dispose();
+});
+
+it('local demo hall supports browsing, reversible likes, and a simulated copy without API writes', async () => {
+  const dom = new JSDOM('<div id="app"></div>', { url: 'http://127.0.0.1:5173/ke/hall?demo=1' });
+  vi.stubGlobal('window', dom.window);
+  vi.stubGlobal('document', dom.window.document);
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => path === '/ke/options.json'
+    ? ok({ jobs_zh: { '9': '巫师', '14': '十字军' }, jobs: {
+      '1': 'Swordsman', '2': 'Mage', '7': 'Knight', '9': 'Wizard', '13': 'Peco Knight',
+      '14': 'Crusader', '162': 'High Swordsman', '168': 'Lord Knight', '4002': 'High Swordsman',
+      '4008': 'Lord Knight', '4054': 'Rune Knight', '4080': 'Rune Knight', '4252': 'Dragon Knight',
+    } })
+    : ok({})));
+  const store = {
+    getState: () => ({ status: 'anonymous' }) as AuthStoreState,
+    subscribe: () => () => undefined,
+    bootstrap: async () => undefined,
+  };
+  const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+  const dispose = mountProfileHall(root, store);
+  await tick();
+
+  expect(root.querySelectorAll('.hall-item').length).toBeGreaterThan(0);
+  const jobFilter = root.querySelector<HTMLSelectElement>('[data-job]')!;
+  expect([...jobFilter.options].map((option) => option.value)).toEqual(['', 'knight', 'crusader', 'wizard', 'sage']);
+  jobFilter.value = 'wizard';
+  jobFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await tick();
+  expect(root.querySelectorAll('.hall-item')).toHaveLength(1);
+  expect(root.querySelector('.hall-item')?.textContent).toContain('巫师 · 火墙练级与补给');
+  jobFilter.value = '';
+  jobFilter.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await tick();
+
+  const codeInput = root.querySelector<HTMLInputElement>('[data-code-input]')!;
+  codeInput.value = 'wiz1732';
+  root.querySelector<HTMLButtonElement>('[data-code-find]')!.click();
+  await tick();
+  expect(root.querySelector('.hall-detail h2')?.textContent).toBe('巫师 · 火墙练级与补给');
+
+  const firstRow = root.querySelector<HTMLElement>('.hall-item')!;
+  const like = firstRow.querySelector<HTMLButtonElement>('[data-like]')!;
+  like.click();
+  await tick();
+  expect(root.querySelector<HTMLElement>('.hall-item')?.querySelector('[data-like]')?.textContent).toBe('取消赞');
+  root.querySelector<HTMLElement>('.hall-item')?.querySelector<HTMLButtonElement>('[data-like]')?.click();
+  await tick();
+  expect(root.querySelector<HTMLElement>('.hall-item')?.querySelector('[data-like]')?.textContent).toBe('点赞');
+
+  const item = root.querySelector<HTMLElement>('.hall-item')!;
+  const uses = item.querySelector<HTMLElement>('[data-label="使用人数"]')!;
+  const originalUses = Number(uses.textContent);
+  item.querySelector<HTMLButtonElement>('[data-copy]')!.click();
+  await tick();
+  root.querySelector<HTMLButtonElement>('[data-copy-confirm]')!.click();
+  await tick();
+  expect(root.textContent).toContain('演示复制完成');
+  expect(Number(root.querySelector<HTMLElement>('.hall-item [data-label="使用人数"]')?.textContent)).toBe(originalUses + 1);
+  root.querySelector<HTMLButtonElement>('[data-close-copy]')!.click();
+  root.querySelector<HTMLElement>('.hall-item')?.querySelector<HTMLButtonElement>('[data-copy]')?.click();
+  await tick();
+  root.querySelector<HTMLButtonElement>('[data-copy-confirm]')!.click();
+  await tick();
+  expect(Number(root.querySelector<HTMLElement>('.hall-item [data-label="使用人数"]')?.textContent)).toBe(originalUses + 1);
+  expect(vi.mocked(fetch).mock.calls.some(([path, init]) => String(path).startsWith('/api/v1/ke/') && ['POST', 'PUT', 'DELETE'].includes(init?.method ?? ''))).toBe(false);
+  dispose();
 });

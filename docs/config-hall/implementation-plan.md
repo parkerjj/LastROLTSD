@@ -40,7 +40,7 @@
 - `SharedProfileSummary` 为设计 §6.2 的摘要字段；`SharedProfileDetail` 追加与个人配置同名的五份文本列（control 列可为 NULL），不使用另一套文件字段命名。
 - `createSharedProfileRepository(database: MysqlDatabase): SharedProfileRepository`。
 - `createSharedProfileService(repository: SharedProfileRepository, now?: () => number): SharedProfileService`。
-- service：`list(userId: string, query: { sort: 'newest'|'uses'|'likes'; page: number; job_id?: number })` → `{ items, page, page_size: 20, total }`；`getById(userId, id)` / `getByCode(userId, code)` → detail；`setLike(userId,id,liked)` → `{ liked, like_count }`；`copy(userId,id,{aid,cid,nid,request_id})` → `{profile_id,name,use_count,duplicate}`；`withdraw(userId,sourceProfileId)` → void。
+- service：`list(userId: string, query: { sort: 'newest'|'uses'|'likes'; page: number; job_id?: number; job_ids?: number[] })` → `{ items, page, page_size: 20, total }`；`getById(userId, id)` / `getByCode(userId, code)` → detail；`setLike(userId,id,liked)` → `{ liked, like_count }`；`copy(userId,id,{aid,cid,nid,request_id})` → `{profile_id,name,use_count,duplicate}`；`withdraw(userId,sourceProfileId)` → void。
 - 大厅 URL `/ke/hall`，编辑定位 `/ke?aid=<n>&cid=<n>&nid=<n>&profile=<id>`；分享 URL `/ke/hall?code=ABC-1234`。
 
 ## Task 1: 数据与事务实现
