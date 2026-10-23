@@ -22,6 +22,7 @@ import type { ProfileSharingInput } from './shared-profile-types';
 import { createTokenRepository, type TokenRepository } from './token-repository';
 import { createTokenService } from './token-service';
 import { KeFailure, type CharacterReport, type KeLicenseMode } from './types';
+import { createBuildRegistry } from './build-registry';
 
 const GENERAL_JSON_LIMIT = 8 * 1024;
 const HOUR_MS = 60 * 60 * 1000;
@@ -207,14 +208,14 @@ async function assertKeRateLimit(
 
 export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDatabase, runtime?: AuthRuntime): void {
   const authRuntime = runtime ?? { now: () => Date.now(), fetch: globalThis.fetch };
+  const buildRegistry = database ? createBuildRegistry(database) : undefined;
+  const databaseBuildGuard = buildRegistry?.assertAllowed;
   let authRepository: ReturnType<typeof createAuthRepository> | null = null;
   let keRepository: KeRepository | null = null;
   let profileRepository: ProfileRepository | null = null;
   let tokenRepository: TokenRepository | null = null;
   let sharedProfileService: SharedProfileService | null = null;
   let authConfig: EnabledAuthConfig | null | undefined;
-  let keConfig: KeConfig | null = null;
-  let keConfigResolved = false;
 
   const setup = (): { authConfig: EnabledAuthConfig; authRepository: ReturnType<typeof createAuthRepository>; keRepository: KeRepository; profileRepository: ProfileRepository; tokenRepository: TokenRepository } | null => {
     if (database === undefined) return null;
@@ -252,18 +253,17 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
 
   // 仅授权端点（bind/start/heartbeat/stop）依赖 license 私钥与 K_core；Profile/角色列表只依赖账号体系，
   // 因此 KE 密钥未配置或配置有误时，配置编辑器仍可使用。
-  const licenseSetup = (): (NonNullable<ReturnType<typeof setup>> & { keConfig: KeConfig }) | null => {
+  const licenseSetup = async (): Promise<(NonNullable<ReturnType<typeof setup>> & { keConfig: KeConfig }) | null> => {
     const handlers = setup();
-    if (!handlers) return null;
-    if (!keConfigResolved) {
-      keConfigResolved = true;
-      try {
-        keConfig = resolveKeConfig(env, handlers.authConfig);
-      } catch {
-        keConfig = null;
-      }
+    if (!handlers || !buildRegistry) return null;
+    try {
+      // 每次读取 policy，首次登记启用后立即忽略旧 secret；数据库异常不得降级到 bootstrap。
+      const enforced = await buildRegistry.isEnforced();
+      const keConfig = resolveKeConfig(env, handlers.authConfig, enforced ? 'enforced' : 'bootstrap');
+      return { ...handlers, keConfig };
+    } catch {
+      return null;
     }
-    return keConfig === null ? null : { ...handlers, keConfig };
   };
 
   const tokenService = (handlers: NonNullable<ReturnType<typeof setup>>) =>
@@ -280,7 +280,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   //   PUT/DELETE 不在 CORS 允许的方法内；无 body 的写操作以及设备授权的决定，额外校验 Origin（assertTrustedWriteOrigin），
   //   补上 SameSite=Lax 拦不住的同站其他来源（兄弟子域）。
   app.post('/api/v1/ke/instances/bind', async (c: any) => {
-    const handlers = licenseSetup();
+    const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
     try {
       const identity = await bearerIdentity(handlers, c.req.raw);
@@ -293,7 +293,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         kePublicKey: parsePublicKey(body),
         ...(await attestation(c.req.raw, env, body)),
       };
-      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now).bind(identity.userId, input);
+      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).bind(identity.userId, input);
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
@@ -301,7 +301,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   });
 
   app.post('/api/v1/ke/instances/:id/start', async (c: any) => {
-    const handlers = licenseSetup();
+    const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
     try {
       const identity = await bearerIdentity(handlers, c.req.raw);
@@ -316,7 +316,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         kePublicKey: parsePublicKey(body),
         ...(await attestation(c.req.raw, env, body)),
       };
-      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now).start(identity.userId, input);
+      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).start(identity.userId, input);
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
@@ -324,13 +324,13 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   });
 
   app.post('/api/v1/ke/instances/:id/heartbeat', async (c: any) => {
-    const handlers = licenseSetup();
+    const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
     try {
       const identity = await bearerIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       const ts = typeof body.ts === 'number' && Number.isSafeInteger(body.ts) ? body.ts : 0;
-      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now).heartbeat(
+      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).heartbeat(
         identity.userId,
         parseInstanceId(c.req.param('id')),
         parseCharacterReport(body),
@@ -344,7 +344,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   });
 
   app.post('/api/v1/ke/instances/:id/stop', async (c: any) => {
-    const handlers = licenseSetup();
+    const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
     try {
       const identity = await bearerIdentity(handlers, c.req.raw);

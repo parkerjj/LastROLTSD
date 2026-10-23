@@ -76,7 +76,7 @@ function buildManifest(value: string | undefined): ReadonlyMap<string, BuildEntr
   return entries;
 }
 
-export function resolveKeConfig(env: AppEnv & KeBindings, authConfig: AuthConfig): KeConfig {
+export function resolveKeConfig(env: AppEnv & KeBindings, authConfig: AuthConfig, buildPolicy: 'bootstrap' | 'enforced' = 'bootstrap'): KeConfig {
   if (!authConfig.enabled) return disabled();
   return {
     enabled: true,
@@ -84,6 +84,6 @@ export function resolveKeConfig(env: AppEnv & KeBindings, authConfig: AuthConfig
     licenseKeyVersion: keyVersion(env.KE_LICENSE_KEY_VERSION, '1'),
     coreKey: decodeSecret(env.KE_CORE_KEY, 32),
     coreKeyVersion: keyVersion(env.KE_CORE_KEY_VERSION, '1'),
-    buildManifest: buildManifest(env.KE_BUILD_MANIFEST),
+    buildManifest: buildPolicy === 'bootstrap' ? buildManifest(env.KE_BUILD_MANIFEST) : null,
   };
 }

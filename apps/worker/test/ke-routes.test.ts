@@ -31,8 +31,8 @@ function bindings(withKe: boolean): AppEnv {
 
 function appFor(withKe: boolean): Hono {
   const app = new Hono();
-  // 这些用例都在触达数据库之前就返回（Origin 不符 / 无会话 / 配置缺失），数据库句柄不会被调用。
-  registerKeRoutes(app, bindings(withKe), {} as MysqlDatabase);
+  // 授权端点先读取 bootstrap policy；其余用例在认证前返回，不访问业务数据。
+  registerKeRoutes(app, bindings(withKe), { first: async () => ({ enforced: 0 }) } as unknown as MysqlDatabase);
   return app;
 }
 
