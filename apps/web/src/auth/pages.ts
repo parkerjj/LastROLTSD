@@ -466,58 +466,6 @@ export function mountAuthPage(
     });
   }
 
-  const resendVerificationButton = root.querySelector<HTMLButtonElement>(
-    "#account-resend-email",
-  );
-  if (resendVerificationButton) {
-    listen(resendVerificationButton, "click", () => {
-      const state = store.getState();
-      const userId = currentUserId();
-      const submittedEpoch = identityEpoch;
-      const resendStatus = root.querySelector<HTMLElement>(
-        "#account-resend-status",
-      );
-      if (
-        !active ||
-        state.status !== "pending" ||
-        !userId ||
-        resendVerificationButton.disabled
-      )
-        return;
-      resendVerificationButton.disabled = true;
-      if (resendStatus) resendStatus.textContent = "正在申请发送验证邮件…";
-      void api
-        .requestEmailVerification()
-        .then(async (response) => {
-          if (
-            !active ||
-            currentUserId() !== userId ||
-            identityEpoch !== submittedEpoch
-          )
-            return;
-          if (resendStatus)
-            resendStatus.textContent = acceptedMessage(response, "verify");
-          await store.reconcile().catch(() => undefined);
-        })
-        .catch((error: unknown) => {
-          if (
-            active &&
-            currentUserId() === userId &&
-            identityEpoch === submittedEpoch &&
-            resendStatus
-          ) {
-            resendStatus.textContent = handleError(
-              error,
-              "验证邮件发送失败，请重试。",
-            );
-          }
-        })
-        .finally(() => {
-          if (active) resendVerificationButton.disabled = false;
-        });
-    });
-  }
-
   const verifyLogout = root.querySelector<HTMLButtonElement>("#verify-logout");
   if (verifyLogout) {
     listen(verifyLogout, "click", () => {

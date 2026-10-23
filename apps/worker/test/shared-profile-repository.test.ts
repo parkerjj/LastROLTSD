@@ -5,7 +5,7 @@ import { createSharedProfileRepository } from '../src/ke/shared-profile-reposito
 describe('shared profile repository job filters', () => {
   it('uses a parameterized IN filter for a job family and keeps the legacy equality filter', async () => {
     const all = vi.fn(async (_sql: string, _values?: readonly unknown[]) => []);
-    const first = vi.fn(async () => ({ n: 0 }));
+    const first = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ n: 0 }));
     const repository = createSharedProfileRepository({ all, first } as unknown as MysqlDatabase);
 
     await repository.list(5, { sort: 'newest', page: 3, job_ids: [1, 7, 13] });

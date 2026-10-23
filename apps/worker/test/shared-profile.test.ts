@@ -72,6 +72,7 @@ function sharedFixture() {
     async insertProfile(user, _input, _shared, name) { const id = copies.size + 1; copies.set(id, { owner: user, name }); count++; return id; },
     async addUse(user) { if (uses.has(user)) return 0; uses.add(user); data.use_count++; return 1; },
     async insertReceipt(user, _id, request, hash, profileId, name) { receipts.set(`${user}:${request.request_id}`, { request_hash: hash, result_profile_id: profileId, result_name: name, result_owner_id: user, use_count: data.use_count }); },
+    async withdrawShared() { published = false; },
     async withdrawSource() { published = false; },
   };
   const repository: SharedProfileRepository = {
