@@ -1,8 +1,15 @@
-import { mountAuthNav } from './auth/nav';
-import type { AuthApiClient } from './auth/api';
-import type { AuthStore } from './auth/store';
+import { mountAuthNav } from "./auth/nav";
+import type { AuthApiClient } from "./auth/api";
+import type { AuthStore } from "./auth/store";
 
-export type SitePage = "search" | "accounts" | "guestbook" | "updates" | "client" | "sponsors" | "hall";
+export type SitePage =
+  | "search"
+  | "accounts"
+  | "guestbook"
+  | "updates"
+  | "client"
+  | "sponsors"
+  | "hall";
 
 interface NavEntry {
   readonly page: SitePage;
@@ -30,6 +37,13 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     href: "/client",
     label: "进阶客户端",
     icon: "ph-rocket-launch",
+  },
+  {
+    page: "hall",
+    href: "/ke/hall",
+    label: "配置大厅",
+    icon: "ph-squares-four",
+    isNew: true,
   },
   {
     page: "guestbook",
@@ -130,7 +144,11 @@ export function mountSiteNav(
     setOpen(!nav.classList.contains("is-open"));
   });
   nav.addEventListener("click", (event) => {
-    if (ElementConstructor && event.target instanceof ElementConstructor && event.target.closest("a"))
+    if (
+      ElementConstructor &&
+      event.target instanceof ElementConstructor &&
+      event.target.closest("a")
+    )
       setOpen(false);
   });
 
