@@ -5,7 +5,7 @@ import { jsonError, requestId } from '../middleware/errors';
 import { readAuthJson } from './body';
 import { avatarResponse } from './avatar';
 import { assertCsrf, assertTrustedWriteOrigin, issueCsrf } from './csrf';
-import { resolveAuthConfig } from './config';
+import { mailRepositoryOptions, resolveAuthConfig } from './config';
 import { createAccountService } from './account-service';
 import { createActionService } from './action-service';
 import { normalizeEmail, parseDisplayName, validatePasswordConfirmation } from './input';
@@ -217,10 +217,7 @@ export function registerAuthRoutes(
   const requestConfig = () => {
     const config = enabledConfig(env);
     if (config && database && !repository) {
-      repository = createAuthRepository(database, {
-        mailDailyLimit: config.mailDailyLimit,
-        mailMonthlyLimit: config.mailMonthlyLimit,
-      });
+      repository = createAuthRepository(database, mailRepositoryOptions(config));
     }
     return config;
   };

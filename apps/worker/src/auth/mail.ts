@@ -1,5 +1,5 @@
 import { openMailPayload, sealMailPayload } from './crypto';
-import { requireAuthConfig } from './config';
+import { hasMailProvider, requireAuthConfig } from './config';
 import type { MailFinishResult, MailRepository } from './repository';
 import type {
   ActionPurpose,
@@ -9,6 +9,7 @@ import type {
   ClaimedMailJob,
   MailAttemptContext,
   MailPurpose,
+  MailSendBinding,
   NewMailJob,
   SealedMailPayload,
   UserId,
@@ -310,6 +311,47 @@ async function postResend(
   }
 }
 
+type MailSendAddress = string | { email: string; name: string };
+
+/** Resend 接受 "Name <addr>" 字符串；Cloudflare 需要拆成 { email, name }。 */
+function cloudflareAddress(mailbox: string): MailSendAddress {
+  const match = /^(.+?)\s+<([^<>\s@]+@[^<>\s@]+)>$/u.exec(mailbox) ?? /^<([^<>\s@]+@[^<>\s@]+)>$/u.exec(mailbox);
+  if (!match) return mailbox;
+  return match.length === 3 ? { name: match[1]!, email: match[2]! } : match[1]!;
+}
+
+async function sendCloudflare(binding: MailSendBinding, email: ResendEmailBody): Promise<{ messageId: string }> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new DOMException('cloudflare mail timed out', 'TimeoutError')), MAIL_HTTP_TIMEOUT_MILLISECONDS);
+  });
+  try {
+    return await Promise.race([
+      binding.send({
+        from: cloudflareAddress(email.from),
+        to: [...email.to],
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        ...(email.reply_to ? { replyTo: cloudflareAddress(email.reply_to) } : {}),
+      }),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function cloudflareErrorCode(error: unknown): string | null {
+  return error !== null && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : null;
+}
+
+function validProviderMessageId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 191 && !/[\r\n]/u.test(value);
+}
+
 function retryResult(errorCode: string, attemptNumber: number, retryAfter: string | null, now: number): MailFinishResult {
   return {
     status: 'retry',
@@ -328,9 +370,63 @@ async function applyFinish(
 }
 
 export function createMailDispatcher(repository: MailRepository, config: AuthConfig, runtime: AuthRuntime) {
-  const apiKey = config.mailDelivery?.apiKey;
+  const apiKey = config.mailDelivery?.apiKey ?? null;
+  const cloudflare = config.mailDelivery?.cloudflare ?? null;
+  const configured = hasMailProvider(config);
+
+  const sendViaCloudflare = async (
+    binding: MailSendBinding,
+    job: ClaimedMailJob,
+    attempt: MailAttemptContext,
+    email: ResendEmailBody,
+  ): Promise<'sent' | 'retry' | 'paused' | 'failed'> => {
+    const attemptNumber = job.attemptCount + 1;
+    let messageId: unknown;
+    let errorCode: string | null = null;
+    let timedOut = false;
+    try {
+      ({ messageId } = await sendCloudflare(binding, email));
+    } catch (error) {
+      errorCode = cloudflareErrorCode(error);
+      timedOut = error instanceof DOMException && error.name === 'TimeoutError';
+    }
+
+    const observedAt = currentTime(runtime.now());
+    if (errorCode === null && !timedOut) {
+      if (!validProviderMessageId(messageId)) {
+        const finished = await applyFinish(repository, job, retryResult('MAIL_PROVIDER_RESPONSE_UNKNOWN', attemptNumber, null, observedAt));
+        return finished && attemptNumber >= MAIL_MAX_ATTEMPTS ? 'failed' : 'retry';
+      }
+      const finished = await applyFinish(repository, job, { status: 'sent', providerMessageId: messageId, observedAt });
+      return finished ? 'sent' : 'retry';
+    }
+
+    if (errorCode === 'E_DAILY_LIMIT_EXCEEDED') {
+      await repository.recordProviderQuota(job.id, job.leaseId, 'daily', attempt, observedAt);
+      return 'retry';
+    }
+    if (errorCode === 'E_ACCOUNT_SUSPENDED' || errorCode === 'E_SENDER_NOT_VERIFIED'
+      || errorCode === 'E_SENDER_DOMAIN_NOT_AVAILABLE' || errorCode === 'E_RECIPIENT_NOT_ALLOWED') {
+      const finished = await applyFinish(repository, job, {
+        status: 'paused', errorCode: 'MAIL_PROVIDER_AUTH', nextAttemptAt: job.expiresAt, observedAt,
+      });
+      return finished ? 'paused' : 'retry';
+    }
+    const retryCode = timedOut ? 'MAIL_TIMEOUT'
+      : errorCode === 'E_RATE_LIMIT_EXCEEDED' ? 'MAIL_RATE_LIMIT'
+        : errorCode === 'E_INTERNAL_SERVER_ERROR' || errorCode === 'E_DELIVERY_FAILED' ? 'MAIL_PROVIDER_SERVER_ERROR'
+          : errorCode === null ? 'MAIL_NETWORK_ERROR'
+            : null;
+    if (retryCode) {
+      const finished = await applyFinish(repository, job, retryResult(retryCode, attemptNumber, null, observedAt));
+      return finished && attemptNumber >= MAIL_MAX_ATTEMPTS ? 'failed' : 'retry';
+    }
+    const finished = await applyFinish(repository, job, { status: 'failed', errorCode: 'MAIL_PROVIDER_REJECTED', observedAt });
+    return finished ? 'failed' : 'retry';
+  };
+
   const sendClaimed = async (job: ClaimedMailJob): Promise<'sent' | 'retry' | 'paused' | 'failed'> => {
-      if (!config.enabled || !apiKey) return 'paused';
+      if (!config.enabled || !configured) return 'paused';
       const context = { mailId: job.id, purpose: job.purpose };
       let plaintext: string;
       try {
@@ -356,8 +452,10 @@ export function createMailDispatcher(repository: MailRepository, config: AuthCon
       }
 
       let body: string;
+      let email: ResendEmailBody;
       if (decrypted.kind === 'body') {
         body = decrypted.json;
+        email = decrypted.value;
       } else {
         const from = config.mailDelivery?.from;
         if (!from) {
@@ -368,7 +466,8 @@ export function createMailDispatcher(repository: MailRepository, config: AuthCon
           });
           return finished ? 'paused' : 'retry';
         }
-        body = JSON.stringify(buildResendBody(decrypted.value, from, config.mailDelivery?.replyTo ?? null));
+        email = buildResendBody(decrypted.value, from, config.mailDelivery?.replyTo ?? null);
+        body = JSON.stringify(email);
         if (new TextEncoder().encode(body).byteLength > MAIL_MAX_BODY_BYTES) {
           const observedAt = currentTime(runtime.now());
           const finished = await applyFinish(repository, job, { status: 'failed', errorCode: 'MAIL_BODY_TOO_LARGE', observedAt });
@@ -404,6 +503,11 @@ export function createMailDispatcher(repository: MailRepository, config: AuthCon
         return 'retry';
       }
       if (reservation.status !== 'reserved') return 'paused';
+      if (reservation.attempt.provider === 'cloudflare') {
+        if (!cloudflare) return 'paused';
+        return sendViaCloudflare(cloudflare, job, reservation.attempt, email);
+      }
+      if (!apiKey) return 'paused';
 
       const attemptNumber = job.attemptCount + 1;
       let response: Response;
@@ -441,13 +545,14 @@ export function createMailDispatcher(repository: MailRepository, config: AuthCon
       }
 
       const errorName = resendErrorName(responseText);
+      // 配额拒收会把邮件放回队列，下一次领取时改走 Cloudflare。
       if (response.status === 429 && errorName === 'daily_quota_exceeded') {
         await repository.recordProviderQuota(job.id, job.leaseId, 'daily', reservation.attempt, observedAt);
-        return 'paused';
+        return 'retry';
       }
       if (response.status === 429 && errorName === 'monthly_quota_exceeded') {
         await repository.recordProviderQuota(job.id, job.leaseId, 'monthly', reservation.attempt, observedAt);
-        return 'paused';
+        return 'retry';
       }
       if (response.status === 429 && errorName === 'rate_limit_exceeded') {
         const result = retryResult('MAIL_RATE_LIMIT', attemptNumber, response.headers.get('retry-after'), observedAt);
@@ -481,7 +586,7 @@ export function createMailDispatcher(repository: MailRepository, config: AuthCon
 
   return {
     async sendOne(now: number): Promise<'sent' | 'idle' | 'retry' | 'paused' | 'failed'> {
-      if (!config.enabled || !apiKey) return 'paused';
+      if (!config.enabled || !configured) return 'paused';
       const requestedAt = currentTime(now);
       const availability = await repository.readMailAvailability(requestedAt);
       if (availability.code !== 'AVAILABLE') return 'paused';

@@ -309,6 +309,52 @@ describe('real MySQL account schema and repository', () => {
     });
   }, 120_000);
 
+  it.skipIf(!runMysqlTests)('routes to Cloudflare once the Resend daily budget is spent and stops at the Cloudflare monthly budget', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const now = Date.UTC(2026, 9, 9, 10);
+      const repository = createAuthRepository(database, {
+        mailDailyLimit: 1, mailMonthlyLimit: 20, mailCloudflareEnabled: true, mailCloudflareMonthlyLimit: 1,
+      });
+      const config = testAuthConfig();
+      const userId = await repository.transaction(async (tx) => {
+        const user = await tx.insertUser({
+          email: 'route@example.test', emailNormalized: 'route@example.test', displayName: 'Route', createdAt: now,
+        });
+        await tx.insertCredential(user.id, CREDENTIAL);
+        return user.id;
+      });
+      const jobs = await Promise.all(['101', '102', '103'].map((suffix) => preparePasswordChangedMail({
+        mailId: `123e4567-e89b-12d3-a456-426614174${suffix}`,
+        userId, email: 'route@example.test', displayName: 'Route', createdAt: now,
+      }, config)));
+      await repository.transaction(async (tx) => {
+        await tx.lockUser(userId);
+        for (const job of jobs) await tx.insertMailJob(job);
+      });
+
+      const first = await repository.claimOneMail(now, 30_000);
+      if (!first) throw new Error('expected the first job');
+      expect(await repository.reserveMailAttempt(first.id, first.leaseId, () => now))
+        .toMatchObject({ status: 'reserved', attempt: { provider: 'resend' } });
+      await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'AVAILABLE', retry_at: null });
+
+      const second = await repository.claimOneMail(now, 30_000);
+      if (!second) throw new Error('expected Cloudflare to keep the outbox claimable');
+      expect(await repository.reserveMailAttempt(second.id, second.leaseId, () => now))
+        .toMatchObject({ status: 'reserved', attempt: { provider: 'cloudflare' } });
+
+      const budgets = await database.all<MysqlRow>(`SELECT scope, request_count FROM auth_rate_limits
+        WHERE key_digest = ? AND scope IN ('mail-budget-daily', 'mail-cf-budget-monthly') ORDER BY scope`, [new Uint8Array(32)]);
+      expect(budgets.map((row) => [row.scope, Number(row.request_count)])).toEqual([
+        ['mail-budget-daily', 1], ['mail-cf-budget-monthly', 1],
+      ]);
+      await expect(repository.readMailAvailability(now)).resolves.toEqual({
+        code: 'MAIL_DAILY_QUOTA', retry_at: Date.UTC(2026, 9, 10),
+      });
+      expect(await repository.claimOneMail(now, 30_000)).toBeNull();
+    });
+  }, 120_000);
+
   it.skipIf(!runMysqlTests)('claims, reserves and finishes with lease CAS, shared budget and late old-cycle quota isolation', async () => {
     await withAuthTestDatabase(async ({ database }) => {
       const now = Date.UTC(2026, 9, 9, 10);
@@ -1118,11 +1164,13 @@ describe('real MySQL account schema and repository', () => {
       if (!firstOutbox || !(firstOutbox.action_digest instanceof Uint8Array)) throw new Error('expected initial verification mail');
 
       const dayOneAttempt = await runAuthJobTick(repository, config, runtime);
-      expect(dayOneAttempt).toEqual({ kind: 'mail', result: 'paused' });
+      expect(dayOneAttempt).toEqual({ kind: 'mail', result: 'retry' });
       expect(fetchCalls).toBe(1);
-      const failedOutbox = await database.first<MysqlRow>(`SELECT state, last_error_code, payload_ciphertext
+      // 服务商配额拒收不会发出邮件：放回队列等待重新路由，密文保留以便重试。
+      const requeuedOutbox = await database.first<MysqlRow>(`SELECT state, last_error_code, payload_ciphertext IS NOT NULL AS has_payload
         FROM auth_mail_outbox WHERE id = ?`, [String(firstOutbox.id)]);
-      expect(failedOutbox).toEqual({ state: 'FAILED', last_error_code: 'MAIL_DAILY_QUOTA', payload_ciphertext: null });
+      expect(requeuedOutbox).toMatchObject({ state: 'PENDING', last_error_code: 'MAIL_DAILY_QUOTA' });
+      expect(Number(requeuedOutbox?.has_payload)).toBe(1);
 
       const firstLogin = await post('/api/v1/auth/login', { email: 'quota@example.test', password },
         anonymousCookie, anonymousCsrf.csrf_token);
@@ -1290,14 +1338,7 @@ describe('real MySQL account schema and repository', () => {
       expect(fetchCalls).toBe(1);
       await expect(database.first<MysqlRow>('SELECT state, payload_ciphertext FROM auth_mail_outbox WHERE id = ?', [readyMail.id]))
         .resolves.toEqual({ state: 'SENT', payload_ciphertext: null });
-      await expect(database.first<MysqlRow>('SELECT state, payload_ciphertext FROM auth_mail_outbox WHERE id = ?', [expiredMail.id]))
-        .resolves.toEqual({ state: 'PENDING', payload_ciphertext: expiredMail.payloadCiphertext });
-      await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_sessions WHERE user_id = ?', ['10000']))
-        .resolves.toMatchObject({ count: 51 });
-
-      const expiredCleanup = await runAuthJobTick(repository, config, runtime);
-      expect(expiredCleanup.kind).toBe('cleanup');
-      expect(fetchCalls).toBe(1);
+      // 同一 tick 继续领取时会顺带作废过期邮件，但有邮件工作的 tick 不跑会话清理。
       await expect(database.first<MysqlRow>('SELECT state, last_error_code, payload_ciphertext FROM auth_mail_outbox WHERE id = ?', [expiredMail.id]))
         .resolves.toEqual({ state: 'CANCELLED', last_error_code: 'MAIL_EXPIRED', payload_ciphertext: null });
       await expect(database.first<MysqlRow>('SELECT COUNT(*) AS count FROM auth_sessions WHERE user_id = ?', ['10000']))

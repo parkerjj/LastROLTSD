@@ -2,7 +2,7 @@ import { createWorkerDatabase } from '../db/mysql-connection';
 import { mysqlErrorContext } from '../db/mysql-error-context';
 import type { AppEnv } from '../env';
 import { logError } from '../observability';
-import { resolveAuthConfig } from './config';
+import { hasMailProvider, mailRepositoryOptions, resolveAuthConfig } from './config';
 import { createMailDispatcher } from './mail';
 import { createAuthRepository } from './repository';
 import type { AuthRuntime } from './types';
@@ -83,7 +83,7 @@ export async function consumeMailWakeBatch(
     return;
   }
   // Without delivery credentials the Cron tick reports the misconfiguration; nothing to do here.
-  if (!config.enabled || !config.mailDelivery?.apiKey) {
+  if (!config.enabled || !hasMailProvider(config)) {
     ackAll();
     return;
   }
@@ -94,10 +94,7 @@ export async function consumeMailWakeBatch(
     return;
   }
   try {
-    const repository = createAuthRepository(database, {
-      mailDailyLimit: config.mailDailyLimit,
-      mailMonthlyLimit: config.mailMonthlyLimit,
-    });
+    const repository = createAuthRepository(database, mailRepositoryOptions(config));
     const dispatcher = createMailDispatcher(repository, config, runtime);
     const outcomes = await drainMail((now) => dispatcher.sendOne(now), () => runtime.now());
     const last = outcomes[outcomes.length - 1];

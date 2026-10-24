@@ -116,6 +116,10 @@ max_batch_size = 1
 max_batch_timeout = 1
 max_retries = 3
 
+# Cloudflare Email Sending：Resend 当日额度用尽后的备用发信通道（需 Workers Paid 且已接入 MAIL_FROM 的域名）。
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
 [observability.logs]
 enabled = true
 # Do not log every successful GET/404 invocation.

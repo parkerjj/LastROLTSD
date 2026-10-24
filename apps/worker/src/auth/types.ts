@@ -37,7 +37,10 @@ export interface MailAvailability {
   retry_at: number | null;
 }
 
+export type MailProvider = 'resend' | 'cloudflare';
+
 export interface MailAttemptContext {
+  provider: MailProvider;
   reservedAt: number;
   dayBucketStart: number;
   monthBucketStart: number;
@@ -66,8 +69,21 @@ export interface AuthRuntime {
   wakeMail?: () => void;
 }
 
+/** Cloudflare Email Service 的 send_email binding，只声明这里用到的结构化发送形式。 */
+export interface MailSendBinding {
+  send(message: {
+    from: string | { email: string; name: string };
+    to: string[];
+    subject: string;
+    html: string;
+    text: string;
+    replyTo?: string | { email: string; name: string };
+  }): Promise<{ messageId: string }>;
+}
+
 export interface MailDeliveryConfig {
   apiKey: string | null;
+  cloudflare: MailSendBinding | null;
   from: string | null;
   replyTo: string | null;
 }
@@ -112,6 +128,8 @@ export interface AuthBindings {
   MAIL_REPLY_TO?: string | undefined;
   AUTH_MAIL_DAILY_LIMIT?: string | undefined;
   AUTH_MAIL_MONTHLY_LIMIT?: string | undefined;
+  AUTH_MAIL_CF_MONTHLY_LIMIT?: string | undefined;
+  SEND_EMAIL?: MailSendBinding | undefined;
 }
 
 interface AuthConfigKeyVersions {
@@ -121,6 +139,7 @@ interface AuthConfigKeyVersions {
   currentMailPayloadKeyVersion: string;
   mailDailyLimit: number;
   mailMonthlyLimit: number;
+  mailCloudflareMonthlyLimit: number;
   mailDelivery?: MailDeliveryConfig;
 }
 

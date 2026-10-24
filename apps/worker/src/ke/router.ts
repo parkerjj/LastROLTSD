@@ -3,7 +3,7 @@ import type { MysqlDatabase } from '../db/mysql-client';
 import type { AppEnv } from '../env';
 import { jsonError, requestId } from '../middleware/errors';
 import { readAuthJson } from '../auth/body';
-import { resolveAuthConfig } from '../auth/config';
+import { mailRepositoryOptions, resolveAuthConfig } from '../auth/config';
 import { createAuthRepository } from '../auth/repository';
 import { createSessionService } from '../auth/session-service';
 import { assertTrustedWriteOrigin } from '../auth/csrf';
@@ -229,7 +229,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     }
     if (authConfig === null) return null;
     if (authRepository === null) {
-      authRepository = createAuthRepository(database, { mailDailyLimit: authConfig.mailDailyLimit, mailMonthlyLimit: authConfig.mailMonthlyLimit });
+      authRepository = createAuthRepository(database, mailRepositoryOptions(authConfig));
     }
     if (keRepository === null) keRepository = createKeRepository(database);
     if (profileRepository === null) profileRepository = createProfileRepository(database);
