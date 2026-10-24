@@ -12,6 +12,7 @@ import type {
   CredentialSnapshot,
   MailAttemptContext,
   MailAvailability,
+  MailProvider,
   MailReservation,
   NewMailJob,
   PasswordMaterial,
@@ -33,6 +34,7 @@ const DAY_MILLISECONDS = 86_400_000;
 const ZERO_RATE_KEY_DIGEST = new Uint8Array(32);
 const MAIL_DAILY_LIMIT = 100;
 const MAIL_MONTHLY_LIMIT = 3_000;
+const MAIL_CF_MONTHLY_LIMIT = 3_000;
 const MAIL_MAX_ATTEMPTS = 4;
 const MAIL_IDEMPOTENCY_WINDOW_MILLISECONDS = 24 * 60 * 60 * 1000;
 const AUTH_CLEANUP_SLOT_MILLISECONDS = 2 * 60_000;
@@ -77,8 +79,13 @@ export interface ActionSnapshot {
 }
 
 export interface AuthRepositoryOptions {
+  /** Resend 的日/月额度。 */
   mailDailyLimit?: number;
   mailMonthlyLimit?: number;
+  /** Resend 当日额度用尽后改走 Cloudflare send_email，它单独计月额度。 */
+  mailCloudflareMonthlyLimit?: number;
+  mailResendEnabled?: boolean;
+  mailCloudflareEnabled?: boolean;
 }
 
 export interface NewAuthUser {
@@ -298,8 +305,15 @@ const REUSABLE_MAIL_OUTBOX_COLUMNS = `id, action_digest, CAST(user_id AS CHAR) A
   state, lease_until, attempt_count, next_attempt_at, expires_at, first_attempt_at`;
 
 export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryOptions = {}): AuthRepository {
-  const mailDailyLimit = positiveInteger(options.mailDailyLimit ?? MAIL_DAILY_LIMIT, 'mailDailyLimit');
-  const mailMonthlyLimit = positiveInteger(options.mailMonthlyLimit ?? MAIL_MONTHLY_LIMIT, 'mailMonthlyLimit');
+  const cloudflareEnabled = options.mailCloudflareEnabled ?? false;
+  const mailLimits: MailLimits = {
+    // 两个通道都没配置时仍按 Resend 额度报告，邮件留在队列里等配置补齐。
+    resendEnabled: (options.mailResendEnabled ?? true) || !cloudflareEnabled,
+    dailyLimit: positiveInteger(options.mailDailyLimit ?? MAIL_DAILY_LIMIT, 'mailDailyLimit'),
+    monthlyLimit: positiveInteger(options.mailMonthlyLimit ?? MAIL_MONTHLY_LIMIT, 'mailMonthlyLimit'),
+    cloudflareEnabled,
+    cloudflareMonthlyLimit: positiveInteger(options.mailCloudflareMonthlyLimit ?? MAIL_CF_MONTHLY_LIMIT, 'mailCloudflareMonthlyLimit'),
+  };
 
   return {
     async readCredentialByEmail(emailNormalized) {
@@ -373,15 +387,15 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
     },
 
     async readMailAvailability(now) {
-      return readMailAvailability(db, mailDailyLimit, mailMonthlyLimit, now);
+      return readMailAvailability(db, mailLimits, now);
     },
 
     async claimOneMail(now, leaseMs) {
-      return claimOneMail(db, mailDailyLimit, mailMonthlyLimit, now, leaseMs);
+      return claimOneMail(db, mailLimits, now, leaseMs);
     },
 
     async claimOneMailForTick(now, leaseMs) {
-      return claimOneMailForTick(db, mailDailyLimit, mailMonthlyLimit, now, leaseMs);
+      return claimOneMailForTick(db, mailLimits, now, leaseMs);
     },
 
     async cleanupAuthBatch(now, limit) {
@@ -397,7 +411,7 @@ export function createAuthRepository(db: MysqlDatabase, options: AuthRepositoryO
     },
 
     async reserveMailAttempt(id, leaseId, getNow) {
-      return reserveMailAttempt(db, id, leaseId, getNow, mailDailyLimit, mailMonthlyLimit);
+      return reserveMailAttempt(db, id, leaseId, getNow, mailLimits);
     },
 
     async recordProviderQuota(id, leaseId, kind, attempt, observedAt) {
@@ -861,10 +875,69 @@ interface MailBuckets {
   nextMonthStart: number;
 }
 
+type MailBudgetScope = 'mail-budget-daily' | 'mail-budget-monthly' | 'mail-cf-budget-monthly';
+
 interface MailRateEntry {
-  scope: 'mail-budget-daily' | 'mail-budget-monthly' | 'mail-provider-daily' | 'mail-provider-monthly';
+  scope: MailBudgetScope | 'mail-provider-daily' | 'mail-provider-monthly' | 'mail-cf-provider-daily';
   bucketStart: number;
   expiresAt: number;
+}
+
+interface MailLimits {
+  resendEnabled: boolean;
+  dailyLimit: number;
+  monthlyLimit: number;
+  cloudflareEnabled: boolean;
+  cloudflareMonthlyLimit: number;
+}
+
+interface MailBlock {
+  code: 'MAIL_DAILY_QUOTA' | 'MAIL_MONTHLY_QUOTA';
+  /** 本地预算耗尽时邮件直接终止；为 null 表示服务商暂停，邮件延后到 retryAt 再试。 */
+  budgetScope: MailBudgetScope | null;
+  retryAt: number;
+}
+
+type MailRateRowLookup = (scope: MailRateEntry['scope']) => MailLimitRow | undefined;
+
+function providerPauseBlock(row: MailLimitRow | undefined, code: MailBlock['code'], now: number): MailBlock | null {
+  if (!providerPauseActive(row, now)) return null;
+  return { code, budgetScope: null, retryAt: Math.max(now, numberValue(row!.next_allowed_at, 'next_allowed_at')) };
+}
+
+function resendBlock(rows: MailRateRowLookup, limits: MailLimits, buckets: MailBuckets, now: number): MailBlock | null {
+  if (countValue(rows('mail-budget-monthly')) >= limits.monthlyLimit) {
+    return { code: 'MAIL_MONTHLY_QUOTA', budgetScope: 'mail-budget-monthly', retryAt: buckets.nextMonthStart };
+  }
+  const monthlyPause = providerPauseBlock(rows('mail-provider-monthly'), 'MAIL_MONTHLY_QUOTA', now);
+  if (monthlyPause) return monthlyPause;
+  if (countValue(rows('mail-budget-daily')) >= limits.dailyLimit) {
+    return { code: 'MAIL_DAILY_QUOTA', budgetScope: 'mail-budget-daily', retryAt: buckets.nextDayStart };
+  }
+  return providerPauseBlock(rows('mail-provider-daily'), 'MAIL_DAILY_QUOTA', now);
+}
+
+function cloudflareBlock(rows: MailRateRowLookup, limits: MailLimits, buckets: MailBuckets, now: number): MailBlock | null {
+  if (countValue(rows('mail-cf-budget-monthly')) >= limits.cloudflareMonthlyLimit) {
+    return { code: 'MAIL_MONTHLY_QUOTA', budgetScope: 'mail-cf-budget-monthly', retryAt: buckets.nextMonthStart };
+  }
+  return providerPauseBlock(rows('mail-cf-provider-daily'), 'MAIL_DAILY_QUOTA', now);
+}
+
+/** 优先 Resend；它的日/月额度用尽或被服务商暂停时改走 Cloudflare。两者都不可用时返回各自的阻塞原因。 */
+function routeMail(rows: MailRateRowLookup, limits: MailLimits, buckets: MailBuckets, now: number): MailProvider | MailBlock[] {
+  const blocks: MailBlock[] = [];
+  if (limits.resendEnabled) {
+    const block = resendBlock(rows, limits, buckets, now);
+    if (!block) return 'resend';
+    blocks.push(block);
+  }
+  if (limits.cloudflareEnabled) {
+    const block = cloudflareBlock(rows, limits, buckets, now);
+    if (!block) return 'cloudflare';
+    blocks.push(block);
+  }
+  return blocks;
 }
 
 function mailBuckets(value: number): MailBuckets {
@@ -883,47 +956,37 @@ function mailBuckets(value: number): MailBuckets {
 
 async function readMailAvailability(
   db: MysqlDatabase,
-  mailDailyLimit: number,
-  mailMonthlyLimit: number,
+  limits: MailLimits,
   now: number,
 ): Promise<MailAvailability> {
   const currentTime = timestampValue(now, 'now');
   const buckets = mailBuckets(currentTime);
+  const entries = mailRateEntries(buckets);
   const rows = await db.all<MailLimitRow>(`SELECT scope, request_count, next_allowed_at, expires_at
     FROM auth_rate_limits
     WHERE key_digest = ?
-      AND ((scope = ? AND bucket_start = ?)
-        OR (scope = ? AND bucket_start = ?)
-        OR (scope = ? AND bucket_start = ?)
-        OR (scope = ? AND bucket_start = ?))`, [
+      AND (${entries.map(() => '(scope = ? AND bucket_start = ?)').join(' OR ')})`, [
     ZERO_RATE_KEY_DIGEST,
-    'mail-budget-daily', buckets.dayBucketStart,
-    'mail-budget-monthly', buckets.monthBucketStart,
-    'mail-provider-daily', buckets.dayBucketStart,
-    'mail-provider-monthly', buckets.monthBucketStart,
+    ...entries.flatMap((entry) => [entry.scope, entry.bucketStart]),
   ]);
   const byScope = new Map(rows.map((row) => [requiredString(row.scope, 'scope'), row]));
-  if (countValue(byScope.get('mail-budget-monthly')) >= mailMonthlyLimit
-    || providerPauseActive(byScope.get('mail-provider-monthly'), currentTime)) {
-    return { code: 'MAIL_MONTHLY_QUOTA', retry_at: null };
-  }
-  if (countValue(byScope.get('mail-budget-daily')) >= mailDailyLimit
-    || providerPauseActive(byScope.get('mail-provider-daily'), currentTime)) {
-    return { code: 'MAIL_DAILY_QUOTA', retry_at: buckets.nextDayStart };
-  }
-  return { code: 'AVAILABLE', retry_at: null };
+  const route = routeMail((scope) => byScope.get(scope), limits, buckets, currentTime);
+  if (typeof route === 'string') return { code: 'AVAILABLE', retry_at: null };
+  // 任一通道只是当日受限，明天就能恢复发送。
+  return route.some((block) => block.code === 'MAIL_DAILY_QUOTA')
+    ? { code: 'MAIL_DAILY_QUOTA', retry_at: buckets.nextDayStart }
+    : { code: 'MAIL_MONTHLY_QUOTA', retry_at: null };
 }
 
 async function claimOneMail(
   db: MysqlDatabase,
-  mailDailyLimit: number,
-  mailMonthlyLimit: number,
+  limits: MailLimits,
   now: number,
   leaseMs: number,
 ): Promise<ClaimedMailJob | null> {
   const currentTime = timestampValue(now, 'now');
   const leaseDuration = positiveInteger(leaseMs, 'leaseMs');
-  const availability = await readMailAvailability(db, mailDailyLimit, mailMonthlyLimit, currentTime);
+  const availability = await readMailAvailability(db, limits, currentTime);
   if (availability.code !== 'AVAILABLE') return null;
 
   return db.transaction(async (transactionDb) => {
@@ -934,14 +997,13 @@ async function claimOneMail(
 
 async function claimOneMailForTick(
   db: MysqlDatabase,
-  mailDailyLimit: number,
-  mailMonthlyLimit: number,
+  limits: MailLimits,
   now: number,
   leaseMs: number,
 ): Promise<ClaimOneMailForTickResult> {
   const currentTime = timestampValue(now, 'now');
   const leaseDuration = positiveInteger(leaseMs, 'leaseMs');
-  const availability = await readMailAvailability(db, mailDailyLimit, mailMonthlyLimit, currentTime);
+  const availability = await readMailAvailability(db, limits, currentTime);
 
   return db.transaction(async (transactionDb) => {
     if (availability.code === 'AVAILABLE') {
@@ -1237,8 +1299,7 @@ async function reserveMailAttempt(
   id: string,
   leaseId: string,
   getNow: () => number,
-  mailDailyLimit: number,
-  mailMonthlyLimit: number,
+  limits: MailLimits,
 ): Promise<MailReservation> {
   const snapshot = await db.first<MailAuthSnapshotRow>(`SELECT CAST(user_id AS CHAR) AS user_id, action_digest
     FROM auth_mail_outbox WHERE id = ? LIMIT 1`, [id]);
@@ -1304,28 +1365,22 @@ async function reserveMailAttempt(
       return { status: 'exhausted' };
     }
 
-    const monthlyBudget = rateRows.get(rateRowId('mail-budget-monthly', rateBuckets.monthBucketStart));
-    const monthlyProvider = rateRows.get(rateRowId('mail-provider-monthly', rateBuckets.monthBucketStart));
-    if (countValue(monthlyBudget) >= mailMonthlyLimit) {
-      await writeLocalBudgetPause(transactionDb, 'mail-budget-monthly', rateBuckets.monthBucketStart, rateBuckets.nextMonthStart);
-      await terminalizeClaimedMail(transactionDb, id, leaseId, 'FAILED', 'MAIL_MONTHLY_QUOTA');
-      return { status: 'quota' };
-    }
-    if (providerPauseActive(monthlyProvider, currentNow)) {
-      const nextAttemptAt = Math.max(currentNow, numberValue(monthlyProvider!.next_allowed_at, 'next_allowed_at'));
-      return releaseClaim(transactionDb, id, leaseId, nextAttemptAt, 'MAIL_MONTHLY_QUOTA');
-    }
-
-    const dailyBudget = rateRows.get(rateRowId('mail-budget-daily', rateBuckets.dayBucketStart));
-    const dailyProvider = rateRows.get(rateRowId('mail-provider-daily', rateBuckets.dayBucketStart));
-    if (countValue(dailyBudget) >= mailDailyLimit) {
-      await writeLocalBudgetPause(transactionDb, 'mail-budget-daily', rateBuckets.dayBucketStart, rateBuckets.nextDayStart);
-      await terminalizeClaimedMail(transactionDb, id, leaseId, 'FAILED', 'MAIL_DAILY_QUOTA');
-      return { status: 'quota' };
-    }
-    if (providerPauseActive(dailyProvider, currentNow)) {
-      const nextAttemptAt = Math.max(currentNow, numberValue(dailyProvider!.next_allowed_at, 'next_allowed_at'));
-      return releaseClaim(transactionDb, id, leaseId, nextAttemptAt, 'MAIL_DAILY_QUOTA');
+    const entryByScope = new Map(entries.map((entry) => [entry.scope, entry]));
+    const route = routeMail(
+      (scope) => rateRows.get(rateRowId(scope, entryByScope.get(scope)!.bucketStart)),
+      limits,
+      rateBuckets,
+      currentNow,
+    );
+    if (typeof route !== 'string') {
+      // 两个通道都不可用时，按首选通道的原因处理：本地预算耗尽直接终止，服务商暂停则延后重试。
+      const block = route[0]!;
+      if (block.budgetScope) {
+        await writeLocalBudgetPause(transactionDb, block.budgetScope, entryByScope.get(block.budgetScope)!.bucketStart, block.retryAt);
+        await terminalizeClaimedMail(transactionDb, id, leaseId, 'FAILED', block.code);
+        return { status: 'quota' };
+      }
+      return releaseClaim(transactionDb, id, leaseId, block.retryAt, block.code);
     }
 
     const updated = await transactionDb.run(`UPDATE auth_mail_outbox
@@ -1334,11 +1389,16 @@ async function reserveMailAttempt(
       currentNow, id, leaseId, currentNow, MAIL_MAX_ATTEMPTS,
     ]);
     if (updated.affectedRows !== 1) return { status: 'stale' };
-    await incrementMailBudget(transactionDb, 'mail-budget-daily', rateBuckets.dayBucketStart);
-    await incrementMailBudget(transactionDb, 'mail-budget-monthly', rateBuckets.monthBucketStart);
+    if (route === 'resend') {
+      await incrementMailBudget(transactionDb, 'mail-budget-daily', rateBuckets.dayBucketStart);
+      await incrementMailBudget(transactionDb, 'mail-budget-monthly', rateBuckets.monthBucketStart);
+    } else {
+      await incrementMailBudget(transactionDb, 'mail-cf-budget-monthly', rateBuckets.monthBucketStart);
+    }
     return {
       status: 'reserved',
       attempt: {
+        provider: route,
         reservedAt: currentNow,
         dayBucketStart: rateBuckets.dayBucketStart,
         monthBucketStart: rateBuckets.monthBucketStart,
@@ -1402,6 +1462,8 @@ function mailRateEntries(buckets: MailBuckets): MailRateEntry[] {
     { scope: 'mail-budget-monthly', bucketStart: buckets.monthBucketStart, expiresAt: buckets.nextMonthStart + DAY_MILLISECONDS },
     { scope: 'mail-provider-daily', bucketStart: buckets.dayBucketStart, expiresAt: buckets.nextDayStart + DAY_MILLISECONDS },
     { scope: 'mail-provider-monthly', bucketStart: buckets.monthBucketStart, expiresAt: buckets.nextMonthStart + DAY_MILLISECONDS },
+    { scope: 'mail-cf-budget-monthly', bucketStart: buckets.monthBucketStart, expiresAt: buckets.nextMonthStart + DAY_MILLISECONDS },
+    { scope: 'mail-cf-provider-daily', bucketStart: buckets.dayBucketStart, expiresAt: buckets.nextDayStart + DAY_MILLISECONDS },
   ];
   return entries.sort((left, right) => compareAscii(left.scope, right.scope));
 }
@@ -1434,7 +1496,7 @@ function rateRowId(scope: string, bucketStart: number): string {
   return `${scope}\0${bucketStart}`;
 }
 
-async function incrementMailBudget(db: MysqlDatabase, scope: 'mail-budget-daily' | 'mail-budget-monthly', bucketStart: number): Promise<void> {
+async function incrementMailBudget(db: MysqlDatabase, scope: MailBudgetScope, bucketStart: number): Promise<void> {
   const result = await db.run(`UPDATE auth_rate_limits
     SET request_count = request_count + 1
     WHERE scope = ? AND key_digest = ? AND bucket_start = ?`, [scope, ZERO_RATE_KEY_DIGEST, bucketStart]);
@@ -1443,7 +1505,7 @@ async function incrementMailBudget(db: MysqlDatabase, scope: 'mail-budget-daily'
 
 async function writeLocalBudgetPause(
   db: MysqlDatabase,
-  scope: 'mail-budget-daily' | 'mail-budget-monthly',
+  scope: MailBudgetScope,
   bucketStart: number,
   retryAt: number,
 ): Promise<void> {
@@ -1469,17 +1531,20 @@ async function recordProviderQuota(
   if (attempt.dayBucketStart !== buckets.dayBucketStart || attempt.monthBucketStart !== buckets.monthBucketStart) {
     throw new Error('mail attempt buckets do not match reservation time');
   }
-  const scope = kind === 'daily' ? 'mail-provider-daily' : 'mail-provider-monthly';
+  if (attempt.provider === 'cloudflare' && kind !== 'daily') throw new Error('cloudflare mail has no provider monthly quota');
+  const scope = attempt.provider === 'cloudflare'
+    ? 'mail-cf-provider-daily'
+    : kind === 'daily' ? 'mail-provider-daily' : 'mail-provider-monthly';
   const bucketStart = kind === 'daily' ? buckets.dayBucketStart : buckets.monthBucketStart;
   const nextAllowedAt = kind === 'daily' ? buckets.nextDayStart : buckets.nextMonthStart;
   const expiresAt = timestampValue(nextAllowedAt + DAY_MILLISECONDS, 'provider pause expiresAt');
   const errorCode = kind === 'daily' ? 'MAIL_DAILY_QUOTA' : 'MAIL_MONTHLY_QUOTA';
 
   return db.transaction(async (transactionDb) => {
+    // 服务商拒收说明这次没有发出去：放回队列立即重新路由，另一个通道可用时就改走它。
     const jobResult = await transactionDb.run(`UPDATE auth_mail_outbox
-      SET state = 'FAILED', lease_id = NULL, lease_until = NULL, last_error_code = ?,
-          payload_ciphertext = NULL, payload_iv = NULL
-      WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [errorCode, id, leaseId, responseAt]);
+      SET state = 'PENDING', lease_id = NULL, lease_until = NULL, next_attempt_at = ?, last_error_code = ?
+      WHERE id = ? AND state = 'CLAIMED' AND lease_id = ? AND lease_until > ?`, [responseAt, errorCode, id, leaseId, responseAt]);
     await transactionDb.run(`INSERT INTO auth_rate_limits
         (scope, key_digest, bucket_start, request_count, next_allowed_at, expires_at)
       VALUES (?, ?, ?, 0, ?, ?) AS incoming

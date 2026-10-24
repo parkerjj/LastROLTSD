@@ -97,6 +97,23 @@ Add these GitHub production Environment secrets: `AUTH_PASSWORD_SECRET`, `AUTH_C
 
 For Resend, add a sending domain you control, then copy the provider's current SPF and DKIM records into its authoritative DNS. Configure DMARC after reviewing the domain's existing policy. Preserve existing MX records for inbound mail, and do not publish multiple SPF records for the same hostname. Keep `AUTH_SITE_URL`, `MAIL_FROM`, and optional `MAIL_REPLY_TO` on real, controlled domains; the preflight cannot prove the DNS records are active or that Resend has verified the domain. The Worker sends through Resend's HTTPS API. Workers Free cannot send through Cloudflare Email Sending to arbitrary player addresses; it can call the external API using HTTPS `fetch`. See [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [Resend errors](https://resend.com/docs/api-reference/errors), and [Resend account quotas](https://resend.com/docs/knowledge-base/account-quotas-and-limits) and verify the current plan and account quota before opening registration.
 
+### Cloudflare Email Sending 备用通道
+
+账号邮件优先走 Resend；当 Resend 的日额度（`AUTH_MAIL_DAILY_LIMIT`，默认 100）或月额度（`AUTH_MAIL_MONTHLY_LIMIT`，默认 3000）用尽，或 Resend 返回 429 `daily_quota_exceeded` / `monthly_quota_exceeded` 时，改走 Cloudflare `send_email` binding。Cloudflare 通道单独计月额度 `AUTH_MAIL_CF_MONTHLY_LIMIT`（默认 3000，只接受更小的正整数），计数存在 `auth_rate_limits` 的 `mail-cf-budget-monthly` 行；Cloudflare 返回 `E_DAILY_LIMIT_EXCEEDED` 时写入 `mail-cf-provider-daily` 暂停到次日 UTC 零点。两个通道都不可用时，`mail_availability` 才报 `MAIL_DAILY_QUOTA` / `MAIL_MONTHLY_QUOTA`。计数按尝试次数累计（含重试），与 Resend 的口径一致。
+
+启用前提：
+
+- 账号需为 Workers Paid（每月 $5，含 3000 封，超出 $0.35/千封）；Workers Free 只能发给本账号已验证的地址。
+- 在 Cloudflare Email Service 中接入 `MAIL_FROM` 所在的发信域名。`MAIL_FROM` 可以是 `Name <addr>` 形式，发送时会拆成 `{ name, email }`。
+- 在对应 Wrangler 环境中声明 binding（不配置时只走 Resend，行为与之前一致）：
+
+```toml
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+```
+
+每分钟的账号 Cron tick 最多处理 5 封邮件：遇到额度或配置导致的暂停立即停止，单封失败则继续处理下一封；新邮件入队时的队列唤醒也会额外发送最多 5 封。只配置 `SEND_EMAIL` 而不配置 `RESEND_API_KEY` 时，所有邮件都走 Cloudflare。Cloudflare binding 没有幂等键：超时等结果不明的失败重试时，收件人可能收到重复邮件。参考 [Email Service 计费](https://developers.cloudflare.com/email-service/platform/pricing/) 与 [Workers API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/)。
+
 Three Cron expressions are configured on this Worker; the account tick runs from the per-minute one (the former `*/2 * * * *` trigger was removed because it never fired). Workers Free currently allows at most five Cron triggers per account, shared across Workers; check the account's total before enabling production schedules. Cron CPU has the Free 10 ms per-invocation limit. No account's actual trigger usage, remaining mail quota, domain verification, DNS, production secrets, or production CPU was checked as part of this local code change.
 
 Rotate password and mail-payload keys separately. Use the disabled barrier before changing any current or previous secret or version: while auth is disabled, retain the old current key/version as the one `PREVIOUS` pair and set the new current version and secret; re-enable only in a final deployment that includes the complete matching pairs. The GitHub workflow enforces this sequence when preflight enables auth. For manual changes, explicitly deploy `AUTH_ENABLED=false` and wait for that deployment to succeed before writing any account secret, then publish the complete public vars and matching keys in a final `AUTH_ENABLED=true` deployment. The Worker reads records using their stored version; do not remove a previous key or start a third version while any old record still needs it. Before retiring a password key, use the `auth_credentials(key_version, user_id)` index to check matching users in bounded batches and complete a separately reviewed migration or user credential upgrade. Do not silently rewrite passwords. Retire an old mail-payload key only after every old-version task is terminal or expired and its ciphertext is null. The workflow does not delete remote secrets; remove an old secret only through a separately authorized operation after the check is complete.

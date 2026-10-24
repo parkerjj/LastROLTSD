@@ -86,6 +86,8 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     MAIL_REPLY_TO: typeof bindings.MAIL_REPLY_TO === 'string' ? bindings.MAIL_REPLY_TO : undefined,
     AUTH_MAIL_DAILY_LIMIT: typeof bindings.AUTH_MAIL_DAILY_LIMIT === 'string' ? bindings.AUTH_MAIL_DAILY_LIMIT : undefined,
     AUTH_MAIL_MONTHLY_LIMIT: typeof bindings.AUTH_MAIL_MONTHLY_LIMIT === 'string' ? bindings.AUTH_MAIL_MONTHLY_LIMIT : undefined,
+    AUTH_MAIL_CF_MONTHLY_LIMIT: typeof bindings.AUTH_MAIL_CF_MONTHLY_LIMIT === 'string' ? bindings.AUTH_MAIL_CF_MONTHLY_LIMIT : undefined,
+    SEND_EMAIL: bindings.SEND_EMAIL as AppEnv['SEND_EMAIL'],
     KE_LICENSE_PRIVATE_KEY_v1: typeof bindings.KE_LICENSE_PRIVATE_KEY_v1 === 'string' ? bindings.KE_LICENSE_PRIVATE_KEY_v1 : undefined,
     KE_LICENSE_KEY_VERSION: typeof bindings.KE_LICENSE_KEY_VERSION === 'string' ? bindings.KE_LICENSE_KEY_VERSION : undefined,
     KE_CORE_KEY: typeof bindings.KE_CORE_KEY === 'string' ? bindings.KE_CORE_KEY : undefined,

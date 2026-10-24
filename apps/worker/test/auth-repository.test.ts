@@ -162,6 +162,54 @@ describe('account MySQL repository', () => {
     });
   });
 
+  it('stays available through Cloudflare after the Resend daily budget is spent', async () => {
+    const db = new FakeDatabase();
+    const now = Date.UTC(2026, 9, 12, 20);
+    db.rateRows = [{ scope: 'mail-budget-daily', request_count: 100, next_allowed_at: 0, expires_at: now + 100_000 }];
+    const repository = createAuthRepository(db, { mailCloudflareEnabled: true });
+
+    await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'AVAILABLE', retry_at: null });
+    expect(db.calls[0]?.values).toContain('mail-cf-budget-monthly');
+  });
+
+  it.each([
+    {
+      name: 'Resend daily and Cloudflare monthly spent',
+      rows: [['mail-budget-daily', 100, 0], ['mail-cf-budget-monthly', 3_000, 0]] as const,
+      expected: { code: 'MAIL_DAILY_QUOTA', retry_at: Date.UTC(2026, 9, 13) },
+    },
+    {
+      name: 'Resend monthly and Cloudflare monthly spent',
+      rows: [['mail-budget-monthly', 3_000, 0], ['mail-cf-budget-monthly', 3_000, 0]] as const,
+      expected: { code: 'MAIL_MONTHLY_QUOTA', retry_at: null },
+    },
+    {
+      name: 'Resend monthly spent and Cloudflare paused for the day',
+      rows: [['mail-budget-monthly', 3_000, 0], ['mail-cf-provider-daily', 0, Date.UTC(2026, 9, 13)]] as const,
+      expected: { code: 'MAIL_DAILY_QUOTA', retry_at: Date.UTC(2026, 9, 13) },
+    },
+  ])('reports quota once both providers are blocked: $name', async ({ rows, expected }) => {
+    const db = new FakeDatabase();
+    const now = Date.UTC(2026, 9, 12, 20);
+    db.rateRows = rows.map(([scope, count, nextAllowedAt]) => ({
+      scope, request_count: count, next_allowed_at: nextAllowedAt, expires_at: Date.UTC(2026, 10, 30),
+    }));
+    const repository = createAuthRepository(db, { mailCloudflareEnabled: true });
+
+    await expect(repository.readMailAvailability(now)).resolves.toEqual(expected);
+  });
+
+  it('uses only the Cloudflare budget when Resend is not configured', async () => {
+    const db = new FakeDatabase();
+    const now = Date.UTC(2026, 9, 12, 20);
+    db.rateRows = [{ scope: 'mail-cf-budget-monthly', request_count: 2, next_allowed_at: 0, expires_at: Date.UTC(2026, 10, 30) }];
+    const repository = createAuthRepository(db, {
+      mailResendEnabled: false, mailCloudflareEnabled: true, mailCloudflareMonthlyLimit: 2,
+    });
+
+    await expect(repository.readMailAvailability(now)).resolves.toEqual({ code: 'MAIL_MONTHLY_QUOTA', retry_at: null });
+  });
+
   it('does not mutate a session or action owned by a different locked user', async () => {
     const db = new FakeDatabase();
     db.authUserRow = { ...userRow, id: '10000' };

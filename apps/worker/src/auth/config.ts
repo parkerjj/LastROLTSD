@@ -1,10 +1,12 @@
 import type { AppEnv } from '../env';
 import { hasMysqlConnection } from '../db/mysql-connection';
+import type { AuthRepositoryOptions } from './repository';
 import { AuthFailure, type AuthBindings, type AuthConfig, type DisabledAuthConfig, type EnabledAuthConfig, type MailDeliveryConfig } from './types';
 
 const UNAVAILABLE_MESSAGE = '账号服务暂不可用';
 const MAIL_DAILY_LIMIT = 100;
 const MAIL_MONTHLY_LIMIT = 3_000;
+const MAIL_CF_MONTHLY_LIMIT = 3_000;
 
 function unavailable(): AuthFailure {
   return new AuthFailure('AUTH_UNAVAILABLE', 503, UNAVAILABLE_MESSAGE);
@@ -27,6 +29,7 @@ function disabledConfig(): DisabledAuthConfig {
     currentMailPayloadKeyVersion: '1',
     mailDailyLimit: MAIL_DAILY_LIMIT,
     mailMonthlyLimit: MAIL_MONTHLY_LIMIT,
+    mailCloudflareMonthlyLimit: MAIL_CF_MONTHLY_LIMIT,
   };
 }
 
@@ -57,6 +60,7 @@ function optionalMailbox(value: string | undefined): string | null {
 function mailDeliveryConfig(env: AppEnv & AuthBindings): MailDeliveryConfig {
   return {
     apiKey: optionalMailApiKey(env.RESEND_API_KEY),
+    cloudflare: env.SEND_EMAIL ?? null,
     from: optionalMailbox(env.MAIL_FROM),
     replyTo: optionalMailbox(env.MAIL_REPLY_TO),
   };
@@ -134,6 +138,7 @@ export function resolveAuthConfig(env: AppEnv & AuthBindings): AuthConfig {
   const mysqlUrl = env.MYSQL_URL?.trim() || null;
   const mailDailyLimit = mailLimit(env.AUTH_MAIL_DAILY_LIMIT, MAIL_DAILY_LIMIT, MAIL_DAILY_LIMIT);
   const mailMonthlyLimit = mailLimit(env.AUTH_MAIL_MONTHLY_LIMIT, MAIL_MONTHLY_LIMIT, MAIL_MONTHLY_LIMIT);
+  const mailCloudflareMonthlyLimit = mailLimit(env.AUTH_MAIL_CF_MONTHLY_LIMIT, MAIL_CF_MONTHLY_LIMIT, MAIL_CF_MONTHLY_LIMIT);
   const authSiteUrl = trustedSiteOrigin(env.AUTH_SITE_URL, env.ENVIRONMENT);
   const currentPasswordKeyVersion = keyVersion(env.AUTH_PASSWORD_KEY_VERSION, '1');
   const currentMailPayloadKeyVersion = keyVersion(env.AUTH_MAIL_PAYLOAD_KEY_VERSION, '1');
@@ -162,9 +167,25 @@ export function resolveAuthConfig(env: AppEnv & AuthBindings): AuthConfig {
     currentMailPayloadKeyVersion,
     mailDailyLimit,
     mailMonthlyLimit,
+    mailCloudflareMonthlyLimit,
     mailDelivery: mailDeliveryConfig(env),
   };
   return config;
+}
+
+/** 至少配置了一个发信通道（Resend API key 或 Cloudflare send_email binding）。 */
+export function hasMailProvider(config: AuthConfig): boolean {
+  return Boolean(config.mailDelivery?.apiKey || config.mailDelivery?.cloudflare);
+}
+
+export function mailRepositoryOptions(config: AuthConfig): AuthRepositoryOptions {
+  return {
+    mailDailyLimit: config.mailDailyLimit,
+    mailMonthlyLimit: config.mailMonthlyLimit,
+    mailCloudflareMonthlyLimit: config.mailCloudflareMonthlyLimit,
+    mailResendEnabled: Boolean(config.mailDelivery?.apiKey),
+    mailCloudflareEnabled: Boolean(config.mailDelivery?.cloudflare),
+  };
 }
 
 export function requireAuthConfig(config: AuthConfig): asserts config is EnabledAuthConfig {

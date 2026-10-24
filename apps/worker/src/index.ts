@@ -30,7 +30,7 @@ import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/rou
 import { registerKeRoutes } from './ke/router';
 import { registerKeBuildRoutes } from './ke/build-register-router';
 import { createKeRepository } from './ke/repository';
-import { resolveAuthConfig } from './auth/config';
+import { mailRepositoryOptions, resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
 import { createSessionService } from './auth/session-service';
 import { assertCsrf } from './auth/csrf';
@@ -184,13 +184,10 @@ async function runAuthCronTick(env: AppEnv): Promise<void> {
 
   const database = createWorkerDatabase(env)!;
   try {
-    const repository = createAuthRepository(database, {
-      mailDailyLimit: config.mailDailyLimit,
-      mailMonthlyLimit: config.mailMonthlyLimit,
-    });
+    const repository = createAuthRepository(database, mailRepositoryOptions(config));
     const tick = await runAuthJobTick(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
     if (tick.kind === 'idle' && tick.result === 'mail_unconfigured') {
-      logError('lastroweb.auth_job_mail_unconfigured', new Error('RESEND_API_KEY is not configured; queued mail is not being sent'));
+      logError('lastroweb.auth_job_mail_unconfigured', new Error('neither RESEND_API_KEY nor SEND_EMAIL is configured; queued mail is not being sent'));
     } else if (tick.kind === 'mail' && tick.result !== 'sent') {
       logError('lastroweb.auth_job_mail_not_sent', new Error(`mail tick ended ${tick.result}`), { result: tick.result });
     }
@@ -224,10 +221,7 @@ function guestbookAuthServices(database: MysqlDatabase, env: AppEnv): GuestbookA
   try {
     const config = resolveAuthConfig(env);
     if (!config.enabled) return null;
-    const repository = createAuthRepository(database, {
-      mailDailyLimit: config.mailDailyLimit,
-      mailMonthlyLimit: config.mailMonthlyLimit,
-    });
+    const repository = createAuthRepository(database, mailRepositoryOptions(config));
     const sessions = createSessionService(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
     return {
       authenticate: (request) => sessions.authenticate(request),
@@ -242,10 +236,7 @@ function adminAuthServices(database: MysqlDatabase, env: AppEnv, wakeMail?: () =
   try {
     const config = resolveAuthConfig(env);
     if (!config.enabled) return null;
-    const repository = createAuthRepository(database, {
-      mailDailyLimit: config.mailDailyLimit,
-      mailMonthlyLimit: config.mailMonthlyLimit,
-    });
+    const repository = createAuthRepository(database, mailRepositoryOptions(config));
     const runtime = { now: () => Date.now(), fetch: globalThis.fetch, ...(wakeMail ? { wakeMail } : {}) };
     const sessions = createSessionService(repository, config, runtime);
     const actions = createActionService(repository, config, runtime);

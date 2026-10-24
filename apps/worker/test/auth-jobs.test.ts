@@ -40,8 +40,12 @@ async function claimedMail(): Promise<ClaimedMailJob> {
   };
 }
 
-function tickRepository(claimResult: { kind: 'claimed'; job: ClaimedMailJob } | { kind: 'cleaned' } | { kind: 'idle' }, cleanupCount = 0) {
-  const claimOneMailForTick = vi.fn(async () => claimResult);
+type TickClaim = { kind: 'claimed'; job: ClaimedMailJob } | { kind: 'cleaned' } | { kind: 'idle' };
+
+/** 依次返回给定的领取结果，用完后一直返回最后一个。 */
+function tickRepository(claimResults: TickClaim | TickClaim[], cleanupCount = 0) {
+  const queue = Array.isArray(claimResults) ? [...claimResults] : [claimResults];
+  const claimOneMailForTick = vi.fn(async () => (queue.length > 1 ? queue.shift()! : queue[0]!));
   const cleanupAuthBatch = vi.fn(async (_now: number, _limit: number) => cleanupCount);
   const readMailAvailability = vi.fn(async () => ({ code: 'AVAILABLE' as const, retry_at: null }));
   const freezeMailPayload = vi.fn(async (
@@ -58,6 +62,7 @@ function tickRepository(claimResult: { kind: 'claimed'; job: ClaimedMailJob } | 
     return {
       status: 'reserved',
       attempt: {
+        provider: 'resend',
         reservedAt,
         dayBucketStart: Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
         monthBucketStart: Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1),
@@ -75,16 +80,46 @@ function tickRepository(claimResult: { kind: 'claimed'; job: ClaimedMailJob } | 
 describe('auth background job tick', () => {
   it('sends one claimed mail and does not add cleanup work to the same tick', async () => {
     const job = await claimedMail();
-    const repository = tickRepository({ kind: 'claimed', job });
+    const repository = tickRepository([{ kind: 'claimed', job }, { kind: 'idle' }]);
     const fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'email_accepted_1' }), { status: 200 }));
 
     const result = await runAuthJobTick(repository.repository, config('re_test-key'), { now: () => NOW, fetch: fetch as typeof globalThis.fetch });
 
     expect(result).toEqual({ kind: 'mail', result: 'sent' });
-    expect(repository.claimOneMailForTick).toHaveBeenCalledTimes(1);
+    expect(repository.claimOneMailForTick).toHaveBeenCalledTimes(2);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(repository.cleanupAuthBatch).not.toHaveBeenCalled();
     expect(repository.finishes).toMatchObject([{ status: 'sent', providerMessageId: 'email_accepted_1' }]);
+  });
+
+  it('drains at most five mails per tick', async () => {
+    const job = await claimedMail();
+    const repository = tickRepository({ kind: 'claimed', job });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ id: 'email_accepted_n' }), { status: 200 }));
+
+    const result = await runAuthJobTick(repository.repository, config('re_test-key'), { now: () => NOW, fetch: fetch as typeof globalThis.fetch });
+
+    expect(result).toEqual({ kind: 'mail', result: 'sent' });
+    expect(repository.claimOneMailForTick).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it('keeps draining past a failed mail but stops once delivery pauses', async () => {
+    const job = await claimedMail();
+    const repository = tickRepository({ kind: 'claimed', job });
+    const responses = [
+      new Response(JSON.stringify({ name: 'validation_error' }), { status: 422 }),
+      new Response(JSON.stringify({ id: 'email_accepted_2' }), { status: 200 }),
+      new Response(JSON.stringify({ name: 'unauthorized' }), { status: 401 }),
+    ];
+    const fetch = vi.fn(async () => responses.shift()!);
+
+    const result = await runAuthJobTick(repository.repository, config('re_test-key'), { now: () => NOW, fetch: fetch as typeof globalThis.fetch });
+
+    expect(result).toEqual({ kind: 'mail', result: 'paused' });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(repository.finishes.map((entry) => entry.status)).toEqual(['failed', 'sent', 'paused']);
+    expect(repository.cleanupAuthBatch).not.toHaveBeenCalled();
   });
 
   it('treats an expired outbox cleanup as this tick’s work and does not clean another category', async () => {

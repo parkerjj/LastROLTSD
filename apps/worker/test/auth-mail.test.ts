@@ -4,7 +4,7 @@ import { createOpaqueToken, openMailPayload, sealMailPayload } from '../src/auth
 import { createMailDispatcher, prepareActionMail, preparePasswordChangedMail } from '../src/auth/mail';
 import type { MailRepository, MailFinishResult } from '../src/auth/repository';
 import type { AppEnv } from '../src/env';
-import type { AuthBindings, ClaimedMailJob, MailAttemptContext, MailAvailability, MailPurpose, MailReservation, NewMailJob, SealedMailPayload } from '../src/auth/types';
+import type { AuthBindings, ClaimedMailJob, MailAttemptContext, MailAvailability, MailProvider, MailPurpose, MailReservation, MailSendBinding, NewMailJob, SealedMailPayload } from '../src/auth/types';
 
 type MailBindingOverrides = Partial<AuthBindings> & {
   RESEND_API_KEY?: string;
@@ -62,6 +62,7 @@ class FakeMailRepository implements MailRepository {
   readonly finishes: MailFinishResult[] = [];
   readonly quotaKinds: Array<'daily' | 'monthly'> = [];
   crashBeforeSentFinish = false;
+  provider: MailProvider = 'resend';
   availability: MailAvailability = { code: 'AVAILABLE', retry_at: null };
 
   constructor(job: NewMailJob) {
@@ -144,13 +145,17 @@ class FakeMailRepository implements MailRepository {
     _observedAt: number,
   ): Promise<{ pauseRecorded: boolean; jobUpdated: boolean }> {
     this.quotaKinds.push(kind);
-    if (leaseId === this.leaseId && this.state === 'CLAIMED') this.state = 'FAILED';
+    if (leaseId === this.leaseId && this.state === 'CLAIMED') {
+      this.state = 'PENDING';
+      this.leaseId = null;
+    }
     return { pauseRecorded: true, jobUpdated: leaseId === this.leaseId };
   }
 
   private attemptContext(reservedAt: number): MailAttemptContext {
     const date = new Date(reservedAt);
     return {
+      provider: this.provider,
       reservedAt,
       dayBucketStart: Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
       monthBucketStart: Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1),
@@ -169,7 +174,7 @@ describe('account mail preparation', () => {
     const fetch = vi.fn();
 
     expect(config.enabled).toBe(true);
-    expect(Reflect.get(config, 'mailDelivery')).toEqual({ apiKey: null, from: null, replyTo: null });
+    expect(Reflect.get(config, 'mailDelivery')).toEqual({ apiKey: null, cloudflare: null, from: null, replyTo: null });
     expect(await createMailDispatcher(repository, config, { now: () => 1_800_000_000_000, fetch: fetch as typeof globalThis.fetch })
       .sendOne(1_800_000_000_000)).toBe('paused');
     expect(repository.claimCount).toBe(0);
@@ -354,8 +359,8 @@ describe('account mail preparation', () => {
   });
 
   it.each([
-    { name: 'daily_quota_exceeded', kind: 'daily' as const, expected: 'paused' as const },
-    { name: 'monthly_quota_exceeded', kind: 'monthly' as const, expected: 'paused' as const },
+    { name: 'daily_quota_exceeded', kind: 'daily' as const, expected: 'retry' as const },
+    { name: 'monthly_quota_exceeded', kind: 'monthly' as const, expected: 'retry' as const },
     { name: 'rate_limit_exceeded', kind: null, expected: 'retry' as const },
   ])('classifies Resend 429 $name by provider error name', async ({ name, kind, expected }) => {
     const now = 1_800_000_000_000;
@@ -372,6 +377,90 @@ describe('account mail preparation', () => {
     expect(result).toBe(expected);
     expect(repository.quotaKinds).toEqual(kind ? [kind] : []);
     expect(repository.finishes.map((entry) => entry.status)).toEqual(kind ? [] : ['retry']);
+  });
+
+  it('sends through the Cloudflare binding when the repository routes the attempt there', async () => {
+    const now = 1_800_000_000_000;
+    const send = vi.fn(async () => ({ messageId: 'cf-message-1' }));
+    const config = authConfig({
+      RESEND_API_KEY: 're_test-key', MAIL_FROM: '露天商店.Ro <auth@example.test>', MAIL_REPLY_TO: 'support@example.test',
+      SEND_EMAIL: { send } as MailSendBinding,
+    });
+    const job = await preparePasswordChangedMail({
+      mailId: '123e4567-e89b-12d3-a456-426614174020',
+      userId: '10000', email: 'pilot@example.test', displayName: 'Pilot', createdAt: now,
+    }, config);
+    const repository = new FakeMailRepository(job);
+    repository.provider = 'cloudflare';
+    const fetch = vi.fn();
+
+    expect(await createMailDispatcher(repository, config, { now: () => now, fetch: fetch as typeof globalThis.fetch }).sendOne(now)).toBe('sent');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      from: { name: '露天商店.Ro', email: 'auth@example.test' },
+      to: ['pilot@example.test'],
+      subject: 'LTSD 密码已修改通知',
+      replyTo: 'support@example.test',
+    }));
+    expect(repository.finishes).toEqual([{ status: 'sent', providerMessageId: 'cf-message-1', observedAt: now }]);
+  });
+
+  it('delivers with only the Cloudflare binding configured', async () => {
+    const now = 1_800_000_000_000;
+    const send = vi.fn(async () => ({ messageId: 'cf-message-2' }));
+    const config = authConfig({ MAIL_FROM: 'auth@example.test', SEND_EMAIL: { send } as MailSendBinding });
+    const job = await preparePasswordChangedMail({
+      mailId: '123e4567-e89b-12d3-a456-426614174021',
+      userId: '10000', email: 'pilot@example.test', displayName: 'Pilot', createdAt: now,
+    }, config);
+    const repository = new FakeMailRepository(job);
+    repository.provider = 'cloudflare';
+
+    expect(await createMailDispatcher(repository, config, { now: () => now, fetch: vi.fn() as typeof globalThis.fetch }).sendOne(now)).toBe('sent');
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ from: 'auth@example.test' }));
+  });
+
+  it.each([
+    { code: 'E_DAILY_LIMIT_EXCEEDED', expected: 'retry' as const, quota: ['daily'], finishes: [] as string[] },
+    { code: 'E_RATE_LIMIT_EXCEEDED', expected: 'retry' as const, quota: [], finishes: ['retry'] },
+    { code: 'E_INTERNAL_SERVER_ERROR', expected: 'retry' as const, quota: [], finishes: ['retry'] },
+    { code: 'E_SENDER_NOT_VERIFIED', expected: 'paused' as const, quota: [], finishes: ['paused'] },
+    { code: 'E_VALIDATION_ERROR', expected: 'failed' as const, quota: [], finishes: ['failed'] },
+  ])('classifies Cloudflare send error $code', async ({ code, expected, quota, finishes }) => {
+    const now = 1_800_000_000_000;
+    const send = vi.fn(async () => { throw Object.assign(new Error(code), { code }); });
+    const config = authConfig({ MAIL_FROM: 'LTSD <auth@example.test>', SEND_EMAIL: { send } as MailSendBinding });
+    const job = await preparePasswordChangedMail({
+      mailId: '123e4567-e89b-12d3-a456-426614174022',
+      userId: '10000', email: 'pilot@example.test', displayName: 'Pilot', createdAt: now,
+    }, config);
+    const repository = new FakeMailRepository(job);
+    repository.provider = 'cloudflare';
+
+    expect(await createMailDispatcher(repository, config, { now: () => now, fetch: vi.fn() as typeof globalThis.fetch }).sendOne(now)).toBe(expected);
+    expect(repository.quotaKinds).toEqual(quota);
+    expect(repository.finishes.map((entry) => entry.status)).toEqual(finishes);
+  });
+
+  it('reroutes a Resend daily quota rejection to Cloudflare on the next claim', async () => {
+    const now = 1_800_000_000_000;
+    const send = vi.fn(async () => ({ messageId: 'cf-message-3' }));
+    const config = authConfig({
+      RESEND_API_KEY: 're_test-key', MAIL_FROM: 'LTSD <auth@example.test>', SEND_EMAIL: { send } as MailSendBinding,
+    });
+    const job = await preparePasswordChangedMail({
+      mailId: '123e4567-e89b-12d3-a456-426614174023',
+      userId: '10000', email: 'pilot@example.test', displayName: 'Pilot', createdAt: now,
+    }, config);
+    const repository = new FakeMailRepository(job);
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ name: 'daily_quota_exceeded' }), { status: 429 }));
+    const dispatcher = createMailDispatcher(repository, config, { now: () => now, fetch: fetch as typeof globalThis.fetch });
+
+    expect(await dispatcher.sendOne(now)).toBe('retry');
+    repository.provider = 'cloudflare';
+    expect(await dispatcher.sendOne(now)).toBe('sent');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it.each([
