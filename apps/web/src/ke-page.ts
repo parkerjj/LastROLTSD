@@ -588,6 +588,9 @@ export function mountKePage(root: HTMLElement): void {
 
     .ke-profile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--muted); background: transparent; border: 1.5px dashed var(--line-light); border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; }
     .ke-profile-new:hover:not(:disabled) { color: var(--red-dark); border-color: var(--red); background: rgba(184,77,63,.04); }
+    .ke-profile-hall { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--forest); background: transparent; border: 1.5px dashed #b5d4c4; border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; text-decoration: none; }
+    .ke-profile-hall:hover { color: #1f5e43; border-color: var(--buy); background: var(--buy-soft); }
+    .ke-profile-hall small { color: var(--muted); font-size: .7rem; font-weight: 600; }
 
     .ke-btn-ghost { color: var(--ink); background: #f7f3ea; border-color: #aa9d88; border-radius: 8px; min-height: 30px; padding: 3px 12px; font-size: .74rem; }
     .ke-btn-ghost:hover:not(:disabled) { color: var(--ink); background: #efe9dd; border-color: #97896f; }
@@ -601,6 +604,9 @@ export function mountKePage(root: HTMLElement): void {
 
     .ke-empty { display: grid; gap: 8px; justify-items: center; padding: 30px 20px; color: var(--muted); background: #fffdf8; border: 1.5px dashed var(--line-light); border-radius: 10px; text-align: center; font-size: .84rem; line-height: 1.7; }
     .ke-empty b { color: var(--forest); font-size: .92rem; }
+    .ke-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 4px; }
+    .ke-empty-hall { display: inline-flex; align-items: center; min-height: 40px; padding: 3px 18px; color: #fff; background: var(--forest); border-color: var(--forest); border-radius: 8px; font-weight: 800; text-decoration: none; box-shadow: 0 8px 18px rgba(44,74,58,.22); }
+    .ke-empty-hall:hover { color: #fff; background: #1f5e43; border-color: #1f5e43; }
 
     .ke-editor { background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
     .ke-editor-head { position: sticky; top: 74px; z-index: 6; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 13px 20px; background: rgba(247,243,234,.96); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); border-radius: 12px 12px 0 0; }
@@ -1690,6 +1696,8 @@ export function mountKePage(root: HTMLElement): void {
       empty.style.gridColumn = "1 / -1";
       empty.innerHTML =
         "<b>该角色还没有配置方案</b><span>新建一套方案，选好挂机地图和技能，就能开始自动挂机。</span>";
+      const btnRow = document.createElement("div");
+      btnRow.className = "ke-empty-actions";
       const newBtn = document.createElement("button");
       newBtn.type = "button";
       newBtn.className = "ke-btn-primary";
@@ -1697,7 +1705,12 @@ export function mountKePage(root: HTMLElement): void {
       newBtn.addEventListener("click", () => {
         if (confirmDiscard()) void openEditor(null);
       });
-      empty.appendChild(newBtn);
+      const hallBtn = document.createElement("a");
+      hallBtn.className = "ke-btn-ghost ke-empty-hall";
+      hallBtn.href = "/ke/hall";
+      hallBtn.textContent = "一键抄袭大佬们的方案";
+      btnRow.append(newBtn, hallBtn);
+      empty.appendChild(btnRow);
       profileList.appendChild(empty);
       return;
     }
@@ -1781,6 +1794,12 @@ export function mountKePage(root: HTMLElement): void {
       if (confirmDiscard()) void openEditor(null);
     });
     profileList.appendChild(newCard);
+    const hallCard = document.createElement("a");
+    hallCard.className = "ke-profile-hall";
+    hallCard.href = "/ke/hall";
+    hallCard.innerHTML =
+      "<span>🏛️ 去配置大厅</span><small>看看大佬们的方案</small>";
+    profileList.appendChild(hallCard);
   }
 
   // —— 编辑器导航 ——
