@@ -3,6 +3,7 @@ import { hasMysqlConnection } from './db/mysql-connection';
 import { DEFAULT_CURSOR_SECRET } from './domain/search';
 import type { SnapshotMessage } from './services/full-upload';
 import type { AuthBindings } from './auth/types';
+import type { MailWakeQueue } from './auth/mail-wake';
 import type { KeBindings } from './ke/types';
 
 export interface AppEnv extends AuthBindings, KeBindings {
@@ -20,6 +21,8 @@ export interface AppEnv extends AuthBindings, KeBindings {
   SNAPSHOT_QUEUE?: { send(message: SnapshotMessage): Promise<void> } | undefined;
   SNAPSHOT_QUEUE_DAILY_BUDGET?: number | undefined;
   SNAPSHOT_RECONCILE_BATCH_SIZE?: number | undefined;
+  /** 账号邮件唤醒队列；缺省时只靠 Cron 兜底发送。 */
+  MAIL_QUEUE?: MailWakeQueue | undefined;
   /** Chrome IWA Update Manifest（updates.json）的公开 URL；用于解析最新 Release 安装包地址。 */
   IWA_UPDATES_MANIFEST_URL?: string | undefined;
   /** 爱发电开放平台 API token（机密，仅经 wrangler secret / 本地 .dev.vars 注入，缺省时打赏接口返回 503）。 */
@@ -58,6 +61,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     UPLOAD_LIMITER: bindings.UPLOAD_LIMITER as Fetcher | undefined,
     ADMIN_SECRET: bindings.ADMIN_SECRET as string | undefined,
     SNAPSHOT_QUEUE: bindings.SNAPSHOT_QUEUE as AppEnv['SNAPSHOT_QUEUE'],
+    MAIL_QUEUE: bindings.MAIL_QUEUE as AppEnv['MAIL_QUEUE'],
     SNAPSHOT_QUEUE_DAILY_BUDGET: nonnegativeInteger(bindings.SNAPSHOT_QUEUE_DAILY_BUDGET, 9000),
     SNAPSHOT_RECONCILE_BATCH_SIZE: positiveInteger(bindings.SNAPSHOT_RECONCILE_BATCH_SIZE, 200),
     IWA_UPDATES_MANIFEST_URL: typeof bindings.IWA_UPDATES_MANIFEST_URL === 'string' && bindings.IWA_UPDATES_MANIFEST_URL.trim() !== '' ? bindings.IWA_UPDATES_MANIFEST_URL.trim() : undefined,

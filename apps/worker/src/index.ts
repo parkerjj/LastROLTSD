@@ -36,6 +36,8 @@ import { createSessionService } from './auth/session-service';
 import { assertCsrf } from './auth/csrf';
 import type { GuestbookAuthServices } from './routes/guestbook';
 import { runAuthJobTick } from './auth/jobs';
+import { consumeMailWakeBatch, createMailWake, isMailWakeMessage } from './auth/mail-wake';
+import { mysqlErrorContext } from './db/mysql-error-context';
 import { createAdminRepository } from './admin/repository';
 import { registerAdminAccountRoutes, type AdminAuthServices } from './admin/router';
 import { createAdminService } from './admin/service';
@@ -44,9 +46,10 @@ import { createActionService } from './auth/action-service';
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
 
-export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
+export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context?: Pick<ExecutionContext, 'waitUntil'>): Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }> {
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
   const database = injectedDatabase ?? createWorkerDatabase(env);
+  const wakeMail = createMailWake(env.MAIL_QUEUE, context ? (promise) => context.waitUntil(promise) : undefined);
   registerCorsMiddleware(app);
   app.use('*', async (c, next) => {
     const started = Date.now();
@@ -68,7 +71,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
-  registerAuthRoutes(app, env, database);
+  registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined);
   registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database);
 
@@ -81,7 +84,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase): Hono<{
       rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
       auth: guestbookAuthServices(database, env),
     });
-    registerAdminAccountRoutes(app, createAdminService(createAdminRepository(database)), adminAuthServices(database, env));
+    registerAdminAccountRoutes(app, createAdminService(createAdminRepository(database)), adminAuthServices(database, env, wakeMail));
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
@@ -118,13 +121,17 @@ export default {
       if (request.method === 'POST' && url.pathname === '/api/v1/market/upload' && database) {
         return await fetchUpload(request, env, database);
       }
-      return await createApp(env, database).fetch(request);
+      return await createApp(env, database, context).fetch(request);
     } finally {
       await database?.close();
     }
   },
   async queue(batch: { messages: readonly SnapshotQueueMessage[] }, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
+    if (batch.messages.length > 0 && batch.messages.every((message) => isMailWakeMessage(message.body))) {
+      await consumeMailWakeBatch(batch.messages, env);
+      return;
+    }
     const database = createWorkerDatabase(env);
     if (!database) throw new Error('MySQL connection is required for snapshot jobs');
     try {
@@ -136,29 +143,17 @@ export default {
   async scheduled(event: ScheduledEvent, bindings: Record<string, unknown>): Promise<void> {
     const env = resolveAppEnv(bindings);
     if (event.cron === '*/2 * * * *') {
-      let config;
-      try {
-        config = resolveAuthConfig(env);
-      } catch {
-        console.warn('lastroweb.auth_job_config_unavailable');
-        return;
-      }
-      if (!config.enabled) return;
-
-      const database = createWorkerDatabase(env)!;
-      try {
-        const repository = createAuthRepository(database, {
-          mailDailyLimit: config.mailDailyLimit,
-          mailMonthlyLimit: config.mailMonthlyLimit,
-        });
-        await runAuthJobTick(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
-      } catch {
-        console.error('lastroweb.auth_job_failed');
-        throw new Error('auth background job failed');
-      } finally {
-        await database.close();
-      }
+      await runAuthCronTick(env);
       return;
+    }
+    // The two-minute trigger was observed registered but never invoked, while this per-minute
+    // trigger runs reliably. The account tick rides on it; it is isolated from snapshot work.
+    if (event.cron === '* * * * *') {
+      try {
+        await runAuthCronTick(env);
+      } catch {
+        // Already logged by runAuthCronTick; the snapshot wakeup below must still run.
+      }
     }
     const database = createWorkerDatabase(env);
     if (!database) return;
@@ -174,6 +169,38 @@ export default {
     }
   },
 };
+
+/** One account background tick: send at most one ready mail, otherwise one capped cleanup batch. */
+async function runAuthCronTick(env: AppEnv): Promise<void> {
+  let config;
+  try {
+    config = resolveAuthConfig(env);
+  } catch (error) {
+    // Invalid auth settings stop all mail silently otherwise; the error carries only a fixed public message.
+    logError('lastroweb.auth_job_config_unavailable', error);
+    return;
+  }
+  if (!config.enabled) return;
+
+  const database = createWorkerDatabase(env)!;
+  try {
+    const repository = createAuthRepository(database, {
+      mailDailyLimit: config.mailDailyLimit,
+      mailMonthlyLimit: config.mailMonthlyLimit,
+    });
+    const tick = await runAuthJobTick(repository, config, { now: () => Date.now(), fetch: globalThis.fetch });
+    if (tick.kind === 'idle' && tick.result === 'mail_unconfigured') {
+      logError('lastroweb.auth_job_mail_unconfigured', new Error('RESEND_API_KEY is not configured; queued mail is not being sent'));
+    } else if (tick.kind === 'mail' && tick.result !== 'sent') {
+      logError('lastroweb.auth_job_mail_not_sent', new Error(`mail tick ended ${tick.result}`), { result: tick.result });
+    }
+  } catch (error) {
+    logError('lastroweb.auth_job_failed', error, mysqlErrorContext(error));
+    throw new Error('auth background job failed');
+  } finally {
+    await database.close();
+  }
+}
 
 // Upload needs no router or unrelated services. The caller owns this invocation's
 // database and closes it after receipt, including on every error path.
@@ -211,7 +238,7 @@ function guestbookAuthServices(database: MysqlDatabase, env: AppEnv): GuestbookA
   }
 }
 
-function adminAuthServices(database: MysqlDatabase, env: AppEnv): AdminAuthServices | null {
+function adminAuthServices(database: MysqlDatabase, env: AppEnv, wakeMail?: () => void): AdminAuthServices | null {
   try {
     const config = resolveAuthConfig(env);
     if (!config.enabled) return null;
@@ -219,7 +246,7 @@ function adminAuthServices(database: MysqlDatabase, env: AppEnv): AdminAuthServi
       mailDailyLimit: config.mailDailyLimit,
       mailMonthlyLimit: config.mailMonthlyLimit,
     });
-    const runtime = { now: () => Date.now(), fetch: globalThis.fetch };
+    const runtime = { now: () => Date.now(), fetch: globalThis.fetch, ...(wakeMail ? { wakeMail } : {}) };
     const sessions = createSessionService(repository, config, runtime);
     const actions = createActionService(repository, config, runtime);
     return {

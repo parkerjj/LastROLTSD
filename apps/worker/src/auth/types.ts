@@ -62,6 +62,8 @@ export interface AuthSessionResponse {
 export interface AuthRuntime {
   now: () => number;
   fetch: typeof globalThis.fetch;
+  /** Called after an outbox row commits so delivery starts now rather than at the next Cron tick. */
+  wakeMail?: () => void;
 }
 
 export interface MailDeliveryConfig {

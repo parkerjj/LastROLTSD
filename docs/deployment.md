@@ -97,7 +97,7 @@ Add these GitHub production Environment secrets: `AUTH_PASSWORD_SECRET`, `AUTH_C
 
 For Resend, add a sending domain you control, then copy the provider's current SPF and DKIM records into its authoritative DNS. Configure DMARC after reviewing the domain's existing policy. Preserve existing MX records for inbound mail, and do not publish multiple SPF records for the same hostname. Keep `AUTH_SITE_URL`, `MAIL_FROM`, and optional `MAIL_REPLY_TO` on real, controlled domains; the preflight cannot prove the DNS records are active or that Resend has verified the domain. The Worker sends through Resend's HTTPS API. Workers Free cannot send through Cloudflare Email Sending to arbitrary player addresses; it can call the external API using HTTPS `fetch`. See [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [Resend errors](https://resend.com/docs/api-reference/errors), and [Resend account quotas](https://resend.com/docs/knowledge-base/account-quotas-and-limits) and verify the current plan and account quota before opening registration.
 
-The three existing Cron expressions plus the new `*/2 * * * *` account tick are configured on this Worker. Workers Free currently allows at most five Cron triggers per account, shared across Workers; check the account's total before enabling production schedules. Cron CPU has the Free 10 ms per-invocation limit. No account's actual trigger usage, remaining mail quota, domain verification, DNS, production secrets, or production CPU was checked as part of this local code change.
+Three Cron expressions are configured on this Worker; the account tick runs from the per-minute one (the former `*/2 * * * *` trigger was removed because it never fired). Workers Free currently allows at most five Cron triggers per account, shared across Workers; check the account's total before enabling production schedules. Cron CPU has the Free 10 ms per-invocation limit. No account's actual trigger usage, remaining mail quota, domain verification, DNS, production secrets, or production CPU was checked as part of this local code change.
 
 Rotate password and mail-payload keys separately. Use the disabled barrier before changing any current or previous secret or version: while auth is disabled, retain the old current key/version as the one `PREVIOUS` pair and set the new current version and secret; re-enable only in a final deployment that includes the complete matching pairs. The GitHub workflow enforces this sequence when preflight enables auth. For manual changes, explicitly deploy `AUTH_ENABLED=false` and wait for that deployment to succeed before writing any account secret, then publish the complete public vars and matching keys in a final `AUTH_ENABLED=true` deployment. The Worker reads records using their stored version; do not remove a previous key or start a third version while any old record still needs it. Before retiring a password key, use the `auth_credentials(key_version, user_id)` index to check matching users in bounded batches and complete a separately reviewed migration or user credential upgrade. Do not silently rewrite passwords. Retire an old mail-payload key only after every old-version task is terminal or expired and its ciphertext is null. The workflow does not delete remote secrets; remove an old secret only through a separately authorized operation after the check is complete.
 
@@ -177,6 +177,11 @@ environment before deploying a consumer:
 ```powershell
 pnpm exec wrangler queues create lastroweb-production-snapshot-jobs
 ```
+
+账号邮件唤醒使用另一个同环境队列：`lastroweb-mail-jobs`、
+`lastroweb-staging-mail-jobs`、`lastroweb-production-mail-jobs`（绑定名 `MAIL_QUEUE`，
+`max_batch_size = 1`）。GitHub Actions 会与快照队列一并确认其存在；手动部署时用
+`pnpm exec wrangler queues create <队列名>` 先创建。
 
 The default environment uses `lastroweb-snapshot-jobs`; staging uses
 `lastroweb-staging-snapshot-jobs`. Consumer settings must retain
