@@ -116,20 +116,22 @@ jobs:
           CLOUDFLARE_HYPERDRIVE_ID: ${{ vars.CLOUDFLARE_HYPERDRIVE_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Ensure production snapshot Queue exists
+      - name: Ensure production Queues exist
         shell: bash
         run: |
           response=$(mktemp)
           trap 'rm -f "$response"' EXIT
-          curl --fail --silent --show-error --get \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues" \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --data-urlencode "name=lastroweb-production-snapshot-jobs" \
-            --output "$response"
-          jq -e '.success == true and (.result | type == "array")' "$response" > /dev/null
-          if ! jq -e 'any(.result[]; .queue_name == "lastroweb-production-snapshot-jobs")' "$response" > /dev/null; then
-            pnpm exec wrangler queues create lastroweb-production-snapshot-jobs --env production --config wrangler.toml
-          fi
+          for queue in lastroweb-production-snapshot-jobs lastroweb-production-mail-jobs; do
+            curl --fail --silent --show-error --get \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/queues" \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --data-urlencode "name=${queue}" \
+              --output "$response"
+            jq -e '.success == true and (.result | type == "array")' "$response" > /dev/null
+            if ! jq -e --arg queue "$queue" 'any(.result[]; .queue_name == $queue)' "$response" > /dev/null; then
+              pnpm exec wrangler queues create "$queue" --env production --config wrangler.toml
+            fi
+          done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

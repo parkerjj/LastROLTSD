@@ -30,7 +30,7 @@ AUTH_MAIL_MONTHLY_LIMIT = "3000"
 
 
 [triggers]
-crons = ["0 3 * * *", "* * * * *", "*/5 * * * *", "*/2 * * * *"]
+crons = ["0 3 * * *", "* * * * *", "*/5 * * * *"]
 
 [[queues.producers]]
 binding = "SNAPSHOT_QUEUE"
@@ -38,6 +38,16 @@ queue = "lastroweb-snapshot-jobs"
 
 [[queues.consumers]]
 queue = "lastroweb-snapshot-jobs"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
+[[queues.producers]]
+binding = "MAIL_QUEUE"
+queue = "lastroweb-mail-jobs"
+
+[[queues.consumers]]
+queue = "lastroweb-mail-jobs"
 max_batch_size = 1
 max_batch_timeout = 1
 max_retries = 3
@@ -58,6 +68,16 @@ queue = "lastroweb-staging-snapshot-jobs"
 
 [[env.staging.queues.consumers]]
 queue = "lastroweb-staging-snapshot-jobs"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
+[[env.staging.queues.producers]]
+binding = "MAIL_QUEUE"
+queue = "lastroweb-staging-mail-jobs"
+
+[[env.staging.queues.consumers]]
+queue = "lastroweb-staging-mail-jobs"
 max_batch_size = 1
 max_batch_timeout = 1
 max_retries = 3
@@ -86,11 +106,21 @@ max_batch_size = 1
 max_batch_timeout = 1
 max_retries = 3
 
+[[env.production.queues.producers]]
+binding = "MAIL_QUEUE"
+queue = "lastroweb-production-mail-jobs"
+
+[[env.production.queues.consumers]]
+queue = "lastroweb-production-mail-jobs"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
 [observability.logs]
 enabled = true
 # Do not log every successful GET/404 invocation.
 invocation_logs = false
-head_sampling_rate = 0.05
+head_sampling_rate = 1
 
 [observability.traces]
 enabled = true
@@ -102,7 +132,7 @@ persist = true
 [env.staging.observability.logs]
 enabled = true
 invocation_logs = false
-head_sampling_rate = 0.05
+head_sampling_rate = 1
 
 [env.staging.observability.traces]
 enabled = true
@@ -112,7 +142,7 @@ persist = true
 [env.production.observability.logs]
 enabled = true
 invocation_logs = false
-head_sampling_rate = 0.05
+head_sampling_rate = 1
 
 [env.production.observability.traces]
 enabled = true

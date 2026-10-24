@@ -222,6 +222,7 @@ export function createActionService(repository: AuthRepository, config: AuthConf
 
         if (outcome.status === 'retry') continue;
         if (outcome.status === 'verified') return { verified: true };
+        runtime.wakeMail?.();
         return { accepted: true, mail_availability: outcome.mailAvailability };
       }
       throw unavailable();
@@ -325,6 +326,7 @@ export function createActionService(repository: AuthRepository, config: AuthConf
         await tx.insertMailJob(notification);
         await appendEvent(tx, user.id, 'PASSWORD_CHANGE', now);
       });
+      runtime.wakeMail?.();
     },
 
     /**
@@ -363,6 +365,7 @@ export function createActionService(repository: AuthRepository, config: AuthConf
           detail: null, request_id: requestId, created_at: now,
         });
       });
+      runtime.wakeMail?.();
     },
 
     async requestReset(emailValue: string): Promise<AuthAcceptedResponse> {
@@ -395,6 +398,7 @@ export function createActionService(repository: AuthRepository, config: AuthConf
         await tx.insertMailJob(draft.mail);
         await appendEvent(tx, user.id, 'PASSWORD_RESET_REQUEST', now);
       });
+      runtime.wakeMail?.();
       return { accepted: true, mail_availability: availability };
     },
 
@@ -439,6 +443,7 @@ export function createActionService(repository: AuthRepository, config: AuthConf
         await appendEvent(tx, user.id, 'PASSWORD_RESET', now);
         return user.id;
       });
+      runtime.wakeMail?.();
       return { changedUserId };
     },
   };

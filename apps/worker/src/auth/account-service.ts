@@ -131,6 +131,7 @@ export function createAccountService(repository: AuthRepository, config: AuthCon
           });
         }
       });
+      runtime.wakeMail?.();
 
       return { accepted: true, mail_availability: mailAvailability };
     },
