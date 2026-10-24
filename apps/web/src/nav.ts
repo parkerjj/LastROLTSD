@@ -9,7 +9,7 @@ export type SitePage =
   | "updates"
   | "client"
   | "sponsors"
-  | "hall";
+  | "guide";
 
 interface NavEntry {
   readonly page: SitePage;
@@ -27,6 +27,13 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     icon: "ph-magnifying-glass",
   },
   {
+    page: "guide",
+    href: "/ke/guide",
+    label: "KE指南",
+    icon: "ph-compass",
+    isNew: true,
+  },
+  {
     page: "accounts",
     href: "/accounts",
     label: "菜农监控台",
@@ -37,13 +44,6 @@ const NAV_ENTRIES: readonly NavEntry[] = [
     href: "/client",
     label: "进阶客户端",
     icon: "ph-rocket-launch",
-  },
-  {
-    page: "hall",
-    href: "/ke/hall",
-    label: "配置大厅",
-    icon: "ph-squares-four",
-    isNew: true,
   },
   {
     page: "guestbook",
@@ -78,14 +78,10 @@ const mountedNavs = new WeakSet<HTMLElement>();
  * 搜索页自身的「搜索市场」链接使用页内锚点 #search。
  * active 传 null 表示当前页面不属于任何导航项（如账号系统页面），无高亮项。
  */
-export function siteNavMarkup(active: SitePage | null, demo = false): string {
+export function siteNavMarkup(active: SitePage | null): string {
   const items = NAV_ENTRIES.map((entry) => {
     const href =
-      entry.page === "search" && active === "search"
-        ? "#search"
-        : entry.page === "hall" && demo
-          ? `${entry.href}?demo=1`
-          : entry.href;
+      entry.page === "search" && active === "search" ? "#search" : entry.href;
     const isActive = entry.page === active;
     const current =
       isActive && active !== "search" ? ' aria-current="page"' : "";

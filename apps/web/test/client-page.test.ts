@@ -46,10 +46,10 @@ describe('client page', () => {
       expect(navLink).not.toBeNull();
       expect(navLink?.getAttribute('aria-current')).toBe('page');
       expect(navLink?.textContent).toContain('进阶客户端');
-      // 导航中仅配置大厅入口带 NEW 徽章。
+      // 导航中仅新手指南入口带 NEW 徽章。
       const newBadges = [...root.querySelectorAll('.site-nav .new-badge')];
       expect(newBadges).toHaveLength(1);
-      expect(newBadges[0]?.closest('a')?.getAttribute('href')).toBe('/ke/hall');
+      expect(newBadges[0]?.closest('a')?.getAttribute('href')).toBe('/ke/guide');
       const accountsNav = root.querySelector('.site-nav a[href="/accounts"]');
       expect(accountsNav).not.toBeNull();
       // 无下载按钮——安装通过 Update Manifest URL 优先在 chrome://iwa-dev 中完成。

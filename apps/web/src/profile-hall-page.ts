@@ -61,10 +61,10 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
   const api = demo ? createProfileHallDemoApi() : profileHallApi;
   const editorHref = demo ? '/ke/my?demo=1' : '/ke/my';
   const editorLabel = demo ? '预览配置编辑器 →' : '我的配置 →';
-  root.innerHTML = `<header class="site-header"><div class="topbar page-width"><a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>${siteNavMarkup('hall', demo)}</div></header>
-    <main class="page-width hall-page"><header class="hall-heading"><div><p class="eyebrow">KoreEngine · 玩家方案</p><h1>配置大厅</h1><p>找一套适合自己的配置，复制到角色后再按需要调整。</p></div><a href="${editorHref}" class="hall-editor-link">${editorLabel}</a></header>
+  root.innerHTML = `<header class="site-header"><div class="topbar page-width"><a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>${siteNavMarkup(null)}</div></header>
+    <main class="page-width hall-page"><header class="hall-heading"><div><h1>配置大厅</h1><p class="hall-sub">找一套适合自己的配置，复制到角色后再按需要调整。</p></div><a href="${editorHref}" class="hall-editor-link">${editorLabel}</a></header>
     ${demo ? '<aside class="hall-demo-notice" role="note"><span><strong>演示模式</strong> · 示例数据只在当前页面模拟，刷新后恢复。</span><a href="/ke/hall">进入正式大厅</a></aside>' : ''}
-    <section class="hall-tools" aria-label="查找配置"><label>职业系<select data-job><option value="">全部职业系</option></select></label><label>排序<select data-sort><option value="newest">最新分享</option><option value="uses">使用人数</option><option value="likes">点赞数</option></select></label><label class="hall-code-label">分享码<input data-code-input placeholder="ABC-1234" autocomplete="off" /></label><button type="button" data-code-find>查找</button></section>
+    <section class="hall-tools" aria-label="查找配置"><select data-job aria-label="职业系"><option value="">全部职业系</option></select><select data-sort aria-label="排序"><option value="newest">最新分享</option><option value="uses">使用人数</option><option value="likes">点赞数</option></select><span class="hall-tools-gap"></span><input data-code-input class="hall-code-input" placeholder="分享码 ABC-1234" autocomplete="off" /><button type="button" class="hall-find" data-code-find>查找</button></section>
     <p class="hall-message" data-status role="status" aria-live="polite"></p><section data-list class="hall-list" aria-label="共享配置"></section><div data-pagination class="hall-pagination"></div><section data-detail class="hall-detail" hidden></section><section data-copy-panel class="hall-copy-panel" hidden></section></main>`;
   if (store === authStore) mountSiteNav(root);
   const status = root.querySelector<HTMLElement>('[data-status]')!;
@@ -92,6 +92,7 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
   let jobFamilies: HallJobFamily[] = [];
   let icons: Record<string, string> = {};
   let assetsRequested = false;
+  let activeFile: string = files[0][0];
 
   function loadAssets(): void {
     if (assetsRequested) return;
@@ -154,13 +155,17 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
       return;
     }
     const head = element(doc, 'div', 'hall-row hall-row-head');
-    for (const name of ['配置', '使用人数', '点赞', '操作']) head.append(element(doc, 'span', '', name));
+    const headTitle = element(doc, 'span', '', '配置');
+    const headUses = element(doc, 'span', 'hall-number', '使用');
+    const headLikes = element(doc, 'span', 'hall-number', '点赞');
+    head.append(headTitle, headUses, headLikes, element(doc, 'span', '', '操作'));
     list.append(head);
     for (const item of page.items) {
       const row = element(doc, 'article', 'hall-row hall-item');
       const info = element(doc, 'div', 'hall-item-main');
       const title = button(doc, item.title, 'detail', String(item.id));
       title.className = 'hall-title';
+      if (item.is_mine) title.appendChild(element(doc, 'span', 'hall-mine-tag', '（我的分享）'));
       const description = element(doc, 'p', 'hall-description', item.description || '暂无说明');
       const meta = element(doc, 'p', 'hall-meta');
       const icon = jobIcon(item.job_id);
@@ -170,15 +175,23 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
       const uses = element(doc, 'span', 'hall-number', String(item.use_count)); uses.dataset.label = '使用人数';
       const likes = element(doc, 'span', 'hall-number', String(item.like_count)); likes.dataset.label = '点赞';
       const actions = element(doc, 'div', 'hall-actions');
-      const like = button(doc, item.liked_by_me ? '取消赞' : '点赞', 'like', String(item.id));
-      like.disabled = item.is_mine;
-      if (item.is_mine) like.title = '不能给自己的配置点赞';
       if (item.is_mine) {
         const manage = element(doc, 'a', 'hall-button', '我的配置');
         manage.href = editorHref; manage.dataset.manage = '';
-        actions.append(manage, button(doc, '撤回分享', 'withdraw', String(item.id)));
+        const withdraw = button(doc, '撤回分享', 'withdraw', String(item.id));
+        withdraw.className = 'hall-quiet hall-quiet-danger';
+        const code = button(doc, '分享码', 'copyCode', item.share_code);
+        code.className = 'hall-quiet';
+        actions.append(manage, withdraw, code);
+      } else {
+        const copy = button(doc, '复制配置', 'copy', String(item.id));
+        copy.className = 'hall-copy';
+        const like = button(doc, item.liked_by_me ? '取消赞' : '点赞', 'like', String(item.id));
+        like.className = `hall-quiet${item.liked_by_me ? ' hall-quiet-liked' : ''}`;
+        const code = button(doc, '分享码', 'copyCode', item.share_code);
+        code.className = 'hall-quiet';
+        actions.append(copy, like, code);
       }
-      actions.append(button(doc, '复制配置', 'copy', String(item.id)), like, button(doc, '复制分享码', 'copyCode', item.share_code));
       row.append(info, uses, likes, actions);
       list.append(row);
     }
@@ -208,28 +221,47 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
     detailPanel.replaceChildren(); detailPanel.hidden = !detail;
     if (!detail) return;
     const back = button(doc, '← 返回列表', 'closeDetail');
+    back.className = 'hall-quiet';
+    const head = element(doc, 'div', 'hall-detail-head');
+    const icon = jobIcon(detail.job_id);
+    if (icon) { icon.className = 'hall-detail-cover'; head.appendChild(icon); }
+    const who = element(doc, 'div', 'hall-detail-who');
     const title = element(doc, 'h2', '', detail.title);
-    const meta = element(doc, 'p', 'hall-meta', `${jobName(detail.job_id)} · ${detail.author.display_name} · ${detail.share_code} · 更新时间 ${updateTime(detail.updated_at)}`);
-    const description = element(doc, 'p', '', detail.description || '暂无说明');
-    const actions = element(doc, 'div', 'hall-actions');
+    const meta = element(doc, 'p', 'hall-detail-meta', `${jobName(detail.job_id)} · ${detail.author.display_name} · ${detail.share_code} · 更新时间 ${updateTime(detail.updated_at)} · 使用 ${detail.use_count} · 点赞 ${detail.like_count}`);
+    who.append(title, meta);
+    const actions = element(doc, 'div', 'hall-detail-acts');
     if (detail.is_mine) {
       const manage = element(doc, 'a', 'hall-button', '我的配置');
       manage.href = editorHref; manage.dataset.manage = '';
-      actions.append(manage, button(doc, '撤回分享', 'withdraw', String(detail.id)));
+      const withdraw = button(doc, '撤回分享', 'withdraw', String(detail.id));
+      withdraw.className = 'hall-quiet hall-quiet-danger';
+      actions.append(manage, withdraw);
+    } else {
+      const copy = button(doc, '复制配置', 'copy', String(detail.id));
+      copy.className = 'hall-copy';
+      actions.appendChild(copy);
     }
-    actions.append(button(doc, '复制配置', 'copy', String(detail.id)), button(doc, '复制分享链接', 'copyLink', detail.share_code));
-    detailPanel.append(back, title, meta, description, actions);
+    const linkBtn = button(doc, '复制分享链接', 'copyLink', detail.share_code);
+    linkBtn.className = 'hall-button';
+    actions.appendChild(linkBtn);
+    head.append(who, actions);
+    detailPanel.append(back, head);
+    if (detail.description) detailPanel.appendChild(element(doc, 'p', 'hall-detail-desc', detail.description));
+    const tabs = element(doc, 'div', 'hall-tabs');
     for (const [key, label] of files) {
-      const fold = element(doc, 'details', 'hall-file');
-      fold.append(element(doc, 'summary', '', label), element(doc, 'pre', '', detail[key] ?? '（无内容）'));
-      detailPanel.append(fold);
+      const tab = button(doc, label, 'file', key);
+      tab.className = `hall-tab${key === activeFile ? ' is-active' : ''}`;
+      tabs.appendChild(tab);
     }
+    const current = files.find(([key]) => key === activeFile) ?? files[0];
+    const code = element(doc, 'pre', 'hall-code', detail[current[0]] ?? '（无内容）');
+    detailPanel.append(tabs, code);
   }
   async function openDetail(idOrCode: number | string): Promise<void> {
     if (!account) return;
     detailAbort?.abort(); detailAbort = new AbortController();
     const seq = ++detailSeq, token = generation;
-    detail = null; renderDetail(); status.textContent = '正在读取配置详情…';
+    detail = null; activeFile = files[0][0]; renderDetail(); status.textContent = '正在读取配置详情…';
     try {
       const result = typeof idOrCode === 'number'
         ? await api.byId(idOrCode, detailAbort.signal)
@@ -256,10 +288,14 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
       });
       if (pendingCopy) select.value = String(characters.findIndex((character) => character.aid === pendingCopy!.target.aid && character.cid === pendingCopy!.target.cid && character.nid === pendingCopy!.target.nid));
       label.append(select);
-      copyPanel.append(label, button(doc, '确认复制', 'copyConfirm'));
+      const confirmBtn = button(doc, '确认复制', 'copyConfirm');
+      confirmBtn.className = 'hall-copy';
+      copyPanel.append(label, confirmBtn);
     }
     if (message) copyPanel.append(element(doc, 'p', 'hall-copy-message', message));
-    copyPanel.append(button(doc, '关闭', 'closeCopy'));
+    const closeBtn = button(doc, '关闭', 'closeCopy');
+    closeBtn.className = 'hall-button';
+    copyPanel.append(closeBtn);
   }
   async function startCopy(source: number): Promise<void> {
     if (!account) return;
@@ -300,7 +336,9 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
       const link = element(doc, 'a', 'hall-editor-link', demo ? '继续预览编辑器 →' : '去调整配置 →');
       link.dataset.openCopy = '';
       link.href = demo ? '/ke/my?demo=1' : `/ke/my?aid=${target.aid}&cid=${target.cid}&nid=${target.nid}&profile=${result.profile_id}`;
-      copyPanel.append(link, button(doc, '关闭', 'closeCopy'));
+      const doneClose = button(doc, '关闭', 'closeCopy');
+      doneClose.className = 'hall-button';
+      copyPanel.append(link, doneClose);
       if (detail?.id === operation.source) { detail.use_count = result.use_count; renderDetail(); }
       void loadList();
     } catch (error) {
@@ -316,8 +354,9 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
   function onClick(event: Event): void {
     const target = event.target;
     if (!(target instanceof (doc.defaultView?.Element ?? Element))) return;
-    const control = target.closest<HTMLElement>('[data-detail],[data-copy],[data-copy-confirm],[data-code-find],[data-page],[data-like],[data-copy-code],[data-copy-link],[data-withdraw],[data-close-detail],[data-close-copy],[data-retry-list],[data-retry-detail],[data-open-login]');
+    const control = target.closest<HTMLElement>('[data-detail],[data-copy],[data-copy-confirm],[data-code-find],[data-page],[data-like],[data-copy-code],[data-copy-link],[data-withdraw],[data-close-detail],[data-close-copy],[data-retry-list],[data-retry-detail],[data-open-login],[data-file]');
     if (!control) return;
+    if (control.hasAttribute('data-file')) { activeFile = control.dataset.file ?? files[0][0]; renderDetail(); return; }
     if (control.hasAttribute('data-detail')) void openDetail(Number(control.dataset.detail));
     else if (control.hasAttribute('data-copy')) void startCopy(Number(control.dataset.copy));
     else if (control.hasAttribute('data-copy-confirm')) void confirmCopy();
