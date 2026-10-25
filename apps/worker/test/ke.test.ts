@@ -658,5 +658,45 @@ describe('ke service', () => {
       expect(corePayload.features).toEqual(['core']);
       expect(corePayload.key_versions).toEqual({ core: 3 });
     });
+
+    it('登录前的 moduleKeys 下发 core/network，且不创建实例', async () => {
+      const { repository, service } = serviceAndClock(null, networkKey);
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core', 'standalone']) });
+      const { pair, publicKey } = await keyPair();
+      const result = await service.moduleKeys('10000', {
+        instanceId: INST_A, modules: ['core', 'network'], kePublicKey: publicKey,
+      });
+      expect(Object.keys(result.key_bundles).sort()).toEqual(['core', 'network']);
+      expect(await unwrapBundle(result.key_bundles.network!, pair.privateKey, INST_A, 'network')).toEqual(networkKey);
+      expect(repository.instances.size).toBe(0);
+      expect(repository.characters.size).toBe(0);
+    });
+
+    it('moduleKeys 没有 standalone 权益时只允许 core', async () => {
+      const { service } = serviceAndClock(null, networkKey);
+      const { publicKey } = await keyPair();
+      const core = await service.moduleKeys('10000', {
+        instanceId: INST_A, modules: ['core'], kePublicKey: publicKey,
+      });
+      expect(Object.keys(core.key_bundles)).toEqual(['core']);
+      await expect(service.moduleKeys('10000', {
+        instanceId: INST_A, modules: ['network'], kePublicKey: publicKey,
+      })).rejects.toMatchObject({ code: 'KE_NOT_ENTITLED', status: 403 });
+    });
+
+    it('moduleKeys 校验模块白名单与公钥；network 未配置时 503', async () => {
+      const { repository, service } = serviceAndClock();
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core', 'standalone']) });
+      const { publicKey } = await keyPair();
+      await expect(service.moduleKeys('10000', {
+        instanceId: INST_A, modules: ['unknown'], kePublicKey: publicKey,
+      })).rejects.toMatchObject({ code: 'KE_BAD_REQUEST', status: 400 });
+      await expect(service.moduleKeys('10000', {
+        instanceId: INST_A, modules: ['core'], kePublicKey: null,
+      })).rejects.toMatchObject({ code: 'KE_BAD_REQUEST', status: 400 });
+      await expect(service.moduleKeys('10000', {
+        instanceId: INST_A, modules: ['network'], kePublicKey: publicKey,
+      })).rejects.toMatchObject({ code: 'KE_UNAVAILABLE', status: 503 });
+    });
   });
 });

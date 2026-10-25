@@ -19,7 +19,7 @@ describe('CORS middleware', () => {
 
   it('answers KE preflight for isolated-app origins and allows the Authorization header', async () => {
     const app = createApp({ ENVIRONMENT: 'test', BUILD_VERSION: 'test-build', MAX_BODY_BYTES: 512 * 1024 });
-    for (const path of ['/api/v1/ke/instances/bind', '/api/v1/ke/device/code', '/api/v1/ke/device/token']) {
+    for (const path of ['/api/v1/ke/instances/bind', '/api/v1/ke/modules/keys', '/api/v1/ke/device/code', '/api/v1/ke/device/token']) {
       const response = await app.request(path, {
         method: 'OPTIONS',
         headers: {

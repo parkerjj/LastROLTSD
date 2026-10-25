@@ -41,6 +41,17 @@ export interface BindResponse {
   key_bundles?: Record<string, WrappedKeyBundle>;
 }
 
+/** 登录前领取模块密钥：只依赖 Bearer + instance_id + ke_pub，不需要角色身份。 */
+export interface ModuleKeyInput {
+  instanceId: string;
+  modules: readonly string[];
+  kePublicKey: Uint8Array | null;
+}
+
+export interface ModuleKeyResponse {
+  key_bundles: Record<string, WrappedKeyBundle>;
+}
+
 export interface LicenseResponse {
   license: string;
   key_bundles?: Record<string, WrappedKeyBundle>;
@@ -48,6 +59,7 @@ export interface LicenseResponse {
 
 export interface KeService {
   bind(userId: string, input: BindInput): Promise<BindResponse>;
+  moduleKeys(userId: string, input: ModuleKeyInput): Promise<ModuleKeyResponse>;
   start(userId: string, input: StartInput): Promise<LicenseResponse>;
   heartbeat(userId: string, instanceId: string, report: CharacterReport, ts: number, attestation: Attestation): Promise<LicenseResponse>;
   stop(userId: string, instanceId: string): Promise<void>;
@@ -147,18 +159,20 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
     assertBuildFingerprint(config, buildId, buildHash);
   };
   async function keyBundles(
-    input: BindInput,
-    modules: ReadonlySet<string>,
-  ): Promise<Record<string, WrappedKeyBundle> | undefined> {
-    if (!input.needWasmKey) return undefined;
-    if (config.coreKey === null) throw new KeFailure('KE_UNAVAILABLE', 503, '授权服务暂不可用');
-    const bundles: Record<string, WrappedKeyBundle> = {
-      core: await wrapChunkKey(config.coreKey, input.kePublicKey!, input.instanceId, 'core'),
-    };
-    if ((input.needModules ?? []).includes('network')) {
-      if (!modules.has(KE_STANDALONE_MODULE)) throw new KeFailure('KE_NOT_ENTITLED', 403, '账号未开通脱机版模块');
+    instanceId: string,
+    kePublicKey: Uint8Array,
+    requested: readonly string[],
+    entitledModules: ReadonlySet<string>,
+  ): Promise<Record<string, WrappedKeyBundle>> {
+    const bundles: Record<string, WrappedKeyBundle> = {};
+    if (requested.includes('core')) {
+      if (config.coreKey === null) throw new KeFailure('KE_UNAVAILABLE', 503, '授权服务暂不可用');
+      bundles.core = await wrapChunkKey(config.coreKey, kePublicKey, instanceId, 'core');
+    }
+    if (requested.includes('network')) {
+      if (!entitledModules.has(KE_STANDALONE_MODULE)) throw new KeFailure('KE_NOT_ENTITLED', 403, '账号未开通脱机版模块');
       if (config.networkKey === null) throw new KeFailure('KE_UNAVAILABLE', 503, '授权服务暂不可用');
-      bundles.network = await wrapChunkKey(config.networkKey, input.kePublicKey!, input.instanceId, 'network');
+      bundles.network = await wrapChunkKey(config.networkKey, kePublicKey, instanceId, 'network');
     }
     return bundles;
   }
@@ -206,8 +220,35 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         }
         return entitlements;
       });
-      const bundles = await keyBundles(input, entitlements?.modules ?? new Set());
+      const bundles = input.needWasmKey
+        ? await keyBundles(
+          input.instanceId,
+          input.kePublicKey!,
+          ['core', ...(input.needModules ?? [])],
+          entitlements?.modules ?? new Set(),
+        )
+        : undefined;
       return { instance_id: input.instanceId, ...(bundles ? { key_bundles: bundles } : {}) };
+    },
+
+    async moduleKeys(userId, input) {
+      const requested = [...new Set(input.modules)];
+      if (requested.length === 0 || requested.some(module => !['core', 'network'].includes(module))
+        || input.kePublicKey === null || input.kePublicKey.byteLength !== 32) {
+        throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+      }
+      const ownerId = Number(userId);
+      const timestamp = now();
+      const entitlements = await repository.transaction(tx => requireCoreEntitlement(tx, ownerId, timestamp));
+      if (requested.includes('network') && !entitlements.modules.has(KE_STANDALONE_MODULE)) {
+        throw new KeFailure('KE_NOT_ENTITLED', 403, '账号未开通脱机版模块');
+      }
+      if (requested.includes('network') && config.networkKey === null) {
+        throw new KeFailure('KE_UNAVAILABLE', 503, '授权服务暂不可用');
+      }
+      return {
+        key_bundles: await keyBundles(input.instanceId, input.kePublicKey, requested, entitlements.modules),
+      };
     },
 
     async start(userId, input) {
@@ -252,7 +293,14 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         return { instance: { ...found, state: 'ACTIVE', mode, build_id: input.buildId, license_expires_at: licenseExpiresAt, last_heartbeat_at: timestamp }, features };
       });
       const license = await buildLicenseFor(config, instance, features, timestamp);
-      const bundles = await keyBundles(input, new Set(features));
+      const bundles = input.needWasmKey
+        ? await keyBundles(
+          input.instanceId,
+          input.kePublicKey!,
+          ['core', ...(input.needModules ?? [])],
+          new Set(features),
+        )
+        : undefined;
       return { license, ...(bundles ? { key_bundles: bundles } : {}) };
     },
 

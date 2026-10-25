@@ -176,3 +176,40 @@ describe('脱机模块：need_modules 解析与密钥下发', () => {
     expect(await response.json()).toMatchObject({ error: { code: 'KE_NOT_ENTITLED' } });
   });
 });
+
+describe('登录前模块密钥接口', () => {
+  async function moduleKeys(app: Hono, modules: unknown = ['core', 'network'], key = true) {
+    return app.request('/api/v1/ke/modules/keys', {
+      method: 'POST',
+      headers: { authorization: bearer, 'content-type': 'application/json' },
+      body: JSON.stringify({ instance_id: INSTANCE, modules, ...(key ? { ke_pub: await publicKey() } : {}) }),
+    });
+  }
+
+  it('拥有 standalone 权益时登录前就能拿到 core 与 network', async () => {
+    const response = await moduleKeys(licenseApp({ enforced: 1 }, environment(), ['core', 'standalone']));
+    expect(response.status).toBe(200);
+    const body = await response.json() as { key_bundles: Record<string, unknown> };
+    expect(Object.keys(body.key_bundles).sort()).toEqual(['core', 'network']);
+  });
+
+  it('没有 standalone 权益时拒绝 network，core 请求仍可用', async () => {
+    const app = licenseApp({ enforced: 1 }, environment(), ['core']);
+    const core = await moduleKeys(app, ['core']);
+    expect(core.status).toBe(200);
+    const denied = await moduleKeys(app, ['network']);
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ error: { code: 'KE_NOT_ENTITLED' } });
+  });
+
+  it.each([
+    [['unknown']],
+    [['core', 'core']],
+    [],
+    'network',
+  ])('非法 modules %# 返回 KE_BAD_REQUEST', async (modules) => {
+    const response = await moduleKeys(licenseApp({ enforced: 1 }, environment(), ['core', 'standalone']), modules);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'KE_BAD_REQUEST' } });
+  });
+});

@@ -30,6 +30,7 @@ const encoder = new TextEncoder();
 
 const KE_RATE_LIMITS = {
   bindPerSession: { scope: 'ke_bind_session', limit: 60, windowMs: HOUR_MS },
+  moduleKeysPerSession: { scope: 'ke_module_keys_session', limit: 30, windowMs: HOUR_MS },
   startPerSession: { scope: 'ke_start_session', limit: 60, windowMs: HOUR_MS },
   deviceCodePerIp: { scope: 'ke_device_code_ip', limit: 20, windowMs: HOUR_MS },
   // 查询 + 决定共用：限制已登录账号对验证码的枚举/猜测。
@@ -111,6 +112,19 @@ function parseBuildHash(body: Record<string, unknown>): string | null {
 }
 
 const KE_MODULES = new Set(['network']);
+const KEY_MODULES = new Set(['core', 'network']);
+
+function parseKeyModules(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2) throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+  const modules: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || !KEY_MODULES.has(item) || modules.includes(item)) {
+      throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+    }
+    modules.push(item);
+  }
+  return modules;
+}
 
 /** 额外模块只接受白名单；未知模块直接拒绝，避免客户端误以为拿到了密钥。 */
 function parseNeedModules(value: unknown): string[] {
@@ -311,6 +325,25 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         ...(await attestation(c.req.raw, env, body)),
       };
       const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).bind(identity.userId, input);
+      return c.json(result, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  // 登录前领取模块密钥：脱机版的 network 模块必须先解密才能登录；bind 时已经太晚。
+  app.post('/api/v1/ke/modules/keys', async (c: any) => {
+    const handlers = await licenseSetup();
+    if (!handlers) return unavailable(c);
+    try {
+      const identity = await bearerIdentity(handlers, c.req.raw);
+      const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
+      await assertKeRateLimit(handlers, tokenSubject(identity), KE_RATE_LIMITS.moduleKeysPerSession, authRuntime.now);
+      const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).moduleKeys(identity.userId, {
+        instanceId: parseInstanceId(body.instance_id),
+        modules: parseKeyModules(body.modules),
+        kePublicKey: parsePublicKey(body),
+      });
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);

@@ -13,7 +13,39 @@
 
 管理员在现有权益调整页把资源填成 `module:standalone` 即可，语义与 `module:core` 相同。
 
-## bind 请求
+## 登录前领取模块密钥（脱机版推荐）
+
+network 模块必须先解密才能登录，而 bind 需要角色身份，因此脱机外壳在登录前调用：
+
+```http
+POST /api/v1/ke/modules/keys
+Authorization: Bearer ke1_...
+Content-Type: application/json
+
+{
+  "instance_id": "uuid-v4",
+  "modules": ["core", "network"],
+  "ke_pub": "<x25519 公钥 base64url>"
+}
+```
+
+成功响应：
+
+```json
+{
+  "key_bundles": {
+    "core":    { "ephemeral_public": "...", "nonce": "...", "ciphertext": "...", "tag": "..." },
+    "network": { "ephemeral_public": "...", "nonce": "...", "ciphertext": "...", "tag": "..." }
+  }
+}
+```
+
+- 只依赖 Bearer 与 `instance_id`/`ke_pub`，不创建实例、不依赖角色身份。
+- `core` 需要 `module:core`；`network` 需要 `module:standalone`，否则 403 `KE_NOT_ENTITLED`。
+- 服务端未配置对应密钥时返回 503 `KE_UNAVAILABLE`。
+- 每账号每小时最多 30 次；未知/重复/空 `modules` 返回 400。
+
+## bind 请求（可选路径）
 
 ```http
 POST /api/v1/ke/instances/bind
@@ -34,9 +66,10 @@ Content-Type: application/json
 - `need_modules` 只接受白名单 `network`；未知模块、重复模块、非数组返回
   `400 KE_BAD_REQUEST`。
 - `need_modules` 必须与 `need_wasm_key: true` 一起使用。
-- start 也接受同名字段；通常 bind 拿模块密钥即可。
+- start 也接受同名字段。脱机外壳通常使用上面的 `/modules/keys`；bind 路径保留给
+  已有角色身份、需要重新领取模块密钥的客户端。
 
-## bind 响应
+## bind 响应（可选路径）
 
 ```json
 {
