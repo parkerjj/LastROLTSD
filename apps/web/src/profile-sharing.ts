@@ -14,7 +14,7 @@ export function createProfileSharing(doc: Document, onChange: () => void, onWith
   const root = doc.createElement('section');
   root.className = 'ke-sharing';
   root.setAttribute('aria-label', '共享设置');
-  root.innerHTML = `<label class="ke-share-toggle"><input id="ke-share-enabled" type="checkbox" checked><span data-share-label></span></label>
+  root.innerHTML = `<label class="ke-share-toggle"><input id="ke-share-enabled" type="checkbox"><span data-share-label></span></label>
     <p>勾选后保存，其他已登录玩家可以在配置大厅读取并复制完整的五份配置文件。</p>
     <label class="ke-share-description" for="ke-share-description">配置说明 <span>选填</span><textarea id="ke-share-description" rows="2" placeholder="适合什么场景？需要哪些技能或补给？"></textarea></label>
     <p class="ke-share-hint" data-share-hint></p><div class="ke-share-existing" data-share-existing hidden><span>分享码 <strong data-share-code></strong></span><a data-share-link href="/ke/hall">查看大厅条目</a><button type="button" data-share-withdraw>撤回分享</button></div>`;
@@ -49,8 +49,8 @@ export function createProfileSharing(doc: Document, onChange: () => void, onWith
   render();
   return {
     root,
-    reset(next) { metadata = next; checkbox.checked = true; description.value = next?.description ?? ''; render(); },
-    markWithdrawn() { if (metadata) { metadata = { ...metadata, status: 'WITHDRAWN' }; render(); } },
+    reset(next) { metadata = next; checkbox.checked = next?.status === 'PUBLISHED'; description.value = next?.description ?? ''; render(); },
+    markWithdrawn() { if (metadata) { metadata = { ...metadata, status: 'WITHDRAWN' }; checkbox.checked = false; render(); } },
     value: () => ({ enabled: checkbox.checked, description: description.value }),
     setBusy(busy) { checkbox.disabled = busy; description.disabled = busy; withdraw.disabled = busy; },
     message(text) { hint.textContent = text; },
