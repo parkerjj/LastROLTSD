@@ -163,6 +163,19 @@ describe('resolveKeDeploymentPreflight', () => {
     expect(resolveKeDeploymentPreflight({})).toEqual({ ready: false, reasonCodes: ['KE_SECRETS_NOT_CONFIGURED'] });
   });
 
+  it('network 密钥可选；一旦配置就参与预检', async () => {
+    const { generateKeSecrets, resolveKeDeploymentPreflight } = await loadScripts();
+    const secrets = generateKeSecrets();
+    const base = { licensePrivateKey: secrets.licensePrivateKey, coreKey: secrets.coreKey };
+    const networkKey = Buffer.alloc(32, 7).toString('base64');
+    expect(resolveKeDeploymentPreflight({ ...base, networkKey, networkKeyVersion: '2' }))
+      .toEqual({ ready: true, reasonCodes: [] });
+    expect(resolveKeDeploymentPreflight({ ...base, networkKey: 'AAAA' }).reasonCodes)
+      .toContain('INVALID_KE_NETWORK_KEY');
+    expect(resolveKeDeploymentPreflight({ ...base, networkKey, networkKeyVersion: '0' }).reasonCodes)
+      .toContain('INVALID_KE_NETWORK_KEY_VERSION');
+  });
+
   it('只配了一半 / 私钥不是 Ed25519 PKCS8 / K_core 长度不对 / 版本或清单非法 → 拒绝并给出脱敏原因码', async () => {
     const { generateKeSecrets, resolveKeDeploymentPreflight } = await loadScripts();
     const secrets = generateKeSecrets();

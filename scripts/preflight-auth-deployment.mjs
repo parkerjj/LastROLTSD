@@ -76,9 +76,11 @@ export function resolveKeDeploymentPreflight(input) {
   if (hasPrivateKey !== hasCoreKey) reasonCodes.push('INCOMPLETE_KE_SECRETS');
   if (hasPrivateKey && !isEd25519Pkcs8(input.licensePrivateKey)) reasonCodes.push('INVALID_KE_LICENSE_PRIVATE_KEY');
   if (hasCoreKey && !isCanonicalSecret(input.coreKey)) reasonCodes.push('INVALID_KE_CORE_KEY');
-  for (const [label, value] of [['LICENSE', input.licenseKeyVersion], ['CORE', input.coreKeyVersion]]) {
+  for (const [label, value] of [['LICENSE', input.licenseKeyVersion], ['CORE', input.coreKeyVersion], ['NETWORK', input.networkKeyVersion]]) {
     if (hasValue(value) && !/^[1-9]\d*$/u.test(value)) reasonCodes.push(`INVALID_KE_${label}_KEY_VERSION`);
   }
+  // network 密钥可选：未配置不影响旧客户端；配置了就必须是规范 32 字节。
+  if (hasValue(input.networkKey) && !isCanonicalSecret(input.networkKey)) reasonCodes.push('INVALID_KE_NETWORK_KEY');
   if (hasValue(input.buildManifest) && !isBuildManifest(input.buildManifest)) reasonCodes.push('INVALID_KE_BUILD_MANIFEST');
   return { ready: reasonCodes.length === 0, reasonCodes };
 }
@@ -209,8 +211,10 @@ function runCli() {
   const ke = resolveKeDeploymentPreflight({
     licensePrivateKey: process.env.KE_LICENSE_PRIVATE_KEY,
     coreKey: process.env.KE_CORE_KEY,
+    networkKey: process.env.KE_NETWORK_KEY,
     licenseKeyVersion: process.env.KE_LICENSE_KEY_VERSION,
     coreKeyVersion: process.env.KE_CORE_KEY_VERSION,
+    networkKeyVersion: process.env.KE_NETWORK_KEY_VERSION,
     buildManifest: process.env.KE_BUILD_MANIFEST,
   });
   const keReady = result.enabled && ke.ready;

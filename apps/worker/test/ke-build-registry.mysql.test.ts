@@ -20,8 +20,10 @@ suite('构建登记真实 MySQL 事务', () => {
     db = createMysqlDatabase(url!);
     await db.run('DROP TABLE IF EXISTS ke_builds');
     await db.run('DROP TABLE IF EXISTS ke_build_policy');
-    const sql = await readFile(new URL('../../../migrations/mysql/020_ke_build_registry.sql', import.meta.url), 'utf8');
-    for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await db.run(statement);
+    for (const migration of ['020_ke_build_registry.sql', '021_ke_standalone_modules.sql']) {
+      const sql = await readFile(new URL(`../../../migrations/mysql/${migration}`, import.meta.url), 'utf8');
+      for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await db.run(statement);
+    }
   });
   afterAll(async () => { if (db) await db.close(); });
   beforeEach(async () => {
@@ -54,6 +56,25 @@ suite('构建登记真实 MySQL 事务', () => {
     await db.run('DELETE FROM ke_builds');
     await expect(registry.assertAllowed(registration.build_id, registration.core_sha256)).rejects.toMatchObject({ code: 'KE_BUILD_REJECTED' });
     expect((await db.first('SELECT enforced FROM ke_build_policy WHERE id = 1'))?.enforced).toBe(1);
+  });
+  it('同一 run 可同时登记 web 与 standalone，旧 web 行保持 kind=web', async () => {
+    const registry = createBuildRegistry(db);
+    await registry.register(registration, publisher, 1000);
+    const standalone = {
+      ...registration,
+      build_id: `${registration.build_id}-s`,
+      core_sha256: 'd'.repeat(64),
+      package_id: 'e'.repeat(64),
+      network_sha256: 'f'.repeat(64),
+      network_key_version: 1,
+      standalone_package_id: 'e'.repeat(64),
+    };
+    await expect(registry.register(standalone, publisher, 2000)).resolves.toMatchObject({ registered: true });
+    expect(await db.all('SELECT build_id, kind FROM ke_builds ORDER BY kind')).toEqual([
+      { build_id: standalone.build_id, kind: 'standalone' },
+      { build_id: registration.build_id, kind: 'web' },
+    ]);
+    expect(await registry.assertAllowed(standalone.build_id, standalone.core_sha256)).toBe(true);
   });
   it('缺少policy行必须失败，不能退回无白名单模式', async () => {
     const registry = createBuildRegistry(db);
