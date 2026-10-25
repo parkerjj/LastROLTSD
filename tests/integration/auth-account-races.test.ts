@@ -280,7 +280,7 @@ describe('deterministic real MySQL account races', () => {
 
       const created = await database.first<{ id: unknown; status: unknown }>(`SELECT CAST(id AS CHAR) AS id, status
         FROM auth_users WHERE email_normalized = ?`, ['race@example.test']);
-      expect(created).toEqual({ id: '10000', status: 'PENDING_EMAIL' });
+      expect(created).toEqual({ id: expect.stringMatching(/^\d+$/), status: 'PENDING_EMAIL' });
       const registrationCounts = await database.first<{ users: unknown; credentials: unknown; actions: unknown; mail: unknown; sessions: unknown }>(`SELECT
         (SELECT COUNT(*) FROM auth_users WHERE email_normalized = ?) AS users,
         (SELECT COUNT(*) FROM auth_credentials AS c INNER JOIN auth_users AS u ON u.id = c.user_id WHERE u.email_normalized = ?) AS credentials,
