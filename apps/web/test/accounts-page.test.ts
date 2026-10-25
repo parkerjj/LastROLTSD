@@ -44,7 +44,7 @@ function flush(): Promise<void> {
 
 function mount(
   api: unknown,
-  seed?: Array<{ id: string; password: string; addedAt: number }>,
+  seed?: Array<{ id: string; password: string; addedAt: number; nid?: number }>,
 ) {
   const dom = new JSDOM('<main id="app"></main>', {
     url: "http://localhost/accounts",
@@ -380,21 +380,23 @@ describe("accounts page", () => {
       await flush();
       const stored = JSON.parse(
         storage.getItem("lastro.accounts.v1")!,
-      ) as Array<{ id: string; password: string; label: string }>;
+      ) as Array<{ id: string; password: string; nid: number; label: string }>;
       expect(stored).toEqual([
         {
           id: "testbot",
           password: "pw123",
+          nid: 5,
           label: "我的商人号",
           addedAt: FIXED_NOW,
         },
       ]);
-      expect(api.getAccountStatus).toHaveBeenCalledWith("testbot", "pw123");
-      const card = root.querySelector('[data-account-card="testbot"]')!;
+      expect(api.getAccountStatus).toHaveBeenCalledWith("testbot", "pw123", 5);
+      const card = root.querySelector('[data-account-card="5:testbot"]')!;
       expect(card.querySelector(".acc-stamp")?.textContent).toBe("运行中");
       expect(card.querySelector(".acc-label")?.textContent).toContain(
         "我的商人号",
       );
+      expect(card.querySelector(".acc-server")?.textContent).toBe("二转");
       expect(card.querySelector(".acc-id small")?.textContent).toBe("testbot");
       expect(card.querySelector(".acc-char")?.textContent).toBe("暴力男团");
       expect(card.querySelector(".acc-levels")?.textContent).toContain("99");
@@ -424,6 +426,117 @@ describe("accounts page", () => {
     }
   });
 
+  it("defaults the modal to the second-job server", () => {
+    const { root, restore } = mount({ getAccountStatus: vi.fn() });
+    try {
+      root.querySelector<HTMLButtonElement>("#accounts-add")!.click();
+      expect(
+        root.querySelector<HTMLInputElement>(
+          'input[name="account-nid"]:checked',
+        )?.value,
+      ).toBe("5");
+      expect(
+        root.querySelectorAll(".account-server-option"),
+      ).toHaveLength(3);
+    } finally {
+      restore();
+    }
+  });
+
+  it("queries and stores the server selected in the modal", async () => {
+    const api = {
+      getAccountStatus: vi.fn().mockResolvedValue({ state: "offline" }),
+    };
+    const { dom, root, storage, restore } = mount(api);
+    try {
+      root.querySelector<HTMLButtonElement>("#accounts-add")!.click();
+      root.querySelector<HTMLInputElement>(
+        'input[name="account-nid"][value="3"]',
+      )!.checked = true;
+      root.querySelector<HTMLInputElement>("#account-userid")!.value = "dragon";
+      root.querySelector<HTMLInputElement>("#account-password")!.value = "pw";
+      root
+        .querySelector("#account-form")!
+        .dispatchEvent(
+          new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+        );
+      await flush();
+      await flush();
+      expect(api.getAccountStatus).toHaveBeenCalledWith("dragon", "pw", 3);
+      const stored = JSON.parse(storage.getItem("lastro.accounts.v1")!) as Array<{
+        id: string;
+        nid: number;
+      }>;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({ id: "dragon", nid: 3 });
+      const card = root.querySelector('[data-account-card="3:dragon"]')!;
+      expect(card.querySelector(".acc-server")?.textContent).toBe("三转");
+      expect(card.querySelector(".acc-stamp")?.textContent).toBe("已离线");
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the same account id on two servers and rejects within-server duplicates", async () => {
+    const api = {
+      getAccountStatus: vi.fn().mockResolvedValue({ state: "offline" }),
+    };
+    const { dom, root, storage, restore } = mount(api, [
+      { id: "testbot", password: "p", addedAt: 1, nid: 5 },
+    ]);
+    try {
+      await flush();
+      root.querySelector<HTMLButtonElement>("#accounts-add")!.click();
+      root.querySelector<HTMLInputElement>(
+        'input[name="account-nid"][value="6"]',
+      )!.checked = true;
+      root.querySelector<HTMLInputElement>("#account-userid")!.value =
+        "testbot";
+      root.querySelector<HTMLInputElement>("#account-password")!.value = "p";
+      root
+        .querySelector("#account-form")!
+        .dispatchEvent(
+          new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+        );
+      await flush();
+      await flush();
+      const stored = JSON.parse(storage.getItem("lastro.accounts.v1")!) as Array<{
+        id: string;
+        nid: number;
+      }>;
+      expect(stored.map((entry) => `${entry.nid}:${entry.id}`)).toEqual([
+        "5:testbot",
+        "6:testbot",
+      ]);
+      expect(
+        root.querySelector(
+          '[data-account-card="6:testbot"] .acc-server',
+        )?.textContent,
+      ).toBe("App服");
+
+      root.querySelector<HTMLButtonElement>("#accounts-add")!.click();
+      root.querySelector<HTMLInputElement>(
+        'input[name="account-nid"][value="6"]',
+      )!.checked = true;
+      root.querySelector<HTMLInputElement>("#account-userid")!.value =
+        "testbot";
+      root.querySelector<HTMLInputElement>("#account-password")!.value = "p";
+      root
+        .querySelector("#account-form")!
+        .dispatchEvent(
+          new dom.window.Event("submit", { bubbles: true, cancelable: true }),
+        );
+      expect(
+        root.querySelector("#account-modal-status")?.textContent,
+      ).toContain("已经添加到App服");
+      expect(JSON.parse(storage.getItem("lastro.accounts.v1")!)).toHaveLength(
+        2,
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it("loads stored accounts on mount, escapes upstream content, and maps offline/auth_failed states", async () => {
     const api = {
       getAccountStatus: vi
@@ -445,17 +558,17 @@ describe("accounts page", () => {
       expect(api.getAccountStatus).toHaveBeenCalledTimes(3);
       await flush();
       await flush();
-      const card1 = root.querySelector('[data-account-card="acc1"]')!;
+      const card1 = root.querySelector('[data-account-card="5:acc1"]')!;
       expect(card1.querySelector(".acc-char")?.textContent).toBe(
         "<img src=x onerror=bad()>",
       );
       expect(card1.querySelector("img")).toBeNull();
       expect(
-        root.querySelector('[data-account-card="acc2"] .acc-stamp')
+        root.querySelector('[data-account-card="5:acc2"] .acc-stamp')
           ?.textContent,
       ).toBe("已离线");
       expect(
-        root.querySelector('[data-account-card="acc3"] .acc-stamp')
+        root.querySelector('[data-account-card="5:acc3"] .acc-stamp')
           ?.textContent,
       ).toBe("密码错误");
     } finally {
@@ -504,7 +617,7 @@ describe("accounts page", () => {
         );
       expect(
         root.querySelector("#account-modal-status")?.textContent,
-      ).toContain("已经添加过了");
+      ).toContain("已经添加到二转");
       expect(JSON.parse(storage.getItem("lastro.accounts.v1")!)).toHaveLength(
         1,
       );
@@ -533,17 +646,17 @@ describe("accounts page", () => {
       await flush();
       await flush();
       const deleteButton = root.querySelector<HTMLButtonElement>(
-        '[data-delete="acc1"]',
+        '[data-delete="5:acc1"]',
       )!;
       deleteButton.click();
-      expect(root.querySelector('[data-delete="acc1"]')?.textContent).toContain(
-        "确认删除",
-      );
+      expect(
+        root.querySelector('[data-delete="5:acc1"]')?.textContent,
+      ).toContain("确认删除");
       expect(JSON.parse(storage.getItem("lastro.accounts.v1")!)).toHaveLength(
         1,
       );
-      root.querySelector<HTMLButtonElement>('[data-delete="acc1"]')!.click();
-      expect(root.querySelector('[data-account-card="acc1"]')).toBeNull();
+      root.querySelector<HTMLButtonElement>('[data-delete="5:acc1"]')!.click();
+      expect(root.querySelector('[data-account-card="5:acc1"]')).toBeNull();
       expect(storage.getItem("lastro.accounts.v1")).toBe("[]");
       expect(root.querySelector<HTMLElement>("#accounts-empty")!.hidden).toBe(
         false,
@@ -565,7 +678,7 @@ describe("accounts page", () => {
     try {
       await flush();
       await flush();
-      const card = root.querySelector('[data-account-card="acc1"]')!;
+      const card = root.querySelector('[data-account-card="5:acc1"]')!;
       expect(card.querySelector(".acc-stamp")?.textContent).toBe("查询失败");
       expect(card.querySelector(".acc-note--warn")?.textContent).toContain(
         "无法连接 LastRO 官方服务器",

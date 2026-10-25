@@ -2,10 +2,20 @@ import type { Hono } from 'hono';
 import { jsonError, requestId } from '../middleware/errors';
 import { logError } from '../observability';
 
-const UPSTREAM_URL = 'https://game.lastro.cn/?r=mn/search&nid=5';
+const UPSTREAM_ORIGIN = 'https://game.lastro.cn';
 const MAX_BODY_BYTES = 4 * 1024;
 const MAX_CREDENTIAL_LENGTH = 64;
 const UPSTREAM_TIMEOUT_MS = 10_000;
+
+// 官方监控接口按服务器 nid 区分，登录表单字段前缀需与官网一致：
+// 三转（V6-Online）→ Login_cn2，进阶二转（V6-Eden）→ Login_debug，App 服（V6-APP）沿用 Login_debug。
+const SERVER_FORM_PREFIX = {
+  3: 'Login_cn2',
+  5: 'Login_debug',
+  6: 'Login_debug',
+} as const;
+type ServerNid = keyof typeof SERVER_FORM_PREFIX;
+const DEFAULT_SERVER_NID: ServerNid = 5;
 
 export function registerLastroAccountRoute(app: Hono<any>): void {
   app.post('/api/v1/lastro/account-status', async (c) => {
@@ -27,13 +37,25 @@ export function registerLastroAccountRoute(app: Hono<any>): void {
       return jsonError('bad_request', '账号或密码格式不正确', 400, id);
     }
 
+    const rawNid = record?.nid;
+    const nidValue =
+      rawNid === undefined || rawNid === null || (typeof rawNid === 'string' && rawNid.trim() === '')
+        ? DEFAULT_SERVER_NID
+        : typeof rawNid === 'string'
+          ? Number(rawNid.trim())
+          : rawNid;
+    if (typeof nidValue !== 'number' || !Number.isInteger(nidValue) || !(nidValue in SERVER_FORM_PREFIX)) {
+      return jsonError('bad_request', '不支持的游戏服务器', 400, id);
+    }
+    const nid = nidValue as ServerNid;
+
     const form = new URLSearchParams();
-    form.set('Login_debug[userid]', userid);
-    form.set('Login_debug[user_pass]', userPass);
+    form.set(`${SERVER_FORM_PREFIX[nid]}[userid]`, userid);
+    form.set(`${SERVER_FORM_PREFIX[nid]}[user_pass]`, userPass);
 
     let upstreamText: string;
     try {
-      const upstream = await fetch(UPSTREAM_URL, {
+      const upstream = await fetch(`${UPSTREAM_ORIGIN}/?r=mn/search&nid=${nid}`, {
         method: 'POST',
         headers: {
           accept: 'application/json, text/javascript, */*; q=0.01',

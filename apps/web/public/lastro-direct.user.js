@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LastRO 账号监控直连助手
 // @namespace    https://ltsd.ro/
-// @version      1.0.0
+// @version      1.1.0
 // @description  让露天商店.Ro「菜农监控台」的查询请求由浏览器直接发送给 LastRO 官方服务器，账号密码不再经过本站中转。
 // @author       LastROLTSD
 // @match        https://ltsd.ro/accounts*
@@ -18,29 +18,50 @@
   // ---- 1. 接管账号状态查询：直连 LastRO 官方服务器 ----
   //
   // 原理：油猴的 GM_xmlhttpRequest 由浏览器扩展直接发出请求，不受网页跨域（CORS）限制。
-  // 页面原本的请求路径是 POST /api/v1/lastro/account-status（JSON: { userid, user_pass }），
+  // 页面原本的请求路径是 POST /api/v1/lastro/account-status（JSON: { userid, user_pass, nid }），
   // 这里在 window.fetch 层拦截该请求，改为直接调用官方接口，并把返回值包装成
   // 与本站服务器完全一致的响应格式（{ state: 'online' | 'offline' | 'auth_failed', data? }），
   // 因此页面其他代码无需任何改动。
+  //
+  // 服务器与官方表单前缀对应：三转 nid=3 → Login_cn2，进阶二转 nid=5 → Login_debug，
+  // App 服 nid=6 → Login_debug。未传 nid 时默认按进阶二转处理。
 
   var pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   var originalFetch = pageWindow.fetch.bind(pageWindow);
-  var UPSTREAM_URL = "https://game.lastro.cn/?r=mn/search&nid=5";
+  var UPSTREAM_ORIGIN = "https://game.lastro.cn";
   var API_MARKER = "/api/v1/lastro/account-status";
+  var DEFAULT_NID = 5;
+  var SERVER_FORM_PREFIX = {
+    3: "Login_cn2",
+    5: "Login_debug",
+    6: "Login_debug",
+  };
 
-  function queryOfficial(userid, userPass) {
+  function resolveNid(nid) {
+    var value = Number(nid);
+    return Object.prototype.hasOwnProperty.call(SERVER_FORM_PREFIX, value)
+      ? value
+      : DEFAULT_NID;
+  }
+
+  function queryOfficial(userid, userPass, nid) {
+    var server = resolveNid(nid);
+    var prefix = SERVER_FORM_PREFIX[server];
     return new Promise(function (resolve, reject) {
       GM_xmlhttpRequest({
         method: "POST",
-        url: UPSTREAM_URL,
+        url: UPSTREAM_ORIGIN + "/?r=mn/search&nid=" + server,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
           "X-Requested-With": "XMLHttpRequest",
         },
         data:
-          "Login_debug%5Buserid%5D=" +
+          prefix +
+          "%5Buserid%5D=" +
           encodeURIComponent(userid) +
-          "&Login_debug%5Buser_pass%5D=" +
+          "&" +
+          prefix +
+          "%5Buser_pass%5D=" +
           encodeURIComponent(userPass),
         timeout: 15000,
         onload: function (res) {
@@ -95,7 +116,7 @@
         typeof body.userid === "string" &&
         typeof body.user_pass === "string"
       ) {
-        return queryOfficial(body.userid, body.user_pass).then(function (json) {
+        return queryOfficial(body.userid, body.user_pass, body.nid).then(function (json) {
           return new pageWindow.Response(JSON.stringify(json), {
             status: 200,
             headers: {

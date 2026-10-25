@@ -8166,6 +8166,87 @@ label {
   border-radius: 8px;
 }
 
+/* 服务器选择：三段式卡片，与弹窗其他字段保持同一套纸感配色 */
+.account-server {
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.account-server legend {
+  padding: 0;
+  color: #4c5a50;
+  font-size: .75rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.account-server-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.account-modal form .account-server-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 46px;
+  margin-bottom: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line-light);
+  border-radius: 8px;
+  background: #fbf8f1;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.account-modal form .account-server-option:hover {
+  border-color: var(--forest);
+  color: var(--forest);
+}
+
+.account-modal form .account-server-option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--forest);
+  cursor: pointer;
+}
+
+.account-modal form .account-server-option:has(input:checked) {
+  border-color: var(--forest);
+  background: #edf2ea;
+  color: var(--forest-deep);
+  box-shadow: inset 0 0 0 1px var(--forest);
+}
+
+.account-server-option-text {
+  display: grid;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.account-server-option-text small {
+  color: var(--muted-dark);
+  font-size: .6rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.account-modal form .account-server-option:has(input:checked) .account-server-option-text small {
+  color: var(--forest);
+}
+
 .account-modal-status {
   min-height: 22px;
   margin: 0 0 8px;
@@ -8357,7 +8438,7 @@ label {
   min-height: 420px;
   background: #f7f4ee;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 12px;
   box-shadow: 0 14px 30px rgba(74, 57, 35, .10);
   overflow: hidden;
   transition: transform .18s ease, box-shadow .18s ease;
@@ -8368,31 +8449,8 @@ label {
   box-shadow: 0 20px 40px rgba(74, 57, 35, .16);
 }
 
-.account-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--muted-dark);
-}
-
-.account-card--online::before {
-  background: var(--buy);
-}
-
-.account-card--offline::before {
-  background: var(--muted-dark);
-}
-
-.account-card--error::before,
-.account-card--auth_failed::before {
-  background: var(--sell);
-}
-
 .acc-inner {
-  padding: 18px 20px 14px 24px;
+  padding: 18px 20px 14px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -8429,6 +8487,41 @@ label {
   font-size: .66rem;
   letter-spacing: .12em;
   text-transform: uppercase;
+}
+
+/* 卡片上的服务器徽章：与登记簿标签同款细边框 */
+.acc-server {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-light);
+  border-radius: 2px;
+  background: rgba(255, 253, 248, .8);
+  color: var(--muted);
+  font-size: .6rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: none;
+  vertical-align: 1px;
+}
+
+.acc-server--5 {
+  color: var(--forest);
+  border-color: #b3c5b2;
+  background: #e8efe6;
+}
+
+.acc-server--3 {
+  color: var(--tip-strong);
+  border-color: var(--tip-line);
+  background: var(--tip-soft);
+}
+
+.acc-server--6 {
+  color: #4c6f7e;
+  border-color: #bcd3dc;
+  background: #e9f1f4;
 }
 
 .acc-stamp {
@@ -8523,16 +8616,15 @@ label {
 }
 
 .acc-gauges {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  align-items: center;
+  row-gap: 8px;
+  column-gap: 10px;
 }
 
 .gauge {
-  display: grid;
-  grid-template-columns: 78px 1fr 52px;
-  align-items: center;
-  gap: 10px;
+  display: contents;
 }
 
 .gauge-label {
