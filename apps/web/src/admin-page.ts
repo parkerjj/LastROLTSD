@@ -157,9 +157,9 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
         <form id="adm-adjust-form" class="adm-form">
           <label>资源
             <input id="adm-adjust-resource" list="adm-resources" value="slots" autocomplete="off">
-            <datalist id="adm-resources"><option value="slots">实例额度</option><option value="module:core">核心模块</option></datalist>
+            <datalist id="adm-resources"><option value="slots">实例额度</option><option value="module:core">核心模块</option><option value="module:standalone">脱机版模块</option></datalist>
           </label>
-          <label>数量（+N 赠送，-N 扣减）<input id="adm-adjust-delta" inputmode="numeric" placeholder="例如 3 或 -1" autocomplete="off"></label>
+          <label>数量（额度用 +N/-N；模块用 +1/-1）<input id="adm-adjust-delta" inputmode="numeric" placeholder="例如 3 或 -1" autocomplete="off"></label>
           <label>有效期
             <select id="adm-adjust-validity">
               <option value="days">按天数</option>
@@ -171,6 +171,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
           <label id="adm-adjust-until-field" hidden>到期时间<input id="adm-adjust-until" type="datetime-local"></label>
           <label>备注<input id="adm-adjust-note" maxlength="200" autocomplete="off" placeholder="可选，例如：活动奖励"></label>
           <button type="submit" class="adm-btn adm-btn-primary">提交</button>
+          <p class="adm-hint">资源填 <code>slots</code> 调整实例额度；填 <code>module:core</code> 或 <code>module:standalone</code> 授予模块权益（数量 +1）。</p>
         </form>
 
         <h3>强制改密</h3>

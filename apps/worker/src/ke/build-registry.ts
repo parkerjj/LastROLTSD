@@ -1,5 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
-import type { BuildRegistration } from './build-publisher';
+import { buildRegistrationKind, type BuildRegistration } from './build-publisher';
 import { sha256 } from './crypto';
 import { KeFailure } from './types';
 
@@ -17,6 +17,7 @@ export interface BuildRegistrationResult extends BuildRegistration {
 const conflict = () => new KeFailure('KE_BUILD_REGISTRATION_CONFLICT', 409, '构建登记冲突或已被撤销');
 const unavailable = () => new KeFailure('KE_UNAVAILABLE', 503, '构建登记服务暂不可用');
 const fields = ['build_id', 'core_sha256', 'commit_sha', 'package_id', 'engine_version', 'release_tag', 'core_key_version'] as const;
+const optionalFields = ['network_key_version', 'network_sha256', 'standalone_package_id'] as const;
 
 export function createBuildRegistry(database: MysqlDatabase) {
   return {
@@ -32,19 +33,25 @@ export function createBuildRegistry(database: MysqlDatabase) {
         // 同一事务锁串行化登记与首次启用，避免并发覆盖以及撤销记录被重新激活。
         const policy = await db.first('SELECT enforced FROM ke_build_policy WHERE id = 1 FOR UPDATE');
         if (!policy || ![0, 1].includes(Number(policy.enforced))) throw unavailable();
+        const kind = buildRegistrationKind(input);
         const existing = await db.first('SELECT * FROM ke_builds WHERE build_id = ?', [input.build_id]);
         if (existing) {
-          if (existing.status !== 'ACTIVE' || fields.some(key => String(existing[key]) !== String(input[key]))
+          const compared = [...fields, ...optionalFields.filter(key => input[key] !== undefined)];
+          if (existing.status !== 'ACTIVE' || existing.kind !== kind || compared.some(key => String(existing[key]) !== String(input[key]))
             || existing.publisher_run_id !== publisher.runId || existing.publisher_run_attempt !== publisher.runAttempt) throw conflict();
         } else {
-          const previousRun = await db.first('SELECT build_id FROM ke_builds WHERE publisher_run_id = ? AND publisher_run_attempt = ?', [publisher.runId, publisher.runAttempt]);
+          // 同一次 GitHub run 可以登记 web 与 standalone 两个构建，因此唯一键带 kind。
+          const previousRun = await db.first('SELECT build_id FROM ke_builds WHERE publisher_run_id = ? AND publisher_run_attempt = ? AND kind = ?',
+            [publisher.runId, publisher.runAttempt, kind]);
           if (previousRun) throw conflict();
           await db.run(`INSERT INTO ke_builds
-            (build_id, core_sha256, commit_sha, package_id, engine_version, release_tag, core_key_version,
+            (build_id, kind, core_sha256, commit_sha, package_id, engine_version, release_tag, core_key_version,
+             network_key_version, network_sha256, standalone_package_id,
              publisher_run_id, publisher_run_attempt, publisher_jti_sha256, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
-          [input.build_id, input.core_sha256, input.commit_sha, input.package_id, input.engine_version, input.release_tag,
-            input.core_key_version, publisher.runId, publisher.runAttempt, jtiHash, now]);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+          [input.build_id, kind, input.core_sha256, input.commit_sha, input.package_id, input.engine_version, input.release_tag,
+            input.core_key_version, input.network_key_version ?? null, input.network_sha256 ?? null,
+            input.standalone_package_id ?? null, publisher.runId, publisher.runAttempt, jtiHash, now]);
         }
         await db.run('UPDATE ke_build_policy SET enforced = 1, enabled_at = COALESCE(enabled_at, ?) WHERE id = 1', [now]);
         return { registered: true, registry_enforced: true, ...input };

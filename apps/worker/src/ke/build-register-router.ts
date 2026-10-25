@@ -22,6 +22,13 @@ export function registerKeBuildRoutes(app: Hono<{ Bindings: AppEnv; Variables: {
       const keyVersion = Number(env.KE_CORE_KEY_VERSION ?? '1');
       if (!Number.isSafeInteger(keyVersion) || keyVersion < 1) throw new KeFailure('KE_UNAVAILABLE', 503, '构建登记服务暂不可用');
       if (input.core_key_version !== keyVersion) throw new KeFailure('KE_BUILD_KEY_VERSION_MISMATCH', 409, '构建密钥版本与授权服务器不一致');
+      if (input.standalone_package_id !== undefined) {
+        // 脱机包必须与线上 network 密钥版本一致，否则登记成功也无法下发可用密钥。
+        if (!env.KE_NETWORK_KEY) throw new KeFailure('KE_UNAVAILABLE', 503, '构建登记服务暂不可用');
+        const networkVersion = Number(env.KE_NETWORK_KEY_VERSION ?? '1');
+        if (!Number.isSafeInteger(networkVersion) || networkVersion < 1) throw new KeFailure('KE_UNAVAILABLE', 503, '构建登记服务暂不可用');
+        if (input.network_key_version !== networkVersion) throw new KeFailure('KE_BUILD_KEY_VERSION_MISMATCH', 409, '构建密钥版本与授权服务器不一致');
+      }
       const result = await createBuildRegistry(database).register(input, publisher, Date.now());
       return c.json(result, 200);
     } catch (error) {

@@ -8,6 +8,8 @@ export const KE_PERMANENT_MS = 99 * 365 * 24 * 60 * 60 * 1000;
 export const KE_RESOURCE_SLOTS = 'slots';
 export const KE_MODULE_PREFIX = 'module:';
 export const KE_CORE_MODULE = 'core';
+/** 脱机版模块：允许 bind 下发 network 模块密钥，并在 license.key_versions 里带 network。 */
+export const KE_STANDALONE_MODULE = 'standalone';
 
 export interface KeEntitlements {
   /** auto 实例额度；负数流水可能让总和为负，这里钳到 0。 */
