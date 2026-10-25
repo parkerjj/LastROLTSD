@@ -104,6 +104,7 @@ describe('ke routes: KE 自己的接口只认 Bearer（IWA 无 cookie、也不�
   const sessionCookie = `__Host-ltsd-session=${'a'.repeat(43)}`;
   const bearerOnly = [
     ['POST', '/api/v1/ke/instances/bind'],
+    ['POST', '/api/v1/ke/modules/keys'],
     ['POST', `/api/v1/ke/instances/${INSTANCE}/start`],
     ['POST', `/api/v1/ke/instances/${INSTANCE}/heartbeat`],
     ['POST', `/api/v1/ke/instances/${INSTANCE}/stop`],

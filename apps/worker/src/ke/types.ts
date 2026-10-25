@@ -32,6 +32,9 @@ export interface KeBindings {
   /** 加密 core.wasm 的 AES-256 密钥 K_core（base64，32 字节）。 */
   KE_CORE_KEY?: string | undefined;
   KE_CORE_KEY_VERSION?: string | undefined;
+  /** 脱机版 network 模块的 AES-256 密钥 K_network（base64，32 字节）；未配置时旧客户端不受影响。 */
+  KE_NETWORK_KEY?: string | undefined;
+  KE_NETWORK_KEY_VERSION?: string | undefined;
   /** 构建清单（JSON：{ "<build_id>": { "chunk": "core", "sha256": "<hex>" } }），可选；缺省时跳过 A 指纹校验。 */
   KE_BUILD_MANIFEST?: string | undefined;
 }

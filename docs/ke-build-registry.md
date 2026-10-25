@@ -6,6 +6,8 @@
 
 登记内容包含 buildId、core 密文 SHA-256、源码 SHA、packageId、engineVersion、Release tag 和 CoreKey 版本，不包含任何解密密钥。服务端要求 CoreKey 版本与线上配置一致。
 
+脱机版（standalone）构建额外携带 `network_sha256`、`network_key_version`、`standalone_package_id` 三个字段，服务端要求 `network_key_version` 与线上 `KE_NETWORK_KEY_VERSION` 一致。三个字段必须同时出现；旧 web 构建一个都不带，登记内容与 audience 完全不变。`ke_builds.kind` 记录 `web` / `standalone`，同一次 GitHub run 可以同时登记这两个构建（唯一键包含 kind）。
+
 KE 必须先完成生产包校验，登记并核对服务端成功回执，才可正式发布 GitHub Release。登记超时、认证失败、数据库失败、返回内容不符或冲突，一律终止发布。
 
 ## 数据库与首次启用
@@ -14,6 +16,13 @@ KE 必须先完成生产包校验，登记并核对服务端成功回执，才�
 
 - `ke_builds`：构建指纹与来源、ACTIVE/REVOKED 状态、登记与撤销时间。
 - `ke_build_policy`：单行持久化 enforced 标志。
+
+迁移 `021_ke_standalone_modules.sql` 追加脱机版字段：
+
+- `kind`（`web` / `standalone`，旧行默认 `web`）；
+- `network_sha256`、`network_key_version`、`standalone_package_id`；
+- 唯一键改为 `(publisher_run_id, publisher_run_attempt, kind)` 与 `(release_tag, kind)`，
+  允许同一发布 run 同时登记 web 与 standalone。
 
 首次部署时 enforced=0，保持之前的静态清单/未配置行为。第一次可信登记在同一事务内写入构建并设置 enforced=1，之后数据库成为唯一白名单来源，旧 `KE_BUILD_MANIFEST` 不再参与解析和判定。
 

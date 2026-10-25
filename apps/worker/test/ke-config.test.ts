@@ -108,6 +108,17 @@ describe('resolveKeConfig', () => {
     const manifest = JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA } });
     expect(resolveKeConfig(envFrom(good, { KE_BUILD_MANIFEST: manifest }), enabledAuth).buildManifest?.get('core-1')?.sha256).toBe(SHA);
 
+    const standalone = JSON.stringify({
+      'standalone-1': {
+        chunk: 'core', sha256: SHA, network_sha256: SHA, network_key_version: 2,
+        standalone_package_id: SHA,
+      },
+    });
+    expect(resolveKeConfig(envFrom(good, { KE_BUILD_MANIFEST: standalone }), enabledAuth)
+      .buildManifest?.get('standalone-1')).toMatchObject({
+      network_sha256: SHA, network_key_version: 2, standalone_package_id: SHA,
+    });
+
     for (const bad of [
       'not json',
       '[]',
@@ -115,9 +126,31 @@ describe('resolveKeConfig', () => {
       JSON.stringify({ 'core-1': { chunk: 'core', sha256: 'xyz' } }),
       JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA }, 'core-2': { chunk: 'core', sha256: 'short' } }),
       JSON.stringify({ 'core-1': 'oops' }),
+      JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA, network_sha256: 'short' } }),
+      JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA, network_key_version: 0 } }),
+      JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA, standalone_package_id: 'x' } }),
     ]) {
       expect(() => resolveKeConfig(envFrom(good, { KE_BUILD_MANIFEST: bad }), enabledAuth)).toThrow();
     }
+  });
+
+  it('network 密钥可选：未配置不影响旧客户端；配置后校验长度与版本', async () => {
+    const { generateKeSecrets } = await loadScripts();
+    const good = generateKeSecrets();
+    expect(resolveKeConfig(envFrom(good), enabledAuth).networkKey).toBeNull();
+    expect(resolveKeConfig(envFrom(good), enabledAuth).networkKeyVersion).toBe('1');
+
+    const networkKey = Buffer.alloc(32, 7).toString('base64');
+    const config = resolveKeConfig(envFrom(good, {
+      KE_NETWORK_KEY: networkKey, KE_NETWORK_KEY_VERSION: '2',
+    }), enabledAuth);
+    expect(config.networkKey?.byteLength).toBe(32);
+    expect(config.networkKeyVersion).toBe('2');
+
+    expect(() => resolveKeConfig(envFrom(good, { KE_NETWORK_KEY: 'AAAA' }), enabledAuth)).toThrow();
+    expect(() => resolveKeConfig(envFrom(good, {
+      KE_NETWORK_KEY: networkKey, KE_NETWORK_KEY_VERSION: '0',
+    }), enabledAuth)).toThrow();
   });
 });
 
@@ -128,6 +161,19 @@ describe('resolveKeDeploymentPreflight', () => {
     expect(resolveKeDeploymentPreflight({ licensePrivateKey: secrets.licensePrivateKey, coreKey: secrets.coreKey }))
       .toEqual({ ready: true, reasonCodes: [] });
     expect(resolveKeDeploymentPreflight({})).toEqual({ ready: false, reasonCodes: ['KE_SECRETS_NOT_CONFIGURED'] });
+  });
+
+  it('network 密钥可选；一旦配置就参与预检', async () => {
+    const { generateKeSecrets, resolveKeDeploymentPreflight } = await loadScripts();
+    const secrets = generateKeSecrets();
+    const base = { licensePrivateKey: secrets.licensePrivateKey, coreKey: secrets.coreKey };
+    const networkKey = Buffer.alloc(32, 7).toString('base64');
+    expect(resolveKeDeploymentPreflight({ ...base, networkKey, networkKeyVersion: '2' }))
+      .toEqual({ ready: true, reasonCodes: [] });
+    expect(resolveKeDeploymentPreflight({ ...base, networkKey: 'AAAA' }).reasonCodes)
+      .toContain('INVALID_KE_NETWORK_KEY');
+    expect(resolveKeDeploymentPreflight({ ...base, networkKey, networkKeyVersion: '0' }).reasonCodes)
+      .toContain('INVALID_KE_NETWORK_KEY_VERSION');
   });
 
   it('只配了一半 / 私钥不是 Ed25519 PKCS8 / K_core 长度不对 / 版本或清单非法 → 拒绝并给出脱敏原因码', async () => {

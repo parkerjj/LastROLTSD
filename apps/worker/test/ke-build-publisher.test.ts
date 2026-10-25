@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { buildRegistrationAudience, validateBuildRegistration, verifyGithubBuildPublisher } from '../src/ke/build-publisher';
+import { buildRegistrationAudience, buildRegistrationKind, validateBuildRegistration, verifyGithubBuildPublisher } from '../src/ke/build-publisher';
 
 const now = 1800000000;
 const sha = 'a'.repeat(40);
@@ -55,6 +55,35 @@ describe('构建登记输入', () => {
     { ...payload, core_key_version: 0 }, { ...payload, core_key_version: 4294967296 },
     { ...payload, commit_sha: sha.toUpperCase() }, { ...payload, build_id: '你' },
   ])('拒绝不合法 payload %#', (value) => {
+    expect(() => validateBuildRegistration(value)).toThrow(expect.objectContaining({ code: 'KE_BAD_REQUEST', status: 400 }));
+  });
+
+  it('脱机包可选字段参与 audience，旧 payload 的 audience 不变', async () => {
+    const standalone = { ...payload, network_key_version: 2, network_sha256: 'd'.repeat(64), standalone_package_id: 'e'.repeat(64) };
+    expect(validateBuildRegistration(standalone)).toEqual(standalone);
+    expect(buildRegistrationKind(validateBuildRegistration(payload))).toBe('web');
+    expect(buildRegistrationKind(validateBuildRegistration(standalone))).toBe('standalone');
+    const expected = 'ltsd-ke-build-registration:' + createHash('sha256')
+      .update(JSON.stringify(Object.fromEntries(Object.entries(standalone).sort(([left], [right]) => left.localeCompare(right)))))
+      .digest('hex');
+    expect(await buildRegistrationAudience(standalone)).toBe(expected);
+    expect(await buildRegistrationAudience(standalone)).not.toBe(await buildRegistrationAudience(payload));
+    // 字段顺序无关。
+    expect(await buildRegistrationAudience(Object.fromEntries(Object.entries(standalone).reverse()) as typeof standalone)).toBe(expected);
+  });
+
+  it.each([
+    { ...payload, network_sha256: 'x' },
+    { ...payload, network_sha256: 'd'.repeat(63) },
+    { ...payload, network_key_version: 0 },
+    { ...payload, network_key_version: 4294967296 },
+    { ...payload, standalone_package_id: 'x' },
+    // 三个字段必须同时出现。
+    { ...payload, network_sha256: 'd'.repeat(64) },
+    { ...payload, network_key_version: 2 },
+    { ...payload, standalone_package_id: 'e'.repeat(64) },
+    { ...payload, network_sha256: 'd'.repeat(64), network_key_version: 2 },
+  ])('拒绝不合法的脱机字段 %#', (value) => {
     expect(() => validateBuildRegistration(value)).toThrow(expect.objectContaining({ code: 'KE_BAD_REQUEST', status: 400 }));
   });
 });
