@@ -108,6 +108,17 @@ describe('resolveKeConfig', () => {
     const manifest = JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA } });
     expect(resolveKeConfig(envFrom(good, { KE_BUILD_MANIFEST: manifest }), enabledAuth).buildManifest?.get('core-1')?.sha256).toBe(SHA);
 
+    const standalone = JSON.stringify({
+      'standalone-1': {
+        chunk: 'core', sha256: SHA, network_sha256: SHA, network_key_version: 2,
+        standalone_package_id: SHA,
+      },
+    });
+    expect(resolveKeConfig(envFrom(good, { KE_BUILD_MANIFEST: standalone }), enabledAuth)
+      .buildManifest?.get('standalone-1')).toMatchObject({
+      network_sha256: SHA, network_key_version: 2, standalone_package_id: SHA,
+    });
+
     for (const bad of [
       'not json',
       '[]',
@@ -115,9 +126,31 @@ describe('resolveKeConfig', () => {
       JSON.stringify({ 'core-1': { chunk: 'core', sha256: 'xyz' } }),
       JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA }, 'core-2': { chunk: 'core', sha256: 'short' } }),
       JSON.stringify({ 'core-1': 'oops' }),
+      JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA, network_sha256: 'short' } }),
+      JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA, network_key_version: 0 } }),
+      JSON.stringify({ 'core-1': { chunk: 'core', sha256: SHA, standalone_package_id: 'x' } }),
     ]) {
       expect(() => resolveKeConfig(envFrom(good, { KE_BUILD_MANIFEST: bad }), enabledAuth)).toThrow();
     }
+  });
+
+  it('network 密钥可选：未配置不影响旧客户端；配置后校验长度与版本', async () => {
+    const { generateKeSecrets } = await loadScripts();
+    const good = generateKeSecrets();
+    expect(resolveKeConfig(envFrom(good), enabledAuth).networkKey).toBeNull();
+    expect(resolveKeConfig(envFrom(good), enabledAuth).networkKeyVersion).toBe('1');
+
+    const networkKey = Buffer.alloc(32, 7).toString('base64');
+    const config = resolveKeConfig(envFrom(good, {
+      KE_NETWORK_KEY: networkKey, KE_NETWORK_KEY_VERSION: '2',
+    }), enabledAuth);
+    expect(config.networkKey?.byteLength).toBe(32);
+    expect(config.networkKeyVersion).toBe('2');
+
+    expect(() => resolveKeConfig(envFrom(good, { KE_NETWORK_KEY: 'AAAA' }), enabledAuth)).toThrow();
+    expect(() => resolveKeConfig(envFrom(good, {
+      KE_NETWORK_KEY: networkKey, KE_NETWORK_KEY_VERSION: '0',
+    }), enabledAuth)).toThrow();
   });
 });
 

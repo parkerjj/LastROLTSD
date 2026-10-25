@@ -8,9 +8,16 @@ export interface BuildRegistration {
   engine_version: string;
   release_tag: string;
   core_key_version: number;
+  /** 脱机包新增字段；旧 web 包不带这些字段，保持原有登记与 audience 不变。 */
+  network_key_version?: number;
+  network_sha256?: string;
+  standalone_package_id?: string;
 }
 
 const FIELDS = ['build_id', 'commit_sha', 'core_key_version', 'core_sha256', 'engine_version', 'package_id', 'release_tag'] as const;
+const OPTIONAL_FIELDS = ['network_key_version', 'network_sha256', 'standalone_package_id'] as const;
+// audience 按字母序覆盖实际存在的字段：旧 payload 仍是原来的 7 个字段，不变。
+const ALL_FIELDS = [...FIELDS, ...OPTIONAL_FIELDS].sort();
 const ISSUER = 'https://token.actions.githubusercontent.com';
 const JWKS_URL = `${ISSUER}/.well-known/jwks`;
 const MAX_TOKEN_BYTES = 16384;
@@ -36,9 +43,15 @@ function matches(value: unknown, pattern: RegExp, maxLength: number): value is s
   return typeof value === 'string' && value.length <= maxLength && pattern.exec(value)?.[0] === value;
 }
 
+export function buildRegistrationKind(payload: BuildRegistration): 'web' | 'standalone' {
+  return payload.standalone_package_id === undefined ? 'web' : 'standalone';
+}
+
 export function validateBuildRegistration(value: unknown): BuildRegistration {
-  if (!object(value) || Object.keys(value).length !== FIELDS.length
+  if (!object(value) || Object.keys(value).some((key) => !(ALL_FIELDS as readonly string[]).includes(key))
     || !FIELDS.every((key) => Object.hasOwn(value, key))
+    // 脱机包的三个字段必须同时出现；旧 web 包一个都不带。缺一半会让登记意图不明确。
+    || ![0, OPTIONAL_FIELDS.length].includes(OPTIONAL_FIELDS.filter((key) => Object.hasOwn(value, key)).length)
     || !matches(value.build_id, /^[a-f0-9]{7}-[0-9]{12}-[1-9][0-9]*-[1-9][0-9]*$/, 64)
     || !matches(value.commit_sha, /^[a-f0-9]{40}$/, 40)
     || !matches(value.core_sha256, /^[a-f0-9]{64}$/, 64)
@@ -46,14 +59,23 @@ export function validateBuildRegistration(value: unknown): BuildRegistration {
     || !matches(value.engine_version, /^[0-9]+\.[0-9]+\.[0-9]+$/, 32)
     || !matches(value.release_tag, /^ke-[a-f0-9]{40}-[1-9][0-9]*-[1-9][0-9]*$/, 128)
     || typeof value.core_key_version !== 'number' || !Number.isSafeInteger(value.core_key_version)
-    || value.core_key_version < 1 || value.core_key_version > 4294967295) {
+    || value.core_key_version < 1 || value.core_key_version > 4294967295
+    || (value.network_key_version !== undefined && (typeof value.network_key_version !== 'number'
+      || !Number.isSafeInteger(value.network_key_version) || value.network_key_version < 1
+      || value.network_key_version > 4294967295))
+    || (value.network_sha256 !== undefined && !matches(value.network_sha256, /^[a-f0-9]{64}$/, 64))
+    || (value.standalone_package_id !== undefined && !matches(value.standalone_package_id, /^[a-f0-9]{64}$/, 64))) {
     throw new KeFailure('KE_BAD_REQUEST', 400, '构建登记内容无效');
   }
-  return Object.fromEntries(FIELDS.map((key) => [key, value[key]])) as unknown as BuildRegistration;
+  return Object.fromEntries(ALL_FIELDS
+    .filter((key) => Object.hasOwn(value, key))
+    .map((key) => [key, value[key]])) as unknown as BuildRegistration;
 }
 
 export async function buildRegistrationAudience(payload: BuildRegistration): Promise<string> {
-  const canonical = JSON.stringify(Object.fromEntries(FIELDS.map((key) => [key, payload[key]])));
+  const canonical = JSON.stringify(Object.fromEntries(ALL_FIELDS
+    .filter((key) => Object.hasOwn(payload, key))
+    .map((key) => [key, payload[key]])));
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return 'ltsd-ke-build-registration:' + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }

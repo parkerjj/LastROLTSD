@@ -19,12 +19,13 @@ function environment(): AppEnv {
     AUTH_PASSWORD_SECRET: secret(1), AUTH_CSRF_SECRET: secret(2),
     AUTH_RATE_SECRET: secret(3), AUTH_MAIL_PAYLOAD_SECRET: secret(4),
     KE_LICENSE_PRIVATE_KEY_v1: generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64'),
-    KE_CORE_KEY: secret(5), KE_BUILD_MANIFEST: 'invalid legacy JSON',
+    KE_CORE_KEY: secret(5), KE_NETWORK_KEY: secret(6), KE_NETWORK_KEY_VERSION: '2',
+    KE_BUILD_MANIFEST: 'invalid legacy JSON',
   } as AppEnv;
 }
 
 // 只替代 SQL 边界；请求解析、认证、限流、policy 检查及授权 service 均使用真实实现。
-function database(policy: { enforced: number; status?: string; fail?: boolean; activeInstance?: boolean }): MysqlDatabase {
+function database(policy: { enforced: number; status?: string; fail?: boolean; activeInstance?: boolean }, modules = ['core']): MysqlDatabase {
   const db = {
     async first(sql: string, values: readonly unknown[] = []) {
       if (sql.includes('ke_build_policy')) {
@@ -41,6 +42,9 @@ function database(policy: { enforced: number; status?: string; fail?: boolean; a
       if (sql.includes('FROM auth_users')) return [{ id: 1 }];
       if (sql.includes('FROM ke_characters')) return [];
       if (sql.includes('FROM ke_instances')) return policy.activeInstance ? [{ instance_id: INSTANCE, user_id: 1, aid: 1, cid: 2, nid: 3, state: 'ACTIVE' }] : [];
+      if (sql.includes('FROM ke_entitlements')) {
+        return [{ resource: 'slots', total: 1 }, ...modules.map(module => ({ resource: `module:${module}`, total: 1 }))];
+      }
       throw new Error(`unexpected SQL: ${sql}`);
     },
     async run() { return { affectedRows: 1, insertId: 1 }; },
@@ -48,16 +52,20 @@ function database(policy: { enforced: number; status?: string; fail?: boolean; a
   };
   return db as unknown as MysqlDatabase;
 }
-function licenseApp(policy: Parameters<typeof database>[0], env = environment()) {
+function licenseApp(policy: Parameters<typeof database>[0], env = environment(), modules = ['core']) {
   const app = new Hono();
-  registerKeRoutes(app, env, database(policy), { now: () => NOW, fetch: globalThis.fetch });
+  registerKeRoutes(app, env, database(policy, modules), { now: () => NOW, fetch: globalThis.fetch });
   return app;
 }
-async function bind(app: Hono, build = BUILD) {
+async function bind(app: Hono, build = BUILD, extra: Record<string, unknown> = {}) {
   return app.request('/api/v1/ke/instances/bind', { method: 'POST',
     headers: { authorization: bearer, 'content-type': 'application/json' },
-    body: JSON.stringify({ instance_id: INSTANCE, aid: 1, cid: 2, nid: 3, build_id: build, build_hash: HASH }),
+    body: JSON.stringify({ instance_id: INSTANCE, aid: 1, cid: 2, nid: 3, build_id: build, build_hash: HASH, ...extra }),
   });
+}
+async function publicKey(): Promise<string> {
+  const pair = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']) as CryptoKeyPair;
+  return Buffer.from(new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))).toString('base64url');
 }
 
 describe('构建登记 HTTP body 错误', () => {
@@ -127,5 +135,44 @@ describe('数据库构建 policy 与 legacy 配置隔离', () => {
     expect((await bind(app)).status).toBe(503);
     policy.enforced = 1;
     expect((await bind(app)).status).toBe(200);
+  });
+});
+
+describe('脱机模块：need_modules 解析与密钥下发', () => {
+  it.each([
+    [{ need_wasm_key: true, need_modules: ['unknown'] }],
+    [{ need_modules: ['network'] }],
+    [{ need_wasm_key: true, need_modules: ['network', 'network'] }],
+    [{ need_wasm_key: true, need_modules: 'network' }],
+  ])('非法 need_modules %# 返回 KE_BAD_REQUEST', async (extra) => {
+    const response = await bind(licenseApp({ enforced: 1 }), BUILD, { ...extra, ke_pub: await publicKey() });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'KE_BAD_REQUEST' } });
+  });
+
+  it('旧客户端不传 need_modules 时仍只下发 core', async () => {
+    const response = await bind(licenseApp({ enforced: 1 }), BUILD, {
+      need_wasm_key: true, ke_pub: await publicKey(),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { key_bundles: Record<string, unknown> };
+    expect(Object.keys(body.key_bundles)).toEqual(['core']);
+  });
+
+  it('standalone 权益 + need_modules=network 时同时下发 core 与 network', async () => {
+    const response = await bind(licenseApp({ enforced: 1 }, environment(), ['core', 'standalone']), BUILD, {
+      need_wasm_key: true, need_modules: ['network'], ke_pub: await publicKey(),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { key_bundles: Record<string, unknown> };
+    expect(Object.keys(body.key_bundles).sort()).toEqual(['core', 'network']);
+  });
+
+  it('缺少 standalone 权益时拒绝 network 请求', async () => {
+    const response = await bind(licenseApp({ enforced: 1 }, environment(), ['core']), BUILD, {
+      need_wasm_key: true, need_modules: ['network'], ke_pub: await publicKey(),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: 'KE_NOT_ENTITLED' } });
   });
 });

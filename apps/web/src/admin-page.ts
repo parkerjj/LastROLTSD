@@ -157,7 +157,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
         <form id="adm-adjust-form" class="adm-form">
           <label>资源
             <input id="adm-adjust-resource" list="adm-resources" value="slots" autocomplete="off">
-            <datalist id="adm-resources"><option value="slots">实例额度</option><option value="module:core">核心模块</option></datalist>
+            <datalist id="adm-resources"><option value="slots">实例额度</option><option value="module:core">核心模块</option><option value="module:standalone">脱机版模块</option></datalist>
           </label>
           <label>数量（+N 赠送，-N 扣减）<input id="adm-adjust-delta" inputmode="numeric" placeholder="例如 3 或 -1" autocomplete="off"></label>
           <label>有效期

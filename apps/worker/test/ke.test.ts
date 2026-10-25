@@ -5,7 +5,7 @@ import { createKeService, type Attestation } from '../src/ke/service';
 import type { KeConfig, BuildEntry } from '../src/ke/config';
 import type { CharacterRow, InstanceRow, KeRepository, KeTx } from '../src/ke/repository';
 import type { KeEntitlements } from '../src/ke/entitlements';
-import { KeFailure, type CharacterReport } from '../src/ke/types';
+import { KeFailure, type CharacterReport, type WrappedKeyBundle } from '../src/ke/types';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -19,7 +19,10 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-function testKeConfig(manifest: ReadonlyMap<string, BuildEntry> | null = null): KeConfig {
+function testKeConfig(
+  manifest: ReadonlyMap<string, BuildEntry> | null = null,
+  networkKey: Uint8Array | null = null,
+): KeConfig {
   const { privateKey } = generateKeyPairSync('ed25519');
   return {
     enabled: true,
@@ -27,8 +30,41 @@ function testKeConfig(manifest: ReadonlyMap<string, BuildEntry> | null = null): 
     licenseKeyVersion: '1',
     coreKey: new Uint8Array(32).fill(9),
     coreKeyVersion: '3',
+    networkKey,
+    networkKeyVersion: '2',
     buildManifest: manifest,
   };
+}
+
+async function unwrapBundle(
+  bundle: WrappedKeyBundle,
+  privateKey: CryptoKey,
+  instanceId: string,
+  chunk: string,
+): Promise<Uint8Array> {
+  const ephemeralPublic = await crypto.subtle.importKey(
+    'raw', toArrayBuffer(base64UrlDecode(bundle.ephemeral_public)), { name: 'X25519' }, false, [],
+  );
+  const algorithm: { name: string; public: CryptoKey } = { name: 'X25519', public: ephemeralPublic };
+  const shared = new Uint8Array(await crypto.subtle.deriveBits(algorithm, privateKey, 256));
+  const ikm = await crypto.subtle.importKey('raw', toArrayBuffer(shared), { name: 'HKDF' }, false, ['deriveKey']);
+  const kek = await crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: toArrayBuffer(encoder.encode(instanceId)), info: toArrayBuffer(encoder.encode(`ltsd-ke-${chunk}-v1`)) },
+    ikm,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt'],
+  );
+  const ciphertext = base64UrlDecode(bundle.ciphertext);
+  const tag = base64UrlDecode(bundle.tag);
+  const combined = new Uint8Array(ciphertext.length + tag.length);
+  combined.set(ciphertext, 0);
+  combined.set(tag, ciphertext.length);
+  return new Uint8Array(await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: toArrayBuffer(base64UrlDecode(bundle.nonce)), additionalData: toArrayBuffer(encoder.encode(instanceId)) },
+    kek,
+    toArrayBuffer(combined),
+  ));
 }
 
 function report(overrides: Partial<CharacterReport> = {}): CharacterReport {
@@ -203,37 +239,18 @@ describe('ke crypto', () => {
     const kePublicRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kePair.publicKey));
     const chunkKey = new Uint8Array(32).fill(7);
     const bundle = await wrapChunkKey(chunkKey, kePublicRaw, '11111111-1111-4111-8111-111111111111', 'core');
-
-    const ephemeralPublic = await crypto.subtle.importKey('raw', toArrayBuffer(base64UrlDecode(bundle.ephemeral_public)), { name: 'X25519' }, false, []);
-    const algorithm: { name: string; public: CryptoKey } = { name: 'X25519', public: ephemeralPublic };
-    const shared = new Uint8Array(await crypto.subtle.deriveBits(algorithm, kePair.privateKey, 256));
-    const ikm = await crypto.subtle.importKey('raw', toArrayBuffer(shared), { name: 'HKDF' }, false, ['deriveKey']);
-    const kek = await crypto.subtle.deriveKey(
-      { name: 'HKDF', hash: 'SHA-256', salt: toArrayBuffer(encoder.encode('11111111-1111-4111-8111-111111111111')), info: toArrayBuffer(encoder.encode('ltsd-ke-core-v1')) },
-      ikm,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['decrypt'],
-    );
-    const ciphertext = base64UrlDecode(bundle.ciphertext);
-    const tag = base64UrlDecode(bundle.tag);
-    const combined = new Uint8Array(ciphertext.length + tag.length);
-    combined.set(ciphertext, 0);
-    combined.set(tag, ciphertext.length);
-    const plain = new Uint8Array(await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: toArrayBuffer(base64UrlDecode(bundle.nonce)), additionalData: toArrayBuffer(encoder.encode('11111111-1111-4111-8111-111111111111')) },
-      kek,
-      toArrayBuffer(combined),
-    ));
-    expect(plain).toEqual(chunkKey);
+    expect(await unwrapBundle(bundle, kePair.privateKey, '11111111-1111-4111-8111-111111111111', 'core')).toEqual(chunkKey);
   });
 });
 
 describe('ke service', () => {
-  function serviceAndClock(manifest: ReadonlyMap<string, BuildEntry> | null = null) {
+  function serviceAndClock(
+    manifest: ReadonlyMap<string, BuildEntry> | null = null,
+    networkKey: Uint8Array | null = null,
+  ) {
     let nowMs = 1_700_000_000_000;
     const repository = makeFakeRepository();
-    const service = createKeService(repository, testKeConfig(manifest), () => nowMs);
+    const service = createKeService(repository, testKeConfig(manifest, networkKey), () => nowMs);
     return { repository, service, advance: (ms: number) => { nowMs += ms; }, now: () => nowMs };
   }
 
@@ -575,5 +592,71 @@ describe('ke service', () => {
     });
     await service.bind('10001', bindInput(INST_B, { char_name: 'Reborn' }));
     expect(repository.characters.get('1000001:2000002:3000003')).toMatchObject({ user_id: 10001, char_name: 'Reborn' });
+  });
+
+  describe('standalone 模块（network 密钥下发）', () => {
+    const networkKey = new Uint8Array(32).fill(0x42);
+    const keyPair = async () => {
+      const pair = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']) as CryptoKeyPair;
+      return { pair, publicKey: new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)) };
+    };
+    const keyedBind = (instanceId: string, publicKey: Uint8Array, modules: string[] = []) => ({
+      ...bindInput(instanceId),
+      needWasmKey: true,
+      needModules: modules,
+      kePublicKey: publicKey,
+    });
+
+    it('有 standalone 权益时同时下发 core 与 network 密钥', async () => {
+      const { repository, service } = serviceAndClock(null, networkKey);
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core', 'standalone']) });
+      const { pair, publicKey } = await keyPair();
+      const result = await service.bind('10000', keyedBind(INST_A, publicKey, ['network']));
+      expect(Object.keys(result.key_bundles ?? {}).sort()).toEqual(['core', 'network']);
+      expect(await unwrapBundle(result.key_bundles!.network!, pair.privateKey, INST_A, 'network')).toEqual(networkKey);
+      expect(await unwrapBundle(result.key_bundles!.core!, pair.privateKey, INST_A, 'core')).toEqual(new Uint8Array(32).fill(9));
+    });
+
+    it('未开通 standalone 时拒绝，且不写角色/实例', async () => {
+      const { repository, service } = serviceAndClock(null, networkKey);
+      const { publicKey } = await keyPair();
+      await expect(service.bind('10000', keyedBind(INST_A, publicKey, ['network'])))
+        .rejects.toMatchObject({ code: 'KE_NOT_ENTITLED', status: 403 });
+      expect(repository.instances.size).toBe(0);
+      expect(repository.characters.size).toBe(0);
+    });
+
+    it('请求 network 但服务端未配置密钥时返回 503', async () => {
+      const { repository, service } = serviceAndClock();
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core', 'standalone']) });
+      const { publicKey } = await keyPair();
+      await expect(service.bind('10000', keyedBind(INST_A, publicKey, ['network'])))
+        .rejects.toMatchObject({ code: 'KE_UNAVAILABLE', status: 503 });
+      expect(repository.instances.size).toBe(0);
+    });
+
+    it('旧客户端不请求模块时仍然只下发 core', async () => {
+      const { service } = serviceAndClock(null, networkKey);
+      const { publicKey } = await keyPair();
+      const result = await service.bind('10000', keyedBind(INST_A, publicKey));
+      expect(Object.keys(result.key_bundles ?? {})).toEqual(['core']);
+    });
+
+    it('standalone 权益的 license 带 network 版本，core-only 不带', async () => {
+      const { repository, service } = serviceAndClock(null, networkKey);
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core', 'standalone']) });
+      await service.bind('10000', bindInput(INST_A));
+      const started = await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      const payload = JSON.parse(decoder.decode(base64UrlDecode(started.license.split('.')[0]!)));
+      expect(payload.features).toEqual(['core', 'standalone']);
+      expect(payload.key_versions).toEqual({ core: 3, network: 2 });
+
+      const coreOnly = serviceAndClock(null, networkKey);
+      await coreOnly.service.bind('10000', bindInput(INST_B));
+      const startedCore = await coreOnly.service.start('10000', { ...bindInput(INST_B), kickInstanceId: null });
+      const corePayload = JSON.parse(decoder.decode(base64UrlDecode(startedCore.license.split('.')[0]!)));
+      expect(corePayload.features).toEqual(['core']);
+      expect(corePayload.key_versions).toEqual({ core: 3 });
+    });
   });
 });

@@ -110,6 +110,22 @@ function parseBuildHash(body: Record<string, unknown>): string | null {
   return typeof body.build_hash === 'string' && /^[0-9a-f]{64}$/iu.test(body.build_hash) ? body.build_hash.toLowerCase() : null;
 }
 
+const KE_MODULES = new Set(['network']);
+
+/** 额外模块只接受白名单；未知模块直接拒绝，避免客户端误以为拿到了密钥。 */
+function parseNeedModules(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 4) throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+  const modules: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || !KE_MODULES.has(item) || modules.includes(item)) {
+      throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+    }
+    modules.push(item);
+  }
+  return modules;
+}
+
 function parsePublicKey(body: Record<string, unknown>): Uint8Array | null {
   if (typeof body.ke_pub !== 'string') return null;
   try {
@@ -290,6 +306,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         instanceId: parseInstanceId(body.instance_id),
         report: parseCharacterReport(body),
         needWasmKey: body.need_wasm_key === true,
+        needModules: parseNeedModules(body.need_modules),
         kePublicKey: parsePublicKey(body),
         ...(await attestation(c.req.raw, env, body)),
       };
@@ -313,6 +330,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         mode: parseLicenseMode(body.mode),
         report: parseCharacterReport(body),
         needWasmKey: body.need_wasm_key === true,
+        needModules: parseNeedModules(body.need_modules),
         kePublicKey: parsePublicKey(body),
         ...(await attestation(c.req.raw, env, body)),
       };

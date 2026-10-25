@@ -122,7 +122,7 @@ To disable account auth, set the production `AUTH_ENABLED` variable to `false` a
 
 ## KoreEngine 授权上线
 
-KoreEngine 授权（`/api/v1/ke/*`）依赖账号体系，需要 `AUTH_ENABLED=true`。production Environment 额外需要 secrets `KE_LICENSE_PRIVATE_KEY_V1` 与 `KE_CORE_KEY`（必需），以及首次切换前可用的静态 `KE_BUILD_MANIFEST`（可选）；版本变量 `KE_LICENSE_KEY_VERSION`、`KE_CORE_KEY_VERSION` 默认 `1`，仅在轮换时设置。workflow 在 auth-disabled barrier 之后、最终部署之前推送这些 secrets，且只在预检通过时执行。缺失或格式错误只会让授权端点返回 503，不影响其他功能。自动构建登记使用新增 MySQL 白名单：首次可信登记后成为唯一来源，不再依赖每次修改 secret，部署顺序与安全边界见 [ke-build-registry.md](ke-build-registry.md)。
+KoreEngine 授权（`/api/v1/ke/*`）依赖账号体系，需要 `AUTH_ENABLED=true`。production Environment 额外需要 secrets `KE_LICENSE_PRIVATE_KEY_V1` 与 `KE_CORE_KEY`（必需），以及首次切换前可用的静态 `KE_BUILD_MANIFEST`（可选）；脱机版 network 模块还需要 `KE_NETWORK_KEY`（32 字节 base64，可选；未配置时旧客户端不受影响，只有请求 network 的 bind 返回 503）。版本变量 `KE_LICENSE_KEY_VERSION`、`KE_CORE_KEY_VERSION`、`KE_NETWORK_KEY_VERSION` 默认 `1`，仅在轮换时设置。workflow 在 auth-disabled barrier 之后、最终部署之前推送这些 secrets，且只在预检通过时执行。缺失或格式错误只会让授权端点返回 503，不影响其他功能。自动构建登记使用新增 MySQL 白名单：首次可信登记后成为唯一来源，不再依赖每次修改 secret，部署顺序与安全边界见 [ke-build-registry.md](ke-build-registry.md)。
 
 ## D1 export and MySQL data migration
 
