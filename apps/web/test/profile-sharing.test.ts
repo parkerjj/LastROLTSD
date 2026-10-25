@@ -34,10 +34,18 @@ async function setup(
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('opens checked for new and published sharing with the appropriate wording', async () => {
+const enableSharing = (dom: JSDOM, root: HTMLElement) => {
+  const checkbox = root.querySelector<HTMLInputElement>('#ke-share-enabled')!;
+  checkbox.checked = true;
+  checkbox.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+};
+
+it('opens unchecked unless the profile is currently published', async () => {
   const first = await setup();
-  expect(first.root.querySelector<HTMLInputElement>('#ke-share-enabled')?.checked).toBe(true);
+  expect(first.root.querySelector<HTMLInputElement>('#ke-share-enabled')?.checked).toBe(false);
   expect(first.root.querySelector('[data-share-label]')?.textContent).toContain('同时将此配置共享给他人');
+  const withdrawn = await setup({ ...shared, status: 'WITHDRAWN' });
+  expect(withdrawn.root.querySelector<HTMLInputElement>('#ke-share-enabled')?.checked).toBe(false);
   const second = await setup(shared);
   expect(second.root.querySelector<HTMLInputElement>('#ke-share-enabled')?.checked).toBe(true);
   expect(second.root.querySelector('[data-share-label]')?.textContent).toContain('同时更新共享的配置');
@@ -56,9 +64,24 @@ it('unchecked save preserves old share and sends enabled false', async () => {
   expect(vi.mocked(fetch).mock.calls.some(([path]) => path === '/api/v1/ke/profiles/9/sharing')).toBe(false);
 });
 
+it('withdrawing unchecks sharing so the next save does not republish', async () => {
+  const { dom, root } = await setup(shared);
+  vi.spyOn(dom.window, 'confirm').mockReturnValue(true);
+  root.querySelector<HTMLButtonElement>('[data-share-withdraw]')!.click();
+  await tick();
+  expect(vi.mocked(fetch).mock.calls.some(([path, init]) => path === '/api/v1/ke/profiles/9/sharing' && init?.method === 'DELETE')).toBe(true);
+  expect(root.querySelector<HTMLInputElement>('#ke-share-enabled')?.checked).toBe(false);
+  expect(root.querySelector<HTMLElement>('.ke-share-description')?.hidden).toBe(true);
+  root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
+  await tick();
+  const call = vi.mocked(fetch).mock.calls.find(([path, init]) => path === '/api/v1/ke/profiles/9' && init?.method === 'PUT')!;
+  expect(JSON.parse(String(call[1]?.body)).sharing).toEqual({ enabled: false, description: '已有说明' });
+});
+
 it('empty description can be published and editor locator selects requested profile', async () => {
-  const { root } = await setup(null, 'http://localhost/ke?aid=1&cid=2&nid=3&profile=9');
+  const { dom, root } = await setup(null, 'http://localhost/ke?aid=1&cid=2&nid=3&profile=9');
   expect(root.querySelector<HTMLElement>('#ke-editor')?.hidden).toBe(false);
+  enableSharing(dom, root);
   root.querySelector<HTMLTextAreaElement>('#ke-share-description')!.value = '';
   root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
   await tick();
@@ -81,6 +104,7 @@ it('shows the new share code and hall link in the profile list after saving', as
   const name = root.querySelector<HTMLInputElement>('#ke-profile-name')!;
   name.value = '新方案';
   name.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  enableSharing(dom, root);
   root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
   await tick();
   const row = root.querySelector<HTMLElement>('.ke-profile-card');
@@ -104,6 +128,7 @@ it('local demo save stays in memory and never sends a KE write request', async (
   const name = root.querySelector<HTMLInputElement>('#ke-profile-name')!;
   name.value = '猎场安全配置';
   name.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  enableSharing(dom, root);
   root.querySelector<HTMLButtonElement>('[data-action="save"]')!.click();
   await tick();
 
