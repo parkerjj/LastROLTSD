@@ -16,8 +16,8 @@ export interface ScalarDef {
   default?: string;
   suffix?: string;
   group: string;
-  /** 特殊输入控件：'item' = 道具搜索选择器（存道具名称）。 */
-  picker?: "item";
+  /** 特殊输入控件：'item' = 道具搜索选择器（存道具名称）；'worldmap' = 世界地图选图浮层（存地图代码）。 */
+  picker?: "item" | "worldmap";
   /** 兼容遗留键：不在表单展示，但解析/序列化时原样保留（避免旧 profile 保存时丢键）。 */
   legacy?: boolean;
 }
@@ -296,6 +296,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     help: "自动挂机的地图代码（如 prt_fild08）。进入该图后才开始挂机。",
     type: "map",
     group: "路线",
+    picker: "worldmap",
   },
   {
     key: "saveMap",
@@ -303,6 +304,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     help: "死亡/补给后回城的城镇代码（如 prontera）。",
     type: "map",
     group: "路线",
+    picker: "worldmap",
   },
   {
     key: "lockMap_x",

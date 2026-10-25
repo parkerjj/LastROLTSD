@@ -1,0 +1,2085 @@
+{
+  "generatedAt": "2026-10-24T18:26:56.629Z",
+  "source": {
+    "worldmapHtml": "https://game.lastro.cn/ro/Online.js (text!UI/Components/WorldMap/WorldMap.html)",
+    "mapNames": "https://game.lastro.cn/ro/client_re/data/mapnametable.txt",
+    "images": {
+      "normal": "https://game.lastro.cn/statics/imgs/worldmap_n.jpg",
+      "dimension": "https://game.lastro.cn/statics/imgs/worldmap_dimension_n.jpg",
+      "localizing1": "https://game.lastro.cn/statics/imgs/worldmap_localizing1_n.jpg",
+      "localizing2": "https://game.lastro.cn/statics/imgs/worldmap_localizing2_n.jpg"
+    },
+    "branches": "scripts/data/ke-world-branches.json (from main.swbn core/data/world/world-data.json)"
+  },
+  "layers": [
+    {
+      "id": "normal",
+      "name": "中土大陆",
+      "image": "/ke/worldmap/normal.jpg",
+      "cols": 23,
+      "rows": 18,
+      "cellW": 50,
+      "cellH": 48,
+      "points": [
+        {
+          "code": "cave",
+          "row": 0,
+          "col": 10,
+          "span": 1,
+          "name": "洞穴村"
+        },
+        {
+          "code": "hu_fild01",
+          "row": 0,
+          "col": 12,
+          "span": 1,
+          "mvp": true,
+          "name": "达纳托斯之塔",
+          "codes": [
+            "hu_fild01",
+            "tha_t01",
+            "tha_t02",
+            "tha_t03",
+            "tha_t04",
+            "tha_t05",
+            "tha_t06",
+            "tha_t07",
+            "tha_t08",
+            "tha_t09",
+            "tha_t10",
+            "tha_t11",
+            "tha_t12",
+            "thana_boss"
+          ],
+          "codeNames": {
+            "hu_fild01": "达纳托斯之塔",
+            "tha_t01": "达纳托斯之塔1层",
+            "tha_t02": "达纳托斯之塔2层",
+            "tha_t03": "达纳托斯之塔3层",
+            "tha_t04": "达纳托斯之塔4层",
+            "tha_t05": "达纳托斯之塔5层",
+            "tha_t06": "达纳托斯之塔6层",
+            "tha_t07": "达纳托斯之塔7层",
+            "tha_t08": "达纳托斯之塔8层",
+            "tha_t09": "达纳托斯之塔9层",
+            "tha_t10": "达纳托斯之塔10层",
+            "tha_t11": "达纳托斯之塔11层",
+            "tha_t12": "达纳托斯之塔12层",
+            "thana_boss": "达纳托斯之塔 (未知区域)"
+          }
+        },
+        {
+          "code": "hu_fild02",
+          "row": 0,
+          "col": 13,
+          "span": 1,
+          "name": "毁葛原野 区域2"
+        },
+        {
+          "code": "hu_fild03",
+          "row": 0,
+          "col": 14,
+          "span": 1,
+          "name": "毁葛原野 区域3"
+        },
+        {
+          "code": "hugel",
+          "row": 0,
+          "col": 15,
+          "span": 1,
+          "name": "田园都市毁葛"
+        },
+        {
+          "code": "sch_gld",
+          "row": 1,
+          "col": 7,
+          "span": 1,
+          "name": "尼它堆"
+        },
+        {
+          "code": "yuno",
+          "row": 1,
+          "col": 8,
+          "span": 1,
+          "name": "修发兹 共和国 首都 朱诺"
+        },
+        {
+          "code": "ein_fild01",
+          "row": 1,
+          "col": 10,
+          "span": 1,
+          "name": "艾音布罗克原野 区域1"
+        },
+        {
+          "code": "yuno_fild05",
+          "row": 1,
+          "col": 11,
+          "span": 1,
+          "name": "尔迈斯 瀑雷德"
+        },
+        {
+          "code": "yuno_fild06",
+          "row": 1,
+          "col": 12,
+          "span": 1,
+          "name": "尔万斯 瀑雷德"
+        },
+        {
+          "code": "hu_fild04",
+          "row": 1,
+          "col": 13,
+          "span": 1,
+          "name": "毁葛原野 区域4"
+        },
+        {
+          "code": "hu_fild05",
+          "row": 1,
+          "col": 14,
+          "span": 1,
+          "mvp": true,
+          "name": "深渊湖水 区域5",
+          "codes": [
+            "hu_fild05",
+            "abyss_01",
+            "abyss_02",
+            "abyss_03"
+          ],
+          "codeNames": {
+            "hu_fild05": "深渊湖水 区域5",
+            "abyss_01": "深渊湖水 地下洞穴 1层",
+            "abyss_02": "深渊湖水 地下洞穴 2层",
+            "abyss_03": "深渊湖水 地下洞穴 3层"
+          }
+        },
+        {
+          "code": "hu_fild06",
+          "row": 1,
+          "col": 15,
+          "span": 1,
+          "name": "毁葛原野 区域6"
+        },
+        {
+          "code": "ra_fild01",
+          "row": 2,
+          "col": 5,
+          "span": 1,
+          "mvp": true,
+          "name": "奥顿拉草原 区域1",
+          "codes": [
+            "ra_fild01",
+            "ice_dun01",
+            "ice_dun02",
+            "ice_dun03",
+            "ice_dun04"
+          ],
+          "codeNames": {
+            "ra_fild01": "奥顿拉草原 区域1",
+            "ice_dun01": "冰洞窟1层",
+            "ice_dun02": "冰洞窟2层",
+            "ice_dun03": "冰洞窟3层",
+            "ice_dun04": "冰洞窟4层"
+          }
+        },
+        {
+          "code": "ein_fild02",
+          "row": 2,
+          "col": 10,
+          "span": 1,
+          "name": "艾音布罗克原野 区域2"
+        },
+        {
+          "code": "yuno_fild04",
+          "row": 2,
+          "col": 11,
+          "span": 1,
+          "name": "尔迈斯 瀑雷德"
+        },
+        {
+          "code": "yuno_fild03",
+          "row": 2,
+          "col": 12,
+          "span": 1,
+          "name": "尔迈斯 瀑雷德",
+          "codes": [
+            "yuno_fild03",
+            "mag_dun01",
+            "mag_dun02"
+          ],
+          "codeNames": {
+            "yuno_fild03": "尔迈斯 瀑雷德",
+            "mag_dun01": "诺可罗德洞窟1层",
+            "mag_dun02": "诺可罗德洞窟2层"
+          }
+        },
+        {
+          "code": "yuno_fild02",
+          "row": 2,
+          "col": 13,
+          "span": 1,
+          "mvp": true,
+          "name": "吉 海伊洛 别墅",
+          "codes": [
+            "yuno_fild02",
+            "kh_dun01",
+            "kh_dun02"
+          ],
+          "codeNames": {
+            "yuno_fild02": "吉 海伊洛 别墅",
+            "kh_dun01": "机械娃娃工厂1层",
+            "kh_dun02": "机械娃娃工厂 2层"
+          }
+        },
+        {
+          "code": "hu_fild07",
+          "row": 2,
+          "col": 14,
+          "span": 1,
+          "name": "毀葛原野 区域7"
+        },
+        {
+          "code": "odin_tem03",
+          "row": 2,
+          "col": 18,
+          "span": 1,
+          "mvp": true,
+          "name": "奥丁神殿 区域3"
+        },
+        {
+          "code": "ra_fild02",
+          "row": 3,
+          "col": 3,
+          "span": 1,
+          "name": "奥兹峡谷 区域2"
+        },
+        {
+          "code": "ra_fild03",
+          "row": 3,
+          "col": 4,
+          "span": 1,
+          "mvp": true,
+          "name": "一达平原 区域3"
+        },
+        {
+          "code": "ra_fild04",
+          "row": 3,
+          "col": 5,
+          "span": 1,
+          "mvp": true,
+          "name": "奥顿拉草原 区域4"
+        },
+        {
+          "code": "ra_fild05",
+          "row": 3,
+          "col": 6,
+          "span": 1,
+          "name": "奥顿拉草原 区域5"
+        },
+        {
+          "code": "ra_fild06",
+          "row": 3,
+          "col": 7,
+          "span": 1,
+          "name": "珀尔特鲁纳 区域6"
+        },
+        {
+          "code": "ein_fild03",
+          "row": 3,
+          "col": 8,
+          "span": 1,
+          "name": "艾音布罗克原野 区域3"
+        },
+        {
+          "code": "ein_fild04",
+          "row": 3,
+          "col": 9,
+          "span": 1,
+          "name": "艾音布罗克原野 区域4"
+        },
+        {
+          "code": "ein_fild05",
+          "row": 3,
+          "col": 10,
+          "span": 1,
+          "name": "艾音布罗克原野 区域5"
+        },
+        {
+          "code": "ein_fild06",
+          "row": 3,
+          "col": 11,
+          "span": 1,
+          "name": "艾音布罗克原野 区域6"
+        },
+        {
+          "code": "yuno_fild07",
+          "row": 3,
+          "col": 12,
+          "span": 1,
+          "mvp": true,
+          "name": "尔迈斯 峡谷(深渊的峡谷)",
+          "codes": [
+            "yuno_fild07",
+            "juperos_01",
+            "juperos_02",
+            "jupe_area1",
+            "jupe_area2",
+            "jupe_ele_r",
+            "jupe_ele",
+            "jupe_core"
+          ],
+          "codeNames": {
+            "yuno_fild07": "尔迈斯 峡谷(深渊的峡谷)",
+            "juperos_01": "优配擂斯废墟 区域1",
+            "juperos_02": "优配擂斯废墟 区域2",
+            "jupe_area1": "优配擂斯 保安区域",
+            "jupe_area2": "优配擂斯 保安区域",
+            "jupe_ele_r": "优配擂斯 电梯室",
+            "jupe_ele": "优配擂斯 电梯",
+            "jupe_core": "优配擂斯 中心部"
+          }
+        },
+        {
+          "code": "yuno_fild08",
+          "row": 3,
+          "col": 13,
+          "span": 1,
+          "name": "启 海伊洛 学院"
+        },
+        {
+          "code": "yuno_fild09",
+          "row": 3,
+          "col": 14,
+          "span": 1,
+          "name": "秀发兹发德 警备队 露营地"
+        },
+        {
+          "code": "yuno_fild10",
+          "row": 3,
+          "col": 15,
+          "span": 1,
+          "name": "朱诺原野"
+        },
+        {
+          "code": "odin_tem01",
+          "row": 3,
+          "col": 17,
+          "span": 1,
+          "name": "奥丁神殿 区域1"
+        },
+        {
+          "code": "odin_tem02",
+          "row": 3,
+          "col": 18,
+          "span": 1,
+          "name": "奥丁神殿 区域2"
+        },
+        {
+          "code": "ra_fild07",
+          "row": 4,
+          "col": 3,
+          "span": 1,
+          "name": "奥兹峡谷 区域7"
+        },
+        {
+          "code": "ra_temple",
+          "row": 4,
+          "col": 4,
+          "span": 1,
+          "mvp": true,
+          "name": "菲力亚大神殿(赛思卢姆尼尔)",
+          "codes": [
+            "ra_temple",
+            "ra_san01",
+            "ra_san02",
+            "ra_san03",
+            "ra_san04",
+            "ra_san05"
+          ],
+          "codeNames": {
+            "ra_temple": "菲力亚大神殿(赛思卢姆尼尔)",
+            "ra_san01": "神殿圣域1层",
+            "ra_san02": "神殿圣域2层",
+            "ra_san03": "神殿圣域3层",
+            "ra_san04": "神殿圣域4层",
+            "ra_san05": "神殿圣域5层"
+          }
+        },
+        {
+          "code": "ra_fild08",
+          "row": 4,
+          "col": 5,
+          "span": 1,
+          "name": "一达平原 区域8"
+        },
+        {
+          "code": "ra_fild09",
+          "row": 4,
+          "col": 6,
+          "span": 1,
+          "name": "奥顿拉草原 区域9"
+        },
+        {
+          "code": "lhz_fild01",
+          "row": 4,
+          "col": 7,
+          "span": 1,
+          "name": "里希塔乐镇 原野"
+        },
+        {
+          "code": "lhz_fild02",
+          "row": 4,
+          "col": 8,
+          "span": 1,
+          "name": "里希塔乐镇 原野(死神的峡谷)"
+        },
+        {
+          "code": "einbroch",
+          "row": 4,
+          "col": 9,
+          "span": 1,
+          "name": "钢铁之都 艾音布罗克"
+        },
+        {
+          "code": "einbech",
+          "row": 4,
+          "col": 10,
+          "span": 1,
+          "mvp": true,
+          "name": "采矿村落 艾音贝赫",
+          "codes": [
+            "einbech",
+            "ein_dun01",
+            "ein_dun02"
+          ],
+          "codeNames": {
+            "einbech": "采矿村落 艾音贝赫",
+            "ein_dun01": "矿山洞穴1层",
+            "ein_dun02": "矿山洞穴2层"
+          }
+        },
+        {
+          "code": "ein_fild07",
+          "row": 4,
+          "col": 11,
+          "span": 1,
+          "name": "艾音布罗克原野 区域7"
+        },
+        {
+          "code": "yuno_fild11",
+          "row": 4,
+          "col": 12,
+          "span": 1,
+          "name": "朱诺 原野"
+        },
+        {
+          "code": "yuno_fild12",
+          "row": 4,
+          "col": 13,
+          "span": 1,
+          "name": "国界 检查站"
+        },
+        {
+          "code": "yuno_fild01",
+          "row": 4,
+          "col": 14,
+          "span": 1,
+          "name": "国界 检查站"
+        },
+        {
+          "code": "xmas",
+          "row": 4,
+          "col": 17,
+          "span": 1,
+          "mvp": true,
+          "name": "白雪村落 姜饼城",
+          "codes": [
+            "xmas",
+            "xmas_dun01",
+            "xmas_dun02"
+          ],
+          "codeNames": {
+            "xmas": "白雪村落 姜饼城",
+            "xmas_dun01": "玩具工厂仓库",
+            "xmas_dun02": "玩具分类场"
+          }
+        },
+        {
+          "code": "ra_fild10",
+          "row": 5,
+          "col": 2,
+          "span": 1,
+          "name": "奥兹峡谷 区域10"
+        },
+        {
+          "code": "ra_fild11",
+          "row": 5,
+          "col": 3,
+          "span": 1,
+          "name": "一达平原 区域11"
+        },
+        {
+          "code": "rachel",
+          "row": 5,
+          "col": 4,
+          "span": 1,
+          "name": "阿鲁娜配滋教国首都拉赫"
+        },
+        {
+          "code": "ra_fild12",
+          "row": 5,
+          "col": 5,
+          "span": 1,
+          "name": "一达平原 区域12"
+        },
+        {
+          "code": "lighthalzen",
+          "row": 5,
+          "col": 7,
+          "span": 1,
+          "mvp": true,
+          "name": "企业之都 里希塔乐镇",
+          "codes": [
+            "lighthalzen",
+            "lhz_dun01",
+            "lhz_dun02",
+            "lhz_dun03",
+            "lhz_dun04"
+          ],
+          "codeNames": {
+            "lighthalzen": "企业之都 里希塔乐镇",
+            "lhz_dun01": "生命体研究所1层",
+            "lhz_dun02": "生命体研究所2层",
+            "lhz_dun03": "生命体研究所3层"
+          }
+        },
+        {
+          "code": "lhz_fild03",
+          "row": 5,
+          "col": 8,
+          "span": 1,
+          "name": "里希塔乐镇 原野"
+        },
+        {
+          "code": "ein_fild08",
+          "row": 5,
+          "col": 9,
+          "span": 1,
+          "name": "艾音布罗克原野 区域8"
+        },
+        {
+          "code": "ein_fild09",
+          "row": 5,
+          "col": 10,
+          "span": 1,
+          "name": "艾音布罗克原野 区域9"
+        },
+        {
+          "code": "ein_fild10",
+          "row": 5,
+          "col": 11,
+          "span": 1,
+          "name": "艾音布罗克原野 区域10"
+        },
+        {
+          "code": "alde_gld",
+          "row": 5,
+          "col": 13,
+          "span": 1,
+          "name": "艾尔帕兰卫星都市 露依纳"
+        },
+        {
+          "code": "aldebaran",
+          "row": 5,
+          "col": 14,
+          "span": 1,
+          "name": "运河之都 艾尔帕兰",
+          "codes": [
+            "aldebaran",
+            "c_tower1",
+            "c_tower2",
+            "c_tower3",
+            "c_tower4",
+            "alde_dun01",
+            "alde_dun02",
+            "alde_dun03",
+            "alde_dun04"
+          ],
+          "codeNames": {
+            "aldebaran": "运河之都 艾尔帕兰",
+            "c_tower1": "艾尔帕兰 钟塔地上楼层 1楼",
+            "c_tower2": "艾尔帕兰 钟塔地上楼层 2楼",
+            "c_tower3": "艾尔帕兰 钟塔地上楼层 3楼",
+            "c_tower4": "艾尔帕兰 钟塔地上楼层 4楼",
+            "alde_dun01": "艾尔帕兰 钟塔地下楼层 1楼",
+            "alde_dun02": "艾尔帕兰 钟塔地下楼层 2楼",
+            "alde_dun03": "艾尔帕兰 钟塔地下楼层 3楼",
+            "alde_dun04": "艾尔帕兰 钟塔地下楼层 4楼"
+          }
+        },
+        {
+          "code": "xmas_fild01",
+          "row": 5,
+          "col": 17,
+          "span": 1,
+          "mvp": true,
+          "name": "姜饼城原野"
+        },
+        {
+          "code": "malangdo",
+          "row": 5,
+          "col": 19,
+          "span": 1
+        },
+        {
+          "code": "thor_camp",
+          "row": 6,
+          "col": 2,
+          "span": 1,
+          "name": "图尔火山兵部基地"
+        },
+        {
+          "code": "ve_fild01",
+          "row": 6,
+          "col": 3,
+          "span": 1,
+          "name": "伯仁斯旷野 区域1"
+        },
+        {
+          "code": "ve_fild02",
+          "row": 6,
+          "col": 4,
+          "span": 1,
+          "mvp": true,
+          "name": "伯仁斯旷野 区域2"
+        },
+        {
+          "code": "ra_fild13",
+          "row": 6,
+          "col": 5,
+          "span": 1,
+          "name": "眼泪的海岸 区域13"
+        },
+        {
+          "code": "mjolnir_12",
+          "row": 6,
+          "col": 14,
+          "span": 1,
+          "name": "妙勒尼山脉 区域12"
+        },
+        {
+          "code": "ve_fild03",
+          "row": 7,
+          "col": 2,
+          "span": 1,
+          "mvp": true,
+          "name": "伯仁斯旷野 区域3",
+          "codes": [
+            "ve_fild03",
+            "thor_v01",
+            "thor_v02",
+            "thor_v03"
+          ],
+          "codeNames": {
+            "ve_fild03": "伯仁斯旷野 区域3",
+            "thor_v01": "图尔火山洞窟1层",
+            "thor_v02": "图尔火山洞窟2层",
+            "thor_v03": "图尔火山洞窟3层"
+          }
+        },
+        {
+          "code": "ve_fild04",
+          "row": 7,
+          "col": 3,
+          "span": 1,
+          "name": "伯仁斯旷野 区域4"
+        },
+        {
+          "code": "mjolnir_01",
+          "row": 7,
+          "col": 10,
+          "span": 1,
+          "name": "妙勒尼山脉 区域1"
+        },
+        {
+          "code": "mjolnir_02",
+          "row": 7,
+          "col": 11,
+          "span": 1,
+          "name": "妙勒尼山脉 区域2",
+          "codes": [
+            "mjolnir_02",
+            "mjo_dun01",
+            "mjo_dun02",
+            "mjo_dun03"
+          ],
+          "codeNames": {
+            "mjolnir_02": "妙勒尼山脉 区域2",
+            "mjo_dun01": "妙勒尼废弃矿场1层",
+            "mjo_dun02": "妙勒尼废弃矿场2层",
+            "mjo_dun03": "妙勒尼废弃矿场3层"
+          }
+        },
+        {
+          "code": "mjolnir_03",
+          "row": 7,
+          "col": 12,
+          "span": 1,
+          "name": "妙勒尼山脉 区域3"
+        },
+        {
+          "code": "mjolnir_04",
+          "row": 7,
+          "col": 13,
+          "span": 1,
+          "mvp": true,
+          "name": "妙勒尼山脉 区域4"
+        },
+        {
+          "code": "mjolnir_05",
+          "row": 7,
+          "col": 14,
+          "span": 1,
+          "name": "妙勒尼山脉 区域5"
+        },
+        {
+          "code": "lasagna",
+          "row": 7,
+          "col": 19,
+          "span": 1,
+          "name": "港口都市 罗札纳",
+          "codes": [
+            "lasagna",
+            "airplane"
+          ],
+          "codeNames": {
+            "lasagna": "港口都市 罗札纳",
+            "airplane": "飞空艇"
+          }
+        },
+        {
+          "code": "lasa_fild02",
+          "row": 7,
+          "col": 20,
+          "span": 1,
+          "name": "罗比奥森林"
+        },
+        {
+          "code": "ve_fild05",
+          "row": 8,
+          "col": 2,
+          "span": 1,
+          "name": "伯仁斯旷野 区域5"
+        },
+        {
+          "code": "ve_fild06",
+          "row": 8,
+          "col": 3,
+          "span": 1,
+          "name": "伯仁斯旷野 区域6"
+        },
+        {
+          "code": "glast_01",
+          "row": 8,
+          "col": 7,
+          "span": 1,
+          "mvp": true,
+          "name": "克雷斯特汉姆古城",
+          "codes": [
+            "glast_01",
+            "gl_cas01",
+            "gl_cas02",
+            "gl_church",
+            "gl_chyard",
+            "gl_dun01",
+            "gl_dun02",
+            "gl_in01",
+            "gl_knt01",
+            "gl_knt02",
+            "gl_prison",
+            "gl_prison1",
+            "gl_sew01",
+            "gl_sew02",
+            "gl_sew03",
+            "gl_sew04"
+          ],
+          "codeNames": {
+            "glast_01": "克雷斯特汉姆古城",
+            "gl_cas01": "克雷斯特汉姆古城 地上1层",
+            "gl_cas02": "克雷斯特汉姆古城 地上2楼",
+            "gl_church": "克雷斯特汉姆古城 修道院",
+            "gl_chyard": "克雷斯特汉姆古城 地下公墓",
+            "gl_dun01": "克雷斯特汉姆 地下洞窟1层",
+            "gl_dun02": "克雷斯特汉姆 地下洞窟2层",
+            "gl_in01": "克雷斯特汉姆古城 室内",
+            "gl_knt01": "克雷斯特汉姆 骑士团1楼",
+            "gl_knt02": "克雷斯特汉姆 骑士团2楼",
+            "gl_prison": "克雷斯特汉姆 地下监狱1楼",
+            "gl_prison1": "克雷斯特汉姆 地下监狱2楼",
+            "gl_sew01": "克雷斯特汉姆 地下水道1层",
+            "gl_sew02": "克雷斯特汉姆 地下水道2层",
+            "gl_sew03": "克雷斯特汉姆 地下水道3层",
+            "gl_sew04": "克雷斯特汉姆 地下水道4层"
+          }
+        },
+        {
+          "code": "gef_fild06",
+          "row": 8,
+          "col": 8,
+          "span": 1,
+          "name": "吉芬 区域6"
+        },
+        {
+          "code": "gef_fild05",
+          "row": 8,
+          "col": 9,
+          "span": 1,
+          "name": "吉芬 区域5"
+        },
+        {
+          "code": "gef_fild04",
+          "row": 8,
+          "col": 10,
+          "span": 1,
+          "name": "吉芬 区域4"
+        },
+        {
+          "code": "mjolnir_06",
+          "row": 8,
+          "col": 11,
+          "span": 1,
+          "name": "妙勒尼山脉 区域6"
+        },
+        {
+          "code": "mjolnir_07",
+          "row": 8,
+          "col": 12,
+          "span": 1,
+          "name": "妙勒尼山脉 区域7"
+        },
+        {
+          "code": "mjolnir_08",
+          "row": 8,
+          "col": 13,
+          "span": 1,
+          "name": "妙勒尼山脉 区域8"
+        },
+        {
+          "code": "mjolnir_10",
+          "row": 8,
+          "col": 14,
+          "span": 1,
+          "name": "妙勒尼山脉 区域10"
+        },
+        {
+          "code": "mjolnir_11",
+          "row": 8,
+          "col": 15,
+          "span": 1,
+          "name": "妙勒尼山脉 区域11"
+        },
+        {
+          "code": "lasa_fild01",
+          "row": 8,
+          "col": 18,
+          "span": 1,
+          "name": "罗比奥平原岗亭"
+        },
+        {
+          "code": "veins",
+          "row": 9,
+          "col": 3,
+          "span": 1,
+          "name": "峡谷村子伯仁斯"
+        },
+        {
+          "code": "gef_fild08",
+          "row": 9,
+          "col": 8,
+          "span": 1,
+          "name": "吉芬 区域8"
+        },
+        {
+          "code": "gef_fild07",
+          "row": 9,
+          "col": 9,
+          "span": 1,
+          "name": "吉芬 区域7"
+        },
+        {
+          "code": "geffen",
+          "row": 9,
+          "col": 10,
+          "span": 1,
+          "mvp": true,
+          "name": "魔法之都 吉芬",
+          "codes": [
+            "geffen",
+            "gef_dun00",
+            "gef_dun01",
+            "gef_dun02",
+            "gef_dun03",
+            "gefenia01",
+            "gefenia02",
+            "gefenia03",
+            "gefenia04"
+          ],
+          "codeNames": {
+            "geffen": "魔法之都 吉芬",
+            "gef_dun00": "吉芬地下密穴1层",
+            "gef_dun01": "吉芬地下密穴2层",
+            "gef_dun02": "葛帔尼亚密穴3层",
+            "gef_dun03": "葛帔尼亚密穴4层",
+            "gefenia01": "葛帔尼亚 区域1",
+            "gefenia02": "葛帔尼亚 区域2",
+            "gefenia03": "葛帔尼亚 区域3",
+            "gefenia04": "葛帔尼亚 区域4"
+          }
+        },
+        {
+          "code": "gef_fild00",
+          "row": 9,
+          "col": 11,
+          "span": 1,
+          "name": "吉芬 区域"
+        },
+        {
+          "code": "prt_fild00",
+          "row": 9,
+          "col": 12,
+          "span": 1,
+          "name": "普隆德拉 区域"
+        },
+        {
+          "code": "mjolnir_09",
+          "row": 9,
+          "col": 13,
+          "span": 1,
+          "name": "妙勒尼山脉 区域9"
+        },
+        {
+          "code": "prt_fild01",
+          "row": 9,
+          "col": 14,
+          "span": 1,
+          "mvp": true,
+          "name": "普隆德拉 区域1",
+          "codes": [
+            "prt_fild01",
+            "prt_maze01",
+            "prt_maze02",
+            "prt_maze03"
+          ],
+          "codeNames": {
+            "prt_fild01": "普隆德拉 区域1",
+            "prt_maze01": "迷藏森林 区域1",
+            "prt_maze02": "迷藏森林 区域2",
+            "prt_maze03": "迷藏森林 区域3"
+          }
+        },
+        {
+          "code": "prt_fild02",
+          "row": 9,
+          "col": 15,
+          "span": 1,
+          "name": "普隆德拉 区域2"
+        },
+        {
+          "code": "prt_fild03",
+          "row": 9,
+          "col": 16,
+          "span": 1,
+          "name": "普隆德拉 区域3"
+        },
+        {
+          "code": "prt_monk",
+          "row": 9,
+          "col": 17,
+          "span": 1,
+          "name": "圣卡毕利那 修道院"
+        },
+        {
+          "code": "ve_fild07",
+          "row": 10,
+          "col": 3,
+          "span": 1,
+          "name": "伯仁斯旷野 区域7"
+        },
+        {
+          "code": "gef_fild12",
+          "row": 10,
+          "col": 8,
+          "span": 1,
+          "name": "克特 森林"
+        },
+        {
+          "code": "gef_fild13",
+          "row": 10,
+          "col": 9,
+          "span": 1,
+          "name": "怖立特离亚"
+        },
+        {
+          "code": "gef_fild09",
+          "row": 10,
+          "col": 10,
+          "span": 1,
+          "name": "吉芬 区域9"
+        },
+        {
+          "code": "gef_fild01",
+          "row": 10,
+          "col": 11,
+          "span": 1,
+          "name": "吉芬 区域1"
+        },
+        {
+          "code": "prt_fild04",
+          "row": 10,
+          "col": 12,
+          "span": 1,
+          "name": "普隆德拉 区域4"
+        },
+        {
+          "code": "prt_fild05",
+          "row": 10,
+          "col": 13,
+          "span": 1,
+          "mvp": true,
+          "name": "普隆德拉 区域5",
+          "codes": [
+            "prt_fild05",
+            "prt_sewb1",
+            "prt_sewb2",
+            "prt_sewb3",
+            "prt_sewb4"
+          ],
+          "codeNames": {
+            "prt_fild05": "普隆德拉 区域5",
+            "prt_sewb1": "普隆德拉 地下水道1层",
+            "prt_sewb2": "普隆德拉 地下水道2层",
+            "prt_sewb3": "普隆德拉 地下水道3层",
+            "prt_sewb4": "普隆德拉 地下水道4层"
+          }
+        },
+        {
+          "code": "prontera",
+          "row": 10,
+          "col": 14,
+          "span": 1,
+          "name": "卢恩 米德加兹王国 首都 普隆德拉"
+        },
+        {
+          "code": "prt_fild06",
+          "row": 10,
+          "col": 15,
+          "span": 1,
+          "name": "普隆德拉 区域6"
+        },
+        {
+          "code": "jawaii",
+          "row": 10,
+          "col": 19,
+          "span": 1,
+          "name": "蜜月岛 爪哇咿"
+        },
+        {
+          "code": "umbala",
+          "row": 11,
+          "col": 5,
+          "span": 1,
+          "name": "雨檀族村落 汶巴拉"
+        },
+        {
+          "code": "gef_fild14",
+          "row": 11,
+          "col": 9,
+          "span": 1,
+          "name": "西边 兽人村落"
+        },
+        {
+          "code": "gef_fild10",
+          "row": 11,
+          "col": 10,
+          "span": 1,
+          "mvp": true,
+          "name": "东边 兽人村落",
+          "codes": [
+            "gef_fild10",
+            "orcsdun01",
+            "orcsdun02"
+          ],
+          "codeNames": {
+            "gef_fild10": "东边 兽人村落",
+            "orcsdun01": "兽人地下洞窟1层",
+            "orcsdun02": "兽人地下洞窟2层"
+          }
+        },
+        {
+          "code": "gef_fild03",
+          "row": 11,
+          "col": 11,
+          "span": 1,
+          "mvp": true,
+          "name": "吉芬 区域3"
+        },
+        {
+          "code": "gef_fild02",
+          "row": 11,
+          "col": 12,
+          "span": 1,
+          "name": "吉芬 区域2"
+        },
+        {
+          "code": "prt_fild07",
+          "row": 11,
+          "col": 13,
+          "span": 1,
+          "name": "普隆德拉 区域7"
+        },
+        {
+          "code": "prt_fild08",
+          "row": 11,
+          "col": 14,
+          "span": 1,
+          "name": "普隆德拉 区域8"
+        },
+        {
+          "code": "izlude",
+          "row": 11,
+          "col": 15,
+          "span": 1,
+          "name": "卫星都市 依斯鲁得岛"
+        },
+        {
+          "code": "izlu2dun",
+          "row": 11,
+          "col": 16,
+          "span": 1,
+          "name": "卫星都市 依斯鲁得岛",
+          "codes": [
+            "izlu2dun",
+            "iz_dun00",
+            "iz_dun01",
+            "iz_dun02",
+            "iz_dun03",
+            "iz_dun04",
+            "iz_dun05"
+          ],
+          "codeNames": {
+            "izlu2dun": "卫星都市 依斯鲁得岛",
+            "iz_dun00": "海底洞窟1层",
+            "iz_dun01": "海底洞窟2层",
+            "iz_dun02": "海底洞窟3层",
+            "iz_dun03": "海底洞窟4层",
+            "iz_dun04": "海底洞窟5层",
+            "iz_dun05": "海底洞窟6层"
+          }
+        },
+        {
+          "code": "nameless_n",
+          "row": 12,
+          "col": 2,
+          "span": 1,
+          "mvp": true,
+          "name": "无名岛",
+          "codes": [
+            "nameless_n",
+            "abbey01",
+            "abbey02",
+            "abbey03"
+          ],
+          "codeNames": {
+            "nameless_n": "无名岛",
+            "abbey01": "修道院1层",
+            "abbey02": "修道院2层",
+            "abbey03": "修道院3层"
+          }
+        },
+        {
+          "code": "um_fild04",
+          "row": 12,
+          "col": 5,
+          "span": 1,
+          "name": "沪家丛林"
+        },
+        {
+          "code": "gef_fild11",
+          "row": 12,
+          "col": 10,
+          "span": 1,
+          "name": "吉芬 区域11"
+        },
+        {
+          "code": "prt_fild11",
+          "row": 12,
+          "col": 11,
+          "span": 1,
+          "name": "普隆德拉 区域11"
+        },
+        {
+          "code": "prt_fild10",
+          "row": 12,
+          "col": 12,
+          "span": 1,
+          "name": "普隆德拉 区域10"
+        },
+        {
+          "code": "prt_fild09",
+          "row": 12,
+          "col": 13,
+          "span": 1,
+          "name": "普隆德拉 区域9"
+        },
+        {
+          "code": "moc_fild01",
+          "row": 12,
+          "col": 14,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域1"
+        },
+        {
+          "code": "pay_fild04",
+          "row": 12,
+          "col": 15,
+          "span": 1,
+          "name": "波利岛"
+        },
+        {
+          "code": "pay_arche",
+          "row": 12,
+          "col": 17,
+          "span": 1,
+          "mvp": true,
+          "name": "山岳之都 斐扬",
+          "codes": [
+            "pay_arche",
+            "pay_dun00",
+            "pay_dun01",
+            "pay_dun02",
+            "pay_dun03",
+            "pay_dun04"
+          ],
+          "codeNames": {
+            "pay_arche": "山岳之都 斐扬",
+            "pay_dun00": "废弃村落1层",
+            "pay_dun01": "废弃村落2层",
+            "pay_dun02": "废弃村落3层",
+            "pay_dun03": "废弃村落4层",
+            "pay_dun04": "废弃村落5层"
+          }
+        },
+        {
+          "code": "um_fild01",
+          "row": 13,
+          "col": 4,
+          "span": 1,
+          "name": "噜噜卡森林"
+        },
+        {
+          "code": "um_fild02",
+          "row": 13,
+          "col": 5,
+          "span": 1,
+          "name": "沪家森林"
+        },
+        {
+          "code": "um_fild03",
+          "row": 13,
+          "col": 6,
+          "span": 1,
+          "name": "卡拉拉森林"
+        },
+        {
+          "code": "moc_ruins",
+          "row": 13,
+          "col": 9,
+          "span": 1,
+          "mvp": true,
+          "name": "沙漠之都 梦罗克",
+          "codes": [
+            "moc_ruins",
+            "moc_pryd01",
+            "moc_pryd02",
+            "moc_pryd03",
+            "moc_pryd04",
+            "moc_prydb1",
+            "moc_pryd05",
+            "moc_pryd06"
+          ],
+          "codeNames": {
+            "moc_ruins": "沙漠之都 梦罗克",
+            "moc_pryd01": "金字塔迷宫1层",
+            "moc_pryd02": "金字塔迷宫2层",
+            "moc_pryd03": "金字塔迷宫3层",
+            "moc_pryd04": "金字塔迷宫4层",
+            "moc_prydb1": "盗贼 工会",
+            "moc_pryd05": "金字塔迷宫5层",
+            "moc_pryd06": "金字塔迷宫6层"
+          }
+        },
+        {
+          "code": "moc_fild07",
+          "row": 13,
+          "col": 10,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域7"
+        },
+        {
+          "code": "moc_fild02",
+          "row": 13,
+          "col": 14,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域2"
+        },
+        {
+          "code": "pay_gld",
+          "row": 13,
+          "col": 15,
+          "span": 1,
+          "name": "青林湖泊"
+        },
+        {
+          "code": "payon",
+          "row": 13,
+          "col": 16,
+          "span": 1,
+          "name": "山岳之都 斐扬"
+        },
+        {
+          "code": "pay_fild08",
+          "row": 13,
+          "col": 17,
+          "span": 1,
+          "name": "斐扬树林 区域8"
+        },
+        {
+          "code": "pay_fild09",
+          "row": 13,
+          "col": 18,
+          "span": 1,
+          "name": "斐扬树林 区域9"
+        },
+        {
+          "code": "comodo",
+          "row": 14,
+          "col": 5,
+          "span": 1,
+          "mvp": true,
+          "name": "海边之都 克魔岛",
+          "codes": [
+            "comodo",
+            "beach_dun",
+            "beach_dun2",
+            "beach_dun3"
+          ],
+          "codeNames": {
+            "comodo": "海边之都 克魔岛",
+            "beach_dun": "西边 洞穴 加露",
+            "beach_dun2": "北边 洞穴 卢安达",
+            "beach_dun3": "东边 洞穴 马吾"
+          }
+        },
+        {
+          "code": "cmd_fild01",
+          "row": 14,
+          "col": 6,
+          "span": 1,
+          "name": "巴不其卡 森林"
+        },
+        {
+          "code": "cmd_fild03",
+          "row": 14,
+          "col": 7,
+          "span": 1,
+          "name": "基乃依 沼泽地"
+        },
+        {
+          "code": "cmd_fild05",
+          "row": 14,
+          "col": 8,
+          "span": 1,
+          "name": "巴不其卡 森林边界"
+        },
+        {
+          "code": "moc_fild19",
+          "row": 14,
+          "col": 9,
+          "span": 1,
+          "mvp": true,
+          "name": "苏克拉特沙漠 区域19",
+          "codes": [
+            "moc_fild19",
+            "in_sphinx1",
+            "in_sphinx2",
+            "in_sphinx3",
+            "in_sphinx4",
+            "in_sphinx5"
+          ],
+          "codeNames": {
+            "moc_fild19": "苏克拉特沙漠 区域19",
+            "in_sphinx1": "史芬克斯密穴1层",
+            "in_sphinx2": "史芬克斯密穴2层",
+            "in_sphinx3": "史芬克斯密穴3层",
+            "in_sphinx4": "史芬克斯密穴4层",
+            "in_sphinx5": "史芬克斯密穴5层"
+          }
+        },
+        {
+          "code": "morocc",
+          "row": 14,
+          "col": 10,
+          "span": 1,
+          "name": "沙漠之都 梦罗克"
+        },
+        {
+          "code": "moc_fild20",
+          "row": 14,
+          "col": 12,
+          "span": 1,
+          "name": "次元空间"
+        },
+        {
+          "code": "moc_fild21",
+          "row": 14,
+          "col": 13,
+          "span": 1,
+          "name": "次元空间"
+        },
+        {
+          "code": "moc_fild13",
+          "row": 14,
+          "col": 14,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域13"
+        },
+        {
+          "code": "moc_fild03",
+          "row": 14,
+          "col": 15,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域3"
+        },
+        {
+          "code": "pay_fild01",
+          "row": 14,
+          "col": 16,
+          "span": 1,
+          "name": "斐扬树林 区域1"
+        },
+        {
+          "code": "pay_fild07",
+          "row": 14,
+          "col": 17,
+          "span": 1,
+          "name": "斐扬树林 区域7"
+        },
+        {
+          "code": "pay_fild10",
+          "row": 14,
+          "col": 18,
+          "span": 1,
+          "mvp": true,
+          "name": "斐扬树林 区域10"
+        },
+        {
+          "code": "cmd_fild02",
+          "row": 15,
+          "col": 6,
+          "span": 1,
+          "name": "克克魔 海边"
+        },
+        {
+          "code": "cmd_fild04",
+          "row": 15,
+          "col": 7,
+          "span": 1,
+          "name": "克克魔 海边"
+        },
+        {
+          "code": "cmd_fild06",
+          "row": 15,
+          "col": 8,
+          "span": 1,
+          "name": "要塞都市 山特乐曼(西边)"
+        },
+        {
+          "code": "cmd_fild08",
+          "row": 15,
+          "col": 9,
+          "span": 1,
+          "mvp": true,
+          "name": "要塞都市 山特乐曼(东边)",
+          "codes": [
+            "cmd_fild08",
+            "anthell01",
+            "anthell02"
+          ],
+          "codeNames": {
+            "cmd_fild08": "要塞都市 山特乐曼(东边)",
+            "anthell01": "蚂蚁地狱密穴1层",
+            "anthell02": "蚂蚁地狱密穴2层"
+          }
+        },
+        {
+          "code": "moc_fild12",
+          "row": 15,
+          "col": 10,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域12"
+        },
+        {
+          "code": "moc_fild11",
+          "row": 15,
+          "col": 11,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域11"
+        },
+        {
+          "code": "moc_fild22",
+          "row": 15,
+          "col": 13,
+          "span": 1,
+          "name": "次元空间"
+        },
+        {
+          "code": "pay_fild11",
+          "row": 15,
+          "col": 15,
+          "span": 1,
+          "name": "斐扬树林 区域11"
+        },
+        {
+          "code": "pay_fild02",
+          "row": 15,
+          "col": 16,
+          "span": 1,
+          "name": "斐扬树林 区域2"
+        },
+        {
+          "code": "pay_fild03",
+          "row": 15,
+          "col": 17,
+          "span": 1,
+          "name": "斐扬树林 区域3"
+        },
+        {
+          "code": "alb2trea",
+          "row": 15,
+          "col": 19,
+          "span": 1,
+          "mvp": true,
+          "name": "沉船附近的岛屿",
+          "codes": [
+            "alb2trea",
+            "treasure01",
+            "treasure02"
+          ],
+          "codeNames": {
+            "alb2trea": "沉船附近的岛屿",
+            "treasure01": "沉没之船1层",
+            "treasure02": "沉没之船2层"
+          }
+        },
+        {
+          "code": "nif_fild01",
+          "row": 16,
+          "col": 2,
+          "span": 1,
+          "name": "斯凯领顿 (尼芙菲姆 偏远村落)"
+        },
+        {
+          "code": "nif_fild02",
+          "row": 16,
+          "col": 3,
+          "span": 1,
+          "name": "鬼的峡谷"
+        },
+        {
+          "code": "niflheim",
+          "row": 16,
+          "col": 4,
+          "span": 1,
+          "mvp": true,
+          "name": "死者国家 尼芙菲姆"
+        },
+        {
+          "code": "cmd_fild07",
+          "row": 16,
+          "col": 8,
+          "span": 1,
+          "name": "发乐斯 灯塔岛"
+        },
+        {
+          "code": "cmd_fild09",
+          "row": 16,
+          "col": 9,
+          "span": 1,
+          "name": "要塞都市 山特乐曼(南边)"
+        },
+        {
+          "code": "moc_fild18",
+          "row": 16,
+          "col": 10,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域18"
+        },
+        {
+          "code": "moc_fild17",
+          "row": 16,
+          "col": 11,
+          "span": 1,
+          "mvp": true,
+          "name": "苏克拉特沙漠 区域17"
+        },
+        {
+          "code": "moc_fild16",
+          "row": 16,
+          "col": 12,
+          "span": 1,
+          "name": "苏克拉特沙漠 区域16"
+        },
+        {
+          "code": "pay_fild05",
+          "row": 16,
+          "col": 16,
+          "span": 1,
+          "name": "斐扬树林 区域5"
+        },
+        {
+          "code": "pay_fild06",
+          "row": 16,
+          "col": 17,
+          "span": 1,
+          "name": "斐扬树林 区域6"
+        },
+        {
+          "code": "alberta",
+          "row": 16,
+          "col": 18,
+          "span": 1,
+          "name": "港口之都 艾尔贝塔"
+        },
+        {
+          "code": "tur_dun01",
+          "row": 16,
+          "col": 20,
+          "span": 1,
+          "codes": [
+            "tur_dun01",
+            "tur_dun02",
+            "tur_dun03",
+            "tur_dun04"
+          ],
+          "mvp": true,
+          "name": "乌龟岛",
+          "codeNames": {
+            "tur_dun01": "乌龟岛",
+            "tur_dun02": "乌龟密穴1层",
+            "tur_dun03": "乌龟密穴2层",
+            "tur_dun04": "旧良宫"
+          }
+        }
+      ]
+    },
+    {
+      "id": "dimension",
+      "name": "次元大陆",
+      "image": "/ke/worldmap/dimension.jpg",
+      "cols": 16,
+      "rows": 13,
+      "cellW": 54,
+      "cellH": 52,
+      "points": [
+        {
+          "code": "eclage",
+          "row": 3,
+          "col": 5,
+          "span": 1,
+          "name": "守护精灵首都 埃克拉珠"
+        },
+        {
+          "code": "ecl_fild01",
+          "row": 4,
+          "col": 5,
+          "span": 1,
+          "name": "花枝散叶的大地"
+        },
+        {
+          "code": "bif_fild02",
+          "row": 5,
+          "col": 5,
+          "span": 1,
+          "name": "彩虹桥北部"
+        },
+        {
+          "code": "bif_fild01",
+          "row": 6,
+          "col": 5,
+          "span": 1,
+          "name": "彩虹桥南部"
+        },
+        {
+          "code": "spl_fild01",
+          "row": 6,
+          "col": 6,
+          "span": 1,
+          "name": "司普兰迪多 原野"
+        },
+        {
+          "code": "dicastes02",
+          "row": 6,
+          "col": 11,
+          "span": 1,
+          "name": "布伦贝德·约尔希森林"
+        },
+        {
+          "code": "splendide",
+          "row": 7,
+          "col": 5,
+          "span": 1,
+          "name": "守护精灵前卫基地 司普兰迪多"
+        },
+        {
+          "code": "spl_fild02",
+          "row": 7,
+          "col": 6,
+          "span": 1,
+          "name": "辉煌领域"
+        },
+        {
+          "code": "mid_camp",
+          "row": 7,
+          "col": 7,
+          "span": 1,
+          "name": "米德加尔特联合驻地"
+        },
+        {
+          "code": "man_fild01",
+          "row": 7,
+          "col": 8,
+          "span": 1,
+          "name": "马努克旷野 区域1"
+        },
+        {
+          "code": "man_fild02",
+          "row": 7,
+          "col": 9,
+          "span": 1,
+          "name": "马努克旷野 区域2"
+        },
+        {
+          "code": "dicastes01",
+          "row": 7,
+          "col": 11,
+          "span": 1,
+          "name": "沙帕首都埃迪斯特斯"
+        },
+        {
+          "code": "spl_fild03",
+          "row": 8,
+          "col": 6,
+          "span": 1,
+          "name": "辉煌领域"
+        },
+        {
+          "code": "man_fild03",
+          "row": 8,
+          "col": 8,
+          "span": 1,
+          "name": "马努克旷野 区域3"
+        },
+        {
+          "code": "manuk",
+          "row": 8,
+          "col": 9,
+          "span": 1,
+          "name": "矿山村落 马努克"
+        },
+        {
+          "code": "dic_dun01",
+          "row": 8,
+          "col": 10,
+          "span": 1,
+          "name": "卡米达隧道",
+          "codes": [
+            "dic_dun01",
+            "dic_dun02"
+          ],
+          "codeNames": {
+            "dic_dun01": "卡米达隧道",
+            "dic_dun02": "甲虫洞"
+          }
+        },
+        {
+          "code": "dic_fild01",
+          "row": 8,
+          "col": 11,
+          "span": 1,
+          "name": "卡米达山麓"
+        },
+        {
+          "code": "dic_fild02",
+          "row": 9,
+          "col": 11,
+          "span": 1,
+          "name": "卡米达山麓"
+        }
+      ]
+    },
+    {
+      "id": "localizing1",
+      "name": "局部地图01",
+      "image": "/ke/worldmap/localizing1.jpg",
+      "cols": 18,
+      "rows": 15,
+      "cellW": 54,
+      "cellH": 52,
+      "points": [
+        {
+          "code": "gon_dun02",
+          "row": 2,
+          "col": 15,
+          "span": 1,
+          "name": "神仙的围棋台"
+        },
+        {
+          "code": "ama_fild01",
+          "row": 3,
+          "col": 5,
+          "span": 1,
+          "mvp": true,
+          "name": "樱花城原野",
+          "codes": [
+            "ama_fild01",
+            "ama_dun01",
+            "ama_dun02",
+            "ama_dun03"
+          ],
+          "codeNames": {
+            "ama_fild01": "樱花城原野",
+            "ama_dun01": "榻榻米 迷宫",
+            "ama_dun02": "地下森 战场",
+            "ama_dun03": "樱花城 地下庙堂"
+          }
+        },
+        {
+          "code": "gonryun",
+          "row": 3,
+          "col": 13,
+          "span": 1,
+          "mvp": true,
+          "name": "神仙之岛 昆仑",
+          "codes": [
+            "gonryun",
+            "gon_dun01",
+            "gon_dun02",
+            "gon_dun03"
+          ],
+          "codeNames": {
+            "gonryun": "神仙之岛 昆仑",
+            "gon_dun01": "西王母神殿",
+            "gon_dun02": "神仙的围棋台",
+            "gon_dun03": "武陵道院"
+          }
+        },
+        {
+          "code": "amatsu",
+          "row": 4,
+          "col": 4,
+          "span": 1,
+          "name": "天水之国 樱花城"
+        },
+        {
+          "code": "gon_fild01",
+          "row": 4,
+          "col": 13,
+          "span": 1,
+          "name": "昆仑原野"
+        },
+        {
+          "code": "lou_dun01",
+          "row": 10,
+          "col": 3,
+          "span": 1,
+          "name": "王陵"
+        },
+        {
+          "code": "louyang",
+          "row": 10,
+          "col": 4,
+          "span": 1,
+          "mvp": true,
+          "name": "古都 龙之城",
+          "codes": [
+            "louyang",
+            "lou_dun01",
+            "lou_dun02",
+            "lou_dun03"
+          ],
+          "codeNames": {
+            "louyang": "古都 龙之城",
+            "lou_dun01": "王陵",
+            "lou_dun02": "王陵 内部",
+            "lou_dun03": "审良宫"
+          }
+        },
+        {
+          "code": "ayo_fild02",
+          "row": 10,
+          "col": 13,
+          "span": 1,
+          "mvp": true,
+          "name": "哎哟泰雅 原野",
+          "codes": [
+            "ayo_fild02",
+            "ayo_dun01",
+            "ayo_dun02"
+          ],
+          "codeNames": {
+            "ayo_fild02": "哎哟泰雅 原野",
+            "ayo_dun01": "古代神殿 迷宫",
+            "ayo_dun02": "古代神殿 内部"
+          }
+        },
+        {
+          "code": "lou_fild01",
+          "row": 11,
+          "col": 4,
+          "span": 1,
+          "name": "龙之城 原野"
+        },
+        {
+          "code": "ayothaya",
+          "row": 11,
+          "col": 12,
+          "span": 1,
+          "name": "哎哟泰雅"
+        },
+        {
+          "code": "ayo_fild01",
+          "row": 11,
+          "col": 13,
+          "span": 1,
+          "name": "哎哟泰雅 原野"
+        }
+      ]
+    },
+    {
+      "id": "localizing2",
+      "name": "局部地图02",
+      "image": "/ke/worldmap/localizing2.jpg",
+      "cols": 18,
+      "rows": 15,
+      "cellW": 54,
+      "cellH": 52,
+      "points": [
+        {
+          "code": "mosk_dun02",
+          "row": 2,
+          "col": 3,
+          "span": 1,
+          "name": "深渊森林洞穴 2层"
+        },
+        {
+          "code": "mosk_dun03",
+          "row": 2,
+          "col": 4,
+          "span": 1,
+          "mvp": true,
+          "name": "深渊森林洞穴 3层"
+        },
+        {
+          "code": "bra_fild01",
+          "row": 2,
+          "col": 14,
+          "span": 1,
+          "name": "巴西平原",
+          "codes": [
+            "bra_fild01",
+            "bra_dun01",
+            "bra_dun02"
+          ],
+          "codeNames": {
+            "bra_fild01": "巴西平原",
+            "bra_dun01": "巴西瀑布里的洞穴入口",
+            "bra_dun02": "巴西瀑布里的洞穴内部"
+          }
+        },
+        {
+          "code": "mosk_dun01",
+          "row": 3,
+          "col": 3,
+          "span": 1,
+          "name": "深渊森林洞穴 1层"
+        },
+        {
+          "code": "mosk_fild02",
+          "row": 4,
+          "col": 3,
+          "span": 1,
+          "name": "莫斯科比亚 原野"
+        },
+        {
+          "code": "brasilis",
+          "row": 4,
+          "col": 13,
+          "span": 1,
+          "name": "巴西"
+        },
+        {
+          "code": "moscovia",
+          "row": 5,
+          "col": 6,
+          "span": 1,
+          "name": "莫斯科比亚"
+        },
+        {
+          "code": "ma_scene01",
+          "row": 9,
+          "col": 15,
+          "span": 1,
+          "name": "食月暴龙湖"
+        },
+        {
+          "code": "dew_fild01",
+          "row": 10,
+          "col": 1,
+          "span": 1,
+          "name": "德瓦他原野 贾提族部落"
+        },
+        {
+          "code": "dewata",
+          "row": 11,
+          "col": 3,
+          "span": 1,
+          "name": "德瓦他"
+        },
+        {
+          "code": "ma_fild02",
+          "row": 11,
+          "col": 14,
+          "span": 1
+        },
+        {
+          "code": "ma_fild01",
+          "row": 12,
+          "col": 14,
+          "span": 1
+        },
+        {
+          "code": "dew_dun01",
+          "row": 13,
+          "col": 5,
+          "span": 1,
+          "name": "喀拉喀托火山岛"
+        },
+        {
+          "code": "malaya",
+          "row": 13,
+          "col": 12,
+          "span": 1,
+          "name": "马来港"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "alb2trea": [
+    "treasure01",
+    "treasure02"
+  ],
+  "aldebaran": [
+    "c_tower1",
+    "c_tower2",
+    "c_tower3",
+    "c_tower4",
+    "alde_dun01",
+    "alde_dun02",
+    "alde_dun03",
+    "alde_dun04"
+  ],
+  "ama_fild01": [
+    "ama_dun01",
+    "ama_dun02",
+    "ama_dun03"
+  ],
+  "ayo_fild02": [
+    "ayo_dun01",
+    "ayo_dun02"
+  ],
+  "bra_fild01": [
+    "bra_dun01",
+    "bra_dun02"
+  ],
+  "cmd_fild08": [
+    "anthell01",
+    "anthell02"
+  ],
+  "comodo": [
+    "beach_dun",
+    "beach_dun2",
+    "beach_dun3"
+  ],
+  "dic_dun01": [
+    "dic_dun02"
+  ],
+  "einbech": [
+    "ein_dun01",
+    "ein_dun02"
+  ],
+  "gef_fild10": [
+    "orcsdun01",
+    "orcsdun02"
+  ],
+  "geffen": [
+    "gef_dun00",
+    "gef_dun01",
+    "gef_dun02",
+    "gef_dun03",
+    "gefenia01",
+    "gefenia02",
+    "gefenia03",
+    "gefenia04"
+  ],
+  "glast_01": [
+    "gl_cas01",
+    "gl_cas02",
+    "gl_church",
+    "gl_chyard",
+    "gl_dun01",
+    "gl_dun02",
+    "gl_in01",
+    "gl_knt01",
+    "gl_knt02",
+    "gl_prison",
+    "gl_prison1",
+    "gl_sew01",
+    "gl_sew02",
+    "gl_sew03",
+    "gl_sew04"
+  ],
+  "gonryun": [
+    "gon_dun01",
+    "gon_dun02",
+    "gon_dun03"
+  ],
+  "hu_fild01": [
+    "tha_t01",
+    "tha_t02",
+    "tha_t03",
+    "tha_t04",
+    "tha_t05",
+    "tha_t06",
+    "tha_t07",
+    "tha_t08",
+    "tha_t09",
+    "tha_t10",
+    "tha_t11",
+    "tha_t12",
+    "thana_boss"
+  ],
+  "hu_fild05": [
+    "abyss_01",
+    "abyss_02",
+    "abyss_03"
+  ],
+  "izlu2dun": [
+    "iz_dun00",
+    "iz_dun01",
+    "iz_dun02",
+    "iz_dun03",
+    "iz_dun04",
+    "iz_dun05"
+  ],
+  "lasagna": [
+    "airplane"
+  ],
+  "lighthalzen": [
+    "lhz_dun01",
+    "lhz_dun02",
+    "lhz_dun03",
+    "lhz_dun04"
+  ],
+  "louyang": [
+    "lou_dun01",
+    "lou_dun02",
+    "lou_dun03"
+  ],
+  "mjolnir_02": [
+    "mjo_dun01",
+    "mjo_dun02",
+    "mjo_dun03"
+  ],
+  "moc_fild19": [
+    "in_sphinx1",
+    "in_sphinx2",
+    "in_sphinx3",
+    "in_sphinx4",
+    "in_sphinx5"
+  ],
+  "moc_ruins": [
+    "moc_pryd01",
+    "moc_pryd02",
+    "moc_pryd03",
+    "moc_pryd04",
+    "moc_prydb1",
+    "moc_pryd05",
+    "moc_pryd06"
+  ],
+  "nameless_n": [
+    "abbey01",
+    "abbey02",
+    "abbey03"
+  ],
+  "pay_arche": [
+    "pay_dun00",
+    "pay_dun01",
+    "pay_dun02",
+    "pay_dun03",
+    "pay_dun04"
+  ],
+  "prt_fild01": [
+    "prt_maze01",
+    "prt_maze02",
+    "prt_maze03"
+  ],
+  "prt_fild05": [
+    "prt_sewb1",
+    "prt_sewb2",
+    "prt_sewb3",
+    "prt_sewb4"
+  ],
+  "ra_fild01": [
+    "ice_dun01",
+    "ice_dun02",
+    "ice_dun03",
+    "ice_dun04"
+  ],
+  "ra_temple": [
+    "ra_san01",
+    "ra_san02",
+    "ra_san03",
+    "ra_san04",
+    "ra_san05"
+  ],
+  "tur_dun01": [
+    "tur_dun02",
+    "tur_dun03",
+    "tur_dun04"
+  ],
+  "ve_fild03": [
+    "thor_v01",
+    "thor_v02",
+    "thor_v03"
+  ],
+  "xmas": [
+    "xmas_dun01",
+    "xmas_dun02"
+  ],
+  "yuno_fild02": [
+    "kh_dun01",
+    "kh_dun02"
+  ],
+  "yuno_fild03": [
+    "mag_dun01",
+    "mag_dun02"
+  ],
+  "yuno_fild07": [
+    "juperos_01",
+    "juperos_02",
+    "jupe_area1",
+    "jupe_area2",
+    "jupe_ele_r",
+    "jupe_ele",
+    "jupe_core"
+  ]
+}
