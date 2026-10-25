@@ -43,7 +43,7 @@ Content-Type: application/json
 - 只依赖 Bearer 与 `instance_id`/`ke_pub`，不创建实例、不依赖角色身份。
 - `core` 需要 `module:core`；`network` 需要 `module:standalone`，否则 403 `KE_NOT_ENTITLED`。
 - 服务端未配置对应密钥时返回 503 `KE_UNAVAILABLE`。
-- 每账号每小时最多 30 次；未知/重复/空 `modules` 返回 400。
+- 只受 Bearer 与权益约束，不额外限制每小时领取次数；未知/重复/空 `modules` 返回 400。
 
 ## bind 请求（可选路径）
 

@@ -29,9 +29,9 @@ const HOUR_MS = 60 * 60 * 1000;
 const encoder = new TextEncoder();
 
 const KE_RATE_LIMITS = {
-  bindPerSession: { scope: 'ke_bind_session', limit: 60, windowMs: HOUR_MS },
-  moduleKeysPerSession: { scope: 'ke_module_keys_session', limit: 30, windowMs: HOUR_MS },
-  startPerSession: { scope: 'ke_start_session', limit: 60, windowMs: HOUR_MS },
+  // 多开/多实例：单账号 100 个实例同时启动 + 重试也需要足够额度，60/h 会误伤。
+  bindPerSession: { scope: 'ke_bind_session', limit: 600, windowMs: HOUR_MS },
+  startPerSession: { scope: 'ke_start_session', limit: 600, windowMs: HOUR_MS },
   deviceCodePerIp: { scope: 'ke_device_code_ip', limit: 20, windowMs: HOUR_MS },
   // 查询 + 决定共用：限制已登录账号对验证码的枚举/猜测。
   devicePerSession: { scope: 'ke_device_session', limit: 20, windowMs: 15 * 60 * 1000 },
@@ -338,7 +338,6 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     try {
       const identity = await bearerIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
-      await assertKeRateLimit(handlers, tokenSubject(identity), KE_RATE_LIMITS.moduleKeysPerSession, authRuntime.now);
       const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).moduleKeys(identity.userId, {
         instanceId: parseInstanceId(body.instance_id),
         modules: parseKeyModules(body.modules),
