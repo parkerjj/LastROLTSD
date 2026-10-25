@@ -190,6 +190,8 @@ export interface GuestbookDetail {
 }
 
 export type LastroAccountState = 'online' | 'offline' | 'auth_failed';
+/** 菜农监控台支持的游戏服务器 nid：3=三转，5=进阶二转，6=App 服。 */
+export type LastroServerNid = 3 | 5 | 6;
 export interface LastroAccountData {
   updatetime?: string;
   inminute?: string;

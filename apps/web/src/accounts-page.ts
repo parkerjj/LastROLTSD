@@ -1,7 +1,7 @@
 import { MarketApi, type MarketApiClient } from "./api";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { injectLegalLinksIntoFooters } from "./footer-links";
-import type { LastroAccountData } from "./types";
+import type { LastroAccountData, LastroServerNid } from "./types";
 import {
   launchIwaClient,
   launchLegacyClient,
@@ -13,11 +13,36 @@ const STORAGE_KEY = "lastro.accounts.v1";
 const STALE_AFTER_MS = 5 * 60 * 1000;
 const DELETE_ARM_MS = 3000;
 
+const DEFAULT_SERVER_NID: LastroServerNid = 5;
+const SERVERS: ReadonlyArray<{
+  nid: LastroServerNid;
+  label: string;
+  code: string;
+  title: string;
+}> = [
+  { nid: 5, label: "二转", code: "V6-Eden", title: "进阶二转 · V6-Eden" },
+  { nid: 3, label: "三转", code: "V6-Online", title: "三转 · V6-Online" },
+  { nid: 6, label: "App服", code: "V6-APP", title: "App 服 · V6-APP" },
+];
+
+function isServerNid(value: unknown): value is LastroServerNid {
+  return value === 3 || value === 5 || value === 6;
+}
+
+function serverMeta(nid: LastroServerNid) {
+  return SERVERS.find((server) => server.nid === nid) ?? SERVERS[0]!;
+}
+
 export interface StoredAccount {
   id: string;
   password: string;
+  nid: LastroServerNid;
   label?: string;
   addedAt: number;
+}
+
+function accountKey(account: StoredAccount): string {
+  return `${account.nid}:${account.id}`;
 }
 
 interface AccountsPageOptions {
@@ -131,19 +156,29 @@ export function loadStoredAccounts(
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((entry): entry is StoredAccount =>
-      Boolean(
-        entry &&
-        typeof entry === "object" &&
-        typeof (entry as StoredAccount).id === "string" &&
-        (entry as StoredAccount).id.length > 0 &&
-        typeof (entry as StoredAccount).password === "string" &&
-        (entry as StoredAccount).password.length > 0 &&
-        ((entry as StoredAccount).label === undefined ||
-          typeof (entry as StoredAccount).label === "string") &&
-        typeof (entry as StoredAccount).addedAt === "number",
-      ),
-    );
+    return parsed.flatMap((entry): StoredAccount[] => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+      const record = entry as Record<string, unknown>;
+      if (
+        typeof record.id !== "string" ||
+        record.id.length === 0 ||
+        typeof record.password !== "string" ||
+        record.password.length === 0 ||
+        (record.label !== undefined && typeof record.label !== "string") ||
+        typeof record.addedAt !== "number"
+      )
+        return [];
+      return [
+        {
+          id: record.id,
+          password: record.password,
+          // 旧数据没有 nid 字段，统一按二转处理。
+          nid: isServerNid(record.nid) ? record.nid : DEFAULT_SERVER_NID,
+          addedAt: record.addedAt,
+          ...(typeof record.label === "string" ? { label: record.label } : {}),
+        },
+      ];
+    });
   } catch {
     return [];
   }
@@ -180,7 +215,7 @@ export function mountAccountsPage(
         <div class="accounts-hero-copy">
           <p class="eyebrow">LastRO 角色监控</p>
           <h1>菜农监控台</h1>
-          <p>把游戏账号添加到这里，随时查看角色等级、经验进度、所在地图和在线状态。</p>
+          <p>支持三转、进阶二转与 App 服。把游戏账号添加到这里，随时查看角色等级、经验进度、所在地图和在线状态。</p>
         </div>
         <div class="accounts-launchers" aria-label="游戏客户端入口">
           <button class="accounts-launch accounts-launch--primary" type="button" id="accounts-launch-v1"><i class="ph ph-play" aria-hidden="true"></i>老旧客户端</button>
@@ -219,7 +254,7 @@ export function mountAccountsPage(
         <div id="accounts-empty" class="accounts-empty" hidden>
           <i class="ph ph-user-plus" aria-hidden="true"></i>
           <h3>还没有添加账号</h3>
-          <p>账号只保存在你自己的浏览器中。添加之后，就能随时查看角色等级、经验进度、所在地图和在线状态。</p>
+          <p>账号只保存在你自己的浏览器中。选择服务器并添加账号后，就能随时查看角色等级、经验进度、所在地图和在线状态。</p>
           <button type="button" data-open-modal><i class="ph ph-plus" aria-hidden="true"></i> 添加第一个账号</button>
         </div>
         <p id="accounts-status" class="accounts-status" role="status" aria-live="polite"></p>
@@ -230,8 +265,17 @@ export function mountAccountsPage(
     <div class="account-modal-overlay" id="account-modal" hidden>
       <div class="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
         <h2 id="account-modal-title">添加账号</h2>
-        <p class="account-modal-hint">输入 LastRO 游戏账号和密码。账号信息只会保存在当前浏览器中。</p>
+        <p class="account-modal-hint">先选择游戏服务器，再输入该服务器的 LastRO 游戏账号和密码。账号信息只会保存在当前浏览器中。</p>
         <form id="account-form" novalidate>
+          <fieldset class="account-server">
+            <legend>游戏服务器</legend>
+            <div class="account-server-options" role="radiogroup" aria-label="选择游戏服务器">
+              ${SERVERS.map(
+                (server, index) =>
+                  `<label class="account-server-option" title="${escapeHtml(server.title)}"><input type="radio" name="account-nid" value="${server.nid}"${index === 0 ? " checked" : ""} /><span class="account-server-option-text"><b>${server.label}</b><small>${server.code}</small></span></label>`,
+              ).join("")}
+            </div>
+          </fieldset>
           <label for="account-label">名称<span class="account-field-hint">可选，方便你区分多个账号</span><input id="account-label" autocomplete="off" maxlength="24" placeholder="例如：主号 · 商人" /></label>
           <label for="account-userid">游戏账号<input id="account-userid" autocomplete="off" maxlength="64" placeholder="例如 game123" /></label>
           <label for="account-password">游戏密码<input id="account-password" type="password" autocomplete="off" maxlength="64" placeholder="游戏登录密码" /></label>
@@ -277,6 +321,15 @@ export function mountAccountsPage(
   const cancelButton =
     root.querySelector<HTMLButtonElement>("#account-cancel")!;
   const saveButton = root.querySelector<HTMLButtonElement>("#account-save")!;
+  const nidInputs = Array.from(
+    form.querySelectorAll<HTMLInputElement>('input[name="account-nid"]'),
+  );
+
+  function selectedNid(): LastroServerNid {
+    const checked = nidInputs.find((input) => input.checked);
+    const nid = Number(checked?.value);
+    return isServerNid(nid) ? nid : DEFAULT_SERVER_NID;
+  }
 
   let accounts = loadStoredAccounts(storage);
   let rows: AccountRow[] = accounts.map((account) => ({
@@ -352,28 +405,30 @@ export function mountAccountsPage(
 
   function cardMarkup(row: AccountRow): string {
     const meta = STATUS_META[row.status];
-    const busy = inflight.has(row.account.id);
+    const server = serverMeta(row.account.nid);
+    const key = accountKey(row.account);
+    const busy = inflight.has(key);
     const updatedAt = row.data ? parseApiTimestamp(row.data.updatetime) : null;
     const isStale = updatedAt !== null && now() - updatedAt > STALE_AFTER_MS;
     const updatedMarkup =
       updatedAt !== null
         ? `<span class="account-updated">${escapeHtml(formatRelativeTime(updatedAt, now()))} <small>${escapeHtml(formatServerTime(updatedAt))}</small>${isStale ? '<small class="account-stale">数据较旧</small>' : ""}</span>`
         : '<span class="account-updated">等待数据</span>';
-    const armed = armedDeleteId === row.account.id;
+    const armed = armedDeleteId === key;
     const title = row.account.label
       ? escapeHtml(row.account.label)
       : escapeHtml(row.account.id);
     const subtitle = row.account.label
       ? `<small>${escapeHtml(row.account.id)}</small>`
       : "";
-    return `<article class="account-card account-card--${meta.className}" data-account-card="${escapeHtml(row.account.id)}">
+    return `<article class="account-card account-card--${meta.className}" data-account-card="${escapeHtml(key)}">
       <div class="acc-inner">
-        <header class="acc-head"><div class="acc-who"><span class="acc-label">${title}</span><span class="acc-id">${subtitle}</span></div><span class="acc-stamp acc-stamp--${meta.className}"><i></i>${meta.label}</span></header>
+        <header class="acc-head"><div class="acc-who"><span class="acc-label">${title}</span><span class="acc-id"><span class="acc-server acc-server--${row.account.nid}" title="${escapeHtml(server.title)}">${server.label}</span>${subtitle}</span></div><span class="acc-stamp acc-stamp--${meta.className}"><i></i>${meta.label}</span></header>
         <div class="acc-body">${cardBodyMarkup(row)}</div>
       </div>
       <footer class="acc-foot">${updatedMarkup}<span class="acc-actions">
-        <button type="button" class="acc-btn" data-refresh="${escapeHtml(row.account.id)}" ${busy ? "disabled" : ""} aria-label="刷新账号 ${escapeHtml(row.account.id)}" title="刷新"><i class="ph ${busy ? "ph-circle-notch account-spin" : "ph-arrows-clockwise"}" aria-hidden="true"></i></button>
-        <button type="button" class="acc-btn acc-btn--danger${armed ? " is-armed" : ""}" data-delete="${escapeHtml(row.account.id)}" aria-label="删除账号 ${escapeHtml(row.account.id)}" title="删除">${armed ? "确认删除？" : '<i class="ph ph-trash" aria-hidden="true"></i>'}</button>
+        <button type="button" class="acc-btn" data-refresh="${escapeHtml(key)}" ${busy ? "disabled" : ""} aria-label="刷新${escapeHtml(server.label)}账号 ${escapeHtml(row.account.id)}" title="刷新"><i class="ph ${busy ? "ph-circle-notch account-spin" : "ph-arrows-clockwise"}" aria-hidden="true"></i></button>
+        <button type="button" class="acc-btn acc-btn--danger${armed ? " is-armed" : ""}" data-delete="${escapeHtml(key)}" aria-label="删除${escapeHtml(server.label)}账号 ${escapeHtml(row.account.id)}" title="删除">${armed ? "确认删除？" : '<i class="ph ph-trash" aria-hidden="true"></i>'}</button>
       </span></footer>
     </article>`;
   }
@@ -397,9 +452,10 @@ export function mountAccountsPage(
   }
 
   async function fetchAccount(account: StoredAccount): Promise<void> {
-    if (inflight.has(account.id)) return;
-    inflight.add(account.id);
-    const row = rows.find((entry) => entry.account.id === account.id);
+    const key = accountKey(account);
+    if (inflight.has(key)) return;
+    inflight.add(key);
+    const row = rows.find((entry) => accountKey(entry.account) === key);
     if (row) {
       row.status = "loading";
       row.data = undefined;
@@ -407,8 +463,12 @@ export function mountAccountsPage(
     }
     renderAll();
     try {
-      const result = await api.getAccountStatus(account.id, account.password);
-      const target = rows.find((entry) => entry.account.id === account.id);
+      const result = await api.getAccountStatus(
+        account.id,
+        account.password,
+        account.nid,
+      );
+      const target = rows.find((entry) => accountKey(entry.account) === key);
       if (target) {
         if (result.state === "offline") {
           target.status = "offline";
@@ -426,14 +486,14 @@ export function mountAccountsPage(
         target.error = undefined;
       }
     } catch (error) {
-      const target = rows.find((entry) => entry.account.id === account.id);
+      const target = rows.find((entry) => accountKey(entry.account) === key);
       if (target) {
         target.status = "error";
         target.error =
           error instanceof Error ? error.message : "查询失败，请稍后重试";
       }
     } finally {
-      inflight.delete(account.id);
+      inflight.delete(key);
       renderAll();
     }
   }
@@ -453,6 +513,9 @@ export function mountAccountsPage(
     modal.hidden = false;
     modalStatus.textContent = "";
     modalStatus.className = "account-modal-status";
+    for (const input of nidInputs) {
+      input.checked = input.value === String(DEFAULT_SERVER_NID);
+    }
     useridInput.focus();
   }
 
@@ -479,11 +542,12 @@ export function mountAccountsPage(
       modalStatus.className = "account-modal-status is-error";
       return;
     }
+    const nid = selectedNid();
     setModalBusy(true);
-    modalStatus.textContent = "正在连接官方服务器测试…";
+    modalStatus.textContent = `正在连接${serverMeta(nid).label}官方服务器测试…`;
     modalStatus.className = "account-modal-status";
     try {
-      const result = await api.getAccountStatus(userid, password);
+      const result = await api.getAccountStatus(userid, password, nid);
       if (result.state === "auth_failed") {
         modalStatus.textContent = "账号或密码不正确，请检查后再试。";
         modalStatus.className = "account-modal-status is-error";
@@ -516,14 +580,18 @@ export function mountAccountsPage(
       modalStatus.className = "account-modal-status is-error";
       return;
     }
-    if (accounts.some((account) => account.id === userid)) {
-      modalStatus.textContent = "这个账号已经添加过了。";
+    const nid = selectedNid();
+    if (
+      accounts.some((account) => account.nid === nid && account.id === userid)
+    ) {
+      modalStatus.textContent = `这个账号已经添加到${serverMeta(nid).label}了。`;
       modalStatus.className = "account-modal-status is-error";
       return;
     }
     const account: StoredAccount = {
       id: userid,
       password,
+      nid,
       addedAt: now(),
       ...(labelInput.value.trim() ? { label: labelInput.value.trim() } : {}),
     };
@@ -537,7 +605,7 @@ export function mountAccountsPage(
     accounts = nextAccounts;
     rows = [...rows, { account, status: "loading" }];
     closeModal();
-    statusLine.textContent = `账号 ${account.id} 已添加，正在查询…`;
+    statusLine.textContent = `账号 ${account.id}（${serverMeta(account.nid).label}）已添加，正在查询…`;
     renderAll();
     void fetchAccount(account);
   });
@@ -592,24 +660,27 @@ export function mountAccountsPage(
         : null;
     const refreshButton = target?.closest("[data-refresh]");
     if (refreshButton) {
-      const id = refreshButton.getAttribute("data-refresh")!;
-      const account = accounts.find((entry) => entry.id === id);
+      const key = refreshButton.getAttribute("data-refresh")!;
+      const account = accounts.find((entry) => accountKey(entry) === key);
       if (account) void fetchAccount(account);
       return;
     }
     const deleteButton = target?.closest("[data-delete]");
     if (deleteButton) {
-      const id = deleteButton.getAttribute("data-delete")!;
-      if (armedDeleteId === id) {
+      const key = deleteButton.getAttribute("data-delete")!;
+      if (armedDeleteId === key) {
         if (armedDeleteTimer) clearTimeout(armedDeleteTimer);
         armedDeleteId = null;
-        accounts = accounts.filter((entry) => entry.id !== id);
-        rows = rows.filter((entry) => entry.account.id !== id);
+        const removed = accounts.find((entry) => accountKey(entry) === key);
+        accounts = accounts.filter((entry) => accountKey(entry) !== key);
+        rows = rows.filter((entry) => accountKey(entry.account) !== key);
         persistAccounts(storage, accounts);
-        statusLine.textContent = `账号 ${id} 已删除。`;
+        statusLine.textContent = removed
+          ? `账号 ${removed.id}（${serverMeta(removed.nid).label}）已删除。`
+          : "账号已删除。";
         renderAll();
       } else {
-        armedDeleteId = id;
+        armedDeleteId = key;
         if (armedDeleteTimer) clearTimeout(armedDeleteTimer);
         armedDeleteTimer = setTimeout(() => {
           armedDeleteId = null;

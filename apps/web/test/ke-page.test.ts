@@ -63,12 +63,57 @@ const PROFILE_OPTIONS = {
   job_skill_groups: { '176': { '通用技能': [1], '一转技能': [29], '二转技能': [40, 41] } },
 };
 
-async function mountProfileEditor(configText = 'useSelf_skill 29 {\n\tlvl 10\n\twhenStatusActive EFST_BLESSING\n}\n') {
+const MAPNAMES_FIXTURE = {
+  generatedAt: '2026-10-25T00:00:00.000Z',
+  source: {},
+  names: { prontera: '普隆德拉', prt_fild08: '普隆德拉原野' },
+};
+
+const WORLDMAP_FIXTURE = {
+  generatedAt: '2026-10-25T00:00:00.000Z',
+  source: { worldmapHtml: '', mapNames: '', images: {} },
+  layers: [
+    {
+      id: 'normal', name: '中土大陆', image: '/ke/worldmap/normal.jpg', cols: 23, rows: 18, cellW: 50, cellH: 48,
+      points: [
+        { code: 'prontera', row: 10, col: 14, span: 1, name: '卢恩 米德加兹王国 首都 普隆德拉' },
+        { code: 'prt_fild08', row: 11, col: 13, span: 1, name: '普隆德拉原野' },
+        {
+          code: 'tur_dun01', row: 16, col: 20, span: 1, mvp: true, name: '乌龟岛',
+          codes: ['tur_dun01', 'tur_dun02', 'tur_dun03', 'tur_dun04'],
+          codeNames: { tur_dun01: '乌龟岛', tur_dun02: '乌龟密穴1层', tur_dun03: '乌龟密穴2层', tur_dun04: '旧良宫' },
+        },
+        // 红点 boss 格的关联地图（branch）：点击弹二级悬浮列表
+        {
+          code: 'hu_fild01', row: 0, col: 12, span: 1, mvp: true, name: '达纳托斯之塔',
+          codes: ['hu_fild01', 'tha_t01', 'tha_t02', 'thana_boss'],
+          codeNames: { hu_fild01: '达纳托斯之塔', tha_t01: '达纳托斯之塔1层', tha_t02: '达纳托斯之塔2层', thana_boss: '达纳托斯之塔 (未知区域)' },
+        },
+      ],
+    },
+    {
+      id: 'dimension', name: '次元大陆', image: '/ke/worldmap/dimension.jpg', cols: 16, rows: 13, cellW: 54, cellH: 52,
+      points: [{ code: 'eclage', row: 3, col: 5, span: 1, name: '守护精灵首都 埃克拉珠' }],
+    },
+  ],
+};
+
+async function mountProfileEditor(
+  configText = 'useSelf_skill 29 {\n\tlvl 10\n\twhenStatusActive EFST_BLESSING\n}\n',
+  opts?: { tab?: string; worldmap?: boolean; mapNames?: boolean },
+) {
   const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/ke/my' });
   vi.stubGlobal('document', dom.window.document);
   vi.stubGlobal('window', dom.window);
   vi.stubGlobal('fetch', vi.fn(async (path: string) => {
     if (path === '/ke/options.json') return jsonResponse(PROFILE_OPTIONS);
+    if (path === '/ke/mapnames.json') {
+      return opts?.mapNames ? jsonResponse(MAPNAMES_FIXTURE) : new Response('not found', { status: 404 });
+    }
+    if (path === '/ke/worldmap.json') {
+      if (opts?.worldmap === false) return new Response('not found', { status: 404 });
+      return jsonResponse(WORLDMAP_FIXTURE);
+    }
     if (path === '/api/v1/ke/characters') {
       return jsonResponse({ characters: [{ aid: 1, cid: 2, nid: 3, char_name: '暴力男团', job_id: 176, map_name: 'payon.gat', last_seen_at: Date.now() }] });
     }
@@ -95,7 +140,7 @@ async function mountProfileEditor(configText = 'useSelf_skill 29 {\n\tlvl 10\n\t
   const edit = Array.from(root.querySelectorAll('button')).find((button) => button.textContent === '编辑')!;
   edit.click();
   await wait(20);
-  root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="skills"]')!.click();
+  root.querySelector<HTMLButtonElement>(`#ke-nav [data-tab="${opts?.tab ?? 'skills'}"]`)!.click();
   return { dom, root };
 }
 
@@ -690,5 +735,172 @@ describe("ke page", () => {
     const body = JSON.parse(put[1]!.body as string) as { config_text: string };
     expect(body.config_text).not.toContain('useSelf_skill 28');
     expect(body.config_text).toContain('useSelf_skill 29');
+  });
+
+  // —— 世界地图选图浮层（lockMap / saveMap 的 picker: "worldmap"） ——
+
+  /** 打开「路线」分区并返回 lockMap 字段的输入框与「选择地图」按钮。 */
+  async function mountRouteWithWorldmap(configText = '') {
+    const { dom, root } = await mountProfileEditor(configText, { tab: 'route' });
+    await wait(0);
+    const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>('.ke-wmap-open'));
+    expect(buttons.length).toBeGreaterThanOrEqual(2); // lockMap + saveMap
+    const openBtn = buttons[0]!;
+    const input = openBtn.parentElement!.querySelector<HTMLInputElement>('input')!;
+    return { dom, root, openBtn, input };
+  }
+
+  it('lockMap/saveMap 渲染「选择地图」按钮，点击后请求 worldmap.json 并弹出选图浮层', async () => {
+    const { root, openBtn, input } = await mountRouteWithWorldmap();
+    expect(input.placeholder).toContain('地图'); // 仍然支持手输代码兜底
+    openBtn.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay');
+    expect(overlay).not.toBeNull();
+    expect(overlay!.querySelector('.ke-wmap-title')!.textContent).toContain('挂机地图');
+    const calls = vi.mocked(fetch).mock.calls as unknown as Array<[string]>;
+    expect(calls.some(([p]) => p === '/ke/worldmap.json')).toBe(true);
+    const tabs = Array.from(overlay!.querySelectorAll<HTMLElement>('.ke-wmap-tab')).map((t) => t.textContent);
+    expect(tabs).toEqual(['中土大陆', '次元大陆']);
+    expect(overlay!.querySelectorAll('.ke-wmap-tab')[0]!.classList.contains('active')).toBe(true);
+    expect(overlay!.querySelectorAll('.ke-wmap-cell').length).toBe(4);
+  });
+
+  it('格子渲染游戏同款小地图贴图，悬停显示中文名悬浮提示', async () => {
+    const { dom, root, openBtn } = await mountRouteWithWorldmap();
+    openBtn.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
+    const cell = overlay.querySelector<HTMLElement>('.ke-wmap-cell[data-code="prontera"]')!;
+    const tile = cell.querySelector<HTMLImageElement>('.ke-wmap-cell-img');
+    expect(tile).not.toBeNull();
+    expect(tile!.getAttribute('src')).toBe('/ke/worldmap/tiles/prontera.png');
+    const tip = overlay.querySelector<HTMLElement>('.ke-wmap-tip')!;
+    expect(tip.hidden).toBe(true);
+    cell.dispatchEvent(new dom.window.MouseEvent('mouseenter', { bubbles: true, clientX: 10, clientY: 10 }));
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain('普隆德拉');
+    expect(tip.textContent).toContain('prontera');
+    cell.dispatchEvent(new dom.window.MouseEvent('mouseleave', { bubbles: true }));
+    expect(tip.hidden).toBe(true);
+  });
+
+  it('点击地图格子把地图代码写入 lockMap 并更新预览，浮层随之关闭', async () => {
+    const { root, openBtn, input } = await mountRouteWithWorldmap();
+    openBtn.click();
+    await wait(20);
+    root.querySelector<HTMLButtonElement>('.ke-wmap-cell[data-code="prontera"]')!.click();
+    await wait(0);
+    expect(root.querySelector('.ke-wmap-overlay')).toBeNull();
+    expect(input.value).toBe('prontera');
+    expect(root.querySelector<HTMLElement>('#ke-config-preview')!.textContent).toContain('lockMap prontera');
+  });
+
+  it('浮层打开时当前值所在格子带 active 高亮，并自动切到所在层', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap('lockMap eclage\n');
+    openBtn.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
+    // eclage 在次元大陆层：tab 2 应为 active
+    const tabs = overlay.querySelectorAll<HTMLElement>('.ke-wmap-tab');
+    expect(tabs[1]!.classList.contains('active')).toBe(true);
+    const cell = overlay.querySelector<HTMLElement>('.ke-wmap-cell[data-code="eclage"]')!;
+    expect(cell.classList.contains('active')).toBe(true);
+  });
+
+  it('一格多图（海龟洞）点击后弹二级菜单，可选中 tur_dun03 写入', async () => {
+    const { root, openBtn, input } = await mountRouteWithWorldmap();
+    openBtn.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
+    overlay.querySelector<HTMLButtonElement>('.ke-wmap-cell[data-code="tur_dun01"]')!.click();
+    await wait(0);
+    const menu = overlay.querySelector<HTMLElement>('.ke-wmap-menu');
+    expect(menu).not.toBeNull();
+    const items = Array.from(menu!.querySelectorAll<HTMLButtonElement>('button')).map((b) => b.textContent);
+    expect(items).toEqual(['乌龟岛（tur_dun01）', '乌龟密穴1层（tur_dun02）', '乌龟密穴2层（tur_dun03）', '旧良宫（tur_dun04）']);
+    // 二级菜单带格子小图缩略
+    expect(menu!.querySelectorAll<HTMLImageElement>('.ke-wmap-menu-img').length).toBe(4);
+    expect(menu!.querySelector<HTMLImageElement>('.ke-wmap-menu-img')!.getAttribute('src')).toBe('/ke/worldmap/tiles/tur_dun01.png');
+    menu!.querySelectorAll<HTMLButtonElement>('button')[2]!.click();
+    await wait(0);
+    expect(input.value).toBe('tur_dun03');
+    expect(root.querySelector('.ke-wmap-overlay')).toBeNull();
+  });
+
+  it('红点 boss 格（hu_fild01）点击后弹关联地图二级悬浮，可选中 tha_t01 写入', async () => {
+    const { root, openBtn, input } = await mountRouteWithWorldmap();
+    openBtn.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
+    const cell = overlay.querySelector<HTMLButtonElement>('.ke-wmap-cell[data-code="hu_fild01"]')!;
+    expect(cell.querySelector('.ke-wmap-mvp')).not.toBeNull(); // 红点标记
+    cell.click();
+    await wait(0);
+    const menu = overlay.querySelector<HTMLElement>('.ke-wmap-menu');
+    expect(menu).not.toBeNull();
+    const items = Array.from(menu!.querySelectorAll<HTMLButtonElement>('button')).map((b) => b.textContent);
+    expect(items).toEqual(['达纳托斯之塔（hu_fild01）', '达纳托斯之塔1层（tha_t01）', '达纳托斯之塔2层（tha_t02）', '达纳托斯之塔 (未知区域)（thana_boss）']);
+    // 每个选项带关联地图自己的小图缩略
+    const thumbs = Array.from(menu!.querySelectorAll<HTMLImageElement>('.ke-wmap-menu-img')).map((t) => t.getAttribute('src'));
+    expect(thumbs).toEqual([
+      '/ke/worldmap/tiles/hu_fild01.png',
+      '/ke/worldmap/tiles/tha_t01.png',
+      '/ke/worldmap/tiles/tha_t02.png',
+      '/ke/worldmap/tiles/thana_boss.png',
+    ]);
+    menu!.querySelectorAll<HTMLButtonElement>('button')[1]!.click();
+    await wait(0);
+    expect(input.value).toBe('tha_t01');
+    expect(root.querySelector('.ke-wmap-overlay')).toBeNull();
+    expect(root.querySelector<HTMLElement>('#ke-config-preview')!.textContent).toContain('lockMap tha_t01');
+  });
+
+  it('Escape 关闭浮层且焦点归还「选择地图」按钮；手输地图代码仍是可用兜底', async () => {
+    const { dom, root, openBtn, input } = await mountRouteWithWorldmap();
+    openBtn.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
+    overlay.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(0);
+    expect(root.querySelector('.ke-wmap-overlay')).toBeNull();
+    expect(dom.window.document.activeElement).toBe(openBtn);
+    // 手输兜底
+    input.value = 'payon';
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    expect(root.querySelector<HTMLElement>('#ke-config-preview')!.textContent).toContain('lockMap payon');
+  });
+
+  it('挂机地图/回城地图输入框与下拉列表显示中文名，选中后仍写入地图代码', async () => {
+    const { dom, root } = await mountProfileEditor('lockMap prt_fild08\n', { tab: 'route', mapNames: true });
+    await wait(0);
+    const row = root.querySelectorAll<HTMLElement>('.ke-mapline')[0]!;
+    const input = row.querySelector<HTMLInputElement>('input')!;
+    expect(input.value).toBe('普隆德拉原野（prt_fild08）'); // 输入框显示中文名，括号内保留代码
+    const preview = (): string => root.querySelector<HTMLElement>('#ke-config-preview')!.textContent ?? '';
+
+    // 半截中文名只过滤列表，不写入配置，避免存入无效中文名
+    input.focus();
+    input.value = '普隆';
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    expect(preview()).toContain('lockMap prt_fild08');
+    input.value = '普隆德拉（';
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    const items = Array.from(row.querySelectorAll<HTMLElement>('.ke-picker-item'));
+    expect(items.map((item) => item.textContent)).toEqual(['普隆德拉（prontera）']);
+
+    items[0]!.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+    expect(input.value).toBe('普隆德拉（prontera）');
+    expect(preview()).toContain('lockMap prontera');
+  });
+
+  it('worldmap.json 加载失败时浮层显示错误态，输入框仍可手动填写', async () => {
+    const { root } = await mountProfileEditor('', { tab: 'route', worldmap: false });
+    await wait(0);
+    root.querySelector<HTMLButtonElement>('.ke-wmap-open')!.click();
+    await wait(20);
+    const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
+    expect(overlay.querySelector('.ke-wmap-message')!.textContent).toContain('加载失败');
+    expect(overlay.querySelector('.ke-wmap-retry')).not.toBeNull();
   });
 });

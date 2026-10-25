@@ -40,6 +40,34 @@ describe('lastro account status route', () => {
     expect((init.headers as Record<string, string>)['x-requested-with']).toBe('XMLHttpRequest');
   });
 
+  it('uses the matching upstream nid and form prefix for every supported server', async () => {
+    const cases = [
+      { nid: 3, prefix: 'Login_cn2' },
+      { nid: 5, prefix: 'Login_debug' },
+      { nid: 6, prefix: 'Login_debug' },
+    ];
+    for (const testCase of cases) {
+      const fetchMock = mockUpstream({ name: 'x' });
+      const response = await postStatus({ userid: 'bot', user_pass: 'pw', nid: testCase.nid });
+      expect(response.status).toBe(200);
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe(`https://game.lastro.cn/?r=mn/search&nid=${testCase.nid}`);
+      expect(init.body).toBe(`${testCase.prefix}%5Buserid%5D=bot&${testCase.prefix}%5Buser_pass%5D=pw`);
+    }
+  });
+
+  it('accepts a numeric string nid and rejects unsupported servers', async () => {
+    const fetchMock = mockUpstream('2');
+    expect((await postStatus({ userid: 'a', user_pass: 'b', nid: '3' })).status).toBe(200);
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toContain('nid=3');
+    const callsBefore = fetchMock.mock.calls.length;
+    for (const nid of [0, 4, 7, 'abc', 3.5, true]) {
+      expect((await postStatus({ userid: 'a', user_pass: 'b', nid })).status).toBe(400);
+    }
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+
   it('maps upstream 1 to auth_failed and 2 to offline', async () => {
     mockUpstream('1');
     expect(await (await postStatus({ userid: 'a', user_pass: 'b' })).json()).toEqual({ state: 'auth_failed' });

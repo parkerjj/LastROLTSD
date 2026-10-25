@@ -1,4 +1,4 @@
-import type { GuestbookDetail, GuestbookFilters, GuestbookPage, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage, SponsorSummary } from './types';
+import type { GuestbookDetail, GuestbookFilters, GuestbookPage, HistoryPage, ItemMarketHistory, LastroAccountStatusResponse, LastroServerNid, ListingSearchResult, MarketStatus, OptionDefinition, OptionDefinitionsResponse, SearchFilters, SearchPage, SponsorSummary } from './types';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -21,7 +21,7 @@ export interface MarketApiClient {
   searchGuestbook(filters: GuestbookFilters, signal?: AbortSignal): Promise<GuestbookPage>;
   /** 获取单条留言详情（含完整回复历史）。 */
   getGuestbookEntry(id: number, signal?: AbortSignal): Promise<GuestbookDetail>;
-  getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse>;
+  getAccountStatus(userid: string, userPass: string, nid?: LastroServerNid, signal?: AbortSignal): Promise<LastroAccountStatusResponse>;
   getSponsorSummary(signal?: AbortSignal): Promise<SponsorSummary>;
 }
 
@@ -73,11 +73,11 @@ export class MarketApi implements MarketApiClient {
     return this.request(`/api/v1/guestbook/${id}`, signal);
   }
 
-  async getAccountStatus(userid: string, userPass: string, signal?: AbortSignal): Promise<LastroAccountStatusResponse> {
+  async getAccountStatus(userid: string, userPass: string, nid: LastroServerNid = 5, signal?: AbortSignal): Promise<LastroAccountStatusResponse> {
     const response = await fetch('/api/v1/lastro/account-status', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userid, user_pass: userPass }),
+      body: JSON.stringify({ userid, user_pass: userPass, nid }),
       ...(signal ? { signal } : {}),
     });
     return this.readResponse(response);
