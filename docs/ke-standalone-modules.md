@@ -44,6 +44,9 @@ Content-Type: application/json
 - `core` 需要 `module:core`；`network` 需要 `module:standalone`，否则 403 `KE_NOT_ENTITLED`。
 - 服务端未配置对应密钥时返回 503 `KE_UNAVAILABLE`。
 - 只受 Bearer 与权益约束，不额外限制每小时领取次数；未知/重复/空 `modules` 返回 400。
+- RoBrowser KE 新版本也优先调用本接口；遇到 404/405/501 时回退到 bind 携带密钥，
+  因此旧服务器 + 新客户端仍可工作。bind 继续负责角色绑定，不能整体下线；
+  待旧客户端全部升级后，只退役 bind 里的 `need_wasm_key` 密钥下发。
 
 ## bind 请求（可选路径）
 
