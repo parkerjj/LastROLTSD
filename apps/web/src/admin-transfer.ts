@@ -145,6 +145,7 @@ export function transferSectionMarkup(): string {
         </form>
         <p id="adm-tr-status" class="adm-status" role="status" aria-live="polite"></p>
         <div id="adm-tr-report" class="adm-tr-report" hidden>
+          <p id="adm-tr-summary" class="adm-tr-summary"></p>
           <div id="adm-tr-verdict" class="adm-tr-verdict"></div>
           <div class="adm-tr-cols">
             <div><h3>强证据</h3><ul id="adm-tr-col-strong" class="adm-tr-evidence"></ul></div>
@@ -181,6 +182,7 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
   const analyzeButton = q<HTMLButtonElement>("#adm-tr-analyze");
   const status = q<HTMLElement>("#adm-tr-status");
   const report = q<HTMLElement>("#adm-tr-report");
+  const summary = q<HTMLElement>("#adm-tr-summary");
   const verdictBar = q<HTMLElement>("#adm-tr-verdict");
   const columns: Record<EvidenceKind, HTMLElement> = {
     strong: q("#adm-tr-col-strong"),
@@ -201,6 +203,8 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
   let current: { source: string; target: string; aid: number; cid: number; nid: number; preview: TransferPreview } | null = null;
   let markers = new Map<number, string[]>();
   let visibleLimit = TIMELINE_PAGE_SIZE;
+  /** 预览请求序号；输入被改动或发起了新请求后，旧请求的响应一律丢弃。 */
+  let requestSeq = 0;
 
   function say(text: string, isError = false): void {
     status.textContent = text;
@@ -215,6 +219,13 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
     onlyHighlighted.checked = false;
   }
 
+  /** 输入被改动：清掉旧报告并让飞行中的预览响应作废，避免确认到过期的对象。 */
+  function invalidate(): void {
+    requestSeq += 1;
+    analyzeButton.disabled = false;
+    clearReport();
+  }
+
   /* ---- 第 1 步：查询角色 ---- */
 
   async function queryCharacters(): Promise<void> {
@@ -224,7 +235,7 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
       return;
     }
     say("");
-    clearReport();
+    invalidate();
     try {
       const body = await deps.get<{ characters: TransferCharacter[] }>(`/api/v1/admin/transfer/characters?account=${encodeURIComponent(account)}`);
       sourceAccount = account;
@@ -292,7 +303,8 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
 
   function renderReport(next: NonNullable<typeof current>): void {
     current = next;
-    const { analysis } = next.preview;
+    const { analysis, character, source, target } = next.preview;
+    summary.textContent = `将把 ${character.char_name}（aid ${character.aid}）从 ${source.email} 转给 ${target.email}`;
     verdictBar.replaceChildren(
       document.createTextNode(`结论：${VERDICT_LABELS[analysis.verdict] ?? analysis.verdict}\u3000`),
       el("span", analysis.verdict === "INSUFFICIENT" ? "adm-tr-muted" : undefined, `关联分 ${analysis.score} / 100`),
@@ -319,15 +331,17 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
     const [aid, cid, nid] = characterSelect.value.split(":").map(Number) as [number, number, number];
     const params = `source=${encodeURIComponent(sourceAccount)}&target=${encodeURIComponent(target)}&aid=${aid}&cid=${cid}&nid=${nid}`;
     say("");
-    clearReport();
+    invalidate();
+    const seq = requestSeq;
     analyzeButton.disabled = true;
     try {
       const preview = await deps.get<TransferPreview>(`/api/v1/admin/transfer/preview?${params}`);
+      if (seq !== requestSeq) return;
       renderReport({ source: sourceAccount, target, aid, cid, nid, preview });
     } catch (error) {
-      say(describeError(error, "分析失败，请重试。"), true);
+      if (seq === requestSeq) say(describeError(error, "分析失败，请重试。"), true);
     } finally {
-      analyzeButton.disabled = false;
+      if (seq === requestSeq) analyzeButton.disabled = false;
     }
   }
 
@@ -366,6 +380,9 @@ export function mountAdminTransfer(root: HTMLElement, deps: AdminTransferDeps): 
     event.preventDefault();
     void analyze();
   });
+  for (const [input, events] of [[sourceInput, ["input", "change"]], [targetInput, ["input", "change"]], [characterSelect, ["change"]]] as const) {
+    for (const name of events) input.addEventListener(name, invalidate);
+  }
   onlyHighlighted.addEventListener("change", () => {
     visibleLimit = TIMELINE_PAGE_SIZE;
     renderTimeline();

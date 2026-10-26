@@ -109,7 +109,8 @@ export function createTransferService(repository: TransferRepository, activity: 
   async function sideOf(user: AdminUserRow): Promise<AnalysisSide> {
     const { records, truncated } = await activity.listForUser(user.id, TRANSFER_LOG_LIMIT);
     const aids = new Set<number>(await repository.listAids(user.id));
-    for (const record of records) if (record.aid !== null) aids.add(record.aid);
+    // 后台转移记录里的 aid 是转移动作本身写入的，不能当作两账号原本的关联。
+    for (const record of records) if (record.aid !== null && record.event !== 'ADMIN_CHARACTER_TRANSFER') aids.add(record.aid);
     return { userId: user.id, records, truncated, aids: [...aids] };
   }
 

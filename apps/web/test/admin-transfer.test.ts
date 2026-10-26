@@ -205,6 +205,70 @@ describe("admin transfer section", () => {
     expect(m.q<HTMLElement>("#adm-tr-report").hidden).toBe(true);
   });
 
+  it("shows what will be transferred above the verdict", async () => {
+    const m = mount(routes(preview()));
+    await analyze(m);
+    expect(m.q("#adm-tr-summary").textContent).toBe(`将把 ${EVIL}（aid 100）从 src@example.com 转给 dst@example.com`);
+    expect(m.q("#adm-tr-summary").querySelector("img")).toBeNull();
+  });
+
+  it.each([
+    ["target input", "#adm-tr-target", "input"],
+    ["target input change", "#adm-tr-target", "change"],
+    ["source input", "#adm-tr-source", "input"],
+    ["character select", "#adm-tr-character", "change"],
+  ])("changing the %s after a preview drops the stale report", async (_name, selector, eventName) => {
+    const m = mount(routes(preview()));
+    await analyze(m);
+    expect(m.q<HTMLElement>("#adm-tr-report").hidden).toBe(false);
+    m.q<HTMLElement>(selector).dispatchEvent(new m.dom.window.Event(eventName, { bubbles: true }));
+    expect(m.q<HTMLElement>("#adm-tr-report").hidden).toBe(true);
+    m.q<HTMLInputElement>("#adm-tr-note").value = "ok";
+    m.q<HTMLButtonElement>("#adm-tr-confirm").click();
+    await wait();
+    expect(m.sessionRequest).not.toHaveBeenCalled();
+  });
+
+  it("ignores a preview response that arrives after the inputs changed", async () => {
+    let release!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { release = resolve; });
+    const m = mount((path) => (path.startsWith("/api/v1/admin/transfer/characters") ? CHARACTERS : pending));
+    await queryCharacters(m);
+    m.q<HTMLInputElement>("#adm-tr-target").value = "dst@example.com";
+    m.q<HTMLButtonElement>("#adm-tr-analyze").click();
+    await wait();
+    m.q<HTMLInputElement>("#adm-tr-target").value = "other@example.com";
+    m.q<HTMLInputElement>("#adm-tr-target").dispatchEvent(new m.dom.window.Event("input", { bubbles: true }));
+    release(preview());
+    await wait();
+    expect(m.q<HTMLElement>("#adm-tr-report").hidden).toBe(true);
+    expect(m.q<HTMLButtonElement>("#adm-tr-analyze").disabled).toBe(false);
+  });
+
+  it("ignores an older preview response that arrives after a newer request", async () => {
+    const resolvers: Array<(value: unknown) => void> = [];
+    const m = mount((path) => (path.startsWith("/api/v1/admin/transfer/characters") ? CHARACTERS : new Promise((resolve) => { resolvers.push(resolve); })));
+    await queryCharacters(m);
+    m.q<HTMLInputElement>("#adm-tr-target").value = "first@example.com";
+    m.q<HTMLButtonElement>("#adm-tr-analyze").click();
+    await wait();
+    m.q<HTMLInputElement>("#adm-tr-target").value = "second@example.com";
+    m.q<HTMLInputElement>("#adm-tr-target").dispatchEvent(new m.dom.window.Event("input", { bubbles: true }));
+    m.q<HTMLButtonElement>("#adm-tr-analyze").click();
+    await wait();
+    const fresh = preview();
+    fresh.target.email = "second@example.com";
+    resolvers[1]!(fresh);
+    await wait();
+    resolvers[0]!(preview());
+    await wait();
+    expect(m.q("#adm-tr-summary").textContent).toContain("second@example.com");
+    m.q<HTMLInputElement>("#adm-tr-note").value = "ok";
+    m.q<HTMLButtonElement>("#adm-tr-confirm").click();
+    await wait();
+    expect(m.sessionRequest).toHaveBeenCalledWith("/api/v1/admin/transfer", "POST", expect.objectContaining({ target: "second@example.com" }));
+  });
+
   it("renders every api string as text", async () => {
     const timeline = [row(11, "source", { as_org: EVIL, city: EVIL })];
     const m = mount(routes(preview({
