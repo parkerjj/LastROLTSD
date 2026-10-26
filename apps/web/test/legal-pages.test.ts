@@ -52,7 +52,7 @@ it('discloses security and anti-abuse data collection and retention', () => {
   mountPrivacyPage(root);
 
   const content = root.textContent ?? '';
-  expect(content).toContain('2.3 Security and Anti-Abuse Data');
+  expect(content).toContain('2.6 Security and Anti-Abuse Data');
   expect(content).toContain('browser fingerprint');
   expect(content).toContain('180 days');
   expect(content).toContain('Local storage');
