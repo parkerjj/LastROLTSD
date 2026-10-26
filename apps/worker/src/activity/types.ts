@@ -19,6 +19,14 @@ export type ActivityEvent =
 
 export type ActivityResult = 'SUCCESS' | 'FAILURE';
 
+/**
+ * 未经身份验证的尝试：只要知道邮箱就能以任意账号的名义产生（登录失败、申请找回密码）。
+ * 这类记录保留在时间线里供人工查看，但不能作为账号归属的证据，也不计入热度统计。
+ */
+export function isUnauthenticatedAttempt(record: { event: ActivityEvent; result: ActivityResult }): boolean {
+  return (record.event === 'LOGIN' && record.result === 'FAILURE') || record.event === 'PASSWORD_RESET_REQUEST';
+}
+
 export interface ActivityNetwork {
   ip: string | null;
   ip_net: string | null;

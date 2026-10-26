@@ -102,7 +102,9 @@ export function createActivityRepository(database: MysqlDatabase): ActivityRepos
     async countUsers(field, value) {
       const column = HEAT_COLUMNS[field];
       const found = await database.first<MysqlRow>(
-        `SELECT COUNT(DISTINCT user_id) AS n FROM account_activity_log WHERE ${column} = ?`,
+        // 与 isUnauthenticatedAttempt 保持一致：未经身份验证的尝试不算"用过"这个值。
+        `SELECT COUNT(DISTINCT user_id) AS n FROM account_activity_log WHERE ${column} = ?
+          AND NOT (event = 'LOGIN' AND result = 'FAILURE') AND event <> 'PASSWORD_RESET_REQUEST'`,
         [value],
       );
       return asNumber(found?.n ?? 0);

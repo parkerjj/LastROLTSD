@@ -477,6 +477,18 @@ describe('分数与结论', () => {
     expect(result.evidence).toEqual([]);
   });
 
+  it('未经身份验证的尝试（登录失败、申请找回密码）不参与打分，也不计入有效记录数', () => {
+    const net = { ip: '203.0.113.9', ip_net: '203.0.113.9', device_id: DEVICE, fingerprint: FINGERPRINT };
+    const attempts = (side: Side) => [
+      rec(side, { ...net, result: 'FAILURE' }),
+      rec(side, { ...net, result: 'FAILURE' }),
+      rec(side, { ...net, event: 'PASSWORD_RESET_REQUEST' }),
+    ];
+    const result = run(attempts('A'), attempts('B'), { noPad: true });
+    expect(result.evidence).toEqual([]);
+    expect(result.verdict).toBe('INSUFFICIENT');
+  });
+
   it('一侧 0 条记录 → INSUFFICIENT 且不抛错', () => {
     const result = analyzeTransfer({
       source: { userId: 1, records: [], truncated: false, aids: [] },

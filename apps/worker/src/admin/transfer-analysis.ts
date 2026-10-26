@@ -1,6 +1,6 @@
 // 一人多号关联分析：纯函数，不查库。输入两个账号的操作日志和"热度"，输出分数、结论和证据。
 import { maskIp } from '../activity/network';
-import type { ActivityEvent, ActivityRecord } from '../activity/types';
+import { isUnauthenticatedAttempt, type ActivityEvent, type ActivityRecord } from '../activity/types';
 
 export type EvidenceKind = 'strong' | 'weak' | 'counter';
 export type RuleId =
@@ -211,8 +211,10 @@ function firstIds(records: ActivityRecord[] | undefined, limit: number = ANALYSI
 
 export function analyzeTransfer(input: AnalysisInput): TransferAnalysis {
   const rules = ANALYSIS_RULES;
-  const a = byTime(input.source.records.filter((record) => record.event !== 'ADMIN_CHARACTER_TRANSFER'));
-  const b = byTime(input.target.records.filter((record) => record.event !== 'ADMIN_CHARACTER_TRANSFER'));
+  // 后台转移记录与未经身份验证的尝试都不能证明账号归属，只在时间线里展示。
+  const counts = (record: ActivityRecord) => record.event !== 'ADMIN_CHARACTER_TRANSFER' && !isUnauthenticatedAttempt(record);
+  const a = byTime(input.source.records.filter(counts));
+  const b = byTime(input.target.records.filter(counts));
   const found: Evidence[] = [];
 
   const heatOf = (table: Record<string, number>, key: string): number => table[key] ?? rules.defaultHeat;

@@ -105,6 +105,22 @@ describe.skipIf(!runMysqlTests)('Activity log × MySQL', () => {
     });
   });
 
+  it('countUsers 不统计未经身份验证的尝试（登录失败、申请找回密码）', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const alice = await insertUser(database, 'alice');
+      const bob = await insertUser(database, 'bob');
+      const carol = await insertUser(database, 'carol');
+      const repository = createActivityRepository(database);
+      const device = '0b9c1f2e-3d4a-4b5c-8d6e-7f8091a2b3c4';
+      const shared = { ip_net: '113.87.1.2', device_id: device };
+      await repository.insert(row(alice, 1, shared));
+      await repository.insert(row(bob, 2, { ...shared, result: 'FAILURE' }));
+      await repository.insert(row(carol, 3, { ...shared, event: 'PASSWORD_RESET_REQUEST' }));
+      expect(await repository.countUsers('ip_net', '113.87.1.2')).toBe(1);
+      expect(await repository.countUsers('device_id', device)).toBe(1);
+    });
+  });
+
   it('latestIpNetForRef 返回该 ref 最近一条，无记录返回 null', async () => {
     await withAuthTestDatabase(async ({ database }) => {
       const user = await insertUser(database, 'alice');
