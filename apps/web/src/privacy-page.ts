@@ -29,6 +29,7 @@ const CONFIG: LegalPageConfig = {
       body: `
         <p><strong>2.1 Account Registration Data.</strong> Email address (login, verification, password reset, membership expiry reminders), display name (public profile, if you choose), and keyed HMAC-SHA-256 password verification material using a random per-account salt (passwords are never stored in plaintext).</p>
         <p><strong>2.2 Usage Data (automatic).</strong> Our analytics provider 51.la automatically collects: browser user agent, OS, device type, pages visited, navigation path, and anonymized IP address (anonymized within 24 hours). Custom events include: search keywords, item history views, map button clicks, command-copy actions, QQ group copy, monitor account count, sponsor/stripe outbound clicks.</p>
+        <p><strong>2.3 Security and Anti-Abuse Data.</strong> When you register, log in, verify your email, request or change a password, authorize or bind KoreEngine, or post in the guestbook, we record your IP address, approximate location (city level) and network provider derived from it, your browser user agent, a random device identifier stored in your browser's local storage, and a hash of browser characteristics (browser fingerprint). We use this data only to prevent abuse and fraud, such as one person operating many accounts, and to resolve disputes about account or game-character ownership.</p>
         <p><strong>2.3 Payment Data.</strong> You are redirected to Stripe's checkout page. The Operator receives ONLY a payment confirmation, plan identifier, and activation timestamp. We do NOT receive or store your card number, CVC, or bank account number.</p>
         <p><strong>2.4 Alert Configuration Data.</strong> If you configure email alerts via the monitoring dashboard, we store the LTSD account(s) you wish to monitor, your alert preferences, and alert delivery logs.</p>
         <p><strong>2.5 User-Generated Content.</strong> Guestbook posts may be visible to the public. Configuration sharing hall entries are visible only to logged-in users after you choose to share and save them. You can withdraw a shared configuration from the hall; copies already saved by other users remain in their accounts.</p>
@@ -46,6 +47,7 @@ const CONFIG: LegalPageConfig = {
             <tr><td>Website analytics (51.la)</td><td>Legitimate interest (Art. 6(1)(f)) — aggregated usage, not profiling</td></tr>
             <tr><td>Security, fraud prevention, abuse detection</td><td>Legitimate interest (Art. 6(1)(f))</td></tr>
             <tr><td>Guestbook / configuration hall hosting</td><td>Legitimate interest (Art. 6(1)(f)) — community operation</td></tr>
+            <tr><td>Security and anti-abuse records (IP address, approximate location, device identifier, browser fingerprint)</td><td>Legitimate interest (Art. 6(1)(f)) — preventing abuse and resolving ownership disputes</td></tr>
           </tbody>
         </table>
       `,
@@ -84,6 +86,8 @@ const CONFIG: LegalPageConfig = {
             <tr><td>Alert delivery logs</td><td>180 days</td></tr>
             <tr><td>Payment records (Operator-side)</td><td>7 years (accounting)</td></tr>
             <tr><td>Guestbook / configuration hall content</td><td>For as long as the feature operates; removable by you at any time</td></tr>
+            <tr><td>Security and anti-abuse records</td><td>180 days</td></tr>
+            <tr><td>Character-transfer review decisions (IP addresses partially masked)</td><td>Retained with administrative audit records</td></tr>
           </tbody>
         </table>
       `,
@@ -98,7 +102,7 @@ const CONFIG: LegalPageConfig = {
     {
       heading: "8. Cookies",
       body: `
-        <p><strong>Essential cookies</strong>: Session cookies for login state management — necessary for the Service to function, no consent required. <strong>Analytics cookies</strong>: Set by 51.la to track anonymous session data. Opt out via browser settings or a global tool such as <a href="https://www.youronlinechoices.eu" target="_blank" rel="noopener noreferrer">youronlinechoices.eu</a>.</p>
+        <p><strong>Essential cookies</strong>: Session cookies for login state management — necessary for the Service to function, no consent required. <strong>Local storage</strong>: A random device identifier used solely for security and abuse prevention — strictly necessary, no consent required. <strong>Analytics cookies</strong>: Set by 51.la to track anonymous session data. Opt out via browser settings or a global tool such as <a href="https://www.youronlinechoices.eu" target="_blank" rel="noopener noreferrer">youronlinechoices.eu</a>.</p>
       `,
     },
     {

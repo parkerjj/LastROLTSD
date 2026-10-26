@@ -43,3 +43,18 @@ it('describes the implemented password storage and login-gated configuration sha
   expect(content).not.toContain('individuals under 16 years of age');
   dom.window.close();
 });
+
+it('discloses security and anti-abuse data collection and retention', () => {
+  const dom = new JSDOM('<div id="app"></div>', { url: 'https://example.test/privacy' });
+  vi.stubGlobal('document', dom.window.document);
+  const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+
+  mountPrivacyPage(root);
+
+  const content = root.textContent ?? '';
+  expect(content).toContain('2.3 Security and Anti-Abuse Data');
+  expect(content).toContain('browser fingerprint');
+  expect(content).toContain('180 days');
+  expect(content).toContain('Local storage');
+  dom.window.close();
+});
