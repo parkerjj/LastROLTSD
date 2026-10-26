@@ -78,6 +78,7 @@ const WORLDMAP_FIXTURE = {
       points: [
         { code: 'prontera', row: 10, col: 14, span: 1, name: '卢恩 米德加兹王国 首都 普隆德拉' },
         { code: 'prt_fild08', row: 11, col: 13, span: 1, name: '普隆德拉原野' },
+        { code: 'prt_fild01', row: 12, col: 14, span: 1, name: '普隆德拉原野 01' },
         {
           code: 'tur_dun01', row: 16, col: 20, span: 1, mvp: true, name: '乌龟岛',
           codes: ['tur_dun01', 'tur_dun02', 'tur_dun03', 'tur_dun04'],
@@ -98,9 +99,19 @@ const WORLDMAP_FIXTURE = {
   ],
 };
 
+// 地图预设（/ke/map-mobs.json）：地图 → 怪物 ID 列表 + 掉落物 ID 并集
+const MAP_MOBS_FIXTURE = {
+  generatedAt: '2026-10-26T00:00:00.000Z',
+  source: {},
+  maps: {
+    prt_fild08: { mobs: [1001, 1002], drops: [501, 502] },
+    prt_fild01: { mobs: [1003], drops: [503] },
+  },
+};
+
 async function mountProfileEditor(
   configText = 'useSelf_skill 29 {\n\tlvl 10\n\twhenStatusActive EFST_BLESSING\n}\n',
-  opts?: { tab?: string; worldmap?: boolean; mapNames?: boolean },
+  opts?: { tab?: string; worldmap?: boolean; mapNames?: boolean; mapMobs?: boolean },
 ) {
   const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/ke/my' });
   vi.stubGlobal('document', dom.window.document);
@@ -113,6 +124,10 @@ async function mountProfileEditor(
     if (path === '/ke/worldmap.json') {
       if (opts?.worldmap === false) return new Response('not found', { status: 404 });
       return jsonResponse(WORLDMAP_FIXTURE);
+    }
+    if (path === '/ke/map-mobs.json') {
+      if (opts?.mapMobs === false) return new Response('not found', { status: 404 });
+      return jsonResponse(MAP_MOBS_FIXTURE);
     }
     if (path === '/api/v1/ke/characters') {
       return jsonResponse({ characters: [{ aid: 1, cid: 2, nid: 3, char_name: '暴力男团', job_id: 176, map_name: 'payon.gat', last_seen_at: Date.now() }] });
@@ -763,7 +778,7 @@ describe("ke page", () => {
     const tabs = Array.from(overlay!.querySelectorAll<HTMLElement>('.ke-wmap-tab')).map((t) => t.textContent);
     expect(tabs).toEqual(['中土大陆', '次元大陆']);
     expect(overlay!.querySelectorAll('.ke-wmap-tab')[0]!.classList.contains('active')).toBe(true);
-    expect(overlay!.querySelectorAll('.ke-wmap-cell').length).toBe(4);
+    expect(overlay!.querySelectorAll('.ke-wmap-cell').length).toBe(5);
   });
 
   it('格子渲染游戏同款小地图贴图，悬停显示中文名悬浮提示', async () => {
@@ -902,5 +917,158 @@ describe("ke page", () => {
     const overlay = root.querySelector<HTMLElement>('.ke-wmap-overlay')!;
     expect(overlay.querySelector('.ke-wmap-message')!.textContent).toContain('加载失败');
     expect(overlay.querySelector('.ke-wmap-retry')).not.toBeNull();
+  });
+
+  // —— 选定挂机地图后的「添加地图预设」询问浮层 ——
+
+  /** 从世界地图选中指定格子（含等待预设浮层弹出）。 */
+  async function pickWorldmapCell(root: HTMLElement, openBtn: HTMLButtonElement, code: string) {
+    openBtn.click();
+    await wait(20);
+    root.querySelector<HTMLButtonElement>(`.ke-wmap-cell[data-code="${code}"]`)!.click();
+    await wait(20);
+  }
+
+  /** 规则文件当前行名序列（从序列化预览读取，顺序即文件顺序）。 */
+  function controlRowNames(root: HTMLElement, tab: string): string[] {
+    root.querySelector<HTMLButtonElement>(`#ke-nav [data-tab="${tab}"]`)!.click();
+    const text = root.querySelector<HTMLElement>('#ke-config-preview')!.textContent ?? '';
+    return text.split('\n').filter((line) => line.trim() !== '').map((line) => line.split(/\s+/)[0]!);
+  }
+
+  it('选定挂机地图后弹出预设询问，点「是」把怪物与掉落物写入怪物规则/拾取物品/物品规则', async () => {
+    const { dom, root, openBtn, input } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+
+    const dialog = root.querySelector<HTMLElement>('.ke-preset-overlay');
+    expect(dialog).not.toBeNull();
+    expect(dialog!.querySelector('.ke-preset-title')!.textContent).toContain('添加地图预设');
+    expect(dialog!.querySelector('.ke-preset-body')!.textContent).toContain('prt_fild08');
+    expect(dialog!.querySelector('.ke-preset-body')!.textContent).toContain('2 只怪物');
+    expect(dialog!.querySelector('.ke-preset-body')!.textContent).toContain('2 件掉落物品');
+    // 怪物名单按 options.json 解析为中文名
+    const chips = Array.from(dialog!.querySelectorAll<HTMLElement>('.ke-preset-mob')).map((c) => c.textContent);
+    expect(chips).toEqual(['波利', '绿棉虫']);
+    // 选图浮层已关闭，lockMap 已写入
+    expect(root.querySelector('.ke-wmap-overlay')).toBeNull();
+    expect(input.value).toBe('prt_fild08');
+
+    dialog!.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+    // 焦点归还「选择地图」按钮
+    expect(dom.window.document.activeElement).toBe(openBtn);
+
+    // 怪物规则：新增怪物行在前，兜底行（all_miniboss/all_mvp/all）仍在末尾
+    expect(controlRowNames(root, 'mon_control')).toEqual(['1001', '1002', 'all_miniboss', 'all_mvp', 'all']);
+    // 拾取物品：掉落物 + all 兜底
+    expect(controlRowNames(root, 'pickupitems')).toEqual(['501', '502', 'all']);
+    // 物品规则：掉落物 + all 兜底
+    expect(controlRowNames(root, 'items_control')).toEqual(['501', '502', 'all']);
+    // 导航计数同步
+    expect(root.querySelector<HTMLElement>('#ke-nav [data-tab="mon_control"] .ke-count')!.textContent).toBe('5');
+  });
+
+  it('预设询问点「暂不添加」不写任何规则', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    const dialog = root.querySelector<HTMLElement>('.ke-preset-overlay')!;
+    dialog.querySelector<HTMLButtonElement>('.ke-preset-no')!.click();
+    await wait(0);
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+    expect(controlRowNames(root, 'mon_control')).toEqual(['all_miniboss', 'all_mvp', 'all']);
+    expect(controlRowNames(root, 'pickupitems')).toEqual(['all']);
+    expect(controlRowNames(root, 'items_control')).toEqual(['all']);
+  });
+
+  it('选定无怪物数据的地图（城镇）时不弹预设询问', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prontera');
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+  });
+
+  it('回城地图选定后不弹预设询问（仅挂机地图询问）', async () => {
+    const { root } = await mountRouteWithWorldmap();
+    const saveBtn = root.querySelectorAll<HTMLButtonElement>('.ke-wmap-open')[1]!;
+    saveBtn.click();
+    await wait(20);
+    root.querySelector<HTMLButtonElement>('.ke-wmap-cell[data-code="prt_fild08"]')!.click();
+    await wait(20);
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+  });
+
+  it('重复添加同一张地图时已有规则不重复写入', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    root.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+    // 换一张无数据地图再换回来，让浮层再次弹出
+    await pickWorldmapCell(root, openBtn, 'prontera');
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    root.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+    expect(controlRowNames(root, 'mon_control')).toEqual(['1001', '1002', 'all_miniboss', 'all_mvp', 'all']);
+    expect(controlRowNames(root, 'pickupitems')).toEqual(['501', '502', 'all']);
+    expect(controlRowNames(root, 'items_control')).toEqual(['501', '502', 'all']);
+  });
+
+  it('重新选择地图并确认后，上一张地图的怪物与物品预设被清空', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    root.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+    expect(controlRowNames(root, 'mon_control')).toEqual(['1001', '1002', 'all_miniboss', 'all_mvp', 'all']);
+
+    // 换图时浮层提前说明上一张地图的预设会被清空
+    await pickWorldmapCell(root, openBtn, 'prt_fild01');
+    const dialog = root.querySelector<HTMLElement>('.ke-preset-overlay')!;
+    expect(dialog.querySelector('.ke-preset-body')!.textContent).toContain('将被清空');
+    dialog.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+
+    // 只剩新地图的怪物与掉落物，兜底行仍在末尾
+    expect(controlRowNames(root, 'mon_control')).toEqual(['1003', 'all_miniboss', 'all_mvp', 'all']);
+    expect(controlRowNames(root, 'pickupitems')).toEqual(['503', 'all']);
+    expect(controlRowNames(root, 'items_control')).toEqual(['503', 'all']);
+  });
+
+  it('换图后点「暂不添加」保留上一张地图的预设规则', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    root.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+
+    await pickWorldmapCell(root, openBtn, 'prt_fild01');
+    root.querySelector<HTMLButtonElement>('.ke-preset-no')!.click();
+    await wait(0);
+
+    expect(controlRowNames(root, 'mon_control')).toEqual(['1001', '1002', 'all_miniboss', 'all_mvp', 'all']);
+    expect(controlRowNames(root, 'pickupitems')).toEqual(['501', '502', 'all']);
+    expect(controlRowNames(root, 'items_control')).toEqual(['501', '502', 'all']);
+  });
+
+  it('换到无怪图的地图（城镇）时，上一张地图的预设行被清空', async () => {
+    const { root, openBtn } = await mountRouteWithWorldmap();
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    root.querySelector<HTMLButtonElement>('.ke-preset-yes')!.click();
+    await wait(0);
+
+    // 城镇无预设数据：不弹浮层，但上一张地图的怪物/掉落行直接清空
+    await pickWorldmapCell(root, openBtn, 'prontera');
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+    expect(controlRowNames(root, 'mon_control')).toEqual(['all_miniboss', 'all_mvp', 'all']);
+    expect(controlRowNames(root, 'pickupitems')).toEqual(['all']);
+    expect(controlRowNames(root, 'items_control')).toEqual(['all']);
+  });
+
+  it('map-mobs.json 加载失败时静默跳过预设询问，选图不受影响', async () => {
+    const { root } = await mountProfileEditor('', { tab: 'route', mapMobs: false });
+    await wait(0);
+    const openBtn = root.querySelectorAll<HTMLButtonElement>('.ke-wmap-open')[0]!;
+    const input = openBtn.parentElement!.querySelector<HTMLInputElement>('input')!;
+    await pickWorldmapCell(root, openBtn, 'prt_fild08');
+    expect(root.querySelector('.ke-preset-overlay')).toBeNull();
+    expect(input.value).toBe('prt_fild08');
   });
 });
