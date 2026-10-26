@@ -44,6 +44,8 @@ import { mysqlErrorContext } from './db/mysql-error-context';
 import { createAdminRepository } from './admin/repository';
 import { registerAdminAccountRoutes, type AdminAuthServices } from './admin/router';
 import { createAdminService } from './admin/service';
+import { createTransferRepository } from './admin/transfer-repository';
+import { createTransferService } from './admin/transfer-service';
 import { createActionService } from './auth/action-service';
 
 export type WorkerBindings = AppEnv;
@@ -89,7 +91,12 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       auth: guestbookAuthServices(database, env),
       activity,
     });
-    registerAdminAccountRoutes(app, createAdminService(createAdminRepository(database)), adminAuthServices(database, env, wakeMail));
+    registerAdminAccountRoutes(
+      app,
+      createAdminService(createAdminRepository(database)),
+      adminAuthServices(database, env, wakeMail),
+      createTransferService(createTransferRepository(database), createActivityRepository(database)),
+    );
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);

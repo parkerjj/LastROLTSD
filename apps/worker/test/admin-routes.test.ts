@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { registerAdminAccountRoutes, type AdminAuthServices } from '../src/admin/router';
 import type { AdminService } from '../src/admin/service';
+import type { TransferService } from '../src/admin/transfer-service';
 import { AdminFailure } from '../src/admin/types';
 import { AuthFailure } from '../src/auth/types';
 
@@ -39,13 +40,20 @@ function setup(options: { signedIn?: boolean; admin?: boolean; csrfOk?: boolean;
     },
     setPassword: async (...args: unknown[]) => { calls.push({ method: 'setPassword', args }); },
   } as AdminAuthServices;
+  const transfer = {
+    listCharacters: record('listCharacters', { user: { id: 2 }, characters: [] }),
+    preview: record('preview', { analysis: { verdict: 'NONE' }, timeline: [] }),
+    confirm: record('confirm', { moved_profile_ids: [1], detached_share_ids: [] }),
+  } as unknown as TransferService;
   const app = new Hono();
-  registerAdminAccountRoutes(app, service, auth);
+  registerAdminAccountRoutes(app, service, auth, transfer);
   const json = (path: string, method: string, body: unknown) => app.request(path, {
     method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
   const called = (method: string) => calls.filter((call) => call.method === method);
-  return { app, calls, json, called };
+  const withoutTransfer = new Hono();
+  registerAdminAccountRoutes(withoutTransfer, service, auth);
+  return { app, calls, json, called, withoutTransfer };
 }
 
 describe('admin 路由 · 访问控制', () => {
@@ -58,6 +66,8 @@ describe('admin 路由 · 访问控制', () => {
       ['/api/v1/admin/users', 'GET'], ['/api/v1/admin/users/2', 'GET'], ['/api/v1/admin/audit', 'GET'],
       ['/api/v1/admin/users/2/entitlements', 'POST'], ['/api/v1/admin/entitlements/1', 'PATCH'],
       ['/api/v1/admin/users/2/password', 'POST'], ['/api/v1/admin/guestbook/entries/1', 'DELETE'], ['/api/v1/admin/guestbook/replies/1', 'DELETE'],
+      ['/api/v1/admin/transfer/characters?account=2', 'GET'], ['/api/v1/admin/transfer/preview?source=2&target=3&aid=1&cid=1&nid=1', 'GET'],
+      ['/api/v1/admin/transfer', 'POST'],
     ] as const) {
       const response = await normal.app.request(path, method === 'GET' || method === 'DELETE'
         ? { method }
@@ -154,6 +164,57 @@ describe('admin 路由 · 功能', () => {
     const { app } = setup();
     const bad = await app.request('/api/v1/admin/users/2/entitlements', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' });
     expect(bad.status).toBe(415);
+  });
+});
+
+describe('admin 路由 · 角色转移', () => {
+  const body = { source: '2', target: 'b@example.test', aid: 1, cid: 2, nid: 3, note: '工单' };
+
+  it('查询角色 / 预览：参数交给服务，aid/cid/nid 转成数字', async () => {
+    const { app, called } = setup();
+    expect(await (await app.request('/api/v1/admin/transfer/characters?account=a%40b.test')).json()).toEqual({ user: { id: 2 }, characters: [] });
+    expect(called('listCharacters')[0]!.args).toEqual(['a@b.test']);
+    const response = await app.request('/api/v1/admin/transfer/preview?source=2&target=b%40example.test&aid=4294967295&cid=0&nid=3');
+    expect(response.status).toBe(200);
+    expect(called('preview')[0]!.args).toEqual([{ source: '2', target: 'b@example.test', aid: 4294967295, cid: 0, nid: 3 }]);
+  });
+
+  it('确认转移：写操作要求 CSRF，操作者与请求号一并传给服务', async () => {
+    const blocked = setup({ csrfOk: false });
+    expect((await blocked.json('/api/v1/admin/transfer', 'POST', body)).status).toBe(403);
+    expect(blocked.called('confirm')).toHaveLength(0);
+
+    const { json, called } = setup();
+    const response = await json('/api/v1/admin/transfer', 'POST', body);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ moved_profile_ids: [1], detached_share_ids: [] });
+    const [actor, input, requestId] = called('confirm')[0]!.args;
+    expect([actor, input]).toEqual([1, body]);
+    expect(typeof requestId).toBe('string');
+  });
+
+  it('参数无效 → 400：多余字段、aid 非整数、越界、缺字段', async () => {
+    const { app, json, called } = setup();
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, extra: 1 })).status).toBe(400);
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, aid: 'abc' })).status).toBe(400);
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, aid: 4294967296 })).status).toBe(400);
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, cid: -1 })).status).toBe(400);
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, nid: 1.5 })).status).toBe(400);
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, note: undefined })).status).toBe(400);
+    expect((await json('/api/v1/admin/transfer', 'POST', { ...body, target: 5 })).status).toBe(400);
+    expect(called('confirm')).toHaveLength(0);
+    expect((await app.request('/api/v1/admin/transfer/preview?source=2&target=3&aid=abc&cid=1&nid=1')).status).toBe(400);
+    expect((await app.request('/api/v1/admin/transfer/preview?source=2&target=3&aid=1&cid=1')).status).toBe(400);
+    expect((await app.request('/api/v1/admin/transfer/preview?source=2&aid=1&cid=1&nid=1')).status).toBe(400);
+    expect((await app.request('/api/v1/admin/transfer/characters')).status).toBe(400);
+    expect(called('preview')).toHaveLength(0);
+  });
+
+  it('未提供转移服务 → 管理员校验通过后返回 503', async () => {
+    const { withoutTransfer } = setup();
+    expect((await withoutTransfer.request('/api/v1/admin/transfer/characters?account=2')).status).toBe(503);
+    const denied = setup({ admin: false });
+    expect((await denied.withoutTransfer.request('/api/v1/admin/transfer/characters?account=2')).status).toBe(404);
   });
 });
 
