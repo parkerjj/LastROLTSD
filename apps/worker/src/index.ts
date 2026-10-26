@@ -173,9 +173,17 @@ export default {
       if (event.cron === '* * * * *') await processSnapshotWakeup(env, createSnapshotRepository(database));
       else if (event.cron === '*/5 * * * *') {
         const now = Date.now();
-        await createSnapshotRepository(database).cleanup(now);
-        await createKeRepository(database).cleanup(now);
-        await createActivityRepository(database).cleanup(now - ACTIVITY_RETENTION_MS, 1000);
+        try {
+          await createSnapshotRepository(database).cleanup(now);
+          await createKeRepository(database).cleanup(now);
+        } finally {
+          // 操作日志的 180 天清理独立执行：前面的清理失败不能让它永远跑不到；它自身失败只记录，不影响任务结果。
+          try {
+            await createActivityRepository(database).cleanup(now - ACTIVITY_RETENTION_MS, 1000);
+          } catch (error) {
+            logError('lastroweb.activity_cleanup_failed', error, mysqlErrorContext(error));
+          }
+        }
       } else await runRetention(Date.now(), {}, createMysqlRepository(database));
     } finally {
       await database.close();
