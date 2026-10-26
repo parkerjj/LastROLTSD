@@ -368,15 +368,15 @@ export function createActionService(repository: AuthRepository, config: AuthConf
       runtime.wakeMail?.();
     },
 
-    async requestReset(emailValue: string): Promise<AuthAcceptedResponse> {
+    async requestReset(emailValue: string): Promise<{ response: AuthAcceptedResponse; userId: UserId | null }> {
       const email = normalizeEmail(emailValue);
       const availability = await repository.readMailAvailability(runtime.now());
       const snapshot = await repository.readCredentialByEmail(email.normalized);
-      if (!snapshot || snapshot.status === 'DISABLED') return { accepted: true, mail_availability: availability };
+      if (!snapshot || snapshot.status === 'DISABLED') return { response: { accepted: true, mail_availability: availability }, userId: null };
 
       const profile = await repository.readProfile(snapshot.userId);
       if (!profile || normalizeEmail(profile.email).normalized !== email.normalized || profile.status === 'DISABLED') {
-        return { accepted: true, mail_availability: availability };
+        return { response: { accepted: true, mail_availability: availability }, userId: null };
       }
 
       const draft = await prepareAction({
@@ -385,7 +385,9 @@ export function createActionService(repository: AuthRepository, config: AuthConf
         displayName: profile.display_name,
       }, 'RESET_PASSWORD', runtime.now(), PASSWORD_RESET_LIFETIME, config);
 
+      let requestedUserId: UserId | null = null;
       await repository.transaction(async (tx) => {
+        requestedUserId = null;
         const user = await tx.lockUser(snapshot.userId);
         if (!user) return;
         const credential = await tx.readCredential(snapshot.userId);
@@ -397,9 +399,10 @@ export function createActionService(repository: AuthRepository, config: AuthConf
         await tx.insertAction(actionInput(draft.tokenDigest, user, 'RESET_PASSWORD', draft.createdAt, draft.expiresAt));
         await tx.insertMailJob(draft.mail);
         await appendEvent(tx, user.id, 'PASSWORD_RESET_REQUEST', now);
+        requestedUserId = user.id;
       });
       runtime.wakeMail?.();
-      return { accepted: true, mail_availability: availability };
+      return { response: { accepted: true, mail_availability: availability }, userId: requestedUserId };
     },
 
     async confirmReset(token: string, newPasswordValue: string, confirmationValue: string): Promise<{ changedUserId: UserId }> {

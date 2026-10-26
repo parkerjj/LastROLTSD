@@ -3,19 +3,21 @@ import { Hono } from 'hono';
 import { registerGuestbookRoutes, type GuestbookAuthServices } from '../src/routes/guestbook';
 import type { GuestbookEntry, GuestbookRepository } from '../src/db/guestbook-repository';
 import { AuthFailure } from '../src/auth/types';
+import type { ActivityEntry, ActivityRecorder } from '../src/activity/recorder';
 
 const authed: GuestbookAuthServices = {
   authenticate: async () => ({ userId: "10002", status: "ACTIVE" as const, credentialVersion: 1, authVersion: 1, sessionDigest: new Uint8Array(32) }),
   assertSession: async () => {},
 };
 
-function createTestApp(repo: GuestbookRepository, options: { itemIds?: Set<number>; auth?: GuestbookAuthServices | null } = {}) {
+function createTestApp(repo: GuestbookRepository, options: { itemIds?: Set<number>; auth?: GuestbookAuthServices | null; activity?: ActivityRecorder } = {}) {
   const app = new Hono();
   registerGuestbookRoutes(app, repo, {
     getItemIds: async () => options.itemIds ?? new Set([100]),
     rateSecret: '0123456789abcdef0123456789abcdef',
     cursorSecret: 'abcdef0123456789abcdef0123456789',
     auth: options.auth === undefined ? authed : options.auth,
+    ...(options.activity ? { activity: options.activity } : {}),
   });
   return app;
 }
@@ -26,6 +28,15 @@ function post(app: Hono<any>, path: string, body: unknown) {
 
 function patch(app: Hono<any>, path: string, body: unknown) {
   return app.request(path, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+function capturingRecorder() {
+  const entries: ActivityEntry[] = [];
+  const recorder: ActivityRecorder = {
+    record: async (_request, entry) => { entries.push(entry); },
+    recordHeartbeat: async (_request, entry) => { entries.push(entry); },
+  };
+  return { entries, recorder };
 }
 
 const entryFixture = (overrides: Partial<GuestbookEntry> = {}): GuestbookEntry => ({
@@ -178,5 +189,40 @@ describe('guestbook routes', () => {
     const missingRepo = { updateReplyContent: async () => false } as unknown as GuestbookRepository;
     const missing = await patch(createTestApp(missingRepo), '/api/v1/guestbook/replies/11', { content: '改' });
     expect(missing.status).toBe(404);
+  });
+
+  it('records GUESTBOOK_POST only after a successful post', async () => {
+    const { entries, recorder } = capturingRecorder();
+    const repo = {
+      create: async () => ({ status: 'created', id: 9 } as const),
+      readById: async () => entryFixture({ id: 9 }),
+    } as unknown as GuestbookRepository;
+    const app = createTestApp(repo, { activity: recorder });
+
+    const invalid = await post(app, '/api/v1/guestbook', { category: 'suggestion', content: '' });
+    expect(invalid.status).toBe(400);
+    expect(entries).toEqual([]);
+
+    const created = await post(app, '/api/v1/guestbook', { category: 'suggestion', content: '建议' });
+    expect(created.status).toBe(201);
+    expect(entries).toEqual([{ userId: '10002', event: 'GUESTBOOK_POST', requestId: expect.any(String) }]);
+  });
+
+  it('records GUESTBOOK_REPLY only after a successful reply', async () => {
+    const { entries, recorder } = capturingRecorder();
+    const reply = { id: 11, entryId: 5, content: '回复', createdAt: 10, editedAt: null, author: null };
+    const repo = {
+      createReply: async () => ({ status: 'created', id: 11 } as const),
+      readById: async () => entryFixture({ id: 5, replies: [reply as never] }),
+    } as unknown as GuestbookRepository;
+    const app = createTestApp(repo, { activity: recorder });
+
+    const invalid = await post(app, '/api/v1/guestbook/5/replies', { content: '' });
+    expect(invalid.status).toBe(400);
+    expect(entries).toEqual([]);
+
+    const created = await post(app, '/api/v1/guestbook/5/replies', { content: '回复' });
+    expect(created.status).toBe(201);
+    expect(entries).toEqual([{ userId: '10002', event: 'GUESTBOOK_REPLY', requestId: expect.any(String) }]);
   });
 });

@@ -14,6 +14,7 @@ import {
 import { guestbookRateKey, type GuestbookRepository } from '../db/guestbook-repository';
 import { jsonError, requestId } from '../middleware/errors';
 import { logError } from '../observability';
+import { NOOP_ACTIVITY_RECORDER, type ActivityRecorder } from '../activity/recorder';
 import { AuthFailure, type AuthIdentity } from '../auth/types';
 
 export interface GuestbookAuthServices {
@@ -28,6 +29,7 @@ export interface GuestbookRouteConfig {
   cursorSecret: string;
   rateSecret: string;
   auth: GuestbookAuthServices | null;
+  activity?: ActivityRecorder;
 }
 
 type JsonBody = { ok: true; value: unknown } | { ok: false; response: Response };
@@ -57,6 +59,7 @@ function rateLimitedResponse(id: string): Response {
 }
 
 export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepository, config: GuestbookRouteConfig): void {
+  const activity = config.activity ?? NOOP_ACTIVITY_RECORDER;
   /** 校验登录态 + 会话 CSRF；失败时返回可直接落地的 Response */
   async function requireIdentity(request: Request, id: string): Promise<{ userId: string } | { response: Response }> {
     if (!config.auth) return { response: jsonError('auth_unavailable', '账号服务暂不可用', 503, id) };
@@ -102,6 +105,7 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
       const result = await repo.create({ ...input, createdAt: now }, identity.userId, rateKey, bucketStart, GUESTBOOK_RATE_LIMIT);
       if (result.status === 'rate_limited') return rateLimitedResponse(id);
       const item = await repo.readById(result.id, now, identity.userId);
+      await activity.record(c.req.raw, { userId: identity.userId, event: 'GUESTBOOK_POST', requestId: id });
       return c.json({ item }, 201, { 'cache-control': 'no-store' });
     } catch (error) {
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);
@@ -154,6 +158,7 @@ export function registerGuestbookRoutes(app: Hono<any>, repo: GuestbookRepositor
       if (result.status === 'entry_not_found') return jsonError('not_found', '留言不存在', 404, id);
       const entry = await repo.readById(entryId, now, identity.userId);
       const item = entry?.replies.find((reply) => reply.id === result.id) ?? null;
+      await activity.record(c.req.raw, { userId: identity.userId, event: 'GUESTBOOK_REPLY', requestId: id });
       return c.json({ item }, 201, { 'cache-control': 'no-store' });
     } catch (error) {
       if (error instanceof GuestbookValidationError) return jsonError('bad_request', error.message, 400, id);

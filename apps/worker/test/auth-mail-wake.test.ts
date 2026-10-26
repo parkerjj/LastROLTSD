@@ -187,6 +187,6 @@ describe('services wake the mail queue after the outbox commit', () => {
     await expect(service.register({
       email: 'pilot@example.test', password: '12345', password_confirmation: '12345',
       display_name: 'Pilot', requestId: 'no-wake',
-    })).resolves.toMatchObject({ accepted: true });
+    })).resolves.toMatchObject({ response: { accepted: true } });
   });
 });

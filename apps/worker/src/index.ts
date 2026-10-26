@@ -29,6 +29,7 @@ import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
 import { registerKeBuildRoutes } from './ke/build-register-router';
+import { createActivityRecorder, NOOP_ACTIVITY_RECORDER } from './activity/recorder';
 import { createActivityRepository } from './activity/repository';
 import { ACTIVITY_RETENTION_MS } from './activity/types';
 import { createKeRepository } from './ke/repository';
@@ -73,7 +74,8 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
-  registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined);
+  const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT) : NOOP_ACTIVITY_RECORDER;
+  registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);
   registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database);
 
@@ -85,6 +87,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       cursorSecret: env.CURSOR_SECRET ?? '',
       rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
       auth: guestbookAuthServices(database, env),
+      activity,
     });
     registerAdminAccountRoutes(app, createAdminService(createAdminRepository(database)), adminAuthServices(database, env, wakeMail));
     registerSearchRoute(app, repository, env.CURSOR_SECRET);

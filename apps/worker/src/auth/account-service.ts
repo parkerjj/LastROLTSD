@@ -5,7 +5,7 @@ import { normalizeEmail, parseDisplayName, validatePasswordConfirmation } from '
 import { validateAvatarBase64 } from './avatar';
 import { prepareActionMail } from './mail';
 import type { AuthRepository, AuthSessionRecord, UserRecord } from './repository';
-import type { AccountProfile, AuthAcceptedResponse, AuthConfig, AuthIdentity, AuthRuntime } from './types';
+import type { AccountProfile, AuthAcceptedResponse, AuthConfig, AuthIdentity, AuthRuntime, UserId } from './types';
 import { AuthFailure } from './types';
 
 const EMAIL_VERIFICATION_LIFETIME = 24 * 60 * 60 * 1000;
@@ -57,7 +57,7 @@ async function currentProfile(repository: AuthRepository, userId: string): Promi
 
 export function createAccountService(repository: AuthRepository, config: AuthConfig, runtime: AuthRuntime) {
   return {
-    async register(input: RegisterInput): Promise<AuthAcceptedResponse> {
+    async register(input: RegisterInput): Promise<{ response: AuthAcceptedResponse; userId: UserId | null }> {
       requireAuthConfig(config);
 
       const email = normalizeEmail(input.email);
@@ -86,7 +86,9 @@ export function createAccountService(repository: AuthRepository, config: AuthCon
         expiresAt,
       }, config);
 
+      let createdUserId: UserId | null = null;
       await repository.transaction(async (tx) => {
+        createdUserId = null;
         let user;
         try {
           user = await tx.insertUser({
@@ -100,6 +102,7 @@ export function createAccountService(repository: AuthRepository, config: AuthCon
           throw error;
         }
 
+        createdUserId = user.id;
         await tx.insertCredential(user.id, material);
         await tx.insertAction({
           tokenDigest: actionDigest,
@@ -133,7 +136,7 @@ export function createAccountService(repository: AuthRepository, config: AuthCon
       });
       runtime.wakeMail?.();
 
-      return { accepted: true, mail_availability: mailAvailability };
+      return { response: { accepted: true, mail_availability: mailAvailability }, userId: createdUserId };
     },
 
     async updateDisplayName(identity: AuthIdentity, name: string, requestIdValue: string | null = null): Promise<AccountProfile> {

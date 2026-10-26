@@ -2,9 +2,12 @@ import type { Hono } from 'hono';
 import type { MysqlDatabase } from '../db/mysql-client';
 import type { AppEnv } from '../env';
 import { jsonError, requestId } from '../middleware/errors';
+import { logError } from '../observability';
 import { readAuthJson } from './body';
 import { avatarResponse } from './avatar';
 import { assertCsrf, assertTrustedWriteOrigin, issueCsrf } from './csrf';
+import { createActivityRecorder, NOOP_ACTIVITY_RECORDER, type ActivityRecorder } from '../activity/recorder';
+import { createActivityRepository } from '../activity/repository';
 import { mailRepositoryOptions, resolveAuthConfig } from './config';
 import { createAccountService } from './account-service';
 import { createActionService } from './action-service';
@@ -212,7 +215,10 @@ export function registerAuthRoutes(
   env: AppEnv & AuthBindings,
   database?: MysqlDatabase,
   runtime?: AuthRuntime,
+  activity?: ActivityRecorder,
 ): void {
+  const recorder = activity
+    ?? (database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT) : NOOP_ACTIVITY_RECORDER);
   let repository: ReturnType<typeof createAuthRepository> | null = null;
   const requestConfig = () => {
     const config = enabledConfig(env);
@@ -295,7 +301,7 @@ export function registerAuthRoutes(
       ], () => authRuntime.now());
       if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
 
-      const response = await createAccountService(repository, config, authRuntime).register({
+      const registered = await createAccountService(repository, config, authRuntime).register({
         email: emailInput,
         password,
         password_confirmation: password,
@@ -303,15 +309,35 @@ export function registerAuthRoutes(
         ...(typeof avatarBase64Input === 'string' ? { avatar_base64: avatarBase64Input } : {}),
         requestId: requestId(c.req.raw),
       });
-      return c.json(response, 202, { 'cache-control': 'no-store' });
+      if (registered.userId !== null) {
+        await recorder.record(c.req.raw, { userId: registered.userId, event: 'REGISTER', requestId: requestId(c.req.raw) });
+      }
+      return c.json(registered.response, 202, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
     }
   });
 
+  /** 登录失败：仅当邮箱对应真实账号时才记录；查询或写入出错都不能影响原错误响应。 */
+  async function recordLoginFailure(request: Request, email: string): Promise<void> {
+    try {
+      const snapshot = await repository!.readCredentialByEmail(normalizeEmail(email).normalized);
+      if (!snapshot) return;
+      await recorder.record(request, {
+        userId: snapshot.userId,
+        event: 'LOGIN',
+        result: 'FAILURE',
+        requestId: requestId(request),
+      });
+    } catch (error) {
+      logError('lastroweb.activity_log_error', error, { event: 'LOGIN' });
+    }
+  }
+
   app.post('/api/v1/auth/login', async (c) => {
     const config = requestConfig();
     if (!config || !repository) return unavailable(c);
+    let loginEmail: unknown;
     try {
       const body = await readAuthJson(c.req.raw, GENERAL_JSON_LIMIT);
       if (Object.keys(body).some((field) => field !== 'email' && field !== 'password')) {
@@ -320,6 +346,7 @@ export function registerAuthRoutes(
       if (typeof body.email !== 'string' || typeof body.password !== 'string') {
         throw new AuthFailure('AUTH_BAD_REQUEST', 400, '请求格式无效');
       }
+      loginEmail = body.email;
 
       await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
       const emailNormalized = normalizeEmail(body.email).normalized;
@@ -336,8 +363,12 @@ export function registerAuthRoutes(
       if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
 
       const result = await createSessionService(repository, config, authRuntime).login(body.email, body.password);
+      await recorder.record(c.req.raw, { userId: result.response.user.id, event: 'LOGIN', requestId: requestId(c.req.raw) });
       return c.json(result.response, 200, { 'cache-control': 'no-store', 'set-cookie': result.cookie });
     } catch (error) {
+      if (error instanceof AuthFailure && error.code === 'AUTH_INVALID_CREDENTIALS' && typeof loginEmail === 'string') {
+        await recordLoginFailure(c.req.raw, loginEmail);
+      }
       return routeFailure(c, error);
     }
   });
@@ -453,6 +484,7 @@ export function registerAuthRoutes(
       if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
 
       const result = await createActionService(repository, config, authRuntime).confirmVerification(identity, token);
+      await recorder.record(c.req.raw, { userId: identity.userId, event: 'EMAIL_VERIFIED', requestId: requestId(c.req.raw) });
       return c.json(result.response, 200, { 'cache-control': 'no-store', 'set-cookie': result.cookie });
     } catch (error) {
       return routeFailure(c, error);
@@ -485,6 +517,7 @@ export function registerAuthRoutes(
         body.new_password,
         body.new_password_confirmation,
       );
+      await recorder.record(c.req.raw, { userId: identity.userId, event: 'PASSWORD_CHANGE', requestId: requestId(c.req.raw) });
       return c.newResponse(null, 204, { 'cache-control': 'no-store', 'set-cookie': clearSessionCookie(config) });
     } catch (error) {
       return routeFailure(c, error);
@@ -509,8 +542,11 @@ export function registerAuthRoutes(
       const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
       if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
 
-      const response = await createActionService(repository, config, authRuntime).requestReset(body.email);
-      return c.json(response, 202, { 'cache-control': 'no-store' });
+      const requested = await createActionService(repository, config, authRuntime).requestReset(body.email);
+      if (requested.userId !== null) {
+        await recorder.record(c.req.raw, { userId: requested.userId, event: 'PASSWORD_RESET_REQUEST', requestId: requestId(c.req.raw) });
+      }
+      return c.json(requested.response, 202, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
     }
@@ -548,6 +584,7 @@ export function registerAuthRoutes(
         body.new_password,
         body.new_password_confirmation,
       );
+      await recorder.record(c.req.raw, { userId: result.changedUserId, event: 'PASSWORD_RESET', requestId: requestId(c.req.raw) });
       const headers: Record<string, string> = { 'cache-control': 'no-store' };
       if (currentIdentity?.userId === result.changedUserId) headers['set-cookie'] = clearSessionCookie(config);
       return c.newResponse(null, 204, headers);
