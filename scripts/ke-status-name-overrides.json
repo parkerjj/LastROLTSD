@@ -1,0 +1,2654 @@
+{
+ "EFST_ABR_BATTLE_WARIOR": {
+  "name": "ABR Battle Warrior",
+  "nameZh": "ABR战斗武士"
+ },
+ "EFST_ABR_DUAL_CANNON": {
+  "name": "ABR Dual Cannon",
+  "nameZh": "ABR双重加农炮"
+ },
+ "EFST_ABR_INFINITY": {
+  "name": "ABR Infinity",
+  "nameZh": "ABR无限"
+ },
+ "EFST_ABR_MOTHER_NET": {
+  "name": "ABR Mother Net",
+  "nameZh": "ABR母亲网"
+ },
+ "EFST_ABYSSFORCEWEAPON": {
+  "name": "Abyss Force Weapon",
+  "nameZh": "深渊之力武器"
+ },
+ "EFST_ABYSS_DAGGER": {
+  "name": "Abyss Dagger",
+  "nameZh": "深渊短剑"
+ },
+ "EFST_ABYSS_SLAYER": {
+  "name": "Abyss Slayer",
+  "nameZh": "深渊杀手"
+ },
+ "EFST_AB_SECRAMENT": {
+  "name": "Secrament"
+ },
+ "EFST_ACCELERATION": {
+  "name": "Acceleration",
+  "nameZh": "魔导机甲加速"
+ },
+ "EFST_ACIDIFIED_ZONE_FIRE": {
+  "name": "Acidified Zone: Fire",
+  "nameZh": "酸化区域·火"
+ },
+ "EFST_ACIDIFIED_ZONE_GROUND": {
+  "name": "Acidified Zone: Ground",
+  "nameZh": "酸化区域·地"
+ },
+ "EFST_ACIDIFIED_ZONE_WATER": {
+  "name": "Acidified Zone: Water",
+  "nameZh": "酸化区域·水"
+ },
+ "EFST_ACIDIFIED_ZONE_WIND": {
+  "name": "Acidified Zone: Wind",
+  "nameZh": "酸化区域·风"
+ },
+ "EFST_ACTIVE_MONSTER_TRANSFORM": {
+  "name": "Active Monster Transform",
+  "nameZh": "主动怪物变身"
+ },
+ "EFST_ACUO_MINT_GUM": {
+  "name": "Acuo Mint Gum",
+  "nameZh": "薄荷口香糖"
+ },
+ "EFST_ADAPTATION": {
+  "name": "Adaptation",
+  "nameZh": "临机应变"
+ },
+ "EFST_ADD_ATK_DAMAGE": {
+  "name": "Add Atk Damage",
+  "nameZh": "增加ATK伤害"
+ },
+ "EFST_ADD_MATK_DAMAGE": {
+  "name": "Add Matk Damage",
+  "nameZh": "增加MATK伤害"
+ },
+ "EFST_ADORAMUS": {
+  "name": "Adoramus"
+ },
+ "EFST_ADRENALINE2": {
+  "name": "Adrenaline2"
+ },
+ "EFST_AGIUP": {
+  "name": "Agility Up",
+  "nameZh": "敏捷提升"
+ },
+ "EFST_AID_PERIOD_PLUSJOBEXP_2ND": {
+  "name": "Aid Period Plus Job Exp 2nd",
+  "nameZh": "提高职业经验值"
+ },
+ "EFST_AIN_RHAPSODY": {
+  "name": "Ain Rhapsody",
+  "nameZh": "艾因狂想曲"
+ },
+ "EFST_AKAITSUKI": {
+  "name": "Akaitsuki"
+ },
+ "EFST_ALL_LIGHTGUARD": {
+  "name": "Light Guard",
+  "nameZh": "光之守护"
+ },
+ "EFST_ALL_LIGHTGUARD_COOL_TIME": {
+  "name": "Light Guard Cooldown",
+  "nameZh": "光之守护冷却中"
+ },
+ "EFST_ALL_NIFLHEIM_RECALL": {
+  "name": "Niflheim Recall",
+  "nameZh": "前往尼芙菲姆!"
+ },
+ "EFST_ALL_RIDING_REUSE_LIMIT": {
+  "name": "Riding Cooldown",
+  "nameZh": "搭乘冷却中"
+ },
+ "EFST_ALL_STAT_DOWN": {
+  "name": "All Stat Down",
+  "nameZh": "全素质下降"
+ },
+ "EFST_ANALYZE": {
+  "name": "Analyze"
+ },
+ "EFST_ANCILLA": {
+  "name": "Ancilla",
+  "nameZh": "安希拉"
+ },
+ "EFST_ANGEL_PROTECT": {
+  "name": "Angel Protect",
+  "nameZh": "天使的守护"
+ },
+ "EFST_ANGRIFFS_MODUS": {
+  "name": "Angriffs Modus",
+  "nameZh": "攻击准备"
+ },
+ "EFST_ANKLESNARE": {
+  "name": "Anklesnare",
+  "nameZh": "定位陷阱"
+ },
+ "EFST_ANTIMAGIC": {
+  "name": "Antimagic",
+  "nameZh": "反魔法"
+ },
+ "EFST_APPLEIDUN": {
+  "name": "Appleidun",
+  "nameZh": "伊登的苹果"
+ },
+ "EFST_AQUAPLAY": {
+  "name": "Aquaplay",
+  "nameZh": "冰封领域"
+ },
+ "EFST_AQUAPLAY_OPTION": {
+  "name": "Aquaplay (Option)",
+  "nameZh": "冰封领域(附加)"
+ },
+ "EFST_ARCLOUSEDASH": {
+  "name": "Arclousedash"
+ },
+ "EFST_ARMORSCROLL": {
+  "name": "Armor Scroll",
+  "nameZh": "铠甲卷轴"
+ },
+ "EFST_AROMA_OIL": {
+  "name": "Aroma Oil",
+  "nameZh": "芳香精油"
+ },
+ "EFST_ASPERSIO": {
+  "name": "Aspersio",
+  "nameZh": "洒水祈福"
+ },
+ "EFST_ASSASSINCROSS": {
+  "name": "Assassincross",
+  "nameZh": "刺客的黄昏"
+ },
+ "EFST_ASSUMPTIO_BUFF": {
+  "name": "Assumptio Buff",
+  "nameZh": "圣母之祈福(增益)"
+ },
+ "EFST_ATTACK_STANCE": {
+  "name": "Attack Stance",
+  "nameZh": "攻击姿态"
+ },
+ "EFST_AURABLADE": {
+  "name": "Aurablade",
+  "nameZh": "灵气剑"
+ },
+ "EFST_AUTOCOUNTER": {
+  "name": "Autocounter",
+  "nameZh": "反击"
+ },
+ "EFST_AUTOSHADOWSPELL": {
+  "name": "Autoshadowspell"
+ },
+ "EFST_AXE_STOMP": {
+  "name": "Axe Stomp",
+  "nameZh": "战斧践踏"
+ },
+ "EFST_A_MACHINE": {
+  "name": "A Machine",
+  "nameZh": "攻击型机器"
+ },
+ "EFST_BANANA_BOMB": {
+  "name": "Banana Bomb",
+  "nameZh": "香蕉炸弹"
+ },
+ "EFST_BANDING": {
+  "name": "Banding"
+ },
+ "EFST_BANDING_DEFENCE": {
+  "name": "Banding Defence",
+  "nameZh": "聚集防御"
+ },
+ "EFST_BARRIER": {
+  "name": "Barrier",
+  "nameZh": "屏障"
+ },
+ "EFST_BASILICA": {
+  "name": "Basilica",
+  "nameZh": "神圣殿堂"
+ },
+ "EFST_BASILICA_BUFF": {
+  "name": "Basilica Buff",
+  "nameZh": "神圣殿堂(增益)"
+ },
+ "EFST_BATH_FOAM_A": {
+  "name": "Bath Foam A",
+  "nameZh": "沐浴泡沫A"
+ },
+ "EFST_BATH_FOAM_B": {
+  "name": "Bath Foam B",
+  "nameZh": "沐浴泡沫B"
+ },
+ "EFST_BATH_FOAM_C": {
+  "name": "Bath Foam C",
+  "nameZh": "沐浴泡沫C"
+ },
+ "EFST_BATTLESCROLL": {
+  "name": "Battle Scroll",
+  "nameZh": "战斗卷轴"
+ },
+ "EFST_BDPLAYING": {
+  "name": "Playing",
+  "nameZh": "演奏中"
+ },
+ "EFST_BEER_BOTTLE_CAP": {
+  "name": "Beer Bottle Cap",
+  "nameZh": "啤酒瓶盖"
+ },
+ "EFST_BENEDICTIO": {
+  "name": "Benedictio"
+ },
+ "EFST_BENEDICTUM": {
+  "name": "Benedictum",
+  "nameZh": "祝福"
+ },
+ "EFST_BERSERK": {
+  "name": "Berserk",
+  "nameZh": "狂怒之枪"
+ },
+ "EFST_BEYOND_OF_WARCRY": {
+  "name": "Beyond Of Warcry"
+ },
+ "EFST_BIG_SCAR": {
+  "name": "Big Scar",
+  "nameZh": "巨大伤痕"
+ },
+ "EFST_BLADESTOP": {
+  "name": "Bladestop",
+  "nameZh": "真剑百破道"
+ },
+ "EFST_BLAST": {
+  "name": "Blast",
+  "nameZh": "风暴冲击"
+ },
+ "EFST_BLAST_OPTION": {
+  "name": "Blast (Option)",
+  "nameZh": "风暴冲击(附加)"
+ },
+ "EFST_BLAZE_BEAD": {
+  "name": "Blaze Bead",
+  "nameZh": "火焰珠"
+ },
+ "EFST_BLOODYLUST": {
+  "name": "Bloodylust",
+  "nameZh": "血腥欲望"
+ },
+ "EFST_BLOOD_SUCKER": {
+  "name": "Blood Sucker",
+  "nameZh": "吸血植物"
+ },
+ "EFST_BODYPAINT": {
+  "name": "Bodypaint"
+ },
+ "EFST_BODYSTATE_UNDEAD": {
+  "name": "Undead",
+  "nameZh": "不死"
+ },
+ "EFST_BOOST500": {
+  "name": "Boost 500",
+  "nameZh": "提升500"
+ },
+ "EFST_BOW_ATK_POWER": {
+  "name": "Bow Atk Power",
+  "nameZh": "弓攻击力提升"
+ },
+ "EFST_BREEZE_BEAD": {
+  "name": "Breeze Bead",
+  "nameZh": "微风珠"
+ },
+ "EFST_BUCHEDENOEL": {
+  "name": "Buche de Noel",
+  "nameZh": "圣诞树干蛋糕"
+ },
+ "EFST_B_TRAP": {
+  "name": "B Trap"
+ },
+ "EFST_CALAMITYGALE": {
+  "name": "Calamity Gale",
+  "nameZh": "灾祸飓风"
+ },
+ "EFST_CAMOUFLAGE": {
+  "name": "Camouflage",
+  "nameZh": "伪装战术"
+ },
+ "EFST_CAST_TIME": {
+  "name": "Cast Time",
+  "nameZh": "咏唱时间"
+ },
+ "EFST_CBC": {
+  "name": "Cbc",
+  "nameZh": "C.B.C : 连续突破组合"
+ },
+ "EFST_CBC_POSTDELAY": {
+  "nameZh": "连续突破组合延迟"
+ },
+ "EFST_CHARGINGPIERCE": {
+  "name": "Charging Pierce",
+  "nameZh": "冲锋突刺"
+ },
+ "EFST_CHARGINGPIERCE_COUNT": {
+  "name": "Charging Pierce Count",
+  "nameZh": "冲锋突刺计数"
+ },
+ "EFST_CHASEWALK": {
+  "name": "Chasewalk",
+  "nameZh": "暗影追踪"
+ },
+ "EFST_CHATTERING": {
+  "name": "Chattering"
+ },
+ "EFST_CHEERUP": {
+  "name": "Cheerup",
+  "nameZh": "爸比妈咪请加油"
+ },
+ "EFST_CHERRY_BLOSSOM_CAKE": {
+  "name": "Cherry Blossom Cake",
+  "nameZh": "樱花蛋糕"
+ },
+ "EFST_CHILLY_AIR": {
+  "name": "Chilly Air",
+  "nameZh": "绝对零度"
+ },
+ "EFST_CHILLY_AIR_OPTION": {
+  "name": "Chilly Air (Option)",
+  "nameZh": "绝对零度(附加)"
+ },
+ "EFST_CIRCLE_OF_FIRE": {
+  "name": "Circle Of Fire",
+  "nameZh": "烈焰之环"
+ },
+ "EFST_CIRCLE_OF_FIRE_OPTION": {
+  "name": "Circle of Fire (Option)",
+  "nameZh": "烈焰之环(附加)"
+ },
+ "EFST_CLAIRVOYANCE": {
+  "name": "Clairvoyance",
+  "nameZh": "透视"
+ },
+ "EFST_CLIMAX": {
+  "name": "Climax",
+  "nameZh": "巅峰"
+ },
+ "EFST_CLIMAX_BLOOM": {
+  "name": "Climax: Bloom",
+  "nameZh": "巅峰·绽放"
+ },
+ "EFST_CLIMAX_CRYIMP": {
+  "name": "Climax: Crystal Impact",
+  "nameZh": "巅峰·水晶冲击"
+ },
+ "EFST_CLIMAX_EARTH": {
+  "name": "Climax: Earth",
+  "nameZh": "巅峰·大地"
+ },
+ "EFST_CLOUD_KILL": {
+  "name": "Cloud Kill",
+  "nameZh": "云杀"
+ },
+ "EFST_CLOUD_POISON": {
+  "name": "Cloud Poison",
+  "nameZh": "毒云"
+ },
+ "EFST_CLOWN_N_GYPSY_CARD": {
+  "name": "Clown & Gypsy Card",
+  "nameZh": "小丑与吉普赛卡片"
+ },
+ "EFST_COCKTAIL_WARG_BLOOD": {
+  "name": "Cocktail Warg Blood"
+ },
+ "EFST_COLD_FORCE": {
+  "name": "Cold Force",
+  "nameZh": "寒冰之力"
+ },
+ "EFST_COLD_FORCE_OPTION": {
+  "name": "Cold Force (Option)",
+  "nameZh": "寒冰之力(附加)"
+ },
+ "EFST_COMBOATTACK": {
+  "name": "Combo Attack",
+  "nameZh": "连续攻击"
+ },
+ "EFST_COMPETENTIA": {
+  "name": "Competentia",
+  "nameZh": "胜任"
+ },
+ "EFST_COOLER": {
+  "name": "Cooler",
+  "nameZh": "急速降温"
+ },
+ "EFST_COOLER_OPTION": {
+  "name": "Cooler (Option)",
+  "nameZh": "急速降温(附加)"
+ },
+ "EFST_COUNTER_READY": {
+  "name": "Counter Kick Ready",
+  "nameZh": "还击准备(就绪)"
+ },
+ "EFST_CRESCENTELBOW": {
+  "name": "Crescentelbow"
+ },
+ "EFST_CRESCIVEBOLT": {
+  "name": "Crescive Bolt",
+  "nameZh": "新月之矢"
+ },
+ "EFST_CRITICALWOUND": {
+  "name": "Criticalwound"
+ },
+ "EFST_CRI_DAMAGE": {
+  "name": "Cri Damage",
+  "nameZh": "暴击伤害提升"
+ },
+ "EFST_CRUSHSTRIKE": {
+  "name": "Crushstrike"
+ },
+ "EFST_CRYSTAL": {
+  "name": "Crystal",
+  "nameZh": "<黑暗搜集者>暴击"
+ },
+ "EFST_CRYSTAL_ARMOR": {
+  "name": "Crystal Armor",
+  "nameZh": "水晶铠甲"
+ },
+ "EFST_CRYSTAL_ARMOR_OPTION": {
+  "name": "Crystal Armor (Option)",
+  "nameZh": "水晶铠甲(附加)"
+ },
+ "EFST_CRYSTAL_IMPACT": {
+  "name": "Crystal Impact",
+  "nameZh": "水晶冲击"
+ },
+ "EFST_CURSEDCIRCLE_ATKER": {
+  "name": "Cursed Circle (Caster)",
+  "nameZh": "咒缚阵(施术者)"
+ },
+ "EFST_CURSED_SOIL": {
+  "name": "Cursed Soil",
+  "nameZh": "诅咒之地"
+ },
+ "EFST_CURSED_SOIL_OPTION": {
+  "name": "Cursed Soil (Option)",
+  "nameZh": "诅咒之地(附加)"
+ },
+ "EFST_CURSE_B_CUBE": {
+  "name": "Curse Blue Cube",
+  "nameZh": "蓝魔方诅咒"
+ },
+ "EFST_CURSE_R_CUBE": {
+  "name": "Curse Red Cube",
+  "nameZh": "红魔方诅咒"
+ },
+ "EFST_C_MARKER": {
+  "name": "C Marker"
+ },
+ "EFST_DAGGER_AND_BOW_M": {
+  "name": "Dagger and Bow Mastery",
+  "nameZh": "短剑与弓精通"
+ },
+ "EFST_DAMAGE_HEAL": {
+  "name": "Damage Heal",
+  "nameZh": "转祸为福"
+ },
+ "EFST_DANCE_WITH_WUG": {
+  "name": "Dance With Wug"
+ },
+ "EFST_DANCING_KNIFE": {
+  "name": "Dancing Knife",
+  "nameZh": "飞舞刀刃"
+ },
+ "EFST_DARKCROW": {
+  "name": "Darkcrow"
+ },
+ "EFST_DA_BLACK": {
+  "name": "Black",
+  "nameZh": "<黑暗搜集者>宝石魔法"
+ },
+ "EFST_DA_CONTRACT": {
+  "name": "Contract",
+  "nameZh": "<黑暗搜集者>宝石契约"
+ },
+ "EFST_DA_DARKPOWER": {
+  "name": "Darkpower",
+  "nameZh": "黑暗灵魂之力"
+ },
+ "EFST_DA_EARPLUG": {
+  "name": "Earplug",
+  "nameZh": "<黑暗搜集者>耳塞"
+ },
+ "EFST_DA_EDARKNESS": {
+  "name": "Edarkness",
+  "nameZh": "<黑暗搜集者>华丽金属黑暗"
+ },
+ "EFST_DA_EGUARDIAN": {
+  "name": "Eguardian",
+  "nameZh": "<黑暗搜集者>华丽金属守卫"
+ },
+ "EFST_DA_ENERGY": {
+  "name": "Energy",
+  "nameZh": "<黑暗搜集者>能量"
+ },
+ "EFST_DA_FIRSTSLOT": {
+  "name": "Firstslot",
+  "nameZh": "<黑暗搜集者>最初幻想"
+ },
+ "EFST_DA_HEADDEF": {
+  "name": "Headdef",
+  "nameZh": "<黑暗搜集者>头部防御"
+ },
+ "EFST_DA_ILLUSION": {
+  "name": "Illusion",
+  "nameZh": "<黑暗搜集者>幻觉"
+ },
+ "EFST_DA_ITEMREBUILD": {
+  "name": "Itemrebuild",
+  "nameZh": "<黑暗搜集者>物品重组"
+ },
+ "EFST_DA_MAGICCART": {
+  "name": "Magiccart",
+  "nameZh": "<黑暗搜集者>魔法手推车"
+ },
+ "EFST_DA_REBUILD": {
+  "name": "Rebuild",
+  "nameZh": "<黑暗搜集者>人体重建"
+ },
+ "EFST_DA_SPACE": {
+  "name": "Space",
+  "nameZh": "<黑暗搜集者>暮光"
+ },
+ "EFST_DA_TIMEOUT": {
+  "name": "Timeout",
+  "nameZh": "<黑暗搜集者>超时"
+ },
+ "EFST_DA_TRANSFORM": {
+  "name": "Transform",
+  "nameZh": "<黑暗搜集者>变形"
+ },
+ "EFST_DC_WINKCHARM": {
+  "name": "Winkcharm",
+  "nameZh": "眨眼之诱"
+ },
+ "EFST_DEADLYINFECT": {
+  "name": "Deadlyinfect"
+ },
+ "EFST_DEATHBOUND": {
+  "name": "Deathbound",
+  "nameZh": "死亡反弹"
+ },
+ "EFST_DEC_AGI": {
+  "name": "Decrease Agility",
+  "nameZh": "缓速术"
+ },
+ "EFST_DEEP_POISONING": {
+  "name": "Deep Poisoning",
+  "nameZh": "深度中毒"
+ },
+ "EFST_DEEP_POISONING_OPTION": {
+  "name": "Deep Poisoning (Option)",
+  "nameZh": "深度中毒(附加)"
+ },
+ "EFST_DEFENCE": {
+  "name": "Defence",
+  "nameZh": "防御力"
+ },
+ "EFST_DEF_IGNORE": {
+  "name": "Def Ignore",
+  "nameZh": "无视防御"
+ },
+ "EFST_DEF_POWER": {
+  "name": "Def Power",
+  "nameZh": "防御之力"
+ },
+ "EFST_DEMONIC_FIRE": {
+  "name": "Demonic Fire",
+  "nameZh": "恶魔火焰"
+ },
+ "EFST_DEVOTION": {
+  "name": "Devotion",
+  "nameZh": "牺牲"
+ },
+ "EFST_DIMENSION1": {
+  "name": "Dimension 1",
+  "nameZh": "次元之书1"
+ },
+ "EFST_DIMENSION2": {
+  "name": "Dimension 2",
+  "nameZh": "次元之书2"
+ },
+ "EFST_DISABLEMOVE": {
+  "name": "Disable Move",
+  "nameZh": "无法移动"
+ },
+ "EFST_DISTRUCTIONSCROLL": {
+  "name": "Destruction Scroll",
+  "nameZh": "破坏卷轴"
+ },
+ "EFST_DODGE_READY": {
+  "name": "Dodge Ready",
+  "nameZh": "落法(就绪)"
+ },
+ "EFST_DONTFORGETME": {
+  "name": "Dontforgetme",
+  "nameZh": "勿忘我"
+ },
+ "EFST_DOWNKICK_READY": {
+  "name": "Down Kick Ready",
+  "nameZh": "砸踢准备(就绪)"
+ },
+ "EFST_DRAGONIC_AURA": {
+  "name": "Dragonic Aura",
+  "nameZh": "龙之气场"
+ },
+ "EFST_DRESS_UP": {
+  "name": "Dress Up",
+  "nameZh": "装扮"
+ },
+ "EFST_DROCERA_HERB_STEAMED": {
+  "name": "Drocera Herb Steamed"
+ },
+ "EFST_DRUMBATTLEFIELD": {
+  "name": "Drumbattlefield",
+  "nameZh": "战鼓震天"
+ },
+ "EFST_DUPLELIGHT": {
+  "name": "Duplelight",
+  "nameZh": "二道圣光"
+ },
+ "EFST_D_MACHINE": {
+  "name": "D Machine",
+  "nameZh": "防御型机器"
+ },
+ "EFST_EARTHDRIVE": {
+  "name": "Earthdrive",
+  "nameZh": "大地毁灭"
+ },
+ "EFST_EARTH_CARE": {
+  "name": "Earth Care",
+  "nameZh": "大地关怀"
+ },
+ "EFST_EARTH_CARE_OPTION": {
+  "name": "Earth Care (Option)",
+  "nameZh": "大地关怀(附加)"
+ },
+ "EFST_EARTH_INSIGNIA": {
+  "name": "Earth Insignia",
+  "nameZh": "地之纹章"
+ },
+ "EFST_ECHOSONG": {
+  "name": "Echosong"
+ },
+ "EFST_ECLAGE_RECALL": {
+  "name": "Recall",
+  "nameZh": "返回埃克拉珠"
+ },
+ "EFST_ELECTRICSHOCKER": {
+  "name": "Electricshocker",
+  "nameZh": "电击陷阱"
+ },
+ "EFST_ELEMENTAL_AGGRESSIVE": {
+  "name": "Elemental Aggressive",
+  "nameZh": "元素精灵攻击模式"
+ },
+ "EFST_ELEMENTAL_VEIL": {
+  "name": "Elemental Veil",
+  "nameZh": "元素面纱"
+ },
+ "EFST_EL_COST": {
+  "name": "Elemental Cost",
+  "nameZh": "元素精灵:消耗"
+ },
+ "EFST_EL_DEFENSIVE": {
+  "name": "Elemental Defensive",
+  "nameZh": "元素精灵:防御"
+ },
+ "EFST_EL_OFFENSIVE": {
+  "name": "Elemental Offensive",
+  "nameZh": "元素精灵:攻击"
+ },
+ "EFST_EL_PASSIVE": {
+  "name": "Elemental Passive",
+  "nameZh": "元素精灵:被动"
+ },
+ "EFST_EL_WAIT": {
+  "name": "Elemental Wait",
+  "nameZh": "元素精灵:待命"
+ },
+ "EFST_EMOTION": {
+  "name": "Emotion",
+  "nameZh": "表情"
+ },
+ "EFST_ENERVATION": {
+  "name": "Enervation"
+ },
+ "EFST_ENSEMBLEFATIGUE": {
+  "name": "Ensemble Fatigue",
+  "nameZh": "合奏疲劳"
+ },
+ "EFST_EPICLESIS": {
+  "name": "Epiclesis",
+  "nameZh": "圣灵降临祈祷"
+ },
+ "EFST_EQC": {
+  "name": "Eqc",
+  "nameZh": "E.Q.C : 永恒快速组合"
+ },
+ "EFST_ETERNALCHAOS": {
+  "name": "Eternalchaos",
+  "nameZh": "永远的混沌"
+ },
+ "EFST_EXCLUSIVE_PLUSEXP": {
+  "name": "Exclusive Plus Exp",
+  "nameZh": "独享经验提升"
+ },
+ "EFST_EXCLUSIVE_RECEIVEITEM": {
+  "name": "Exclusive Receive Item",
+  "nameZh": "独享掉宝提升"
+ },
+ "EFST_EXEEDBREAK": {
+  "name": "Exceed Break",
+  "nameZh": "强化冲击"
+ },
+ "EFST_EXPDROPUP": {
+  "name": "Exp & Drop Up",
+  "nameZh": "经验值与掉宝提升"
+ },
+ "EFST_EXPIATIO": {
+  "name": "Expiatio"
+ },
+ "EFST_EXPLOSIONSPIRITS": {
+  "name": "Explosionspirits",
+  "nameZh": "爆气"
+ },
+ "EFST_EXPMEMORY": {
+  "name": "Exp Memory",
+  "nameZh": "经验值记忆"
+ },
+ "EFST_EXPUP": {
+  "name": "Exp Up",
+  "nameZh": "经验值提升"
+ },
+ "EFST_EXTREMITYFIST": {
+  "name": "Extremityfist"
+ },
+ "EFST_EYES_OF_STORM": {
+  "name": "Eyes of Storm",
+  "nameZh": "风暴之眼"
+ },
+ "EFST_EYES_OF_STORM_OPTION": {
+  "name": "Eyes of Storm (Option)",
+  "nameZh": "风暴之眼(附加)"
+ },
+ "EFST_E_CHAIN": {
+  "name": "E Chain"
+ },
+ "EFST_FALLENEMPIRE": {
+  "name": "Fallenempire",
+  "nameZh": "大缠崩坠"
+ },
+ "EFST_FALLEN_ANGEL": {
+  "name": "Fallen Angel",
+  "nameZh": "堕落天使"
+ },
+ "EFST_FALLINGSTAR": {
+  "name": "Fallingstar"
+ },
+ "EFST_FESTIVE_ENERGY": {
+  "name": "Festive Energy",
+  "nameZh": "节庆能量"
+ },
+ "EFST_FIRE_CLOAK": {
+  "name": "Fire Cloak",
+  "nameZh": "火焰斗篷"
+ },
+ "EFST_FIRE_CLOAK_OPTION": {
+  "name": "Fire Cloak (Option)",
+  "nameZh": "火焰斗篷(附加)"
+ },
+ "EFST_FIRE_EXPANSION_SMOKE_POWDER": {
+  "name": "Fire Expansion: Smoke Powder",
+  "nameZh": "火焰扩散·烟雾粉"
+ },
+ "EFST_FIRE_EXPANSION_TEAR_GAS": {
+  "name": "Fire Expansion: Tear Gas",
+  "nameZh": "火焰扩散·催泪瓦斯"
+ },
+ "EFST_FIRE_INSIGNIA": {
+  "name": "Fire Insignia",
+  "nameZh": "火之纹章"
+ },
+ "EFST_FIRM_FAITH": {
+  "name": "Firm Faith",
+  "nameZh": "坚定的信念"
+ },
+ "EFST_FIRST_BRAND": {
+  "name": "First Brand",
+  "nameZh": "第一烙印"
+ },
+ "EFST_FIRST_FAITH_POWER": {
+  "name": "First Faith Power",
+  "nameZh": "第一信念之力"
+ },
+ "EFST_FIXEDCASTINGTM_REDUCE": {
+  "name": "Fixed Casting Time Reduce",
+  "nameZh": "固定咏唱时间减少"
+ },
+ "EFST_FLAMEARMOR": {
+  "name": "Flame Armor",
+  "nameZh": "火焰铠甲"
+ },
+ "EFST_FLAMEARMOR_OPTION": {
+  "name": "Flame Armor (Option)",
+  "nameZh": "火焰铠甲(附加)"
+ },
+ "EFST_FLAMETECHNIC": {
+  "name": "Flame Technic",
+  "nameZh": "火焰技艺"
+ },
+ "EFST_FLAMETECHNIC_OPTION": {
+  "name": "Flame Technic (Option)",
+  "nameZh": "火焰技艺(附加)"
+ },
+ "EFST_FLASHCOMBO": {
+  "name": "Flashcombo",
+  "nameZh": "闪光连击"
+ },
+ "EFST_FLASHKICK": {
+  "name": "Flashkick"
+ },
+ "EFST_FOGWALL": {
+  "name": "Fogwall",
+  "nameZh": "薄雾墙"
+ },
+ "EFST_FORCEOFVANGUARD": {
+  "name": "Forceofvanguard"
+ },
+ "EFST_FORTUNEKISS": {
+  "name": "Fortunekiss",
+  "nameZh": "女神之吻"
+ },
+ "EFST_FREEZE_SP": {
+  "name": "Freeze SP",
+  "nameZh": "SP冻结"
+ },
+ "EFST_FRESHSHRIMP": {
+  "name": "Freshshrimp"
+ },
+ "EFST_FREYJASCROLL": {
+  "name": "Freyja Scroll",
+  "nameZh": "芙蕾雅卷轴"
+ },
+ "EFST_FRIEND": {
+  "name": "Friend",
+  "nameZh": "太阳和月亮和星星的朋友"
+ },
+ "EFST_FRIGG_SONG": {
+  "name": "Frigg Song"
+ },
+ "EFST_FROSTMISTY": {
+  "name": "Frost Misty",
+  "nameZh": "寒冰浓雾"
+ },
+ "EFST_FROZEN_BEAD": {
+  "name": "Frozen Bead",
+  "nameZh": "冰冻珠"
+ },
+ "EFST_FULL_SWING_K": {
+  "name": "Full Swing K",
+  "nameZh": "全力挥棒"
+ },
+ "EFST_FULL_THROTTLE": {
+  "name": "Full Throttle"
+ },
+ "EFST_GDSKILL_BATTLEORDER": {
+  "name": "Battle Order",
+  "nameZh": "公会技能:战斗号令"
+ },
+ "EFST_GDSKILL_POSTDELAY": {
+  "name": "Guild Skill Postdelay",
+  "nameZh": "公会技能延迟"
+ },
+ "EFST_GDSKILL_REGENERATION": {
+  "name": "Regeneration",
+  "nameZh": "公会技能:再生"
+ },
+ "EFST_GEF_NOCTURN": {
+  "name": "Gef Nocturn",
+  "nameZh": "吉芬夜曲"
+ },
+ "EFST_GENTLETOUCH_CHANGE": {
+  "name": "Gentletouch Change"
+ },
+ "EFST_GENTLETOUCH_ENERGYGAIN": {
+  "name": "Gentletouch Energygain",
+  "nameZh": "点穴-球"
+ },
+ "EFST_GENTLETOUCH_REVITALIZE": {
+  "name": "Gentletouch Revitalize"
+ },
+ "EFST_GIFT_OF_SNOW": {
+  "name": "Gift of Snow",
+  "nameZh": "雪之礼物"
+ },
+ "EFST_GLOOMYDAY": {
+  "name": "Gloomyday"
+ },
+ "EFST_GLOOM_CARD": {
+  "name": "Gloom Card",
+  "nameZh": "阴郁卡片"
+ },
+ "EFST_GLORY_OF_RETURN": {
+  "name": "Glory of Return",
+  "nameZh": "回归的荣耀"
+ },
+ "EFST_GN_CARTBOOST": {
+  "name": "Cartboost"
+ },
+ "EFST_GN_REMODELING_CART": {
+  "name": "Remodeling Cart",
+  "nameZh": "手推车改良"
+ },
+ "EFST_GN_TRAINING_SWORD": {
+  "name": "Training Sword",
+  "nameZh": "单手剑使用熟练度"
+ },
+ "EFST_GOLDENE_FERSE": {
+  "name": "Goldene Ferse",
+  "nameZh": "黄金脚跟"
+ },
+ "EFST_GOSPEL": {
+  "name": "Gospel",
+  "nameZh": "圣音"
+ },
+ "EFST_GRACE_BREEZE": {
+  "name": "Grace Breeze",
+  "nameZh": "恩典微风"
+ },
+ "EFST_GRACE_BREEZE_OPTION": {
+  "name": "Grace Breeze (Option)",
+  "nameZh": "恩典微风(附加)"
+ },
+ "EFST_GRADUAL_GRAVITY": {
+  "name": "Gradual Gravity",
+  "nameZh": "重力增加"
+ },
+ "EFST_GRANITIC_ARMOR": {
+  "name": "Granitic Armor"
+ },
+ "EFST_GRAVITATION": {
+  "name": "Gravitation",
+  "nameZh": "重力原野"
+ },
+ "EFST_GRAVITYCONTROL": {
+  "name": "Gravitycontrol"
+ },
+ "EFST_GROOMING": {
+  "name": "Grooming"
+ },
+ "EFST_GROOMY": {
+  "name": "Groomy"
+ },
+ "EFST_GS_ADJUSTMENT": {
+  "name": "Adjustment"
+ },
+ "EFST_GS_GATLINGFEVER": {
+  "name": "Gatlingfever"
+ },
+ "EFST_GS_MADNESSCANCEL": {
+  "name": "Madnesscancel"
+ },
+ "EFST_GS_MAGICAL_BULLET": {
+  "name": "Magicalbullet"
+ },
+ "EFST_GUARDIAN_RECALL": {
+  "name": "Guardian Recall",
+  "nameZh": "守护者的召唤"
+ },
+ "EFST_GUARD_STANCE": {
+  "name": "Guard Stance",
+  "nameZh": "防御姿态"
+ },
+ "EFST_GUILD_STORAGE": {
+  "name": "Guild Storage",
+  "nameZh": "公会仓库扩充"
+ },
+ "EFST_GUST": {
+  "name": "Gust",
+  "nameZh": "雷电强化"
+ },
+ "EFST_GUST_OPTION": {
+  "name": "Gust (Option)",
+  "nameZh": "雷电强化(附加)"
+ },
+ "EFST_G_LIFEPOTION": {
+  "name": "G. Life Potion",
+  "nameZh": "大型生命水"
+ },
+ "EFST_HALLUCINATIONWALK_POSTDELAY": {
+  "nameZh": "幻觉行走延迟"
+ },
+ "EFST_HAMI_BLOODLUST": {
+  "name": "Bloodlust",
+  "nameZh": "血的贪求"
+ },
+ "EFST_HANDICAPSTATE_CONFLAGRATION": {
+  "name": "Conflagration",
+  "nameZh": "爆燃"
+ },
+ "EFST_HANDICAPSTATE_CRYSTALLIZATION": {
+  "name": "Crystallization",
+  "nameZh": "结晶化"
+ },
+ "EFST_HANDICAPSTATE_DEADLYPOISON": {
+  "name": "Deadly Poison",
+  "nameZh": "剧毒"
+ },
+ "EFST_HANDICAPSTATE_DEEPBLIND": {
+  "name": "Deep Blind",
+  "nameZh": "深度失明"
+ },
+ "EFST_HANDICAPSTATE_DEEPSILENCE": {
+  "name": "Deep Silence",
+  "nameZh": "深度沉默"
+ },
+ "EFST_HANDICAPSTATE_DEPRESSION": {
+  "name": "Depression",
+  "nameZh": "沮丧"
+ },
+ "EFST_HANDICAPSTATE_FROSTBITE": {
+  "name": "Frostbite",
+  "nameZh": "冻伤"
+ },
+ "EFST_HANDICAPSTATE_HOLYFLAME": {
+  "name": "Holy Flame",
+  "nameZh": "圣焰"
+ },
+ "EFST_HANDICAPSTATE_LASSITUDE": {
+  "name": "Lassitude",
+  "nameZh": "倦怠"
+ },
+ "EFST_HANDICAPSTATE_LIGHTNINGSTRIKE": {
+  "name": "Lightning Strike",
+  "nameZh": "雷击"
+ },
+ "EFST_HANDICAPSTATE_MISFORTUNE": {
+  "name": "Misfortune",
+  "nameZh": "厄运"
+ },
+ "EFST_HANDICAPSTATE_SWOONING": {
+  "name": "Swooning",
+  "nameZh": "晕厥"
+ },
+ "EFST_HARMONIZE": {
+  "name": "Harmonize"
+ },
+ "EFST_HAT_EFFECT": {
+  "name": "Hat Effect",
+  "nameZh": "帽子效果"
+ },
+ "EFST_HEALTHSTATE_BLIND": {
+  "name": "Blind",
+  "nameZh": "黑暗"
+ },
+ "EFST_HEALTHSTATE_BLOODING": {
+  "name": "Bleeding",
+  "nameZh": "出血"
+ },
+ "EFST_HEATER": {
+  "name": "Heater",
+  "nameZh": "急速升温"
+ },
+ "EFST_HEATER_OPTION": {
+  "name": "Heater (Option)",
+  "nameZh": "急速升温(附加)"
+ },
+ "EFST_HEAT_BARREL": {
+  "name": "Heat Barrel"
+ },
+ "EFST_HELLPOWER": {
+  "name": "Hellpower"
+ },
+ "EFST_HELLS_PLANT_ARMOR": {
+  "name": "Hell's Plant Armor",
+  "nameZh": "地狱植物铠甲"
+ },
+ "EFST_HELM_ASIR": {
+  "name": "Helm of Asir",
+  "nameZh": "阿西尔头盔"
+ },
+ "EFST_HELM_HAGALAS": {
+  "name": "Helm of Hagalas",
+  "nameZh": "哈加拉斯头盔"
+ },
+ "EFST_HELM_ISIA": {
+  "name": "Helm of Isia",
+  "nameZh": "伊西亚头盔"
+ },
+ "EFST_HELM_RHYDO": {
+  "name": "Helm of Rhydo",
+  "nameZh": "里多头盔"
+ },
+ "EFST_HELM_TURISUS": {
+  "name": "Helm of Turisus",
+  "nameZh": "图里苏斯头盔"
+ },
+ "EFST_HELM_URJ": {
+  "name": "Helm of Urj",
+  "nameZh": "乌尔吉头盔"
+ },
+ "EFST_HELM_VERKANA": {
+  "name": "Helm of Verkana",
+  "nameZh": "维尔卡纳头盔"
+ },
+ "EFST_HELPANGEL": {
+  "name": "Helpangel",
+  "nameZh": "救援天使"
+ },
+ "EFST_HERMODE": {
+  "name": "Hermode",
+  "nameZh": "海罗默德的手杖"
+ },
+ "EFST_HFLI_FLEET": {
+  "name": "Fleet",
+  "nameZh": "横越速度"
+ },
+ "EFST_HFLI_SPEED": {
+  "name": "Speed",
+  "nameZh": "紧急回避"
+ },
+ "EFST_HIGH_RANKER": {
+  "name": "High Ranker",
+  "nameZh": "高阶排名者"
+ },
+ "EFST_HISS": {
+  "name": "Hiss"
+ },
+ "EFST_HLIF_AVOID": {
+  "name": "Avoid",
+  "nameZh": "轻捷移动"
+ },
+ "EFST_HLIF_CHANGE": {
+  "name": "Change",
+  "nameZh": "智力变换"
+ },
+ "EFST_HOLY_OIL": {
+  "name": "Holy Oil",
+  "nameZh": "圣油"
+ },
+ "EFST_HOVERING": {
+  "name": "Hovering"
+ },
+ "EFST_HUMMING": {
+  "name": "Humming",
+  "nameZh": "哼唱之音"
+ },
+ "EFST_HUNTING_EVENT": {
+  "name": "Hunting Event",
+  "nameZh": "狩猎活动"
+ },
+ "EFST_H_MINE": {
+  "name": "H Mine"
+ },
+ "EFST_IGNORANCE": {
+  "name": "Ignorance"
+ },
+ "EFST_ILLUSION": {
+  "name": "Illusion",
+  "nameZh": "幻觉"
+ },
+ "EFST_ILLUSIONDOPING": {
+  "name": "Illusiondoping",
+  "nameZh": "幻觉禁药"
+ },
+ "EFST_IMMUNE_PROPERTY_DARKNESS": {
+  "name": "Immune to Shadow",
+  "nameZh": "免疫暗属性"
+ },
+ "EFST_IMMUNE_PROPERTY_FIRE": {
+  "name": "Immune to Fire",
+  "nameZh": "免疫火属性"
+ },
+ "EFST_IMMUNE_PROPERTY_GROUND": {
+  "name": "Immune to Earth",
+  "nameZh": "免疫地属性"
+ },
+ "EFST_IMMUNE_PROPERTY_NOTHING": {
+  "name": "Immune to Neutral",
+  "nameZh": "免疫无属性"
+ },
+ "EFST_IMMUNE_PROPERTY_POISON": {
+  "name": "Immune to Poison",
+  "nameZh": "免疫毒属性"
+ },
+ "EFST_IMMUNE_PROPERTY_SAINT": {
+  "name": "Immune to Holy",
+  "nameZh": "免疫圣属性"
+ },
+ "EFST_IMMUNE_PROPERTY_TELEKINESIS": {
+  "name": "Immune to Ghost",
+  "nameZh": "免疫念属性"
+ },
+ "EFST_IMMUNE_PROPERTY_UNDEAD": {
+  "name": "Immune to Undead",
+  "nameZh": "免疫不死属性"
+ },
+ "EFST_IMMUNE_PROPERTY_WATER": {
+  "name": "Immune to Water",
+  "nameZh": "免疫水属性"
+ },
+ "EFST_IMMUNE_PROPERTY_WIND": {
+  "name": "Immune to Wind",
+  "nameZh": "免疫风属性"
+ },
+ "EFST_IMMUNITYSCROLL": {
+  "name": "Immunity Scroll",
+  "nameZh": "免疫卷轴"
+ },
+ "EFST_IMPOSSIBLEPICKUP": {
+  "name": "Impossible Pickup",
+  "nameZh": "无法拾取"
+ },
+ "EFST_INFRAREDSCAN": {
+  "name": "Infraredscan"
+ },
+ "EFST_INSPIRATION": {
+  "name": "Inspiration"
+ },
+ "EFST_INTOABYSS": {
+  "name": "Intoabyss",
+  "nameZh": "触媒之所"
+ },
+ "EFST_INVINCIBLE": {
+  "name": "Invincible",
+  "nameZh": "无敌"
+ },
+ "EFST_INVISIBILITY": {
+  "name": "Invisibility"
+ },
+ "EFST_INVISIBLE": {
+  "name": "Invisible",
+  "nameZh": "隐形"
+ },
+ "EFST_INVULNERABILITY": {
+  "name": "Invulnerability",
+  "nameZh": "无敌"
+ },
+ "EFST_ITEM_ATKMAX": {
+  "name": "Item Atkmax",
+  "nameZh": "物理道具最大攻击力"
+ },
+ "EFST_ITEM_ATKMIN": {
+  "name": "Item Atkmin",
+  "nameZh": "物理道具最小攻击力"
+ },
+ "EFST_ITEM_MATKMAX": {
+  "name": "Item Matkmax",
+  "nameZh": "魔法道具最大攻击力"
+ },
+ "EFST_ITEM_MATKMIN": {
+  "name": "Item Matkmin",
+  "nameZh": "魔法道具最小攻击力"
+ },
+ "EFST_IZAYOI": {
+  "name": "Izayoi",
+  "nameZh": "十六夜"
+ },
+ "EFST_JAWAII_SERENADE": {
+  "name": "Jawaii Serenade",
+  "nameZh": "爪哇小夜曲"
+ },
+ "EFST_JITTER_BUFF1": {
+  "nameZh": "吉特增益1"
+ },
+ "EFST_JITTER_BUFF10": {
+  "nameZh": "吉特增益10"
+ },
+ "EFST_JITTER_BUFF2": {
+  "nameZh": "吉特增益2"
+ },
+ "EFST_JITTER_BUFF3": {
+  "nameZh": "吉特增益3"
+ },
+ "EFST_JITTER_BUFF4": {
+  "nameZh": "吉特增益4"
+ },
+ "EFST_JITTER_BUFF5": {
+  "nameZh": "吉特增益5"
+ },
+ "EFST_JITTER_BUFF6": {
+  "nameZh": "吉特增益6"
+ },
+ "EFST_JITTER_BUFF7": {
+  "nameZh": "吉特增益7"
+ },
+ "EFST_JITTER_BUFF8": {
+  "nameZh": "吉特增益8"
+ },
+ "EFST_JITTER_BUFF9": {
+  "nameZh": "吉特增益9"
+ },
+ "EFST_KAAHI": {
+  "name": "Kaahi"
+ },
+ "EFST_KAGEMUSYA": {
+  "name": "Kagemusya"
+ },
+ "EFST_KAITE": {
+  "name": "Kaite",
+  "nameZh": "凯易特"
+ },
+ "EFST_KAIZEL": {
+  "name": "Kaizel"
+ },
+ "EFST_KAUPE": {
+  "name": "Kaupe"
+ },
+ "EFST_KG_KAGEHUMI": {
+  "name": "Kagehumi"
+ },
+ "EFST_KIEL_CARD": {
+  "name": "Kiel Card",
+  "nameZh": "基尔卡片"
+ },
+ "EFST_KILLING_AURA": {
+  "name": "Killing Aura",
+  "nameZh": "杀戮气场"
+ },
+ "EFST_KINGS_GRACE": {
+  "name": "Kings Grace"
+ },
+ "EFST_KO_JYUMONJIKIRI": {
+  "name": "Jyumonjikiri",
+  "nameZh": "幽冥十字斩"
+ },
+ "EFST_KVASIR_SONATA": {
+  "name": "Kvasir Sonata",
+  "nameZh": "克瓦希尔奏鸣曲"
+ },
+ "EFST_KYOMU": {
+  "name": "Kyomu"
+ },
+ "EFST_KYOUGAKU": {
+  "name": "Kyougaku",
+  "nameZh": "幻术-惊恐"
+ },
+ "EFST_LAZINESS": {
+  "name": "Laziness",
+  "nameZh": "面具:懒散"
+ },
+ "EFST_LEAPIMPAIRED": {
+  "name": "Leap Impaired",
+  "nameZh": "跳跃受损"
+ },
+ "EFST_LERADS_DEW": {
+  "name": "Lerads Dew"
+ },
+ "EFST_LG_REFLECTDAMAGE": {
+  "name": "Reflectdamage"
+ },
+ "EFST_LIFE_FORCE_F": {
+  "name": "Life Force F",
+  "nameZh": "生命力F"
+ },
+ "EFST_LIGHTNINGWALK": {
+  "name": "Lightningwalk"
+ },
+ "EFST_LIGHTOFMOON": {
+  "name": "Lightofmoon"
+ },
+ "EFST_LIGHTOFSTAR": {
+  "name": "Lightofstar"
+ },
+ "EFST_LIGHTOFSUN": {
+  "name": "Lightofsun"
+ },
+ "EFST_LIGHT_OF_REGENE": {
+  "name": "Light Of Regene"
+ },
+ "EFST_LKCONCENTRATION": {
+  "name": "Concentration",
+  "nameZh": "集中攻击"
+ },
+ "EFST_LOCKON_LASER": {
+  "name": "Lock-on Laser",
+  "nameZh": "锁定激光"
+ },
+ "EFST_LUNARSTANCE": {
+  "name": "Lunarstance"
+ },
+ "EFST_LUXANIMA": {
+  "name": "Luxanima",
+  "nameZh": "符文爆发"
+ },
+ "EFST_MACRO": {
+  "name": "Macro",
+  "nameZh": "自动练功"
+ },
+ "EFST_MACRO_PLAY": {
+  "name": "Macro Play",
+  "nameZh": "自动练功执行中"
+ },
+ "EFST_MAGICAL_FEATHER": {
+  "name": "Magical Feather",
+  "nameZh": "魔法羽毛"
+ },
+ "EFST_MAGICATTACK": {
+  "name": "Magic Attack",
+  "nameZh": "魔法攻击"
+ },
+ "EFST_MAGICMIRROR": {
+  "name": "Magicmirror",
+  "nameZh": "魔镜"
+ },
+ "EFST_MAGICPOWER": {
+  "name": "Magicpower",
+  "nameZh": "魔力增幅"
+ },
+ "EFST_MAGICROD": {
+  "name": "Magicrod",
+  "nameZh": "魔法惩罚"
+ },
+ "EFST_MAGICSTONE_OF_GRACE_SET": {
+  "name": "Magic Stone of Grace Set",
+  "nameZh": "优雅魔法石套装"
+ },
+ "EFST_MAGIC_BOOK_M": {
+  "name": "Magic Book Mastery",
+  "nameZh": "魔法书精通"
+ },
+ "EFST_MAGIC_POISON": {
+  "name": "Magic Poison",
+  "nameZh": "魔法毒药"
+ },
+ "EFST_MAGIC_SWORD_M": {
+  "name": "Magic Sword Mastery",
+  "nameZh": "魔法剑精通"
+ },
+ "EFST_MAGMA_FLOW": {
+  "name": "Magma Flow"
+ },
+ "EFST_MAGNETICFIELD": {
+  "name": "Magneticfield"
+ },
+ "EFST_MANA_PLUS": {
+  "name": "Mana Plus",
+  "nameZh": "魔力加成"
+ },
+ "EFST_MANDRAGORA": {
+  "name": "Mandragora"
+ },
+ "EFST_MANHOLE": {
+  "name": "Manhole",
+  "nameZh": "人孔"
+ },
+ "EFST_MARIONETTE": {
+  "name": "Marionette"
+ },
+ "EFST_MASSIVE_F_BLASTER": {
+  "name": "Massive F Blaster",
+  "nameZh": "巨型火焰冲击"
+ },
+ "EFST_MAXHPPERCENT": {
+  "name": "Max HP Percent",
+  "nameZh": "最大HP百分比提升"
+ },
+ "EFST_MAXIMIZE": {
+  "name": "Maximize Power",
+  "nameZh": "极限攻击"
+ },
+ "EFST_MAXPAIN": {
+  "name": "Maxpain",
+  "nameZh": "极限痛苦"
+ },
+ "EFST_MAXSPPERCENT": {
+  "name": "Max SP Percent",
+  "nameZh": "最大SP百分比提升"
+ },
+ "EFST_MEIKYOUSISUI": {
+  "name": "Meikyousisui"
+ },
+ "EFST_MELODYOFSINK": {
+  "name": "Melodyofsink"
+ },
+ "EFST_MELON_BOMB": {
+  "name": "Melon Bomb",
+  "nameZh": "西瓜炸弹"
+ },
+ "EFST_MEMORIZE": {
+  "name": "Memorize",
+  "nameZh": "速读术"
+ },
+ "EFST_MENTAL": {
+  "name": "Mental",
+  "nameZh": "精神控制"
+ },
+ "EFST_MERMAID_LONGING": {
+  "name": "Mermaid Longing",
+  "nameZh": "美人鱼的思念"
+ },
+ "EFST_MER_ATK": {
+  "name": "Mercenary Atk",
+  "nameZh": "佣兵攻击力提升"
+ },
+ "EFST_MER_FLEE": {
+  "name": "Mercenary Flee",
+  "nameZh": "佣兵回避率提升"
+ },
+ "EFST_MER_HIT": {
+  "name": "Mercenary Hit",
+  "nameZh": "佣兵命中率提升"
+ },
+ "EFST_MER_HP": {
+  "name": "Mercenary HP",
+  "nameZh": "佣兵HP提升"
+ },
+ "EFST_MER_SP": {
+  "name": "Mercenary SP",
+  "nameZh": "佣兵SP提升"
+ },
+ "EFST_MIDNIGHT_FRENZY_POSTDELAY": {
+  "nameZh": "午夜狂怒延迟"
+ },
+ "EFST_MINDBREAKER": {
+  "name": "Mindbreaker",
+  "nameZh": "精神撼动"
+ },
+ "EFST_MINOR_BBQ": {
+  "name": "Minor Bbq"
+ },
+ "EFST_MISTY_FROST": {
+  "name": "Misty Frost",
+  "nameZh": "迷雾冰霜"
+ },
+ "EFST_MOON": {
+  "name": "Moon",
+  "nameZh": "月光"
+ },
+ "EFST_MOONLIT_SERENADE": {
+  "name": "Moonlit Serenade"
+ },
+ "EFST_MOON_COMFORT": {
+  "name": "Moon Comfort"
+ },
+ "EFST_MORA_BUFF": {
+  "name": "Mora Buff",
+  "nameZh": "莫拉增益"
+ },
+ "EFST_MOVESLOW_POTION": {
+  "name": "Move Slow Potion",
+  "nameZh": "移动速度减少药水"
+ },
+ "EFST_MTF_ASPD": {
+  "name": "MTF ASPD",
+  "nameZh": "怪物变身:攻速提升"
+ },
+ "EFST_MTF_ASPD2": {
+  "name": "MTF ASPD 2",
+  "nameZh": "怪物变身:攻速提升2"
+ },
+ "EFST_MTF_CRIDAMAGE": {
+  "name": "MTF Cri Damage",
+  "nameZh": "怪物变身:暴击伤害"
+ },
+ "EFST_MTF_CRIDAMAGE2": {
+  "name": "MTF Cri Damage 2",
+  "nameZh": "怪物变身:暴击伤害2"
+ },
+ "EFST_MTF_HITFLEE": {
+  "name": "MTF Hit Flee",
+  "nameZh": "怪物变身:命中回避"
+ },
+ "EFST_MTF_MATK": {
+  "name": "MTF MATK",
+  "nameZh": "怪物变身:MATK提升"
+ },
+ "EFST_MTF_MATK2": {
+  "name": "MTF MATK 2",
+  "nameZh": "怪物变身:MATK提升2"
+ },
+ "EFST_MTF_MHP": {
+  "name": "MTF MHP",
+  "nameZh": "怪物变身:MHP提升"
+ },
+ "EFST_MTF_MSP": {
+  "name": "MTF MSP",
+  "nameZh": "怪物变身:MSP提升"
+ },
+ "EFST_MTF_PUMPKIN": {
+  "name": "MTF Pumpkin",
+  "nameZh": "怪物变身:南瓜"
+ },
+ "EFST_MTF_RANGEATK": {
+  "name": "MTF Range Atk",
+  "nameZh": "怪物变身:远程攻击"
+ },
+ "EFST_MTF_RANGEATK2": {
+  "name": "MTF Range Atk 2",
+  "nameZh": "怪物变身:远程攻击2"
+ },
+ "EFST_MTF_SPDRAIN": {
+  "name": "MTF SP Drain",
+  "nameZh": "怪物变身:SP吸收"
+ },
+ "EFST_MUSICAL_INTERLUDE": {
+  "name": "Musical Interlude",
+  "nameZh": "音乐间奏"
+ },
+ "EFST_MUSTLE_M": {
+  "name": "Mustle M",
+  "nameZh": "肌肉M"
+ },
+ "EFST_MYSTERIOUS_POWDER": {
+  "name": "Mysterious Powder",
+  "nameZh": "神秘粉末"
+ },
+ "EFST_MYSTICSCROLL": {
+  "name": "Mystic Scroll",
+  "nameZh": "神秘卷轴"
+ },
+ "EFST_MYSTIC_SYMPHONY": {
+  "name": "Mystic Symphony",
+  "nameZh": "神秘交响曲"
+ },
+ "EFST_M_DEFSCROLL": {
+  "name": "Magic Defense Scroll",
+  "nameZh": "魔法防御卷轴"
+ },
+ "EFST_NEEDLE_OF_PARALYZE": {
+  "name": "Needle Of Paralyze",
+  "nameZh": "麻痹针"
+ },
+ "EFST_NETHERWORLD": {
+  "name": "Netherworld",
+  "nameZh": "冥界"
+ },
+ "EFST_NEUTRALBARRIER": {
+  "name": "Neutralbarrier"
+ },
+ "EFST_NEUTRALBARRIER_MASTER": {
+  "name": "Neutral Barrier (Caster)",
+  "nameZh": "中性防护罩(施术者)"
+ },
+ "EFST_NJ_BUNSINJYUTSU": {
+  "name": "Bunsinjyutsu"
+ },
+ "EFST_NJ_NEN": {
+  "name": "Nen"
+ },
+ "EFST_NJ_SUITON": {
+  "name": "Suiton",
+  "nameZh": "水遁"
+ },
+ "EFST_NJ_UTSUSEMI": {
+  "name": "Utsusemi"
+ },
+ "EFST_NOACTION": {
+  "name": "No Action",
+  "nameZh": "无法行动"
+ },
+ "EFST_NOEQUIPACCESSARY": {
+  "name": "No Equip Accessory",
+  "nameZh": "卸除饰品"
+ },
+ "EFST_NOEQUIPARMOR2": {
+  "name": "No Equip Armor 2",
+  "nameZh": "卸除铠甲2"
+ },
+ "EFST_NOEQUIPEARING2": {
+  "name": "No Equip Earring 2",
+  "nameZh": "卸除耳环2"
+ },
+ "EFST_NOEQUIPFULL2": {
+  "name": "No Equip Full 2",
+  "nameZh": "卸除全装备2"
+ },
+ "EFST_NOEQUIPPENDANT2": {
+  "name": "No Equip Pendant 2",
+  "nameZh": "卸除吊坠2"
+ },
+ "EFST_NOEQUIPSHIELD2": {
+  "name": "No Equip Shield 2",
+  "nameZh": "卸除盾牌2"
+ },
+ "EFST_NOEQUIPSHOES2": {
+  "name": "No Equip Shoes 2",
+  "nameZh": "卸除鞋子2"
+ },
+ "EFST_NOEQUIPWEAPON2": {
+  "name": "No Equip Weapon 2",
+  "nameZh": "卸除武器2"
+ },
+ "EFST_NOVAEXPLOSING": {
+  "name": "Novaexplosing",
+  "nameZh": "新星爆发"
+ },
+ "EFST_NPC_DEFENDER": {
+  "name": "Defender",
+  "nameZh": "光之盾"
+ },
+ "EFST_NV_BREAKTHROUGH": {
+  "name": "Breakthrough",
+  "nameZh": "突破极限"
+ },
+ "EFST_NV_TRANSCENDENCE": {
+  "name": "Transcendence",
+  "nameZh": "心灵超越"
+ },
+ "EFST_NYANGGRASS": {
+  "name": "Nyanggrass"
+ },
+ "EFST_ODINS_POWER": {
+  "name": "Odins Power"
+ },
+ "EFST_OFFERTORIUM": {
+  "name": "Offertorium",
+  "nameZh": "奉献颂"
+ },
+ "EFST_ORATIO": {
+  "name": "Oratio",
+  "nameZh": "祈祷文"
+ },
+ "EFST_OVERED_BOOST": {
+  "name": "Overed Boost"
+ },
+ "EFST_OVERLAPEXPUP2": {
+  "name": "Overlap Exp Up 2",
+  "nameZh": "经验值提升2"
+ },
+ "EFST_OVERSEAEXPUP": {
+  "nameZh": "海外经验值提升"
+ },
+ "EFST_PAIN_KILLER": {
+  "name": "Pain Killer"
+ },
+ "EFST_PARRYING": {
+  "name": "Parrying",
+  "nameZh": "双剑格挡"
+ },
+ "EFST_PARTYBOOKING_REGISTER_DELAY": {
+  "name": "Party Booking Register Delay",
+  "nameZh": "组队招募登记延迟"
+ },
+ "EFST_PARTYBOOKING_SEARCH_DELAY": {
+  "name": "Party Booking Search Delay",
+  "nameZh": "组队招募搜索延迟"
+ },
+ "EFST_PARTYFLEE": {
+  "name": "Party Flee",
+  "nameZh": "回避率增加"
+ },
+ "EFST_PATTACK": {
+  "name": "Pattack",
+  "nameZh": "Death 袭击被动"
+ },
+ "EFST_PCRITICAL": {
+  "name": "Pcritical",
+  "nameZh": "Death 暴击被动"
+ },
+ "EFST_PC_STOP": {
+  "name": "PC Stop",
+  "nameZh": "强制停止"
+ },
+ "EFST_PDEFENSE": {
+  "name": "Pdefense",
+  "nameZh": "Death 防御被动"
+ },
+ "EFST_PERFORMANCE": {
+  "name": "Performance",
+  "nameZh": "表演中"
+ },
+ "EFST_PERIOD_PLUSEXP": {
+  "nameZh": "经验值提升期间"
+ },
+ "EFST_PERIOD_PLUSJOBEXP": {
+  "nameZh": "职业经验值提升期间"
+ },
+ "EFST_PERIOD_RECEIVEITEM": {
+  "nameZh": "掉宝率提升期间"
+ },
+ "EFST_PET": {
+  "name": "Pet",
+  "nameZh": "宠物随行"
+ },
+ "EFST_PETROLOGY": {
+  "name": "Petrology",
+  "nameZh": "岩石领域"
+ },
+ "EFST_PETROLOGY_OPTION": {
+  "name": "Petrology (Option)",
+  "nameZh": "岩石领域(附加)"
+ },
+ "EFST_PHARAOH_CARD": {
+  "name": "Pharaoh Card",
+  "nameZh": "法老王卡片"
+ },
+ "EFST_POEMBRAGI": {
+  "name": "Poembragi",
+  "nameZh": "布莱奇之诗"
+ },
+ "EFST_POISON_MIST": {
+  "name": "Poison Mist",
+  "nameZh": "剧毒粉"
+ },
+ "EFST_POISON_SHIELD": {
+  "name": "Poison Shield",
+  "nameZh": "剧毒之盾"
+ },
+ "EFST_POISON_SHIELD_OPTION": {
+  "name": "Poison Shield (Option)",
+  "nameZh": "剧毒之盾(附加)"
+ },
+ "EFST_POSTDELAY": {
+  "name": "Post Delay",
+  "nameZh": "技能延迟"
+ },
+ "EFST_POTENT_VENOM": {
+  "name": "Potent Venom",
+  "nameZh": "强效毒液"
+ },
+ "EFST_POWERFUL_FAITH": {
+  "name": "Powerful Faith",
+  "nameZh": "强大的信念"
+ },
+ "EFST_POWERUP": {
+  "name": "Power Up",
+  "nameZh": "力量提升"
+ },
+ "EFST_POWER_OF_GAIA": {
+  "name": "Power Of Gaia",
+  "nameZh": "天神下凡"
+ },
+ "EFST_PRESTIGE": {
+  "name": "Prestige"
+ },
+ "EFST_PRON_MARCH": {
+  "name": "Prontera March",
+  "nameZh": "普隆德拉进行曲"
+ },
+ "EFST_PROTECTSHADOWEQUIP": {
+  "name": "Protect Shadow Equip",
+  "nameZh": "影子装备保护"
+ },
+ "EFST_PSPEED": {
+  "name": "Pspeed",
+  "nameZh": "Death 加速被动"
+ },
+ "EFST_PTRIPLE": {
+  "name": "Ptriple",
+  "nameZh": "Death 三倍被动"
+ },
+ "EFST_PUTTI_TAILS_NOODLES": {
+  "name": "Putti Tails Noodles"
+ },
+ "EFST_PYROCLASTIC": {
+  "name": "Pyroclastic"
+ },
+ "EFST_PYROTECHNIC": {
+  "name": "Pyrotechnic",
+  "nameZh": "烈焰强化"
+ },
+ "EFST_PYROTECHNIC_OPTION": {
+  "name": "Pyrotechnic (Option)",
+  "nameZh": "烈焰强化(附加)"
+ },
+ "EFST_P_ALTER": {
+  "name": "P Alter"
+ },
+ "EFST_RAID": {
+  "name": "Raid",
+  "nameZh": "潜击"
+ },
+ "EFST_RAISINGDRAGON": {
+  "name": "Raisingdragon"
+ },
+ "EFST_RANKING": {
+  "name": "Ranking",
+  "nameZh": "Death 排列被动"
+ },
+ "EFST_RAY_OF_PROTECTION": {
+  "name": "Ray Of Protection",
+  "nameZh": "守护之光"
+ },
+ "EFST_RECOGNIZEDSPELL": {
+  "name": "Recognized Spell",
+  "nameZh": "魔法醒悟"
+ },
+ "EFST_RELIEVE_DAMAGE": {
+  "name": "Relieve Damage",
+  "nameZh": "减轻伤害"
+ },
+ "EFST_RELIGIO": {
+  "name": "Religio",
+  "nameZh": "信仰"
+ },
+ "EFST_RENOVATIO": {
+  "name": "Renovatio",
+  "nameZh": "净化"
+ },
+ "EFST_REPRODUCE": {
+  "name": "Reproduce"
+ },
+ "EFST_RESEARCHREPORT": {
+  "name": "Research Report",
+  "nameZh": "研究报告"
+ },
+ "EFST_RESISTHANDICAP": {
+  "name": "Resist Handicap",
+  "nameZh": "抵抗异常状态"
+ },
+ "EFST_RETROSPECTION": {
+  "name": "Retrospection",
+  "nameZh": "回顾"
+ },
+ "EFST_RETURN_TO_ELDICASTES": {
+  "name": "To Eldicastes",
+  "nameZh": "返回艾尔迪卡斯特"
+ },
+ "EFST_REUSE_CRUSHSTRIKE": {
+  "nameZh": "重击强袭冷却中"
+ },
+ "EFST_REUSE_LIMIT_A": {
+  "nameZh": "冷却中A"
+ },
+ "EFST_REUSE_LIMIT_ASPD_POTION": {
+  "name": "ASPD Potion Cooldown",
+  "nameZh": "攻速药水冷却中"
+ },
+ "EFST_REUSE_LIMIT_B": {
+  "nameZh": "冷却中B"
+ },
+ "EFST_REUSE_LIMIT_C": {
+  "nameZh": "冷却中C"
+ },
+ "EFST_REUSE_LIMIT_D": {
+  "nameZh": "冷却中D"
+ },
+ "EFST_REUSE_LIMIT_E": {
+  "nameZh": "冷却中E"
+ },
+ "EFST_REUSE_LIMIT_F": {
+  "nameZh": "冷却中F"
+ },
+ "EFST_REUSE_LIMIT_G": {
+  "nameZh": "冷却中G"
+ },
+ "EFST_REUSE_LIMIT_H": {
+  "nameZh": "冷却中H"
+ },
+ "EFST_REUSE_LIMIT_LUXANIMA": {
+  "nameZh": "符文爆发冷却中"
+ },
+ "EFST_REUSE_LIMIT_MTF": {
+  "name": "MTF Cooldown",
+  "nameZh": "怪物变身冷却中"
+ },
+ "EFST_REUSE_LIMIT_RECALL": {
+  "name": "Recall Cooldown",
+  "nameZh": "召回冷却中"
+ },
+ "EFST_REUSE_LIMIT_S_HEAL_POTION": {
+  "nameZh": "小型恢复药水冷却中"
+ },
+ "EFST_REUSE_MILLENNIUMSHIELD": {
+  "nameZh": "千年盾冷却中"
+ },
+ "EFST_REUSE_REFRESH": {
+  "nameZh": "恢复冷却中"
+ },
+ "EFST_REUSE_STORMBLAST": {
+  "nameZh": "风暴冲击冷却中"
+ },
+ "EFST_RICHMANKIM": {
+  "name": "Richmankim",
+  "nameZh": "经验值倍增"
+ },
+ "EFST_RIDING": {
+  "name": "Riding"
+ },
+ "EFST_RINGNIBELUNGEN": {
+  "name": "Ringnibelungen",
+  "nameZh": "尼贝隆根之戒指"
+ },
+ "EFST_ROCK_CRUSHER": {
+  "name": "Rock Crusher",
+  "nameZh": "碎石"
+ },
+ "EFST_ROCK_CRUSHER_ATK": {
+  "name": "Rock Crusher Atk",
+  "nameZh": "碎石"
+ },
+ "EFST_ROKISWEIL": {
+  "name": "Rokisweil",
+  "nameZh": "洛奇的悲鸣"
+ },
+ "EFST_ROLLINGCUTTER": {
+  "name": "Rollingcutter",
+  "nameZh": "回旋刀刃"
+ },
+ "EFST_ROSEBLOSSOM": {
+  "name": "Rose Blossom",
+  "nameZh": "玫瑰绽放"
+ },
+ "EFST_ROYALSCROLL": {
+  "name": "Royal Scroll",
+  "nameZh": "皇家卷轴"
+ },
+ "EFST_RUN": {
+  "name": "Run",
+  "nameZh": "跑步"
+ },
+ "EFST_RUNEHELM": {
+  "name": "Rune Helm",
+  "nameZh": "符文头盔"
+ },
+ "EFST_RUSH_WINDMILL": {
+  "name": "Rush Windmill"
+ },
+ "EFST_SACRIFICE": {
+  "name": "Sacrifice"
+ },
+ "EFST_SATURDAY_NIGHT_FEVER": {
+  "name": "Saturday Night Fever",
+  "nameZh": "狂欢周末夜"
+ },
+ "EFST_SAVEPOSITION": {
+  "name": "Save Position",
+  "nameZh": "位置保存"
+ },
+ "EFST_SECOND_BRAND": {
+  "name": "Second Brand",
+  "nameZh": "第二烙印"
+ },
+ "EFST_SECOND_JUDGE": {
+  "name": "Second Judge",
+  "nameZh": "第二审判"
+ },
+ "EFST_SERVANTWEAPON": {
+  "name": "Servant Weapon",
+  "nameZh": "侍从武器"
+ },
+ "EFST_SERVANT_SIGN": {
+  "name": "Servant Sign",
+  "nameZh": "侍从印记"
+ },
+ "EFST_SERVICEFORYOU": {
+  "name": "Serviceforyou",
+  "nameZh": "为您服务"
+ },
+ "EFST_SG_MOON_WARM": {
+  "name": "Moon Warm",
+  "nameZh": "月亮的温暖"
+ },
+ "EFST_SG_STAR_WARM": {
+  "name": "Star Warm",
+  "nameZh": "星星的温暖"
+ },
+ "EFST_SG_SUN_WARM": {
+  "name": "Sun Warm",
+  "nameZh": "太阳的温暖"
+ },
+ "EFST_SG_WARM": {
+  "name": "SG Warm",
+  "nameZh": "日月星的温暖"
+ },
+ "EFST_SHADOWFORM": {
+  "name": "Shadowform"
+ },
+ "EFST_SHADOW_EXCEED": {
+  "name": "Shadow Exceed",
+  "nameZh": "暗影超越"
+ },
+ "EFST_SHADOW_SCAR": {
+  "name": "Shadow Scar",
+  "nameZh": "暗影伤痕"
+ },
+ "EFST_SHADOW_STRIP": {
+  "name": "Shadow Strip",
+  "nameZh": "暗影卸除"
+ },
+ "EFST_SHADOW_WEAPON": {
+  "name": "Shadow Weapon",
+  "nameZh": "暗影武器"
+ },
+ "EFST_SHAPESHIFT": {
+  "name": "Shapeshift"
+ },
+ "EFST_SHIELDSPELL": {
+  "name": "Shieldspell",
+  "nameZh": "盾咒"
+ },
+ "EFST_SHIELD_MASTERY": {
+  "name": "Shield Mastery",
+  "nameZh": "盾牌精通"
+ },
+ "EFST_SHIELD_POWER": {
+  "name": "Shield Power",
+  "nameZh": "盾牌之力"
+ },
+ "EFST_SHOUT": {
+  "name": "Shout"
+ },
+ "EFST_SIEGEMODE": {
+  "name": "Siege Mode",
+  "nameZh": "攻城模式"
+ },
+ "EFST_SIEGFRIED": {
+  "name": "Siegfried",
+  "nameZh": "不死神齐格弗里德"
+ },
+ "EFST_SILENT_BREEZE": {
+  "name": "Silent Breeze",
+  "nameZh": "沉默微风"
+ },
+ "EFST_SILVERVEIN_RUSH_POSTDELAY": {
+  "nameZh": "银脉冲击延迟"
+ },
+ "EFST_SINCERE_FAITH": {
+  "name": "Sincere Faith",
+  "nameZh": "真诚的信念"
+ },
+ "EFST_SIRCLEOFNATURE": {
+  "name": "Sircleofnature"
+ },
+ "EFST_SIREN": {
+  "name": "Siren",
+  "nameZh": "塞壬"
+ },
+ "EFST_SIROMA_ICE_TEA": {
+  "name": "Siroma Ice Tea"
+ },
+ "EFST_SITDOWN_FORCE": {
+  "name": "Sit Down Force",
+  "nameZh": "强制坐下"
+ },
+ "EFST_SKE": {
+  "name": "Ske",
+  "nameZh": "艾斯克"
+ },
+ "EFST_SKELSCROLL": {
+  "name": "Skel Scroll",
+  "nameZh": "骷髅卷轴"
+ },
+ "EFST_SLOWCAST": {
+  "name": "Slowcast"
+ },
+ "EFST_SLOWDOWN": {
+  "name": "Slow Down",
+  "nameZh": "减速"
+ },
+ "EFST_SLUGSHOT": {
+  "name": "Slugshot",
+  "nameZh": "根源破坏"
+ },
+ "EFST_SOLID_SKIN": {
+  "name": "Solid Skin",
+  "nameZh": "皮肤固化"
+ },
+ "EFST_SOLID_SKIN_OPTION": {
+  "name": "Solid Skin (Option)",
+  "nameZh": "皮肤固化(附加)"
+ },
+ "EFST_SONG_OF_MANA": {
+  "name": "Song Of Mana"
+ },
+ "EFST_SONIC_CLAW_POSTDELAY": {
+  "nameZh": "音速爪延迟"
+ },
+ "EFST_SOULCOLLECT": {
+  "name": "Soulcollect"
+ },
+ "EFST_SOULCURSE": {
+  "name": "Soulcurse",
+  "nameZh": "邪恶灵魂诅咒"
+ },
+ "EFST_SOULDIVISION": {
+  "name": "Souldivision"
+ },
+ "EFST_SOULENERGY": {
+  "name": "Soulenergy",
+  "nameZh": "灵魂能量研究"
+ },
+ "EFST_SOULFAIRY": {
+  "name": "Soulfairy"
+ },
+ "EFST_SOULFALCON": {
+  "name": "Soulfalcon"
+ },
+ "EFST_SOULGOLEM": {
+  "name": "Soulgolem"
+ },
+ "EFST_SOULREAPER": {
+  "name": "Soulreaper"
+ },
+ "EFST_SOULSCROLL": {
+  "name": "Soul Scroll",
+  "nameZh": "灵魂卷轴"
+ },
+ "EFST_SOULSHADOW": {
+  "name": "Soulshadow"
+ },
+ "EFST_SOULUNITY": {
+  "name": "Soulunity"
+ },
+ "EFST_SOUNDBLEND": {
+  "name": "Sound Blend",
+  "nameZh": "混音"
+ },
+ "EFST_SOUND_OF_DESTRUCTION": {
+  "name": "Sound Of Destruction",
+  "nameZh": "毁灭之声"
+ },
+ "EFST_SPEAR_SCAR": {
+  "name": "Spear Scar",
+  "nameZh": "长矛伤痕"
+ },
+ "EFST_SPEAR_SWORD_M": {
+  "name": "Spear Sword Mastery",
+  "nameZh": "枪剑精通"
+ },
+ "EFST_SPECIALCOOKIE": {
+  "name": "Special Cookie",
+  "nameZh": "特殊饼干"
+ },
+ "EFST_SPECIALZONE": {
+  "name": "Special Zone",
+  "nameZh": "特殊区域"
+ },
+ "EFST_SPELLBOOK1": {
+  "nameZh": "魔法书1"
+ },
+ "EFST_SPELLBOOK2": {
+  "nameZh": "魔法书2"
+ },
+ "EFST_SPELLBOOK3": {
+  "nameZh": "魔法书3"
+ },
+ "EFST_SPELLBOOK4": {
+  "nameZh": "魔法书4"
+ },
+ "EFST_SPELLBOOK5": {
+  "nameZh": "魔法书5"
+ },
+ "EFST_SPELLBOOK6": {
+  "nameZh": "魔法书6"
+ },
+ "EFST_SPELLBOOK7": {
+  "nameZh": "魔法书7"
+ },
+ "EFST_SPELLFIST": {
+  "name": "Spellfist",
+  "nameZh": "魔力拳"
+ },
+ "EFST_SPELL_ENCHANTING": {
+  "name": "Spell Enchanting",
+  "nameZh": "法术附魔"
+ },
+ "EFST_SPIDERWEB": {
+  "name": "Spiderweb",
+  "nameZh": "易燃之网"
+ },
+ "EFST_SPLASHER": {
+  "name": "Splasher",
+  "nameZh": "毒性感染"
+ },
+ "EFST_SPORE_EXPLOSION": {
+  "name": "Spore Explosion",
+  "nameZh": "爆炸孢子"
+ },
+ "EFST_SPORE_EXPLOSION_DEBUFF": {
+  "name": "Spore Explosion Debuff",
+  "nameZh": "爆炸孢子(减益)"
+ },
+ "EFST_SPRITEMABLE": {
+  "name": "Spritemable"
+ },
+ "EFST_SP_SHA": {
+  "name": "Sha",
+  "nameZh": "艾斯哈"
+ },
+ "EFST_STAGE_MANNER": {
+  "name": "Stage Manner",
+  "nameZh": "舞台风范"
+ },
+ "EFST_STARSTANCE": {
+  "name": "Starstance"
+ },
+ "EFST_STAR_COMFORT": {
+  "name": "Star Comfort"
+ },
+ "EFST_STASIS": {
+  "name": "Stasis"
+ },
+ "EFST_STEALTHFIELD": {
+  "name": "Stealthfield"
+ },
+ "EFST_STEALTHFIELD_MASTER": {
+  "name": "Stealth Field (Caster)",
+  "nameZh": "隐形力场(施术者)"
+ },
+ "EFST_STEELBODY": {
+  "name": "Steelbody"
+ },
+ "EFST_STONESKIN": {
+  "name": "Stoneskin",
+  "nameZh": "钢筋铁骨"
+ },
+ "EFST_STONE_SHIELD": {
+  "name": "Stone Shield",
+  "nameZh": "岩石盾"
+ },
+ "EFST_STONE_SHIELD_OPTION": {
+  "name": "Stone Shield (Option)",
+  "nameZh": "岩石盾(附加)"
+ },
+ "EFST_STONE_WALL": {
+  "name": "Stone Wall",
+  "nameZh": "石墙"
+ },
+ "EFST_STOP": {
+  "name": "Stop",
+  "nameZh": "停止"
+ },
+ "EFST_STORMKICK_READY": {
+  "name": "Storm Kick Ready",
+  "nameZh": "回旋准备(就绪)"
+ },
+ "EFST_STRIKING": {
+  "name": "Striking"
+ },
+ "EFST_STRIPACCESSARY": {
+  "name": "Stripaccessary"
+ },
+ "EFST_STRONG_PROTECTION": {
+  "name": "Strong Protection",
+  "nameZh": "强力防护"
+ },
+ "EFST_STRONG_PROTECTION_OPTION": {
+  "name": "Strong Protection (Option)",
+  "nameZh": "强力防护(附加)"
+ },
+ "EFST_STYLE_CHANGE": {
+  "name": "Style Change"
+ },
+ "EFST_SUHIDE": {
+  "name": "Hide"
+ },
+ "EFST_SUMMON_AGNI": {
+  "name": "Summon Agni",
+  "nameZh": "召唤火元素"
+ },
+ "EFST_SUMMON_ELEMENTAL_ARDOR": {
+  "name": "Summon Elemental: Ardor",
+  "nameZh": "召唤元素·灼热"
+ },
+ "EFST_SUMMON_ELEMENTAL_DILUVIO": {
+  "name": "Summon Elemental: Diluvio",
+  "nameZh": "召唤元素·洪水"
+ },
+ "EFST_SUMMON_ELEMENTAL_PROCELLA": {
+  "name": "Summon Elemental: Procella",
+  "nameZh": "召唤元素·风暴"
+ },
+ "EFST_SUMMON_ELEMENTAL_SERPENS": {
+  "name": "Summon Elemental: Serpens",
+  "nameZh": "召唤元素·蛇"
+ },
+ "EFST_SUMMON_ELEMENTAL_TERREMOTUS": {
+  "name": "Summon Elemental: Terremotus",
+  "nameZh": "召唤元素·地震"
+ },
+ "EFST_SUNSTANCE": {
+  "name": "Sunstance"
+ },
+ "EFST_SUN_COMFORT": {
+  "name": "Sun Comfort"
+ },
+ "EFST_SUPER_STAR": {
+  "name": "Super Star",
+  "nameZh": "超级巨星"
+ },
+ "EFST_SU_STOOP": {
+  "name": "Stoop"
+ },
+ "EFST_SV_ROOTTWIST": {
+  "name": "Sv Roottwist"
+ },
+ "EFST_SWOO": {
+  "name": "Swoo",
+  "nameZh": "艾斯诬"
+ },
+ "EFST_S_HEALPOTION": {
+  "name": "Small Heal Potion",
+  "nameZh": "小型恢复药水"
+ },
+ "EFST_S_MANAPOTION": {
+  "name": "Small Mana Potion",
+  "nameZh": "小型魔力药水"
+ },
+ "EFST_TELEKINESIS_INTENSE": {
+  "name": "Telekinesis Intense",
+  "nameZh": "终极念力"
+ },
+ "EFST_TELEPORT_FIXEDCASTINGDELAY": {
+  "name": "Teleport Fixed Casting Delay",
+  "nameZh": "传送固定咏唱延迟"
+ },
+ "EFST_TENSIONRELAX": {
+  "name": "Tension Relax",
+  "nameZh": "极速恢复"
+ },
+ "EFST_TETANY": {
+  "name": "Tetany"
+ },
+ "EFST_THIRD_EXOR_FLAME": {
+  "name": "Third Exorcism Flame",
+  "nameZh": "第三驱魔之焰"
+ },
+ "EFST_THORNS_TRAP": {
+  "name": "Thorns Trap"
+ },
+ "EFST_TIDAL_WEAPON": {
+  "name": "Tidal Weapon",
+  "nameZh": "海啸武器"
+ },
+ "EFST_TIDAL_WEAPON_OPTION": {
+  "name": "Tidal Weapon (Option)",
+  "nameZh": "海啸武器(附加)"
+ },
+ "EFST_TINDER_BREAKER": {
+  "name": "Tinder Breaker",
+  "nameZh": "粉碎骨折"
+ },
+ "EFST_TINDER_BREAKER_POSTDELAY": {
+  "nameZh": "粉碎骨折延迟"
+ },
+ "EFST_TK_SEVENWIND": {
+  "name": "Sevenwind",
+  "nameZh": "温暖的风"
+ },
+ "EFST_TRICKDEAD": {
+  "name": "Trickdead"
+ },
+ "EFST_TROPIC": {
+  "name": "Tropic",
+  "nameZh": "灼热地带"
+ },
+ "EFST_TROPIC_OPTION": {
+  "name": "Tropic (Option)",
+  "nameZh": "灼热地带(附加)"
+ },
+ "EFST_TUNAPARTY": {
+  "name": "Tunaparty"
+ },
+ "EFST_TURNKICK_READY": {
+  "name": "Turn Kick Ready",
+  "nameZh": "踢准备(就绪)"
+ },
+ "EFST_TWISTED_TIME": {
+  "name": "Twisted Time",
+  "nameZh": "扭曲的时间"
+ },
+ "EFST_TWOAXEDEF": {
+  "name": "Two Axe Defense",
+  "nameZh": "双手斧防御"
+ },
+ "EFST_TW_NEWYEAR_EVENT": {
+  "name": "New Year Event",
+  "nameZh": "新年活动"
+ },
+ "EFST_ULTIMATECOOK": {
+  "name": "Ultimate Cook",
+  "nameZh": "终极料理"
+ },
+ "EFST_UNIVERSESTANCE": {
+  "name": "Universestance"
+ },
+ "EFST_UNLIMIT": {
+  "name": "Unlimit"
+ },
+ "EFST_UNLIMITED_HUMMING_VOICE": {
+  "name": "Unlimited Humming Voice"
+ },
+ "EFST_UNLUCKY": {
+  "name": "Unlucky"
+ },
+ "EFST_UPHEAVAL": {
+  "name": "Upheaval",
+  "nameZh": "天崩地裂"
+ },
+ "EFST_UPHEAVAL_OPTION": {
+  "name": "Upheaval (Option)",
+  "nameZh": "天崩地裂(附加)"
+ },
+ "EFST_USE_SKILL_SP_SHA": {
+  "name": "Use Skill SP Sha",
+  "nameZh": "艾斯哈SP消耗"
+ },
+ "EFST_USE_SKILL_SP_SPA": {
+  "name": "Use Skill SP Spa",
+  "nameZh": "艾斯帕SP消耗"
+ },
+ "EFST_VACUUM_EXTREME": {
+  "name": "Vacuum Extreme"
+ },
+ "EFST_VENOMIMPRESS": {
+  "name": "Venomimpress",
+  "nameZh": "毒耐性弱化"
+ },
+ "EFST_VIGOR": {
+  "name": "Vigor",
+  "nameZh": "活力"
+ },
+ "EFST_VOLCANIC_ASH": {
+  "name": "Volcanic Ash"
+ },
+ "EFST_WARMER": {
+  "name": "Warmer"
+ },
+ "EFST_WATER_BARRIER": {
+  "name": "Water Barrier",
+  "nameZh": "水之屏障"
+ },
+ "EFST_WATER_DROP": {
+  "name": "Water Drop",
+  "nameZh": "大豪雨"
+ },
+ "EFST_WATER_DROP_OPTION": {
+  "name": "Water Drop (Option)",
+  "nameZh": "大豪雨(附加)"
+ },
+ "EFST_WATER_INSIGNIA": {
+  "name": "Water Insignia",
+  "nameZh": "水之纹章"
+ },
+ "EFST_WATER_SCREEN": {
+  "name": "Water Screen",
+  "nameZh": "水之守护"
+ },
+ "EFST_WATER_SCREEN_OPTION": {
+  "name": "Water Screen (Option)",
+  "nameZh": "水之守护(附加)"
+ },
+ "EFST_WEAKNESS": {
+  "name": "Weakness"
+ },
+ "EFST_WEAPONBLOCKING_POSTDELAY": {
+  "nameZh": "武器格挡延迟"
+ },
+ "EFST_WEAPONBLOCK_ON": {
+  "name": "Weapon Block On",
+  "nameZh": "武器格挡开启"
+ },
+ "EFST_WEAPONBRAKER": {
+  "name": "Weapon Breaker",
+  "nameZh": "武器破坏"
+ },
+ "EFST_WEAPONPROPERTY": {
+  "name": "Aspersio",
+  "nameZh": "洒水祈福"
+ },
+ "EFST_WHISTLE": {
+  "name": "Whistle",
+  "nameZh": "吹口哨"
+ },
+ "EFST_WIDEWEB": {
+  "name": "Wideweb",
+  "nameZh": "广范围易燃之网"
+ },
+ "EFST_WILD_STORM": {
+  "name": "Wild Storm",
+  "nameZh": "荒野风暴"
+ },
+ "EFST_WILD_STORM_OPTION": {
+  "name": "Wild Storm (Option)",
+  "nameZh": "荒野风暴(附加)"
+ },
+ "EFST_WINDSIGN": {
+  "name": "Wind Sign",
+  "nameZh": "风之印记"
+ },
+ "EFST_WIND_CURTAIN": {
+  "name": "Wind Curtain",
+  "nameZh": "风之魂"
+ },
+ "EFST_WIND_CURTAIN_OPTION": {
+  "name": "Wind Curtain (Option)",
+  "nameZh": "风之魂(附加)"
+ },
+ "EFST_WIND_INSIGNIA": {
+  "name": "Wind Insignia",
+  "nameZh": "风之纹章"
+ },
+ "EFST_WIND_STEP": {
+  "name": "Wind Step",
+  "nameZh": "风之闪现"
+ },
+ "EFST_WIND_STEP_OPTION": {
+  "name": "Wind Step (Option)",
+  "nameZh": "风之闪现(附加)"
+ },
+ "EFST_WUGBITE": {
+  "name": "Wugbite",
+  "nameZh": "狼咬"
+ },
+ "EFST_WUGDASH": {
+  "name": "Wugdash",
+  "nameZh": "疾狼术"
+ },
+ "EFST_YGGDRASIL_BLESS": {
+  "name": "Yggdrasil Bless",
+  "nameZh": "世界树的祝福"
+ },
+ "EFST_ZANGETSU": {
+  "name": "Zangetsu"
+ },
+ "EFST_ZENKAI": {
+  "name": "Zenkai",
+  "nameZh": "法术-施展"
+ },
+ "EFST_ZEPHYR": {
+  "name": "Zephyr",
+  "nameZh": "风之结界"
+ }
+}
