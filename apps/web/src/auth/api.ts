@@ -15,6 +15,7 @@ import type {
   ProfileUpdateInput,
   RegisterInput,
 } from './types';
+import { readDeviceHeaders } from '../device-identity';
 
 const AUTH_CSRF_PATH = '/api/v1/auth/csrf';
 const ACCOUNT_CACHE = 'no-store';
@@ -260,6 +261,7 @@ export class AuthApi implements AuthApiClient {
   ): Promise<Response> {
     const headers = new Headers();
     if (body !== undefined) headers.set('content-type', 'application/json');
+    for (const [name, value] of Object.entries(await readDeviceHeaders())) headers.set(name, value);
     const init: RequestInit = {
       method,
       headers,

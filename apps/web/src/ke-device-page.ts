@@ -6,6 +6,7 @@
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authStore, type AuthStore } from "./auth/store";
 import { keFetch } from "./ke-page";
+import { readDeviceHeaders } from "./device-identity";
 
 interface DeviceLookup {
   user_code: string;
@@ -212,7 +213,7 @@ export function mountKeDevicePage(root: HTMLElement, deps: KeDevicePageDeps = {}
     try {
       await keFetch<void>("/api/v1/ke/device/decision", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...(await readDeviceHeaders()) },
         body: JSON.stringify({ user_code: code, approve: approveRequest }),
       });
       request.hidden = true;
