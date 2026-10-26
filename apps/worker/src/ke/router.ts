@@ -2,6 +2,9 @@ import type { Hono } from 'hono';
 import type { MysqlDatabase } from '../db/mysql-client';
 import type { AppEnv } from '../env';
 import { jsonError, requestId } from '../middleware/errors';
+import { logError } from '../observability';
+import { createActivityRecorder, NOOP_ACTIVITY_RECORDER, type ActivityRecorder } from '../activity/recorder';
+import { createActivityRepository } from '../activity/repository';
 import { readAuthJson } from '../auth/body';
 import { mailRepositoryOptions, resolveAuthConfig } from '../auth/config';
 import { createAuthRepository } from '../auth/repository';
@@ -20,7 +23,7 @@ import { createSharedProfileService, type SharedProfileService } from './shared-
 import { HALL_RATE_LIMITS, registerSharedProfileRoutes } from './shared-profile-router';
 import type { ProfileSharingInput } from './shared-profile-types';
 import { createTokenRepository, type TokenRepository } from './token-repository';
-import { createTokenService } from './token-service';
+import { createTokenService, type BearerIdentity } from './token-service';
 import { KeFailure, type CharacterReport, type KeLicenseMode } from './types';
 import { createBuildRegistry } from './build-registry';
 
@@ -46,6 +49,14 @@ function jsonFailure(c: any, code: string, message: string, status: number, deta
 
 function unavailable(c: any): Response {
   return jsonFailure(c, 'KE_UNAVAILABLE', '授权服务暂不可用', 503);
+}
+
+function characterOf(report: CharacterReport): { aid: number; cid: number; nid: number } {
+  return { aid: report.aid, cid: report.cid, nid: report.nid };
+}
+
+function isCharacterBound(error: unknown): boolean {
+  return error instanceof KeFailure && error.code === 'KE_CHARACTER_BOUND';
 }
 
 function routeFailure(c: any, error: unknown): Response {
@@ -236,8 +247,16 @@ async function assertKeRateLimit(
   }
 }
 
-export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDatabase, runtime?: AuthRuntime): void {
+export function registerKeRoutes(
+  app: Hono<any>,
+  env: AppEnv,
+  database?: MysqlDatabase,
+  runtime?: AuthRuntime,
+  activity?: ActivityRecorder,
+): void {
   const authRuntime = runtime ?? { now: () => Date.now(), fetch: globalThis.fetch };
+  const recorder = activity
+    ?? (database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT) : NOOP_ACTIVITY_RECORDER);
   const buildRegistry = database ? createBuildRegistry(database) : undefined;
   const databaseBuildGuard = buildRegistry?.assertAllowed;
   let authRepository: ReturnType<typeof createAuthRepository> | null = null;
@@ -302,6 +321,16 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     tokenService(handlers).authenticate(request.headers.get('authorization'));
   const tokenSubject = (identity: { tokenId: number }): RateSubject => ({ kind: 'action', value: `ke-token:${identity.tokenId}` });
 
+  /** 设备码兑换成功：用刚签发的令牌反查批准者；查询或写入出错都不能影响原响应。 */
+  const recordDeviceToken = async (request: Request, handlers: NonNullable<ReturnType<typeof setup>>, accessToken: string): Promise<void> => {
+    try {
+      const issued = await tokenService(handlers).authenticate(`Bearer ${accessToken}`);
+      await recorder.record(request, { userId: issued.userId, event: 'KE_DEVICE_TOKEN', requestId: requestId(request) });
+    } catch (error) {
+      logError('lastroweb.activity_log_error', error, { event: 'KE_DEVICE_TOKEN' });
+    }
+  };
+
   // 认证模型：
   // - KE 运行在 IWA（isolated-app://…），与站点跨站，拿不到会话 cookie，只用 `Authorization: Bearer ke1_…`。
   //   这些端点（bind / start / heartbeat / stop、profiles/active、me、token/revoke）**不接受 cookie**，因此没有 CSRF 面，
@@ -312,11 +341,13 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   app.post('/api/v1/ke/instances/bind', async (c: any) => {
     const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
+    let identity: BearerIdentity | undefined;
+    let input: BindInput | undefined;
     try {
-      const identity = await bearerIdentity(handlers, c.req.raw);
+      identity = await bearerIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       await assertKeRateLimit(handlers, tokenSubject(identity), KE_RATE_LIMITS.bindPerSession, authRuntime.now);
-      const input: BindInput = {
+      input = {
         instanceId: parseInstanceId(body.instance_id),
         report: parseCharacterReport(body),
         needWasmKey: body.need_wasm_key === true,
@@ -325,8 +356,17 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         ...(await attestation(c.req.raw, env, body)),
       };
       const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).bind(identity.userId, input);
+      await recorder.record(c.req.raw, {
+        userId: identity.userId, event: 'KE_BIND', character: characterOf(input.report), ref: input.instanceId, requestId: requestId(c.req.raw),
+      });
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
+      // 事务已回滚；记录失败只写日志，原错误照常返回。
+      if (identity && input && isCharacterBound(error)) {
+        await recorder.record(c.req.raw, {
+          userId: identity.userId, event: 'KE_BIND', result: 'FAILURE', character: characterOf(input.report), ref: input.instanceId, requestId: requestId(c.req.raw),
+        });
+      }
       return routeFailure(c, error);
     }
   });
@@ -352,11 +392,13 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
   app.post('/api/v1/ke/instances/:id/start', async (c: any) => {
     const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
+    let identity: BearerIdentity | undefined;
+    let input: StartInput | undefined;
     try {
-      const identity = await bearerIdentity(handlers, c.req.raw);
+      identity = await bearerIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       await assertKeRateLimit(handlers, tokenSubject(identity), KE_RATE_LIMITS.startPerSession, authRuntime.now);
-      const input: StartInput = {
+      input = {
         instanceId: parseInstanceId(c.req.param('id')),
         kickInstanceId: typeof body.kick_instance_id === 'string' && body.kick_instance_id.length > 0 && body.kick_instance_id.length <= 36 ? body.kick_instance_id : null,
         mode: parseLicenseMode(body.mode),
@@ -367,8 +409,16 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
         ...(await attestation(c.req.raw, env, body)),
       };
       const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).start(identity.userId, input);
+      await recorder.record(c.req.raw, {
+        userId: identity.userId, event: 'KE_START', character: characterOf(input.report), ref: input.instanceId, requestId: requestId(c.req.raw),
+      });
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
+      if (identity && input && isCharacterBound(error)) {
+        await recorder.record(c.req.raw, {
+          userId: identity.userId, event: 'KE_START', result: 'FAILURE', character: characterOf(input.report), ref: input.instanceId, requestId: requestId(c.req.raw),
+        });
+      }
       return routeFailure(c, error);
     }
   });
@@ -380,13 +430,18 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
       const identity = await bearerIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       const ts = typeof body.ts === 'number' && Number.isSafeInteger(body.ts) ? body.ts : 0;
+      const instanceId = parseInstanceId(c.req.param('id'));
+      const report = parseCharacterReport(body);
       const result = await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now, databaseBuildGuard).heartbeat(
         identity.userId,
-        parseInstanceId(c.req.param('id')),
-        parseCharacterReport(body),
+        instanceId,
+        report,
         ts,
         await attestation(c.req.raw, env, body),
       );
+      await recorder.recordHeartbeat(c.req.raw, {
+        userId: identity.userId, event: 'KE_HEARTBEAT', character: characterOf(report), ref: instanceId, requestId: requestId(c.req.raw),
+      });
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
@@ -451,6 +506,7 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
     try {
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       const result = await tokenService(handlers).poll(body.device_code, await clientHashes(c.req.raw, env));
+      if (result.status === 'approved') await recordDeviceToken(c.req.raw, handlers, result.access_token);
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
@@ -480,6 +536,9 @@ export function registerKeRoutes(app: Hono<any>, env: AppEnv, database?: MysqlDa
       if (typeof body.approve !== 'boolean') throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
       await assertKeRateLimit(handlers, { kind: 'session', value: identity.sessionToken }, KE_RATE_LIMITS.devicePerSession, authRuntime.now);
       await tokenService(handlers).decide(identity.userId, body.user_code, body.approve);
+      if (body.approve) {
+        await recorder.record(c.req.raw, { userId: identity.userId, event: 'KE_DEVICE_APPROVE', requestId: requestId(c.req.raw) });
+      }
       return c.newResponse(null, 204, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);

@@ -266,6 +266,11 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         if (found === null) throw new KeFailure('KE_INSTANCE_NOT_FOUND', 404, '实例不存在');
         if (found.user_id !== ownerId) throw new KeFailure('KE_AUTH_FORBIDDEN', 403, '实例不属于当前账号');
         assertSameCharacter(found, input.report);
+        // 角色可能已被后台转移或他人重新绑定：归属变更后旧实例不能继续启动（心跳不检查，沿用原租约）。
+        const character = await tx.findCharacter(found.aid, found.cid, found.nid);
+        if (character?.user_id != null && character.user_id !== ownerId) {
+          throw new KeFailure('KE_CHARACTER_BOUND', 409, '该角色 30 天内已被其他账号绑定', { bound_at: character.bound_at });
+        }
         const entitlements = await requireCoreEntitlement(tx, ownerId, timestamp);
         if (wantsNetwork && !entitlements.modules.has(KE_STANDALONE_MODULE)) {
           throw new KeFailure('KE_NOT_ENTITLED', 403, '账号未开通脱机版模块');

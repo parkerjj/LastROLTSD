@@ -77,7 +77,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT) : NOOP_ACTIVITY_RECORDER;
   registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);
   registerKeBuildRoutes(app, env, database);
-  registerKeRoutes(app, env, database);
+  registerKeRoutes(app, env, database, undefined, activity);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
