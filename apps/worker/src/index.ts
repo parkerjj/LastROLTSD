@@ -29,6 +29,9 @@ import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
 import { registerKeBuildRoutes } from './ke/build-register-router';
+import { createActivityRecorder, NOOP_ACTIVITY_RECORDER } from './activity/recorder';
+import { createActivityRepository } from './activity/repository';
+import { ACTIVITY_RETENTION_MS } from './activity/types';
 import { createKeRepository } from './ke/repository';
 import { mailRepositoryOptions, resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
@@ -41,6 +44,8 @@ import { mysqlErrorContext } from './db/mysql-error-context';
 import { createAdminRepository } from './admin/repository';
 import { registerAdminAccountRoutes, type AdminAuthServices } from './admin/router';
 import { createAdminService } from './admin/service';
+import { createTransferRepository } from './admin/transfer-repository';
+import { createTransferService } from './admin/transfer-service';
 import { createActionService } from './auth/action-service';
 
 export type WorkerBindings = AppEnv;
@@ -71,9 +76,10 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
-  registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined);
+  const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT) : NOOP_ACTIVITY_RECORDER;
+  registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);
   registerKeBuildRoutes(app, env, database);
-  registerKeRoutes(app, env, database);
+  registerKeRoutes(app, env, database, undefined, activity);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
@@ -83,8 +89,14 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       cursorSecret: env.CURSOR_SECRET ?? '',
       rateSecret: env.GUESTBOOK_RATE_SECRET ?? '',
       auth: guestbookAuthServices(database, env),
+      activity,
     });
-    registerAdminAccountRoutes(app, createAdminService(createAdminRepository(database)), adminAuthServices(database, env, wakeMail));
+    registerAdminAccountRoutes(
+      app,
+      createAdminService(createAdminRepository(database)),
+      adminAuthServices(database, env, wakeMail),
+      createTransferService(createTransferRepository(database), createActivityRepository(database)),
+    );
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);
     registerHistoryRoute(app, repository, env.CURSOR_SECRET);
@@ -161,8 +173,17 @@ export default {
       if (event.cron === '* * * * *') await processSnapshotWakeup(env, createSnapshotRepository(database));
       else if (event.cron === '*/5 * * * *') {
         const now = Date.now();
-        await createSnapshotRepository(database).cleanup(now);
-        await createKeRepository(database).cleanup(now);
+        try {
+          await createSnapshotRepository(database).cleanup(now);
+          await createKeRepository(database).cleanup(now);
+        } finally {
+          // 操作日志的 180 天清理独立执行：前面的清理失败不能让它永远跑不到；它自身失败只记录，不影响任务结果。
+          try {
+            await createActivityRepository(database).cleanup(now - ACTIVITY_RETENTION_MS, 1000);
+          } catch (error) {
+            logError('lastroweb.activity_cleanup_failed', error, mysqlErrorContext(error));
+          }
+        }
       } else await runRetention(Date.now(), {}, createMysqlRepository(database));
     } finally {
       await database.close();

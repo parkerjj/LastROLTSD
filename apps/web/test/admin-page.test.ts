@@ -250,6 +250,21 @@ describe("admin page", () => {
     expect(failing.root.querySelector("#adm-status")!.textContent).toContain("数量须为非零整数");
   });
 
+  it("角色转移区块位于审计日志之前，并通过管理员接口查询角色", async () => {
+    const m = mount({
+      user: profile(100),
+      get: (path) => (path.startsWith("/api/v1/admin/transfer/characters?account=") ? json({ user: USER, characters: [] }) : routes(path)),
+    });
+    await wait();
+    const transfer = m.root.querySelector("#adm-tr-title")!;
+    const audit = m.root.querySelector("#adm-audit-title")!;
+    expect(transfer.compareDocumentPosition(audit) & 4).toBeTruthy();
+    fill(m.root, "#adm-tr-source", "alice@example.com");
+    m.root.querySelector<HTMLButtonElement>("#adm-tr-query")!.click();
+    await wait();
+    expect(m.gets).toContain("/api/v1/admin/transfer/characters?account=alice%40example.com");
+  });
+
   it("审计日志：加载最近记录，「加载更多」带上最后一条的 id", async () => {
     const page1 = Array.from({ length: 50 }, (_, index) => ({ id: 100 - index, actor_user_id: 1, action: "ENTITLEMENT_ADJUST", target_user_id: 2, detail: { delta: 1 }, request_id: "r", created_at: NOW }));
     const m = mount({

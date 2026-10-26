@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApi, AuthApiError } from '../src/auth/api';
+import { resetDeviceIdentityForTests } from '../src/device-identity';
 import type { AccountProfile, AuthSessionResponse } from '../src/auth/types';
 
 const user: AccountProfile = {
@@ -30,6 +31,8 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('AuthApi', () => {
+  beforeEach(() => resetDeviceIdentityForTests());
+
   it('uses the global receiver for its default fetch transport', async () => {
     const originalFetch = globalThis.fetch;
     const receivers: unknown[] = [];
@@ -123,5 +126,30 @@ describe('AuthApi', () => {
     expect(profileWrites).toBe(1);
     expect(logoutResponse?.json).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === 'same-origin')).toBe(true);
+  });
+
+  it('write requests carry device headers', async () => {
+    const calls: Array<{ path: string; headers: Headers }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const path = String(input);
+      calls.push({ path, headers: new Headers(init.headers) });
+      if (path === '/api/v1/auth/csrf') return jsonResponse({ csrf_token: 'anonymous-token' });
+      if (path === '/api/v1/auth/login') return jsonResponse(session);
+      return jsonResponse({ ok: true });
+    });
+    const api = new AuthApi(fetchMock as unknown as typeof fetch);
+
+    await api.getCsrf();
+    await api.login({ email: user.email, password: 'secret' });
+    await api.sessionRequest('/api/v1/guestbook', 'POST', { content: 'hi' });
+
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const guestbook = calls.find((call) => call.path === '/api/v1/guestbook')!;
+    expect(guestbook.headers.get('x-ltsd-device')).toMatch(uuid);
+    expect(guestbook.headers.get('x-ltsd-fp')).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls.find((call) => call.path === '/api/v1/auth/login')!.headers.get('x-ltsd-device')).toMatch(uuid);
+    const csrf = calls.find((call) => call.path === '/api/v1/auth/csrf')!;
+    expect(csrf.headers.has('x-ltsd-device')).toBe(false);
+    expect(csrf.headers.has('x-ltsd-fp')).toBe(false);
   });
 });

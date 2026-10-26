@@ -69,7 +69,8 @@ describe('account registration', () => {
       email: 'pilot@example.test', password: '12345', password_confirmation: '12345',
       display_name: 'Pilot', avatar_base64: avatarBase64, requestId: 'avatar-registration-request',
     })).resolves.toEqual({
-      accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
+      response: { accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null } },
+      userId: '10000',
     });
 
     expect(storedAvatar).toEqual({ userId: '10000', base64: avatarBase64 });

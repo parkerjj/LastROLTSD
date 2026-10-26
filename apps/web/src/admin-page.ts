@@ -5,6 +5,7 @@
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi, type AuthApiClient } from "./auth/api";
 import { authStore, type AuthStore } from "./auth/store";
+import { mountAdminTransfer, transferSectionMarkup } from "./admin-transfer";
 
 const ADMIN_LEVEL = 100;
 const AUDIT_PAGE_SIZE = 50;
@@ -182,6 +183,9 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
         <p class="adm-hint">修改后该账号的所有登录会话与 KoreEngine 授权立即失效，并会给用户发一封「密码已变更」通知邮件。管理员账号不能被强制改密。</p>
       </section>
 
+      <div id="adm-transfer">${transferSectionMarkup()}
+      </div>
+
       <section class="adm-card" aria-labelledby="adm-audit-title">
         <div class="adm-head">
           <h2 id="adm-audit-title">审计日志</h2>
@@ -225,11 +229,27 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
     .adm-btn-ghost { color: var(--ink); background: #f7f3ea; border: 1px solid #aa9d88; }
     .adm-btn-danger { color: var(--red-dark); background: #fdf6f3; border: 1px solid #d8b3a9; }
     .adm-btn:disabled { opacity: .55; cursor: not-allowed; }
+    .adm-card select[hidden], .adm-tr-report[hidden] { display: none; }
+    .adm-tr-select { margin-top: 10px; min-height: 40px; max-width: 100%; padding: 6px 12px; border-radius: 8px; }
+    .adm-tr-verdict { margin: 14px 0 6px; padding: 10px 14px; background: #fffdf8; border: 1px solid var(--line); border-left: 4px solid var(--red-dark); border-radius: 8px; color: var(--forest); font-size: .9rem; font-weight: 800; }
+    .adm-tr-muted { color: var(--muted); font-weight: 400; }
+    .adm-tr-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 20px; }
+    .adm-tr-evidence, .adm-tr-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: .8rem; line-height: 1.6; overflow-wrap: anywhere; }
+    .adm-tr-evidence li { display: flex; gap: 8px; align-items: baseline; padding: 6px 10px; background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; }
+    .adm-tr-points { margin-left: auto; font-weight: 800; white-space: nowrap; }
+    .adm-tr-notes { margin-top: 10px; color: var(--muted); }
+    .adm-tr-mark { padding: 0; color: var(--red-dark); background: none; border: 0; font-size: .9rem; font-weight: 800; }
+    button.adm-tr-mark { cursor: pointer; }
+    .adm-tr-hl { background: #f6e9c8; }
+    .adm-tr-toggle { display: inline-flex; gap: 6px; align-items: center; font-size: .78rem; }
+    .adm-tr-confirm { margin-top: 14px; }
+    .adm-tr-confirm input { min-width: min(100%, 360px); }
   </style>`;
 
   mountSiteNav(root);
 
   const q = <T extends HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
+  mountAdminTransfer(q<HTMLElement>("#adm-transfer"), { get: adminGet, auth });
   const status = q<HTMLElement>("#adm-status");
   const gate = q<HTMLElement>("#adm-gate");
   const main = q<HTMLElement>("#adm-main");

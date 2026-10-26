@@ -15,7 +15,7 @@ import {
 } from "./legal-constants";
 import { injectLegalLinksIntoFooters, renderSiteFooter } from "./footer-links";
 
-const LEGAL_UPDATED_DATE = "2026-10-23";
+const LEGAL_UPDATED_DATE = "2026-10-26";
 
 interface LegalPageConfig {
   readonly pageTitle: string;

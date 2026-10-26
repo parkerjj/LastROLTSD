@@ -1,5 +1,6 @@
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resetDeviceIdentityForTests } from "../src/device-identity";
 import { mountKeDevicePage } from "../src/ke-device-page";
 
 const MALICIOUS_LABEL = '<img src=x onerror="window.__ke_xss = 1">';
@@ -18,7 +19,7 @@ const wait = (ms = 25) => new Promise<void>((resolve) => setTimeout(resolve, ms)
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const apiError = (code: string, message: string, status: number) => json({ error: { code, message, request_id: "r" } }, status);
 
-interface Call { method: string; path: string; body: unknown }
+interface Call { method: string; path: string; body: unknown; headers: Headers }
 
 function mount(options: { url: string; store: object; routes?: (call: Call) => Response | undefined }) {
   const dom = new JSDOM('<main id="app"></main>', { url: options.url });
@@ -27,7 +28,7 @@ function mount(options: { url: string; store: object; routes?: (call: Call) => R
   vi.stubGlobal("window", dom.window);
   const calls: Call[] = [];
   vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
-    const call: Call = { method: init.method ?? "GET", path, body: typeof init.body === "string" ? JSON.parse(init.body) : undefined };
+    const call: Call = { method: init.method ?? "GET", path, body: typeof init.body === "string" ? JSON.parse(init.body) : undefined, headers: new Headers(init.headers) };
     calls.push(call);
     return options.routes?.(call) ?? apiError("AUTH_UNAUTHENTICATED", "请先登录", 401);
   }));
@@ -41,6 +42,7 @@ const keCalls = (calls: Call[]) => calls.filter((call) => call.path.startsWith("
 describe("ke device page", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    resetDeviceIdentityForTests();
   });
 
   it("未登录：只显示登录入口，不请求任何 KE 接口", async () => {
@@ -84,6 +86,25 @@ describe("ke device page", () => {
     expect(root.querySelector("#kd-result-text")!.textContent).toContain("已授权");
     expect(root.querySelector<HTMLElement>("#kd-return")!.hidden).toBe(false);
     expect(root.querySelector<HTMLAnchorElement>("#kd-return")!.getAttribute("href")).toBe("web+lastro://launch");
+  });
+
+  it("批准设备：决定请求带 x-ltsd-device 头，且保留 content-type", async () => {
+    const { root, calls } = mount({
+      url: "http://localhost/ke/device?code=BCDFGHJK",
+      store: activeStore,
+      routes: (call) => {
+        if (call.path.startsWith("/api/v1/ke/device/lookup")) return json({ user_code: "BCDF-GHJK", label: "RoBrowser KE", created_at: 1, expires_at: 2 });
+        if (call.path === "/api/v1/ke/tokens") return json({ tokens: [] });
+        if (call.path === "/api/v1/ke/device/decision") return new Response(null, { status: 204 });
+        return undefined;
+      },
+    });
+    await wait();
+    root.querySelector<HTMLButtonElement>("#kd-allow")!.click();
+    await wait(100);
+    const decision = calls.find((call) => call.path === "/api/v1/ke/device/decision")!;
+    expect(decision.headers.get("x-ltsd-device")).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(decision.headers.get("content-type")).toBe("application/json");
   });
 
   it("拒绝：提交 approve=false，且不显示「返回 KoreEngine」", async () => {

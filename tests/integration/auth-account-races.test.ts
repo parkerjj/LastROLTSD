@@ -273,10 +273,12 @@ describe('deterministic real MySQL account races', () => {
         if (result.status === 'rejected') throw result.reason;
         return result.value;
       });
-      expect(acceptedResults[0]).toEqual(acceptedResults[1]);
-      expect(acceptedResults[0]).toMatchObject({
+      expect(acceptedResults[0]?.response).toEqual(acceptedResults[1]?.response);
+      expect(acceptedResults[0]?.response).toMatchObject({
         accepted: true, mail_availability: { code: 'AVAILABLE', retry_at: null },
       });
+      // 只有真正建号的一方带回 userId，输掉竞争的一方为 null
+      expect(acceptedResults.filter((result) => result.userId !== null)).toHaveLength(1);
 
       const created = await database.first<{ id: unknown; status: unknown }>(`SELECT CAST(id AS CHAR) AS id, status
         FROM auth_users WHERE email_normalized = ?`, ['race@example.test']);

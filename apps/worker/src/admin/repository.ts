@@ -11,7 +11,7 @@ import type {
   GuestbookReplyRow,
 } from './types';
 
-const USER_COLUMNS = 'id, email, display_name, status, permission_level, email_verified_at, created_at';
+export const USER_COLUMNS = 'id, email, display_name, status, permission_level, email_verified_at, created_at';
 const ENTITLEMENT_COLUMNS = 'id, user_id, resource, quantity, starts_at, expires_at, source, source_ref, actor_user_id, note, revoked_at, created_at';
 
 function asNumber(value: unknown): number {
@@ -26,7 +26,7 @@ function asNullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-function readUser(row: MysqlRow): AdminUserRow {
+export function readUser(row: MysqlRow): AdminUserRow {
   return {
     id: asNumber(row.id),
     email: String(row.email),

@@ -699,4 +699,39 @@ describe('ke service', () => {
       })).rejects.toMatchObject({ code: 'KE_UNAVAILABLE', status: 503 });
     });
   });
+
+  describe('start 的角色归属检查', () => {
+    const startInput = (instanceId: string) => ({ ...bindInput(instanceId), kickInstanceId: null });
+    const characterKey = `${report().aid}:${report().cid}:${report().nid}`;
+
+    it('start rejects a character now owned by another account', async () => {
+      const { repository, service, now } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', startInput(INST_A));
+      await service.stop('10000', INST_A);
+      const boundAt = now();
+      Object.assign(repository.characters.get(characterKey)!, { user_id: 10001, bound_at: boundAt });
+      const failure = await service.start('10000', startInput(INST_A)).catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: 'KE_CHARACTER_BOUND', status: 409, publicMessage: '该角色 30 天内已被其他账号绑定', details: { bound_at: boundAt } });
+      expect(repository.instances.get(INST_A)?.state).toBe('STOPPED');
+    });
+
+    it('start still works for an ownerless character', async () => {
+      const { repository, service } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      Object.assign(repository.characters.get(characterKey)!, { user_id: null });
+      const started = await service.start('10000', startInput(INST_A));
+      expect(typeof started.license).toBe('string');
+    });
+
+    it('heartbeat is not blocked by the ownership check', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', startInput(INST_A));
+      advance(60_000);
+      Object.assign(repository.characters.get(characterKey)!, { user_id: 10001, bound_at: now() });
+      const renewed = await service.heartbeat('10000', INST_A, report(), Math.floor(now() / 1000), noAttestation());
+      expect(typeof renewed.license).toBe('string');
+    });
+  });
 });

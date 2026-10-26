@@ -143,6 +143,34 @@ describe('Worker MySQL connection ownership', () => {
     expect(pools[0]?.closed).toBe(true);
   });
 
+  function trackSql(failWhen: (sql: string) => boolean) {
+    const statements: string[] = [];
+    vi.spyOn(mysql, 'createPool').mockImplementation(() => ({
+      on: vi.fn(),
+      async execute(sql: string) {
+        statements.push(sql);
+        if (failWhen(sql)) throw new Error('database unavailable');
+        return [sql.startsWith('SELECT') ? [] : { affectedRows: 0, insertId: 0 }, []];
+      },
+      async end() {},
+    }) as unknown as mysql.Pool);
+    return statements;
+  }
+
+  it('still prunes the activity log when the earlier five-minute cleanups fail', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const statements = trackSql((sql) => !sql.includes('account_activity_log'));
+    await expect(worker.scheduled({ cron: '*/5 * * * *' } as ScheduledEvent, bindings)).rejects.toThrow();
+    expect(statements.some((sql) => sql.includes('DELETE FROM account_activity_log'))).toBe(true);
+  });
+
+  it('logs instead of failing the job when only the activity cleanup fails', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    trackSql((sql) => sql.includes('account_activity_log'));
+    await worker.scheduled({ cron: '*/5 * * * *' } as ScheduledEvent, bindings);
+    expect(errors).toHaveBeenCalled();
+  });
+
   it('leaves an injected database under its caller ownership', async () => {
     const close = vi.fn();
     const database = { healthcheck: async () => undefined, close } as unknown as MysqlDatabase;
