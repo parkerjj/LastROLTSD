@@ -53,6 +53,12 @@ describe('buildBackfillSql', () => {
     expect(sql.match(/INSERT INTO account_activity_log/gu)).toHaveLength(2);
   });
 
+  it('以固定字符集与去掉 NO_BACKSLASH_ESCAPES 的 sql_mode 开头', () => {
+    const sql = buildBackfillSql([instance], noLookups);
+    expect(sql.startsWith("SET NAMES utf8mb4;\nSET SESSION sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_BACKSLASH_ESCAPES', '');\n")).toBe(true);
+    expect(buildBackfillSql([], noLookups)).toContain('SET NAMES utf8mb4;');
+  });
+
   it('转义单引号，并按 as_org 判定 is_hosting', () => {
     const sql = buildBackfillSql([instance], {
       city: () => null,

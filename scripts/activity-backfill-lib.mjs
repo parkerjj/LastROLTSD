@@ -32,10 +32,14 @@ export async function reverseIpv4HashesParallel(targetHexes, threads = available
   const found = new Map();
   if (targets.length === 0) return found;
   let nextOctet = 0;
+  const workers = new Set();
   const run = () => new Promise((resolve, reject) => {
     const worker = new Worker(new URL(import.meta.url), { workerData: { targets } });
+    workers.add(worker);
+    let finished = false;
     const dispatch = () => {
       if (nextOctet > 255) {
+        finished = true;
         void worker.terminate();
         resolve();
         return;
@@ -48,9 +52,18 @@ export async function reverseIpv4HashesParallel(targetHexes, threads = available
       dispatch();
     });
     worker.on('error', reject);
+    // worker 没有 error 事件就退出（被杀、process.exit 等）时也要失败，否则 Promise 会一直挂起。
+    worker.on('exit', (code) => {
+      if (!finished) reject(new Error(`IPv4 还原线程异常退出（退出码 ${code}）`));
+    });
     dispatch();
   });
-  await Promise.all(Array.from({ length: Math.max(1, threads) }, run));
+  try {
+    await Promise.all(Array.from({ length: Math.max(1, threads) }, run));
+  } finally {
+    // 任一线程失败时，其余线程不再有意义，立即终止，避免继续占用 CPU。
+    await Promise.all([...workers].map((worker) => worker.terminate()));
+  }
   return found;
 }
 
@@ -83,6 +96,9 @@ function coordinate(value) {
 }
 
 const COLUMNS = 'user_id, event, result, ip, ip_net, country, region, city, latitude, longitude, asn, as_org, is_hosting, aid, cid, nid, ref, source, created_at';
+
+// 补数 SQL 经 mysql 命令行执行：固定字符集，并去掉 NO_BACKSLASH_ESCAPES，否则 text() 里加倍的反斜杠会被原样写入。
+const PREAMBLE = "SET NAMES utf8mb4;\nSET SESSION sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_BACKSLASH_ESCAPES', '');\n";
 
 /**
  * rows: [{ kind: 'instance'|'token', key, user_id, aid, cid, nid, ip, created_at }]
@@ -119,5 +135,5 @@ export function buildBackfillSql(rows, lookups) {
     ];
     return `INSERT INTO account_activity_log (${COLUMNS})\nSELECT ${values.join(', ')} FROM DUAL\nWHERE NOT EXISTS (SELECT 1 FROM account_activity_log WHERE ref = ${text(ref, 80)} AND source = 'backfill');`;
   });
-  return `${statements.join('\n')}\n`;
+  return `${PREAMBLE}${statements.join('\n')}\n`;
 }
