@@ -409,6 +409,18 @@ interface WorldmapData {
   layers: WorldmapLayer[];
 }
 
+// —— 地图预设（/ke/map-mobs.json，由 scripts/build-ke-map-mobs.mjs 从进阶客户端提取） ——
+
+/** 单张地图的预设数据：mobs=该图全部怪物 ID，drops=所有怪物常规掉落物 ID 并集（不含 MVP 奖励）。 */
+interface MapMobsEntry {
+  mobs: number[];
+  drops: number[];
+}
+
+interface MapMobsData {
+  maps: Record<string, MapMobsEntry>;
+}
+
 export async function keFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -852,6 +864,22 @@ export function mountKePage(root: HTMLElement): void {
     .ke-wmap-foot p { margin: 0; }
     .ke-wmap-status strong { color: var(--forest); }
     .ke-wmap-retry { margin: 0 auto 20px; display: block; }
+
+    /* 选图后的「添加地图预设」询问浮层（怪物 → 怪物规则，掉落物 → 拾取/物品规则） */
+    .ke-preset-overlay { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
+    .ke-preset-dialog { display: grid; gap: 10px; width: min(520px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
+    .ke-preset-title { margin: 0; color: var(--forest); font-size: .95rem; font-weight: 800; text-align: center; }
+    .ke-preset-body { margin: 0; color: #4c5a50; font-size: .82rem; line-height: 1.7; }
+    .ke-preset-body strong { color: var(--forest); }
+    .ke-preset-mobs { display: flex; flex-wrap: wrap; gap: 4px; max-height: 108px; overflow-y: auto; padding: 6px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); }
+    .ke-preset-mob { padding: 1px 8px; border-radius: 999px; background: #e9e2d0; color: #4c5a50; font-size: .74rem; line-height: 1.7; white-space: nowrap; }
+    .ke-preset-mob.ke-preset-more { background: transparent; color: var(--muted); }
+    .ke-preset-actions { display: flex; justify-content: center; gap: 10px; margin-top: 4px; }
+    .ke-preset-actions button { min-height: 36px; padding: 6px 18px; border-radius: 8px; font-size: .82rem; font-weight: 700; cursor: pointer; }
+    .ke-preset-yes { border: 1px solid var(--forest); background: var(--forest); color: #f7f3ea; }
+    .ke-preset-yes:hover:not(:disabled) { background: #2e4638; border-color: #2e4638; }
+    .ke-preset-no { border: 1px solid var(--line-light); background: var(--cream); color: var(--muted); }
+    .ke-preset-no:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
   </style>
   `;
 
@@ -1825,6 +1853,21 @@ export function mountKePage(root: HTMLElement): void {
     trigger: HTMLElement;
   }
 
+  // 地图预设数据缓存：页面生命周期内只拉一次；失败后清空以允许重试（仅选图后按需加载）。
+  let mapMobsCache: Promise<MapMobsData> | null = null;
+  function loadMapMobs(): Promise<MapMobsData> {
+    mapMobsCache ??= fetch("/ke/map-mobs.json", { credentials: "same-origin" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<MapMobsData>;
+      })
+      .catch((err: unknown) => {
+        mapMobsCache = null;
+        throw err;
+      });
+    return mapMobsCache;
+  }
+
   /** 打开与游戏一致的世界地图选图浮层；选中后回调 onSelect 并关闭，焦点归还原按钮。 */
   function openWorldmapPicker(opts: WorldmapPickerOptions): void {
     root.querySelector(".ke-wmap-overlay")?.remove();
@@ -2123,6 +2166,210 @@ export function mountKePage(root: HTMLElement): void {
         });
         stageWrap.append(message, retry);
       });
+  }
+
+  // —— 选图后的「添加地图预设」询问浮层 ——
+
+  /** 各规则文件的兜底行名称：自动添加的预设行插到它们之前，保证兜底行永远在文件末尾。 */
+  const PRESET_FALLBACK_NAMES: Record<string, readonly string[]> = {
+    "mon_control.txt": ["all_miniboss", "all_mvp", "all"],
+    "pickupitems.txt": ["all"],
+    "items_control.txt": ["all"],
+  };
+
+  /**
+   * 最近一次应用过预设的地图。换图时据此清空上一张地图留下的规则行，
+   * 保证规则表只反映当前挂机地图（换角色/换方案时重置）。
+   */
+  let appliedMapPreset: { code: string; entry: MapMobsEntry } | null = null;
+
+  /**
+   * 把预设行并入规则文件：跳过已存在的同名行（不覆盖用户已配的值），
+   * 新行插入到兜底行（all / all_mvp / all_miniboss）之前。返回实际新增条数。
+   */
+  function insertPresetRows(file: string, newRows: ControlRow[]): number {
+    const rows = (controlDoc[file] ??= []);
+    const present = new Set(rows.map((row) => row.name));
+    const fresh = newRows.filter((row) => !present.has(row.name));
+    if (fresh.length === 0) return 0;
+    const fallback = new Set(PRESET_FALLBACK_NAMES[file] ?? []);
+    const boundary = rows.findIndex((row) => fallback.has(row.name));
+    if (boundary < 0) rows.push(...fresh);
+    else rows.splice(boundary, 0, ...fresh);
+    return fresh.length;
+  }
+
+  /** 移除规则文件中名字在 names 里的行。返回移除条数。 */
+  function removePresetRows(file: string, names: ReadonlySet<string>): number {
+    if (names.size === 0) return 0;
+    const rows = controlDoc[file];
+    if (!rows) return 0;
+    const kept = rows.filter((row) => !names.has(row.name));
+    if (kept.length === rows.length) return 0;
+    controlDoc[file] = kept;
+    return rows.length - kept.length;
+  }
+
+  /**
+   * 清空上一张地图预设写入、且新地图用不到的规则行（两张地图共有的行保留，
+   * 避免动到用户已改的值）。nextMobs / nextItems 为新地图的怪物/掉落物 ID 集合；
+   * 新地图无数据时传空集即全部清空。返回移除总数，调用方负责更新 appliedMapPreset。
+   */
+  function clearStalePresetRows(nextMobs: ReadonlySet<string>, nextItems: ReadonlySet<string>): number {
+    if (!appliedMapPreset) return 0;
+    const previous = appliedMapPreset.entry;
+    let removed = removePresetRows(
+      "mon_control.txt",
+      new Set(previous.mobs.map(String).filter((name) => !nextMobs.has(name))),
+    );
+    const staleItems = new Set(
+      previous.drops.map(String).filter((name) => !nextItems.has(name)),
+    );
+    removed += removePresetRows("pickupitems.txt", staleItems);
+    removed += removePresetRows("items_control.txt", staleItems);
+    return removed;
+  }
+
+  /** 应用地图预设：怪物 → 怪物规则（默认自动攻击），掉落物 → 拾取物品（拾取）+ 物品规则（默认值）。 */
+  function applyMapPreset(code: string, entry: MapMobsEntry): void {
+    const monSchema = CONTROL_SCHEMAS.find((s) => s.file === "mon_control.txt")!;
+    const pickSchema = CONTROL_SCHEMAS.find((s) => s.file === "pickupitems.txt")!;
+    const itemSchema = CONTROL_SCHEMAS.find((s) => s.file === "items_control.txt")!;
+    // 换图时先清空上一张地图的预设行（仅删新图没有的，共有行原样保留）。
+    let changed = clearStalePresetRows(
+      new Set(entry.mobs.map(String)),
+      new Set(entry.drops.map(String)),
+    );
+    changed += insertPresetRows(
+      "mon_control.txt",
+      entry.mobs.map((id) => ({ ...newControlRow(monSchema), name: String(id) })),
+    );
+    const itemRows = entry.drops.map((id) => String(id));
+    changed += insertPresetRows(
+      "pickupitems.txt",
+      itemRows.map((name) => ({ ...newControlRow(pickSchema), name })),
+    );
+    changed += insertPresetRows(
+      "items_control.txt",
+      itemRows.map((name) => ({ ...newControlRow(itemSchema), name })),
+    );
+    appliedMapPreset = { code, entry };
+    if (changed > 0) {
+      markDirty();
+      refreshAll();
+    }
+  }
+
+  /**
+   * 挂机地图选定后询问是否添加地图预设：怪物 → 怪物规则，掉落物 → 拾取物品与物品规则。
+   * 换到无怪图（城镇等）时不询问，但会清空上一张地图的预设行；数据加载失败时静默跳过。
+   */
+  function askMapPreset(code: string, trigger: HTMLElement): void {
+    void loadMapMobs()
+      .then((data) => {
+        const entry = data.maps[code];
+        if (!entry || entry.mobs.length === 0) {
+          // 换到无怪图（城镇等）：没有新预设可加，上一张地图的预设行直接清空。
+          if (
+            appliedMapPreset &&
+            appliedMapPreset.code !== code &&
+            clearStalePresetRows(new Set(), new Set()) > 0
+          ) {
+            appliedMapPreset = null;
+            markDirty();
+            refreshAll();
+          }
+          return;
+        }
+        openMapPresetDialog(code, entry, trigger);
+      })
+      .catch(() => {
+        // 预设数据不可用时静默跳过：选图本身已成功，不影响手动配置。
+      });
+  }
+
+  function openMapPresetDialog(
+    code: string,
+    entry: MapMobsEntry,
+    trigger: HTMLElement,
+  ): void {
+    root.querySelector(".ke-preset-overlay")?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "ke-preset-overlay";
+    overlay.innerHTML = `
+      <section class="ke-preset-dialog" role="dialog" aria-modal="true" aria-labelledby="ke-preset-title">
+        <h2 class="ke-preset-title" id="ke-preset-title">添加地图预设</h2>
+        <p class="ke-preset-body"></p>
+        <div class="ke-preset-mobs" role="list"></div>
+        <div class="ke-preset-actions">
+          <button type="button" class="ke-preset-yes">是，添加至预设</button>
+          <button type="button" class="ke-preset-no">暂不添加</button>
+        </div>
+      </section>`;
+    root.appendChild(overlay);
+
+    const mapLabel = mapNames[code] ? `${mapNames[code]}（${code}）` : code;
+    const body = overlay.querySelector<HTMLElement>(".ke-preset-body")!;
+    body.append(
+      document.createTextNode("已选定挂机地图 "),
+      (() => {
+        const strong = document.createElement("strong");
+        strong.textContent = mapLabel;
+        return strong;
+      })(),
+      document.createTextNode(
+        `。这张地图上有 ${entry.mobs.length} 只怪物、${entry.drops.length} 件掉落物品。` +
+        "是否将它们添加至预设？怪物会加入「怪物规则」，掉落物会加入「拾取物品」与「物品规则」（默认值，可随时在规则表中调整）。",
+      ),
+    );
+    // 上一张地图的预设行会在确认后被清空，提前告知，避免规则悄悄变化。
+    if (appliedMapPreset && appliedMapPreset.code !== code) {
+      const previousCode = appliedMapPreset.code;
+      const previousLabel = mapNames[previousCode]
+        ? `${mapNames[previousCode]}（${previousCode}）`
+        : previousCode;
+      body.append(
+        document.createTextNode(`上一张地图 ${previousLabel} 自动添加的规则将被清空。`),
+      );
+    }
+
+    // 怪物名单预览：按 options.json 解析中文名，超出上限时折叠为「等 N 只」。
+    const mobsEl = overlay.querySelector<HTMLElement>(".ke-preset-mobs")!;
+    const MOB_CHIP_LIMIT = 24;
+    entry.mobs.slice(0, MOB_CHIP_LIMIT).forEach((id) => {
+      const chip = document.createElement("span");
+      chip.className = "ke-preset-mob";
+      chip.setAttribute("role", "listitem");
+      chip.textContent = options?.monsters.find((m) => m.id === id)?.name ?? String(id);
+      mobsEl.appendChild(chip);
+    });
+    if (entry.mobs.length > MOB_CHIP_LIMIT) {
+      const more = document.createElement("span");
+      more.className = "ke-preset-mob ke-preset-more";
+      more.textContent = `…等 ${entry.mobs.length} 只`;
+      mobsEl.appendChild(more);
+    }
+
+    const close = () => {
+      overlay.remove();
+      trigger.focus();
+    };
+    overlay.querySelector<HTMLButtonElement>(".ke-preset-yes")!.addEventListener("click", () => {
+      applyMapPreset(code, entry);
+      close();
+    });
+    overlay.querySelector<HTMLButtonElement>(".ke-preset-no")!.addEventListener("click", close);
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) close();
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+      }
+    });
+    overlay.querySelector<HTMLButtonElement>(".ke-preset-yes")!.focus();
   }
 
   /** 职业选择器：value 存职业英文名（OpenKore target_isJob 语义），label 显示中文 + 英文。 */
@@ -2452,10 +2699,15 @@ export function mountKePage(root: HTMLElement): void {
             title: scalar.label,
             value: configDoc.scalars[scalar.key] ?? "",
             onSelect: (code) => {
+              const previous = configDoc.scalars[scalar.key] ?? "";
               picker.setValue(code);
               configDoc.scalars[scalar.key] = code;
               markDirty();
               updatePreview();
+              // 挂机地图选定后，询问是否把该图怪物/掉落物加入预设（回城地图不询问）。
+              if (scalar.key === "lockMap" && code !== "" && code !== previous) {
+                askMapPreset(code, pickBtn);
+              }
             },
             trigger: pickBtn,
           });
@@ -3605,6 +3857,7 @@ export function mountKePage(root: HTMLElement): void {
     editingId = id;
     showAllSkills = false;
     activeTab = "route";
+    appliedMapPreset = null;
     editorTitle.textContent = id === null ? "新建方案" : "编辑方案";
     if (id === null) {
       sharingControls.reset(null);
