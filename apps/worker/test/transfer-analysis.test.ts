@@ -277,13 +277,36 @@ describe('注册链', () => {
     expect(evidence?.text).toContain('A 在 B 注册 2 小时前');
   });
 
-  it('同设备系数为 1，即使 IP 是公共 IP', () => {
+  it('同设备按设备热度折算：缺省热度 2 → 15 分，即使 IP 是公共 IP', () => {
     const r = rec('A', ip('203.0.113.9', { event: 'REGISTER', device_id: DEVICE }));
     const o = rec('B', ip('203.0.113.9', { device_id: DEVICE, created_at: T0 + HOUR }));
-    const result = run([r], [o], { heat: { ip_net: { '203.0.113.9': 9 }, device_id: { [DEVICE]: 9 } } });
+    const result = run([r], [o], { heat: { ip_net: { '203.0.113.9': 9 } } });
     expect(find(result, 'REGISTRATION_CHAIN')?.points).toBe(15);
     expect(find(result, 'REGISTRATION_CHAIN')?.text).toContain('同一设备');
     expect(find(result, 'REGISTRATION_CHAIN')?.text).not.toContain(DEVICE);
+  });
+
+  it('同设备热度 4 → round(15 / 3) = 5 分', () => {
+    const r = rec('A', { event: 'REGISTER', device_id: DEVICE });
+    const o = rec('B', { device_id: DEVICE, created_at: T0 + HOUR });
+    const result = run([r], [o], { heat: { device_id: { [DEVICE]: 4 } } });
+    expect(find(result, 'REGISTRATION_CHAIN')?.points).toBe(Math.round(15 / 3));
+  });
+
+  it('公共设备（热度 9）不为注册链加分，且仍有 COMMON_DEVICE', () => {
+    const r = rec('A', ip('203.0.113.9', { event: 'REGISTER', device_id: DEVICE }));
+    const o = rec('B', ip('203.0.113.9', { device_id: DEVICE, created_at: T0 + HOUR }));
+    const result = run([r], [o], { heat: { ip_net: { '203.0.113.9': 9 }, device_id: { [DEVICE]: 9 } } });
+    expect(find(result, 'REGISTRATION_CHAIN')).toBeUndefined();
+    expect(find(result, 'COMMON_DEVICE')).toMatchObject({ points: 0 });
+  });
+
+  it('公共设备但 IP 热度低时，注册链仍按 IP 计分', () => {
+    const r = rec('A', ip('203.0.113.9', { event: 'REGISTER', device_id: DEVICE }));
+    const o = rec('B', ip('203.0.113.9', { device_id: DEVICE, created_at: T0 + HOUR }));
+    const result = run([r], [o], { heat: { device_id: { [DEVICE]: 9 } } });
+    expect(find(result, 'REGISTRATION_CHAIN')?.points).toBe(15);
+    expect(find(result, 'REGISTRATION_CHAIN')?.text).toContain('同一 IP');
   });
 
   it('同 IP 按热度折算：热度 4 → round(7.5) = 8；热度 6 → 不产出', () => {

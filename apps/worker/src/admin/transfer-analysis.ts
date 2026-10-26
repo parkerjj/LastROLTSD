@@ -224,6 +224,13 @@ export function analyzeTransfer(input: AnalysisInput): TransferAnalysis {
     return hostingNets.has(net) ? base * rules.ip.hostingFactor : base;
   };
 
+  // 设备系数取自 SAME_DEVICE 的档位比例：热度 ≤ highMax → 1；≤ midMax → midPoints / highPoints；更高视为公共设备 → 0。
+  const deviceFactor = (deviceId: string): number => {
+    const heat = heatOf(input.heat.device_id, deviceId);
+    const tier = rules.device;
+    return heat <= tier.highMax ? 1 : heat <= tier.midMax ? tier.midPoints / tier.highPoints : 0;
+  };
+
   const byNetA = groupBy(a, (r) => r.ip_net);
   const byNetB = groupBy(b, (r) => r.ip_net);
   const byDeviceA = groupBy(a, (r) => r.device_id);
@@ -337,7 +344,7 @@ export function analyzeTransfer(input: AnalysisInput): TransferAnalysis {
         candidates.push({ coef: ipFactor(r.ip_net), via: 'ip', hit: nearest(otherNet.get(r.ip_net) ?? [], r.created_at, rules.registrationChain.windowMs) });
       }
       if (r.device_id !== null) {
-        candidates.push({ coef: 1, via: 'device', hit: nearest(otherDevice.get(r.device_id) ?? [], r.created_at, rules.registrationChain.windowMs) });
+        candidates.push({ coef: deviceFactor(r.device_id), via: 'device', hit: nearest(otherDevice.get(r.device_id) ?? [], r.created_at, rules.registrationChain.windowMs) });
       }
       for (const { coef, via, hit } of candidates) {
         if (!hit || coef <= 0) continue;
