@@ -157,6 +157,25 @@ try {
 
 The converter is streaming and fails instead of silently dropping unsupported SQLite statements. The importer refuses `DROP DATABASE`; replacing existing data additionally requires both `--replace-existing` and `--confirm-replace-existing`. The verifier checks all six tables, maximum IDs, required unique keys, foreign keys, nullable values, and Chinese samples. Preserve the original D1 dump outside Git for rollback and auditing.
 
+## Activity log backfill
+
+The account activity log starts empty. A one-time script can seed it from historical KoreEngine client-IP hashes: `ke_instances.ip_hash` and `ke_tokens.ip_hash` are unsalted SHA-256 digests of the client IP string, so IPv4 values can be recovered by enumerating the whole IPv4 space (several minutes on a multi-core machine). IPv6 hashes cannot be recovered and are skipped and counted. The script only runs two bounded read-only queries (`LIMIT 50000` each; it exits with an error if either hits the limit) and writes a SQL file. It never writes to the database.
+
+Download the DB-IP City Lite and ASN Lite databases (`.mmdb`, free, CC BY 4.0) into an ignored directory such as `.generated\geoip`, generate the SQL, review it, and only then execute it. Every statement is an `INSERT ... SELECT ... WHERE NOT EXISTS` keyed on `ref` plus `source = 'backfill'`, so the file can be executed repeatedly without creating duplicates.
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$localVars = Get-Content '.dev.vars' | ConvertFrom-StringData
+$env:MYSQL_URL = $localVars.MYSQL_URL
+try {
+  pnpm activity:backfill -- --city-db .generated\geoip\dbip-city-lite.mmdb --asn-db .generated\geoip\dbip-asn-lite.mmdb --out .generated\activity-backfill.sql
+} finally {
+  Remove-Item Env:MYSQL_URL -ErrorAction SilentlyContinue
+}
+```
+
+The command prints the number of rows read, IPv4 hashes recovered, hashes skipped, and statements written. Review `.generated\activity-backfill.sql` (backfilled rows carry `source = 'backfill'`, event `KE_HEARTBEAT` or `KE_DEVICE_TOKEN`, and the original timestamps), then execute it against the production database through your usual reviewed SQL channel. The generated rows are subject to the same 180-day retention as live rows, so rows older than that are removed by the next cleanup run.
+
 ## Static catalog release
 
 The catalog is a static JSON asset, not a database table. Generate the reviewed JSON files and rebuild the web assets; do not submit catalog SQL to MySQL or D1. See [catalog import](catalog-import.md).
