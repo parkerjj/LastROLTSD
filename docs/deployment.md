@@ -36,6 +36,8 @@ try {
 
 The migration runner creates `schema_migrations`, applies each `migrations/mysql/*.sql` file exactly once, and rejects a changed checksum. Its `--dry-run` performs a connection check and validates migration files without changing schema.
 
+Migration `022_account_activity_log.sql` (account activity log) must be applied before deploying a Worker that records activity; the `*/5 * * * *` cron deletes rows older than 180 days in batches of 1000.
+
 ## First source seed
 
 Create the source row only after the schema migration. The renderer writes an idempotent MySQL `ON DUPLICATE KEY UPDATE` statement containing the SHA-256 hash, not the raw upload key.

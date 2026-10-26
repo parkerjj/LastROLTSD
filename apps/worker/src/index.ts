@@ -29,6 +29,8 @@ import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
 import { registerKeBuildRoutes } from './ke/build-register-router';
+import { createActivityRepository } from './activity/repository';
+import { ACTIVITY_RETENTION_MS } from './activity/types';
 import { createKeRepository } from './ke/repository';
 import { mailRepositoryOptions, resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
@@ -163,6 +165,7 @@ export default {
         const now = Date.now();
         await createSnapshotRepository(database).cleanup(now);
         await createKeRepository(database).cleanup(now);
+        await createActivityRepository(database).cleanup(now - ACTIVITY_RETENTION_MS, 1000);
       } else await runRetention(Date.now(), {}, createMysqlRepository(database));
     } finally {
       await database.close();
