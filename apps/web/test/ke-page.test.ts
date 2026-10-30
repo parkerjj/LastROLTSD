@@ -296,7 +296,7 @@ describe("ke page", () => {
     const body = JSON.parse(put![1]!.body as string) as Record<string, string>;
     // 已有 profile（字段为 null）加载时走 ensureAllFallback：只补兜底行，不加 *卡片 预设（预设仅新建 profile）。
     expect(body.mon_control).toBe(
-      'all_miniboss 1 0 0 0 0 0 0 0 0\nall_mvp -1 1 0 0 0 0 0 0 0\nall 1 0 0 0 0 0 0 0 0',
+      'all_miniboss 0 0 0 0 0 0 0 0 0\nall_mvp 0 1 0 0 0 0 0 0 0\nall 1 0 0 0 0 0 0 0 0',
     );
     expect(body.pickupitems).toBe('all 1');
     expect(body.items_control).toBe('all 0 0 0');

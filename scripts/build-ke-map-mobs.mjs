@@ -6,10 +6,12 @@
 //   - scripts/data/ke-world-data.json：core/data/world/world-data.json，map → { mobs: 怪物ID[], name, branch, hasBoss }
 //   - scripts/data/ke-mob-drops.json：怪物掉落库，mobId → { name, lv, drops: [itemId], mvp: [itemId] }
 //
-// 输出结构：{ generatedAt, source, maps: { [mapCode]: { mobs: number[], drops: number[] } } }
+// 输出结构：{ generatedAt, source, maps: { [mapCode]: { mobs: number[], drops: number[], mvp: number[] } } }
 //   - mobs：该图全部怪物 ID（与 /ke/options.json 的 monsters[].id 对应，前端按 ID 显示中文名）
 //   - drops：该图所有怪物常规掉落物 ID 去重并集（不含 MVP 额外奖励——MVP 奖励直接进背包，
 //     不掉落在地上，不需要拾取/物品规则）。itemId 与 options.json 的 items[].id 对应。
+//   - mvp：该图里属于 MVP 的怪物 ID（掉落库 mvp 字段非空）。前端生成 mon_control 时跳过这些
+//     具名行，让 all_mvp（见到就飞）的规则生效，而不是被具名行覆盖。
 // 仅包含有怪物的地图（城镇等无怪图不在表中，前端查不到时不弹询问）。
 //
 // 用法：node scripts/build-ke-map-mobs.mjs
@@ -41,6 +43,7 @@ function main() {
     const mobs = [...new Set((Array.isArray(info.mobs) ? info.mobs : []).filter((id) => Number.isInteger(id)))];
     if (mobs.length === 0) continue;
     const drops = new Set();
+    const mvp = [];
     for (const mob of mobs) {
       const entry = mobdb[mob];
       if (!entry) {
@@ -48,8 +51,9 @@ function main() {
         continue;
       }
       for (const item of entry.drops ?? []) drops.add(item);
+      if (Array.isArray(entry.mvp) && entry.mvp.length > 0) mvp.push(mob);
     }
-    maps[code] = { mobs, drops: [...drops].sort((a, b) => a - b) };
+    maps[code] = { mobs, drops: [...drops].sort((a, b) => a - b), mvp };
   }
   if (missingMobs.size > 0) {
     fail(`world-data 中有 ${missingMobs.size} 个怪物 ID 在掉落库中找不到：${[...missingMobs].slice(0, 10).join(',')}`);

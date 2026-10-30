@@ -306,7 +306,8 @@ const ALL_FALLBACK_ROWS: Record<string, ControlRow[]> = {
     {
       name: "all_miniboss",
       values: {
-        attack_auto: "1",
+        // 0 = 只还击不主动招惹（-1 才是完全不打，1/2 会主动攻击）
+        attack_auto: "0",
         teleport_auto: "0",
         teleport_search: "0",
         skillcancel_auto: "0",
@@ -320,7 +321,7 @@ const ALL_FALLBACK_ROWS: Record<string, ControlRow[]> = {
     {
       name: "all_mvp",
       values: {
-        attack_auto: "-1",
+        attack_auto: "0",
         teleport_auto: "1",
         teleport_search: "0",
         skillcancel_auto: "0",
@@ -360,10 +361,20 @@ export function allFallbackRows(file: string): ControlRow[] {
   }));
 }
 
+/** 草类怪物：不掉落有用物品、打了只浪费 SP，默认在 mon_control 里忽略（attack_auto -1）。
+ *  地图生成具名怪行时也要跳过它们，避免被后写的 attack_auto 2 覆盖。 */
+export const GRASS_MOB_NAMES: readonly string[] = [
+  "红草", "蓝草", "绿草", "黄草", "白草", "光芒草", "白草_E", "蓝草_E",
+];
+
 /** 默认控制文件自带的实用预设行（仅新 profile，用户可修改/删除）。
  *  不存仓也不卖的特殊道具：具名道具在前，通配符在后，最后是卡片兜底——
  *  通配符多条命中时取文件里靠前的一条，所以顺序即优先级。 */
 const DEFAULT_PRESET_ROWS: Record<string, ControlRow[]> = {
+  "mon_control.txt": GRASS_MOB_NAMES.map((name) => ({
+    name,
+    values: { attack_auto: "-1" },
+  })),
   "items_control.txt": [
     {
       name: "魔法箭矢筒",

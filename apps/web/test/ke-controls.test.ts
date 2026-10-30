@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONTROL_SCHEMAS, TIMEOUT_DEFAULT_OVERRIDES, allFallbackRows, defaultControlDoc, emptyControlDoc, ensureAllFallback, newControlRow, parseControl, serializeControl, validateControlDoc } from '../src/ke-controls';
+import { CONTROL_SCHEMAS, GRASS_MOB_NAMES, TIMEOUT_DEFAULT_OVERRIDES, allFallbackRows, defaultControlDoc, emptyControlDoc, ensureAllFallback, newControlRow, parseControl, serializeControl, validateControlDoc } from '../src/ke-controls';
 
 const monControl = CONTROL_SCHEMAS.find((s) => s.file === 'mon_control.txt')!;
 const pickupitems = CONTROL_SCHEMAS.find((s) => s.file === 'pickupitems.txt')!;
@@ -51,10 +51,13 @@ describe('ke control files', () => {
     const rows = allFallbackRows('mon_control.txt');
     rows[0]!.values.attack_auto = '9';
 
-    expect(allFallbackRows('mon_control.txt')[0]!.values.attack_auto).toBe('1');
-    // defaultControlDoc 新 profile：mon_control 只有三个兜底（无预设）。
+    expect(allFallbackRows('mon_control.txt')[0]!.values.attack_auto).toBe('0');
+    // defaultControlDoc 新 profile：草类怪物默认忽略，排在三个兜底之前。
     const defaults = defaultControlDoc()['mon_control.txt']!;
-    expect(defaults.map((r) => r.name)).toEqual(['all_miniboss', 'all_mvp', 'all']);
+    expect(defaults.map((r) => r.name)).toEqual([...GRASS_MOB_NAMES, 'all_miniboss', 'all_mvp', 'all']);
+    for (const name of GRASS_MOB_NAMES) {
+      expect(defaults.find((r) => r.name === name)!.values.attack_auto).toBe('-1');
+    }
     expect(allFallbackRows('timeouts.txt')).toEqual([]);
   });
 
