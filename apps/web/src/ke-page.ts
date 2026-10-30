@@ -2,6 +2,7 @@
 // 设计要点：枚举开关用分段按钮；字段带 ? 帮助提示（hover + 键盘可达）；技能规则按类型分节、卡片可折叠；
 // 规则表行化、低频列收进「高级」；未保存更改在编辑头与右栏双处提示，切换前需确认。仅通过 /ke/my 访问，站内不挂入口。
 
+import { openWorldmapPicker } from "./ke-worldmap";
 import {
   BLOCK_DEFS,
   CONFIG_SCALARS,
@@ -380,34 +381,6 @@ const BLOCK_TAB_HINTS: Record<string, string> = {
   equip_auto:
     "满足自身/怪物条件时自动切换装备。KE 按从上到下顺序逐条检查，第一张条件满足的卡片优先执行——专用套装放上面、通用兜底放下面（卡片右上角可排序）。",
 };
-
-// —— 世界地图选图（/ke/worldmap.json，由 scripts/build-ke-worldmap.mjs 从进阶客户端提取） ——
-
-interface WorldmapPoint {
-  code: string;
-  codes?: string[];
-  row: number;
-  col: number;
-  span: number;
-  mvp?: boolean;
-  name?: string;
-  codeNames?: Record<string, string>;
-}
-
-interface WorldmapLayer {
-  id: string;
-  name: string;
-  image: string;
-  cols: number;
-  rows: number;
-  cellW: number;
-  cellH: number;
-  points: WorldmapPoint[];
-}
-
-interface WorldmapData {
-  layers: WorldmapLayer[];
-}
 
 // —— 地图预设（/ke/map-mobs.json，由 scripts/build-ke-map-mobs.mjs 从进阶客户端提取） ——
 
@@ -833,37 +806,6 @@ export function mountKePage(root: HTMLElement): void {
     .ke-mapline { display: flex; gap: 8px; align-items: stretch; }
     .ke-mapline input { flex: 1; min-width: 0; }
     .ke-mapline .ke-wmap-open { flex: none; min-height: 40px; padding: 0 14px; font-size: .78rem; white-space: nowrap; }
-
-    /* 世界地图选图浮层：层级切换 + 原图底图 + 格子热区（底图与格子布局 1:1 复刻游戏 WorldMap 组件） */
-    .ke-wmap-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
-    .ke-wmap-dialog { display: grid; gap: 10px; width: min(960px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
-    .ke-wmap-head { position: relative; display: flex; align-items: center; justify-content: center; min-height: 30px; }
-    .ke-wmap-title { margin: 0; color: var(--forest); font-size: 1rem; font-weight: 800; text-align: center; }
-    .ke-wmap-close { position: absolute; top: 50%; right: 0; transform: translateY(-50%); min-height: 0; padding: 0; width: 30px; height: 30px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); color: var(--muted); font-size: .95rem; line-height: 1; cursor: pointer; }
-    .ke-wmap-close:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
-    .ke-wmap-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-    .ke-wmap-tab { min-height: 32px; padding: 4px 12px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); color: #4c5a50; font-size: .78rem; font-weight: 700; cursor: pointer; }
-    .ke-wmap-tab:hover:not(:disabled) { color: var(--forest); background: #f7f3ea; border-color: var(--forest); }
-    .ke-wmap-tab.active { color: #f7f3ea; background: var(--forest); border-color: var(--forest); }
-    .ke-wmap-message { margin: 26px 0; text-align: center; color: var(--muted); font-size: .82rem; }
-    /* 外框尺寸跨层固定（取所有层网格的最大宽/高），内层地图保持自身宽高比居中留边，保证切换层级时浮层大小不变 */
-    .ke-wmap-stage-frame { position: relative; width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #223034; }
-    .ke-wmap-stage { position: absolute; overflow: hidden; border-radius: 8px; }
-    .ke-wmap-stage > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .ke-wmap-cell { position: absolute; min-height: 0; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 2px; cursor: pointer; }
-    .ke-wmap-cell-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
-    .ke-wmap-cell:hover:not(:disabled), .ke-wmap-cell:focus-visible { background: transparent; border-color: transparent; outline: 2px solid #ffe9a8; outline-offset: -1px; box-shadow: 0 0 8px rgba(255,233,168,.95); z-index: 2; }
-    .ke-wmap-cell.active { outline: 2px solid #7be39a; outline-offset: -1px; box-shadow: 0 0 8px rgba(123,227,154,.95); z-index: 2; }
-    .ke-wmap-mvp { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--red-dark); box-shadow: 0 0 0 1px rgba(247,243,234,.85); pointer-events: none; }
-    .ke-wmap-tip { position: fixed; z-index: 60; pointer-events: none; padding: 3px 8px; background: rgba(24,32,28,.92); color: #f7f3ea; border-radius: 6px; font-size: .76rem; line-height: 1.4; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
-    .ke-wmap-menu { position: fixed; z-index: 70; display: grid; gap: 2px; min-width: 150px; max-height: min(320px, calc(100vh - 16px)); overflow-y: auto; padding: 6px; background: #f7f3ea; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 26px rgba(80,62,38,.22); }
-    .ke-wmap-menu button { display: flex; align-items: center; min-height: 30px; padding: 3px 10px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--forest); font-size: .76rem; cursor: pointer; white-space: nowrap; }
-    .ke-wmap-menu button:hover:not(:disabled) { color: #f7f3ea; background: var(--forest); border-color: var(--forest); }
-    .ke-wmap-menu-img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; margin-right: 6px; flex: none; }
-    .ke-wmap-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--muted); font-size: .76rem; }
-    .ke-wmap-foot p { margin: 0; }
-    .ke-wmap-status strong { color: var(--forest); }
-    .ke-wmap-retry { margin: 0 auto 20px; display: block; }
 
     /* 选图后的「添加地图预设」询问浮层（怪物 → 怪物规则，掉落物 → 拾取/物品规则） */
     .ke-preset-overlay { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
@@ -1829,31 +1771,7 @@ export function mountKePage(root: HTMLElement): void {
     return (options?.maps ?? []).map((m) => ({ label: m.code, value: m.code }));
   }
 
-  // —— 世界地图选图浮层 ——
-
-  // 缓存挂在 mount 闭包上：页面生命周期内只拉一次；失败后清空以允许重试。
-  let worldmapCache: Promise<WorldmapData> | null = null;
-  function loadWorldmap(): Promise<WorldmapData> {
-    worldmapCache ??= fetch("/ke/worldmap.json", { credentials: "same-origin" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<WorldmapData>;
-      })
-      .catch((err: unknown) => {
-        worldmapCache = null;
-        throw err;
-      });
-    return worldmapCache;
-  }
-
-  interface WorldmapPickerOptions {
-    title: string;
-    value: string;
-    onSelect: (code: string) => void;
-    trigger: HTMLElement;
-  }
-
-  // 地图预设数据缓存：页面生命周期内只拉一次；失败后清空以允许重试（仅选图后按需加载）。
+  // —— 地图预设数据（选图后按需加载） ——
   let mapMobsCache: Promise<MapMobsData> | null = null;
   function loadMapMobs(): Promise<MapMobsData> {
     mapMobsCache ??= fetch("/ke/map-mobs.json", { credentials: "same-origin" })
@@ -1866,306 +1784,6 @@ export function mountKePage(root: HTMLElement): void {
         throw err;
       });
     return mapMobsCache;
-  }
-
-  /** 打开与游戏一致的世界地图选图浮层；选中后回调 onSelect 并关闭，焦点归还原按钮。 */
-  function openWorldmapPicker(opts: WorldmapPickerOptions): void {
-    root.querySelector(".ke-wmap-overlay")?.remove();
-
-    const overlay = document.createElement("div");
-    overlay.className = "ke-wmap-overlay";
-    overlay.innerHTML = `
-      <section class="ke-wmap-dialog" role="dialog" aria-modal="true" aria-labelledby="ke-wmap-title">
-        <div class="ke-wmap-head">
-          <h2 class="ke-wmap-title" id="ke-wmap-title"></h2>
-          <button type="button" class="ke-wmap-close" aria-label="关闭">×</button>
-        </div>
-        <div class="ke-wmap-tabs" role="tablist"></div>
-        <div class="ke-wmap-stage-wrap">
-          <p class="ke-wmap-message">地图加载中…</p>
-        </div>
-        <div class="ke-wmap-foot">
-          <p class="ke-wmap-status">将鼠标移到地图格子上查看地图名称。</p>
-          <p class="ke-wmap-hint" id="ke-wmap-hint">点击格子选图；带关联地图的格子（如红点 MVP 格）会弹出二级列表。也可直接在输入框填写地图代码。</p>
-        </div>
-      </section>`;
-    overlay.querySelector<HTMLElement>(".ke-wmap-title")!.textContent = opts.title;
-    root.appendChild(overlay);
-
-    const dialog = overlay.querySelector<HTMLElement>(".ke-wmap-dialog")!;
-    dialog.setAttribute("aria-describedby", "ke-wmap-hint");
-    const tabsEl = overlay.querySelector<HTMLElement>(".ke-wmap-tabs")!;
-    const stageWrap = overlay.querySelector<HTMLElement>(".ke-wmap-stage-wrap")!;
-    const statusEl = overlay.querySelector<HTMLElement>(".ke-wmap-status")!;
-    const closeBtn = overlay.querySelector<HTMLButtonElement>(".ke-wmap-close")!;
-    // 悬停悬浮提示（中文名+代码，跟随光标，与游戏一致）
-    const tipEl = document.createElement("div");
-    tipEl.className = "ke-wmap-tip";
-    tipEl.hidden = true;
-    overlay.appendChild(tipEl);
-
-    const close = () => {
-      disposeMenu?.();
-      disposeMenu = null;
-      overlay.remove();
-      opts.trigger.focus();
-    };
-    closeBtn.addEventListener("click", close);
-    overlay.addEventListener("mousedown", (event) => {
-      if (event.target === overlay) close();
-    });
-    overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-      }
-    });
-
-    const pointLabel = (point: WorldmapPoint): string => {
-      const name = point.name ?? point.code;
-      if (point.codes && point.codes.length > 1) {
-        return `${name}（${point.code}，一格 ${point.codes.length} 张图）`;
-      }
-      return `${name}（${point.code}）`;
-    };
-
-    let disposeMenu: (() => void) | null = null; // 二级列表的监听清理器
-
-    const renderLayer = (data: WorldmapData, layerId: string) => {
-      disposeMenu?.();
-      disposeMenu = null;
-      const layer = data.layers.find((l) => l.id === layerId) ?? data.layers[0]!;
-      tabsEl.querySelectorAll<HTMLButtonElement>(".ke-wmap-tab").forEach((tab) => {
-        tab.classList.toggle("active", tab.dataset.layer === layer.id);
-      });
-      stageWrap.innerHTML = "";
-      // 外框跨层取最大网格宽/高，切换层级时浮层尺寸不变；内层按自身宽高比缩放居中。
-      const maxGridW = Math.max(...data.layers.map((l) => l.cols * l.cellW));
-      const maxGridH = Math.max(...data.layers.map((l) => l.rows * l.cellH));
-      const gridW = layer.cols * layer.cellW;
-      const gridH = layer.rows * layer.cellH;
-      const frame = document.createElement("div");
-      frame.className = "ke-wmap-stage-frame";
-      frame.style.aspectRatio = `${maxGridW} / ${maxGridH}`;
-      const stage = document.createElement("div");
-      stage.className = "ke-wmap-stage";
-      stage.style.aspectRatio = `${gridW} / ${gridH}`;
-      if (gridW / gridH >= maxGridW / maxGridH) {
-        stage.style.width = "100%";
-        stage.style.left = "0";
-        stage.style.top = "50%";
-        stage.style.transform = "translateY(-50%)";
-      } else {
-        stage.style.height = "100%";
-        stage.style.left = "50%";
-        stage.style.top = "0";
-        stage.style.transform = "translateX(-50%)";
-      }
-      const img = document.createElement("img");
-      img.src = layer.image;
-      img.alt = "";
-      stage.appendChild(img);
-      for (const point of layer.points) {
-        const cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "ke-wmap-cell";
-        cell.dataset.code = point.code;
-        cell.style.left = `${(point.col / layer.cols) * 100}%`;
-        cell.style.top = `${(point.row / layer.rows) * 100}%`;
-        cell.style.width = `${(point.span / layer.cols) * 100}%`;
-        cell.style.height = `${(1 / layer.rows) * 100}%`;
-        cell.setAttribute("aria-label", pointLabel(point));
-        // 与游戏一致的格子小地图贴图（60x60，拉伸铺满格子）
-        const tile = document.createElement("img");
-        tile.className = "ke-wmap-cell-img";
-        tile.src = `/ke/worldmap/tiles/${encodeURIComponent(point.code)}.png`;
-        tile.alt = "";
-        tile.draggable = false;
-        cell.appendChild(tile);
-        const isCurrent =
-          opts.value !== "" &&
-          (point.code === opts.value || (point.codes ?? []).includes(opts.value));
-        if (isCurrent) cell.classList.add("active");
-        if (point.mvp) {
-          const mvp = document.createElement("i");
-          mvp.className = "ke-wmap-mvp";
-          mvp.title = "有 MVP";
-          cell.appendChild(mvp);
-        }
-        const label = () => (point.name ? `${point.name}（${point.code}）` : point.code);
-        const showStatus = () => {
-          statusEl.innerHTML = "";
-          const strong = document.createElement("strong");
-          strong.textContent = point.name ?? point.code;
-          statusEl.append(strong, document.createTextNode(` ${point.code}`));
-        };
-        // 悬停：框住格子 + 光标旁悬浮中文名（与游戏一致）
-        const showTip = (x: number, y: number) => {
-          tipEl.textContent = label();
-          tipEl.hidden = false;
-          const maxX = window.innerWidth - tipEl.offsetWidth - 8;
-          const maxY = window.innerHeight - tipEl.offsetHeight - 8;
-          tipEl.style.left = `${Math.max(4, Math.min(x + 14, maxX))}px`;
-          tipEl.style.top = `${Math.max(4, Math.min(y + 16, maxY))}px`;
-        };
-        const hideTip = () => {
-          tipEl.hidden = true;
-        };
-        cell.addEventListener("mouseenter", (e) => {
-          showStatus();
-          showTip((e as MouseEvent).clientX, (e as MouseEvent).clientY);
-        });
-        cell.addEventListener("mousemove", (e) => {
-          showTip((e as MouseEvent).clientX, (e as MouseEvent).clientY);
-        });
-        cell.addEventListener("mouseleave", hideTip);
-        cell.addEventListener("focus", () => {
-          showStatus();
-          const rect = cell.getBoundingClientRect();
-          showTip(rect.left + rect.width / 2, rect.bottom);
-        });
-        cell.addEventListener("blur", hideTip);
-        cell.addEventListener("click", () => {
-          if (point.codes && point.codes.length > 1) {
-            openMultiMenu(point, cell);
-            return;
-          }
-          opts.onSelect(point.code);
-          close();
-        });
-        stage.appendChild(cell);
-      }
-      frame.appendChild(stage);
-      stageWrap.appendChild(frame);
-    };
-
-    // 一格多图（如海龟洞 tur_dun01~04）：在格子附近弹出二级菜单选具体层。
-    // 菜单挂在浮层根节点上（position: fixed），避免被地图容器的 overflow 裁切。
-    const openMultiMenu = (point: WorldmapPoint, cell: HTMLElement) => {
-      disposeMenu?.();
-      disposeMenu = null;
-      const menu = document.createElement("div");
-      menu.className = "ke-wmap-menu";
-      menu.setAttribute("role", "menu");
-      for (const code of point.codes ?? []) {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.setAttribute("role", "menuitem");
-        const thumb = document.createElement("img");
-        thumb.className = "ke-wmap-menu-img";
-        thumb.src = `/ke/worldmap/tiles/${encodeURIComponent(code)}.png`;
-        thumb.alt = "";
-        thumb.draggable = false;
-        const text = document.createElement("span");
-        const name = point.codeNames?.[code];
-        text.textContent = name && name !== code ? `${name}（${code}）` : code;
-        item.append(thumb, text);
-        item.addEventListener("click", () => {
-          opts.onSelect(code);
-          close();
-        });
-        menu.appendChild(item);
-      }
-      // 先隐藏插入再测量尺寸，贴格子下方展开；空间不足时翻到上方，并夹在视口内。
-      menu.style.visibility = "hidden";
-      overlay.appendChild(menu);
-      const rect = cell.getBoundingClientRect();
-      const menuW = menu.offsetWidth;
-      const menuH = menu.offsetHeight;
-      const gap = 4;
-      const edge = 8;
-      let left = rect.left;
-      let top = rect.bottom + gap;
-      if (top + menuH > window.innerHeight - edge) {
-        top = Math.max(edge, rect.top - gap - menuH);
-      }
-      if (left + menuW > window.innerWidth - edge) left = window.innerWidth - edge - menuW;
-      if (left < edge) left = edge;
-      menu.style.left = `${left}px`;
-      menu.style.top = `${top}px`;
-      menu.style.visibility = "";
-      menu.querySelector<HTMLButtonElement>("button")?.focus();
-
-      // 鼠标移开格子和菜单后自动收起（保留从格子移到菜单的过渡时间）
-      let closeTimer: number | null = null;
-      const cancelClose = () => {
-        if (closeTimer !== null) {
-          window.clearTimeout(closeTimer);
-          closeTimer = null;
-        }
-      };
-      const detach = () => {
-        cancelClose();
-        cell.removeEventListener("mouseleave", onCellLeave);
-        cell.removeEventListener("mouseenter", cancelClose);
-        menu.removeEventListener("mouseenter", cancelClose);
-        menu.removeEventListener("mouseleave", scheduleClose);
-        dialog.removeEventListener("scroll", onViewportChange, true);
-        window.removeEventListener("resize", onViewportChange);
-      };
-      const closeMenu = () => {
-        detach();
-        menu.remove();
-      };
-      const scheduleClose = () => {
-        cancelClose();
-        closeTimer = window.setTimeout(() => {
-          const focusInside = menu.contains(document.activeElement);
-          closeMenu();
-          if (focusInside) cell.focus();
-        }, 160);
-      };
-      const onCellLeave = () => scheduleClose();
-      // 滚动或缩放后固定定位会与格子错位，直接收起
-      const onViewportChange = () => closeMenu();
-      cell.addEventListener("mouseleave", onCellLeave);
-      cell.addEventListener("mouseenter", cancelClose);
-      menu.addEventListener("mouseenter", cancelClose);
-      menu.addEventListener("mouseleave", scheduleClose);
-      dialog.addEventListener("scroll", onViewportChange, true);
-      window.addEventListener("resize", onViewportChange);
-      disposeMenu = closeMenu;
-    };
-
-    void loadWorldmap()
-      .then((data) => {
-        if (!overlay.isConnected || data.layers.length === 0) return;
-        tabsEl.innerHTML = "";
-        for (const layer of data.layers) {
-          const tab = document.createElement("button");
-          tab.type = "button";
-          tab.className = "ke-wmap-tab";
-          tab.dataset.layer = layer.id;
-          tab.setAttribute("role", "tab");
-          tab.textContent = layer.name;
-          tab.addEventListener("click", () => renderLayer(data, layer.id));
-          tabsEl.appendChild(tab);
-        }
-        // 默认打开当前值所在的层；无当前值时打开第一层。
-        const current = data.layers.find((layer) =>
-          layer.points.some(
-            (p) => p.code === opts.value || (p.codes ?? []).includes(opts.value),
-          ),
-        );
-        renderLayer(data, (current ?? data.layers[0]!).id);
-        closeBtn.focus();
-      })
-      .catch(() => {
-        if (!overlay.isConnected) return;
-        stageWrap.innerHTML = "";
-        const message = document.createElement("p");
-        message.className = "ke-wmap-message";
-        message.textContent = "地图数据加载失败，请检查网络后重试。仍可直接在输入框填写地图代码。";
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "ke-btn-ghost ke-wmap-retry";
-        retry.textContent = "重试";
-        retry.addEventListener("click", () => {
-          overlay.remove();
-          openWorldmapPicker(opts);
-        });
-        stageWrap.append(message, retry);
-      });
   }
 
   // —— 选图后的「添加地图预设」询问浮层 ——
@@ -2442,6 +2060,16 @@ export function mountKePage(root: HTMLElement): void {
         "<b>该角色还没有配置方案</b><span>新建一套方案，选好挂机地图和技能，就能开始自动挂机。</span>";
       const btnRow = document.createElement("div");
       btnRow.className = "ke-empty-actions";
+      const guideBtn = document.createElement("a");
+      guideBtn.className = "ke-btn-primary";
+      guideBtn.textContent = "萌新一键配置";
+      {
+        const ch = selectedCharacter();
+        const demoSuffix = demo ? `${ch ? "&" : "?"}demo=1` : "";
+        guideBtn.href = ch
+          ? `/ke/my/create/setup-guide?aid=${ch.aid}&cid=${ch.cid}&nid=${ch.nid}${demoSuffix}`
+          : `/ke/my/create/setup-guide${demoSuffix}`;
+      }
       const newBtn = document.createElement("button");
       newBtn.type = "button";
       newBtn.className = "ke-btn-primary";
@@ -2453,7 +2081,7 @@ export function mountKePage(root: HTMLElement): void {
       hallBtn.className = "ke-btn-ghost ke-empty-hall";
       hallBtn.href = "/ke/hall";
       hallBtn.textContent = "一键抄袭大佬们的方案";
-      btnRow.append(newBtn, hallBtn);
+      btnRow.append(guideBtn, newBtn, hallBtn);
       empty.appendChild(btnRow);
       profileList.appendChild(empty);
       return;
@@ -2695,7 +2323,7 @@ export function mountKePage(root: HTMLElement): void {
         pickBtn.className = "ke-btn-ghost ke-wmap-open";
         pickBtn.textContent = "选择地图";
         pickBtn.addEventListener("click", () => {
-          openWorldmapPicker({
+          openWorldmapPicker(root, {
             title: scalar.label,
             value: configDoc.scalars[scalar.key] ?? "",
             onSelect: (code) => {
