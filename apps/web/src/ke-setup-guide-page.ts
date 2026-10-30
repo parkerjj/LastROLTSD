@@ -17,6 +17,7 @@ import {
 import {
   CONTROL_SCHEMAS,
   GRASS_MOB_NAMES,
+  controlSafeName,
   defaultControlDoc,
   ensureAllFallback,
   newControlRow,
@@ -1113,7 +1114,7 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
       .filter((name) => !GRASS_MOB_NAMES.includes(name) && !mvpNames.has(name))
       .map((name) => {
         const row = newControlRow(monSchema);
-        row.name = name;
+        row.name = controlSafeName(name);
         row.values["attack_auto"] = "2";
         return row;
       });
@@ -1123,7 +1124,7 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
     const pickRows: ControlRow[] = dropNames().map((name) => {
       const rule = state.rules.get(name) ?? { pick: "yes" as PickMode, handle: "store" as HandleMode };
       const row = newControlRow(pickSchema);
-      row.name = name;
+      row.name = controlSafeName(name);
       row.values["flag"] = rule.pick === "no"
         ? "0"
         : rule.pick === "drop"
@@ -1155,22 +1156,31 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
       }
       Object.assign(row.values, patch);
     };
-    // 自用品必须显式「保留」，否则会被 all 的存仓/卖店规则处理掉。
-    for (const name of POTIONS) upsert(name, { keep: "9999", storage: "0", sell: "0" });
+    // 消耗品（药水/水果）不能写大 keep：捡多了会一直占着负重却又因「未超出 keep」不存仓，
+    // 回城存仓时反而卡住。keep 写 0，开存仓时 storage 写 1，让超出部分全部进仓库。
+    // 存仓必须同时有 storage=1（KE 只对 store 规则且超出 keep 的物品存仓），
+    // 否则具名行会盖掉 all 的存仓设置，超重问题依旧。
+    const consumableStorage = state.on.loot ? "1" : "0";
+    for (const name of POTIONS) upsert(name, { keep: "0", storage: consumableStorage, sell: "0" });
+    // 坐骑缰绳、苍蝇翅膀、箭矢属于战斗自用品，保持原有保留数量。
     upsert(MOUNT_ITEM, { keep: "9999", storage: "0", sell: "0" });
     upsert(TELEPORT_ITEM, { keep: "9999", storage: "0", sell: "0" });
     if (jobData().ranged) upsert(ARROW_ITEM, { keep: "10000", storage: "0", sell: "0" });
     for (const name of dropNames()) {
       const rule = state.rules.get(name) ?? { pick: "yes" as PickMode, handle: "store" as HandleMode };
+      const safeName = controlSafeName(name);
       if (rule.pick === "no" || rule.pick === "drop") {
-        merged.delete(name);
+        merged.delete(safeName);
         continue;
       }
-      upsert(name, rule.handle === "store"
+      const consumable = POTIONS.includes(name) || /药水/u.test(name);
+      upsert(safeName, rule.handle === "store"
         ? { keep: "0", storage: "1", sell: "0" }
         : rule.handle === "sell"
           ? { keep: "0", storage: "0", sell: "1" }
-          : { keep: "999", storage: "0", sell: "0" });
+          : consumable
+            ? { keep: "0", storage: consumableStorage, sell: "0" }
+            : { keep: "999", storage: "0", sell: "0" });
     }
     doc["items_control.txt"] = [
       ...merged.values(),

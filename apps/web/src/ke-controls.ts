@@ -433,6 +433,21 @@ export function defaultControlDoc(): ControlDoc {
   return doc;
 }
 
+/** 控制文件用空格分隔字段；物品/怪物名本身可能带空格（如「毒草 夹竹桃」），
+ *  KE 用「数值尾巴」定位名字，普通的空格名可以正常识别。但名字里若含纯数字单词
+ *  （如「晚祷钟核心 01」）或连续空格（如「雪花魔力(物理)  2Lv」），空格会被误当成列分隔符。
+ *  生成配置时把这类名字的空格逐个换成 `?` 通配符（KE 支持，`?` 恰好匹配一个字符），
+ *  即可保持整名是单个字段。 */
+export function controlSafeName(name: string): string {
+  const trimmed = name.trim();
+  if (!/\s/u.test(trimmed)) return trimmed;
+  const words = trimmed.split(/\s+/u);
+  const unsafe =
+    /\s{2,}/u.test(trimmed) ||
+    words.some((word) => /^[+-]?\d+(?:\.\d+)?$/u.test(word));
+  return unsafe ? trimmed.replace(/\s/gu, "?") : trimmed;
+}
+
 /** 序列化（空格分隔；未设置列省略，仅保留从首列到最后一个已设列）。
  * 必填列（required）即使未填也会用 defaultValue 补齐，保证行内参数数量与位置稳定，
  * 避免空段导致 KE 按空格切分时错位（如「name  1」被解析成 keep=1）。
@@ -530,6 +545,51 @@ export function validateControlDoc(doc: ControlDoc): string[] {
   return errors;
 }
 
+/** 复刻 KE 的分词规则（crates/kore-core/src/config/parser.rs）：
+ *  pickupitems / items_control 从第一个「后续全是整数」的字段切分，mon_control 从第一个
+ *  数字字段切分，这样「毒草 夹竹桃 1」的名字不会被拆开。 */
+function splitControlFields(schema: ControlSchema, line: string): string[] {
+  if (line.startsWith('"')) {
+    // KE 支持用双引号包住带空格的名字。
+    const fields: string[] = [];
+    let current = "";
+    let quoted = false;
+    for (const character of line) {
+      if (character === '"') {
+        quoted = !quoted;
+      } else if (/\s/u.test(character) && !quoted) {
+        if (current !== "") {
+          fields.push(current);
+          current = "";
+        }
+      } else {
+        current += character;
+      }
+    }
+    if (current !== "") fields.push(current);
+    return fields;
+  }
+  const words = line.split(/\s+/u).filter((word) => word !== "");
+  if (words.length < 2) return words;
+  const isInt = (word: string): boolean => /^[+-]?\d+$/u.test(word);
+  if (schema.file === "pickupitems.txt" || schema.file === "items_control.txt") {
+    for (let index = 1; index < words.length; index += 1) {
+      if (words.slice(index).every(isInt)) {
+        return [words.slice(0, index).join(" "), ...words.slice(index)];
+      }
+    }
+  } else if (schema.file === "mon_control.txt") {
+    const index = words.findIndex(
+      (word, position) =>
+        position > 0 && Number.isFinite(Number(word)),
+    );
+    if (index > 0) {
+      return [words.slice(0, index).join(" "), ...words.slice(index)];
+    }
+  }
+  return words;
+}
+
 /** 解析（按空白切分，首列为 name，后续按列顺序取值）。 */
 export function parseControl(
   schema: ControlSchema,
@@ -537,9 +597,10 @@ export function parseControl(
 ): ControlRow[] {
   const rows: ControlRow[] = [];
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    const parts = line.split(/\s+/u);
+    // KE 把 # 之后的内容都当注释。
+    const line = (raw.split("#")[0] ?? "").trim();
+    if (line === "") continue;
+    const parts = splitControlFields(schema, line);
     // 旧配置里的全角符号（如全角 ＊ / ？ 通配符）读入时归一化为半角。
     const name = normalizeFullWidth(parts[0] ?? "");
     if (name === "") continue;
