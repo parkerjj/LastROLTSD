@@ -104,11 +104,11 @@
 - `ensureCommerceCustomer(userId: string, identity: AuthSessionResponse['user'], ...): Promise<CommerceCustomer>` uses `commerce_customers` and a stable idempotency key; never searches/reuses donation customers by email.
 - `previewPromotion(input: { customerId: string; items: readonly StripePreviewItem[]; promotionCode: string }): Promise<PromotionPreview>` uses only this order's one-time CNY items.
 
-- [ ] **Step 1: 写失败测试**：REST form encoding、Authorization/API-Version headers、idempotency key、Stripe error 转固定公开错误、超时与无效 JSON；客户创建重复请求得到同一 customer；促销预览只纳入本单项目且没有订阅、税、余额抵扣。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现通用 REST adapter 与 customer/promotion service**；实现中使用隔离 test-mode 凭证，不能修改 live 对象。
-- [ ] **Step 4: 以 Stripe test mode 契约请求核验 one-time Invoice Preview 与 Checkout 可用参数、折扣限次/商品范围和金额口径；为只读/创建请求分别验证幂等行为。**
-- [ ] **Step 5: 运行目标测试并提交 `feat: add Stripe commerce adapter`**。
+- [x] **Step 1: 写失败测试**：REST form encoding、Authorization/API-Version headers、idempotency key、Stripe error 转固定公开错误、超时与无效 JSON；客户创建重复请求得到同一 customer；促销预览只纳入本单项目且没有订阅、税、余额抵扣。
+- [x] **Step 2: 运行目标测试并确认失败**。
+- [x] **Step 3: 实现通用 REST adapter 与 customer/promotion service**；adapter 通过依赖注入接收密钥、API version 和 fetch，不复用捐赠渠道配置。
+- [x] **Step 4: 核对 Stripe API Reference 的 one-time Invoice Preview、Product 关联、Promotion Code 限制及金额字段；测试 GET 不带幂等键、客户创建使用稳定幂等键。隔离 test-mode API 联调并入 Task 13：当前 Stripe connector 仅提供 `livemode=true` 的正式账号上下文，因此本任务未调用任何 live API，也未修改 Stripe 对象。**
+- [x] **Step 5: 运行目标测试并提交 `feat: add Stripe commerce adapter`**：新增目标测试 10 passed；全仓 Vitest 1257 passed / 66 skipped；TypeScript、lint、docs 58 assertions、migration 脚本及 diff 检查通过。隔离 test-mode API 联调留在 Task 13；未修改 Stripe live 对象。
 
 ### Task 5: 服务端报价与购买规则
 
