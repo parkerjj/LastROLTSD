@@ -609,6 +609,7 @@ export function mountKePage(root: HTMLElement): void {
   let previewCollapsed = false;
   let advancedEdit = false;
   let previewTyping = false;
+  let charFilter = "";
   let demoProfiles: ProfileDetail[] = [];
   const expandedBlocks = new WeakSet<BlockValue>();
 
@@ -621,39 +622,70 @@ export function mountKePage(root: HTMLElement): void {
   </header>
   <main class="page-width">
     <section class="ke-hero" aria-labelledby="ke-title">
-      <p class="eyebrow">KoreEngine · 自动挂机配置</p>
-      <h1 class="ke-title" id="ke-title">挂机配置工作台</h1>
-      <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
-      <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
-      <p class="ke-hero-sub ke-hero-links">
-        <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
-        ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
+      <div class="ke-hero-main">
+        <p class="eyebrow">KoreEngine · 自动挂机配置</p>
+        <h1 class="ke-title" id="ke-title">挂机配置<em>工作台</em></h1>
+        <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
+      </div>
+      <div class="ke-hero-side">
         <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>
-      </p>
+        <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
+        <p class="ke-hero-links">
+          <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
+          ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
+        </p>
+      </div>
     </section>
 
-    <section class="ke-char-card" id="ke-char-card" aria-label="当前角色" hidden>
-      <!-- 当前角色卡 -->
-      <div class="ke-char-current">
-        <div class="ke-char-avatar" id="ke-char-avatar">
-          <img alt="" hidden />
-          <span class="ke-char-avatar-fallback">?</span>
+    <section class="ke-command" id="ke-char-card" aria-label="当前角色" hidden>
+      <div class="ke-passport">
+        <img class="ke-passport-wm" id="ke-passport-wm" alt="" hidden />
+        <div class="ke-char-current">
+          <div class="ke-char-avatar" id="ke-char-avatar">
+            <img alt="" hidden />
+            <span class="ke-char-avatar-fallback">?</span>
+            <span class="ke-char-live" aria-hidden="true"></span>
+          </div>
+          <div class="ke-char-main">
+            <p class="ke-passport-label">当前角色 · Current</p>
+            <div class="ke-char-name"><span id="ke-char-name">—</span></div>
+            <div class="ke-char-meta" id="ke-char-meta">
+              <span class="ke-chip ke-chip--job" id="ke-char-job" hidden></span>
+            </div>
+          </div>
         </div>
-        <div class="ke-char-main">
-          <div class="ke-char-name"><span id="ke-char-name">—</span><span class="ke-chip" id="ke-char-job" hidden></span></div>
-          <div class="ke-char-meta" id="ke-char-meta"></div>
+        <div class="ke-passport-stats">
+          <div class="ke-p-stat"><b id="ke-stat-profiles">0</b><span>配置方案</span></div>
+          <div class="ke-p-stat is-hot"><b id="ke-stat-active">0</b><span>使用中</span></div>
+          <div class="ke-p-stat"><b id="ke-stat-chars">0</b><span>已绑定角色</span></div>
+        </div>
+        <div class="ke-passport-actions">
+          <button type="button" class="ke-btn-primary ke-passport-new" id="ke-passport-new">＋ 新建方案</button>
+          <a class="ke-btn-ghost ke-passport-hall" href="/ke/hall">配置大厅 →</a>
         </div>
       </div>
-      <!-- 角色切换横排卡片 strip -->
-      <div class="ke-char-strip" id="ke-char-strip" aria-label="切换角色"></div>
+      <div class="ke-roster">
+        <div class="ke-roster-head">
+          <div class="ke-roster-title">
+            <p class="eyebrow">02 · 冒险者名册</p>
+            <h2>全部角色 <span class="ke-count-pill"><i id="ke-roster-count">0</i><span id="ke-roster-total">/ 0</span></span></h2>
+          </div>
+          <label class="ke-roster-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+            <input id="ke-roster-filter" type="search" placeholder="搜索角色名 / 职业" aria-label="搜索角色" autocomplete="off" />
+          </label>
+        </div>
+        <div class="ke-char-strip" id="ke-char-strip" aria-label="切换角色"></div>
+        <p class="ke-roster-note" id="ke-roster-note"></p>
+      </div>
     </section>
 
-    <div class="section-heading" id="ke-profiles-head" hidden>
+    <div class="section-heading ke-profiles-head" id="ke-profiles-head" hidden>
       <div>
-        <p class="eyebrow">Profiles</p>
-        <h2>配置方案</h2>
+        <p class="eyebrow">03 · Profiles</p>
+        <h2>配置方案 <span class="ke-profiles-who" id="ke-profiles-who"></span></h2>
       </div>
-      <p>「使用中」的方案由 KoreEngine 客户端拉取执行；编辑已激活的方案后，需要重新激活才会生效。</p>
+      <p class="ke-profiles-hint">「使用中」的方案由 KoreEngine 客户端拉取执行；编辑已激活的方案后，需要重新激活才会生效。</p>
     </div>
     <div id="ke-profile-list" class="ke-profile-grid" hidden></div>
 
@@ -713,61 +745,113 @@ export function mountKePage(root: HTMLElement): void {
     .ke-demo-hall-link { color: var(--forest); font-size: .78rem; font-weight: 800; white-space: nowrap; }
     .ke-demo-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
 
-    .ke-hero { padding: 30px 0 4px; }
-    .ke-hero .eyebrow { color: var(--red-dark); }
-    .ke-title { margin: 8px 0 6px; color: var(--forest); font-family: Georgia, "Microsoft YaHei", serif; font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; }
-    .ke-hero-sub { max-width: 560px; margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.7; }
-    .ke-hero-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; max-width: none; }
-    .ke-status { margin: 8px 0 0; color: var(--muted); font-size: .84rem; min-height: 1.2em; }
+    .ke-hero { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 18px 28px; padding: 30px 0 22px; }
+    .ke-hero .eyebrow { margin: 0 0 9px; color: #a97b24; font-size: .66rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+    .ke-title { margin: 0; color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: clamp(1.7rem, 3vw, 2.35rem); font-weight: 600; letter-spacing: .02em; line-height: 1.25; }
+    .ke-title em { color: #b84d3f; font-style: normal; }
+    .ke-hero-sub { max-width: 560px; margin: 9px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.75; }
+    .ke-hero-side { flex: none; display: grid; gap: 7px; justify-items: end; }
+    .ke-hero-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
+    .ke-status { margin: 0; min-height: 1.2em; color: var(--muted); font-size: .76rem; text-align: right; }
 
-    .ke-char-card { display: grid; gap: 10px; margin-top: 20px; padding: 14px 18px 16px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
-    .ke-char-current { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--line-light); }
-    .ke-char-avatar { display: grid; place-items: center; width: 46px; height: 46px; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 10px; overflow: hidden; flex: none; }
-    .ke-char-avatar img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
-    .ke-char-avatar-fallback { font-family: Georgia, serif; font-weight: 900; font-size: 1.05rem; }
-    .ke-char-main { min-width: 200px; }
-    .ke-char-name { display: flex; align-items: center; gap: 9px; color: var(--forest); font-weight: 800; font-size: .95rem; }
-    .ke-char-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+    /* 当前角色 passport + 全部角色名册 */
+    .ke-command { display: grid; grid-template-columns: 332px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+    .ke-passport {
+      position: relative; overflow: hidden; display: flex; flex-direction: column;
+      padding: 22px 22px 20px; color: #f6efe2;
+      background:
+        radial-gradient(260px 200px at 105% -5%, rgba(198,148,69,.22), transparent 70%),
+        linear-gradient(155deg, #243e33 0%, #1a2e26 48%, #172a23 100%);
+      border: 1px solid rgba(198,148,69,.42); border-radius: 16px;
+      box-shadow: 0 24px 44px rgba(23,42,35,.3), inset 0 1px 0 rgba(255,248,238,.1);
+      animation: ke-rise .5s cubic-bezier(.2,.7,.2,1) backwards;
+    }
+    .ke-passport::before, .ke-passport::after { content: ""; position: absolute; width: 24px; height: 24px; border: 1px solid rgba(198,148,69,.5); pointer-events: none; }
+    .ke-passport::before { top: 8px; left: 8px; border-right: 0; border-bottom: 0; border-top-left-radius: 7px; }
+    .ke-passport::after { bottom: 8px; right: 8px; border-left: 0; border-top: 0; border-bottom-right-radius: 7px; }
+    .ke-passport-wm { position: absolute; right: -26px; bottom: -18px; width: 168px; height: auto; opacity: .07; filter: grayscale(1) brightness(2.4); pointer-events: none; user-select: none; }
+    .ke-passport-wm[hidden] { display: none; }
+    .ke-passport-label { margin: 0 0 2px; color: #d9b97f; font-size: .58rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+    .ke-char-current { display: flex; align-items: center; gap: 14px; }
+    .ke-char-avatar { position: relative; flex: none; display: grid; place-items: center; width: 66px; height: 66px; border-radius: 18px; background: rgba(255,248,238,.07); border: 1px solid rgba(198,148,69,.55); box-shadow: inset 0 0 0 4px rgba(198,148,69,.12); }
+    .ke-char-avatar::after { content: ""; position: absolute; inset: 5px; border: 1px dashed rgba(255,248,238,.16); border-radius: 13px; pointer-events: none; }
+    .ke-char-avatar img { position: relative; z-index: 1; width: 42px; height: 42px; object-fit: contain; image-rendering: pixelated; }
+    .ke-char-avatar-fallback { position: relative; z-index: 1; color: #f6efe2; font-family: Georgia, serif; font-size: 1.35rem; font-weight: 900; }
+    .ke-char-live { position: absolute; top: -2px; right: -2px; z-index: 2; width: 11px; height: 11px; background: var(--gold); border: 2px solid #1b2f27; border-radius: 50%; animation: ke-pulse 2.4s ease-in-out infinite; }
+    .ke-char-main { min-width: 0; display: grid; gap: 2px; }
+    .ke-char-name { min-width: 0; color: #fbf5e9; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.42rem; font-weight: 600; letter-spacing: .02em; line-height: 1.3; overflow-wrap: anywhere; }
+    .ke-char-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 
-    /* 角色切换横排 strip */
-    .ke-char-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
-    .ke-char-strip-label { grid-column: 1 / -1; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .04em; }
+    .ke-passport-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 20px; padding: 12px 0; border-top: 1px dashed rgba(246,239,226,.18); border-bottom: 1px dashed rgba(246,239,226,.18); }
+    .ke-p-stat { display: grid; gap: 1px; padding: 0 8px; }
+    .ke-p-stat + .ke-p-stat { border-left: 1px solid rgba(246,239,226,.12); }
+    .ke-p-stat b { color: #fbf5e9; font-family: Georgia, serif; font-size: 1.35rem; font-weight: 600; line-height: 1.15; }
+    .ke-p-stat.is-hot b { color: #eccf97; }
+    .ke-p-stat span { color: rgba(246,239,226,.48); font-size: .56rem; font-weight: 700; letter-spacing: .14em; }
+    .ke-passport-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; }
+    .ke-passport .ke-passport-new { flex: 1; min-height: 40px; color: #24180a; background: linear-gradient(180deg, #d2a153, #c69445); border-color: #b58436; border-radius: 9px; font-weight: 800; box-shadow: 0 8px 16px rgba(198,148,69,.26); }
+    .ke-passport .ke-passport-new:hover:not(:disabled) { color: #24180a; background: linear-gradient(180deg, #dcae64, #cf9d4d); }
+    .ke-passport .ke-passport-hall { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; color: #efe4cf; background: rgba(255,248,238,.04); border: 1px solid rgba(246,239,226,.24); border-radius: 9px; font-size: .76rem; font-weight: 700; white-space: nowrap; text-decoration: none; }
+    .ke-passport .ke-passport-hall:hover { color: #fff; background: rgba(255,248,238,.1); border-color: rgba(246,239,226,.44); }
+
+    /* 名册 */
+    .ke-roster { display: flex; flex-direction: column; min-width: 0; padding: 20px 20px 14px; background: #fffdf8; border: 1px solid #cfc0a8; border-radius: 16px; box-shadow: 0 14px 30px rgba(74,57,35,.08); animation: ke-rise .5s .06s cubic-bezier(.2,.7,.2,1) backwards; }
+    .ke-roster-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; }
+    .ke-roster-title .eyebrow { margin: 0 0 5px; color: #a97b24; font-size: .58rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    .ke-roster-title h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.25rem; font-weight: 600; }
+    .ke-count-pill { display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 9px; color: #a97b24; background: #f3e7d0; border: 1px solid #e1cb94; border-radius: 999px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .68rem; font-weight: 800; }
+    .ke-count-pill i { font-style: normal; }
+    .ke-roster-search { display: flex; align-items: center; gap: 7px; width: 212px; height: 34px; padding: 0 11px; background: #fbf7ef; border: 1px solid #e2d7c4; border-radius: 9px; transition: border-color .15s, box-shadow .15s; }
+    .ke-roster-search:focus-within { background: #fffdf8; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+    .ke-roster-search svg { flex: none; width: 14px; height: 14px; stroke: #949d96; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+    .ke-roster-search input { width: 100%; min-width: 0; height: 30px; min-height: 0; padding: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: .75rem; }
+    .ke-roster-search input::placeholder { color: #949d96; }
+
+    .ke-char-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); gap: 8px; margin-top: 14px; }
     .ke-char-card-chip {
-      position: relative; display: flex; align-items: center; gap: 8px;
-      padding: 6px 10px; min-height: 44px;
-      background: #fff; border: 1px solid var(--rule); border-radius: 8px;
-      cursor: pointer; text-align: left; transition: border-color .12s, background .12s, transform .12s;
+      position: relative; display: flex; align-items: center; gap: 9px; min-height: 55px; padding: 0 10px;
+      text-align: left; cursor: pointer;
+      background: #fffdf8; border: 1px solid #e6dccb; border-radius: 9px; box-shadow: none;
+      transition: transform .14s, border-color .14s, background .14s, box-shadow .14s;
     }
-    .ke-char-card-chip:hover { border-color: var(--line-light); background: #fff6e6; transform: translateY(-1px); }
-    .ke-char-card-chip.is-active { color: var(--forest); background: var(--cream); border-color: var(--buy); box-shadow: 0 0 0 2px var(--buy-soft); }
+    .ke-char-card-chip:hover:not(:disabled) { transform: translateY(-2px); background: #fffaf0; border-color: #cfc0a8; box-shadow: 0 8px 16px rgba(74,57,35,.08); }
+    .ke-char-card-chip.is-active { background: #fff8e8; border-color: var(--gold); box-shadow: 0 0 0 1px rgba(198,148,69,.42); }
+    .ke-char-card-chip.is-active::before { content: ""; position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; background: var(--gold); border-radius: 0 3px 3px 0; }
     .ke-char-card-chip.is-live::after {
-      content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%;
-      background: var(--gold); border: 2px solid #fff;
+      content: ""; position: absolute; top: 8px; right: 8px; width: 6px; height: 6px;
+      background: var(--gold); border-radius: 50%; box-shadow: 0 0 0 2px #fffdf8;
+      animation: ke-pulse 2.4s ease-in-out infinite;
     }
-    .ke-char-card-icon { width: 28px; height: 28px; object-fit: contain; image-rendering: pixelated; flex: none; }
-    .ke-char-card-icon-fallback {
-      display: grid; place-items: center; width: 28px; height: 28px; flex: none;
-      color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 6px;
-      font-family: Georgia, serif; font-weight: 900; font-size: .85rem;
-    }
+    .ke-char-card-chip.is-active.is-live::after { display: none; }
+    .ke-char-card-iconbox { flex: none; display: grid; place-items: center; width: 34px; height: 34px; background: #f7f1e5; border: 1px solid #ecdfc9; border-radius: 8px; overflow: hidden; }
+    .ke-char-card-chip.is-active .ke-char-card-iconbox { background: #f6ead2; border-color: #ddc79c; }
+    .ke-char-card-icon { width: 27px; height: 27px; object-fit: contain; image-rendering: pixelated; }
+    .ke-char-card-icon-fallback { display: grid; place-items: center; width: 27px; height: 27px; color: var(--forest); font-family: Georgia, serif; font-size: .8rem; font-weight: 900; }
     .ke-char-card-info { display: grid; gap: 0; min-width: 0; }
-    .ke-char-card-name { color: var(--forest); font-weight: 800; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ke-char-card-job { color: var(--muted); font-size: .66rem; font-weight: 600; }
-    .ke-char-card-more {
-      display: grid; place-items: center; min-height: 44px;
-      color: var(--muted); background: transparent;
-      border: 1px dashed var(--line-light); border-radius: 8px;
-      font-size: .74rem; font-weight: 800; cursor: pointer;
-    }
-    .ke-char-card-more:hover { color: var(--forest); border-color: var(--red); }
+    .ke-char-card-name { overflow: hidden; color: #172a23; font-size: .78rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-char-card-job { color: var(--muted); font-size: .63rem; font-weight: 600; letter-spacing: .02em; }
+    .ke-char-card-flag { position: absolute; top: 4px; right: 5px; padding: 0 5px; color: #2b1c06; background: var(--gold); border-radius: 999px; font-size: .5rem; font-weight: 800; letter-spacing: .06em; }
+    .ke-roster-note { display: flex; align-items: center; gap: 8px; margin: 13px 0 0; color: var(--muted); font-size: .64rem; }
+    .ke-roster-note::before { content: ""; width: 14px; height: 1px; background: #cfc0a8; }
+    .ke-roster-empty { grid-column: 1 / -1; padding: 22px; color: var(--muted); border: 1px dashed #e2d7c4; border-radius: 10px; text-align: center; font-size: .76rem; }
 
-    .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; color: #56604f; background: #efe9dc; border: 1px solid var(--line); border-radius: 999px; font-size: .7rem; font-weight: 700; }
-    .ke-chip--map { color: var(--red-dark); background: #f6ece6; border-color: #dcc0b4; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: .62rem; font-weight: 700; }
+    .ke-chip--job { color: #eccf97; background: rgba(198,148,69,.14); border: 1px solid rgba(198,148,69,.45); }
+    .ke-chip--map { color: rgba(246,239,226,.82); background: rgba(255,248,238,.07); border: 1px solid rgba(255,248,238,.14); font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ke-chip--map-zh, .ke-chip--seen { color: rgba(246,239,226,.78); background: rgba(255,248,238,.07); border: 1px solid rgba(255,248,238,.14); }
 
-    .ke-profile-grid { display: grid; grid-template-columns: repeat(auto-fill, 258px); justify-content: start; gap: 14px; }
-    .ke-profile-card { display: flex; flex-direction: column; gap: 9px; padding: 14px 15px; background: #fffdf8; border: 1px solid #b9ab94; border-radius: 10px; box-shadow: 0 10px 22px rgba(80,62,38,.07); }
-    .ke-profile-card.is-active { border-color: #7fae94; box-shadow: 0 0 0 1px #7fae94, 0 10px 22px rgba(44,122,89,.1); }
-    .ke-profile-name { display: flex; align-items: center; gap: 8px; color: var(--forest); font-weight: 800; font-size: .92rem; overflow-wrap: anywhere; }
+    .ke-profiles-head { margin-top: 30px; }
+    .ke-profiles-head .eyebrow { color: #a97b24; }
+    .ke-profiles-head h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .ke-profiles-who { color: var(--red-dark); font-family: "PingFang SC", "Microsoft YaHei", sans-serif; font-size: .74rem; font-weight: 700; }
+    .ke-profiles-hint { max-width: 470px; color: var(--muted); font-size: .72rem; line-height: 1.7; }
+
+    .ke-profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 14px; }
+    .ke-profile-card { display: flex; flex-direction: column; gap: 9px; min-height: 186px; padding: 16px 16px 13px; background: #fffdf8; border: 1px solid #ddd0bb; border-radius: 14px; box-shadow: 0 14px 30px rgba(74,57,35,.08); animation: ke-rise .5s .12s cubic-bezier(.2,.7,.2,1) backwards; transition: transform .16s, border-color .16s, box-shadow .16s; }
+    .ke-profile-card:hover { transform: translateY(-3px); border-color: #cfc0a8; box-shadow: 0 26px 50px rgba(74,57,35,.15); }
+    .ke-profile-card.is-active { background: linear-gradient(180deg, #f2f8f3 0%, #fffdf8 62%); border-color: #7fae94; box-shadow: 0 0 0 1px rgba(44,122,89,.22), 0 14px 28px rgba(44,122,89,.12); }
+    .ke-profile-name { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.06rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+    .ke-profile-name > span:first-child { min-width: 0; }
     .ke-profile-share-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: .72rem; }
     .ke-profile-share-code { color: var(--forest); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
     .ke-profile-share-row a { color: var(--forest); font-weight: 800; }
@@ -775,13 +859,18 @@ export function mountKePage(root: HTMLElement): void {
     .ke-badge-live { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; color: var(--buy); background: var(--buy-soft); border: 1px solid #b5d4c4; border-radius: 999px; font-size: .66rem; font-weight: 800; white-space: nowrap; }
     .ke-badge-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--buy); animation: ke-pulse 2.2s ease-in-out infinite; }
     @keyframes ke-pulse { 50% { opacity: .35; } }
+    @keyframes ke-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .ke-profile-meta { margin-top: auto; padding-top: 9px; color: var(--muted); border-top: 1px dashed var(--line); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .6rem; letter-spacing: .02em; }
     .ke-profile-actions { display: flex; flex-wrap: wrap; gap: 6px 7px; margin-top: 2px; }
 
-    .ke-profile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--muted); background: transparent; border: 1.5px dashed var(--line-light); border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; }
-    .ke-profile-new:hover:not(:disabled) { color: var(--red-dark); border-color: var(--red); background: rgba(184,77,63,.04); }
-    .ke-profile-hall { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--forest); background: transparent; border: 1.5px dashed #b5d4c4; border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; text-decoration: none; }
+    .ke-profile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 186px; padding: 18px; color: var(--muted); background: transparent; border: 1.5px dashed #cfc0a8; border-radius: 14px; box-shadow: none; cursor: pointer; transition: border-color .16s, background .16s, transform .16s; }
+    .ke-profile-new:hover:not(:disabled) { color: var(--muted); background: #fffaf0; border-color: var(--gold); transform: translateY(-2px); }
+    .ke-profile-new-ring { display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 2px; color: #a97b24; background: #fff8e8; border: 1px solid var(--gold); border-radius: 50%; font-family: Georgia, serif; font-size: 1.2rem; line-height: 1; }
+    .ke-profile-new b { color: var(--forest); font-size: .8rem; }
+    .ke-profile-new small { color: #949d96; font-size: .66rem; }
+    .ke-profile-hall { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 186px; color: var(--forest); background: transparent; border: 1.5px dashed #b5d4c4; border-radius: 14px; font-weight: 700; box-shadow: none; cursor: pointer; text-decoration: none; }
     .ke-profile-hall:hover { color: #1f5e43; border-color: var(--buy); background: var(--buy-soft); }
-    .ke-profile-hall small { color: var(--muted); font-size: .7rem; font-weight: 600; }
+    .ke-profile-hall small { color: var(--muted); font-size: .66rem; font-weight: 600; }
 
     .ke-btn-ghost { color: var(--ink); background: #f7f3ea; border-color: #aa9d88; border-radius: 8px; min-height: 30px; padding: 3px 12px; font-size: .74rem; }
     .ke-btn-ghost:hover:not(:disabled) { color: var(--ink); background: #efe9dd; border-color: #97896f; }
@@ -793,8 +882,11 @@ export function mountKePage(root: HTMLElement): void {
     .ke-btn-danger { color: var(--red-dark); background: #fdf6f3; border-color: #d8b3a9; border-radius: 8px; min-height: 30px; padding: 3px 12px; font-size: .74rem; font-weight: 800; }
     .ke-btn-danger:hover:not(:disabled) { color: var(--red-dark); background: #f6e7e1; border-color: var(--red-dark); }
 
-    .ke-empty { display: grid; gap: 8px; justify-items: center; padding: 30px 20px; color: var(--muted); background: #fffdf8; border: 1.5px dashed var(--line-light); border-radius: 10px; text-align: center; font-size: .84rem; line-height: 1.7; }
-    .ke-empty b { color: var(--forest); font-size: .92rem; }
+    .ke-empty { display: grid; justify-items: center; gap: 7px; padding: 42px 24px 38px; color: var(--muted); background: radial-gradient(340px 160px at 50% 0%, #fbf4e6 0%, transparent 70%), #fffdf8; border: 1px solid #cfc0a8; border-radius: 14px; box-shadow: 0 14px 30px rgba(74,57,35,.08); text-align: center; font-size: .8rem; line-height: 1.7; }
+    .ke-empty-orbit { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 5px; color: #a97b24; background: #fff8e8; border: 1px solid var(--gold); border-radius: 50%; box-shadow: inset 0 0 0 5px rgba(198,148,69,.12); font-family: Georgia, serif; font-size: 1.6rem; line-height: 1; }
+    .ke-empty b { color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.05rem; font-weight: 600; }
+    .ke-empty-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 3px 0 5px; }
+    .ke-empty-steps span { padding: 2px 9px; color: var(--muted); background: #f6f1e7; border: 1px solid var(--line); border-radius: 999px; font-size: .62rem; font-weight: 600; }
     .ke-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 4px; }
     .ke-empty-hall { display: inline-flex; align-items: center; min-height: 40px; padding: 3px 18px; color: #fff; background: var(--forest); border-color: var(--forest); border-radius: 8px; font-weight: 800; text-decoration: none; box-shadow: 0 8px 18px rgba(44,74,58,.22); }
     .ke-empty-hall:hover { color: #fff; background: #1f5e43; border-color: #1f5e43; }
@@ -959,6 +1051,12 @@ export function mountKePage(root: HTMLElement): void {
       .ke-side-card + .ke-side-card { margin-top: 0; }
       .ke-side-save { margin-top: 0; align-self: start; }
     }
+    @media (max-width: 980px) {
+      .ke-command { grid-template-columns: 1fr; }
+      .ke-hero { align-items: flex-start; }
+      .ke-hero-side { justify-items: start; }
+      .ke-status { text-align: left; }
+    }
     @media (max-width: 760px) {
       .ke-editor-body { grid-template-columns: 1fr; }
       .ke-nav { flex-direction: row; overflow-x: auto; gap: 4px; border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px; }
@@ -968,7 +1066,10 @@ export function mountKePage(root: HTMLElement): void {
       .ke-main { padding: 14px 14px 20px; }
       .ke-side { grid-template-columns: 1fr; }
       .ke-fields { grid-template-columns: 1fr; }
-      .ke-char-strip { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+      .ke-hero { flex-direction: column; gap: 14px; }
+      .ke-roster-head { align-items: flex-start; }
+      .ke-roster-search { width: 100%; }
+      .ke-char-strip { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
       .ke-profile-grid { grid-template-columns: 1fr 1fr; }
       .ke-cond-row { grid-template-columns: 1fr auto; }
       .ke-cond-row > :first-child { grid-column: 1 / -1; }
@@ -979,9 +1080,14 @@ export function mountKePage(root: HTMLElement): void {
     @media (max-width: 520px) {
       .ke-profile-grid { grid-template-columns: 1fr; }
       .ke-field-name { min-width: 100%; }
+      .ke-char-strip { grid-template-columns: 1fr 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .ke-badge-live i, .ke-chev, .ke-help .ke-tip { transition: none !important; animation: none !important; }
+      .ke-badge-live i, .ke-char-live, .ke-char-card-chip.is-live::after,
+      .ke-passport, .ke-roster, .ke-profile-card, .ke-chev, .ke-help .ke-tip {
+        transition: none !important;
+        animation: none !important;
+      }
     }
 
     /* 世界地图选图：输入框 + 「选择地图」按钮行 */
@@ -1034,11 +1140,22 @@ export function mountKePage(root: HTMLElement): void {
   const avatarWrap = root.querySelector<HTMLElement>("#ke-char-avatar")!;
   const avatarImg = avatarWrap.querySelector<HTMLImageElement>("img")!;
   const avatarFallback = avatarWrap.querySelector<HTMLElement>(".ke-char-avatar-fallback")!;
+  const avatarLive = avatarWrap.querySelector<HTMLElement>(".ke-char-live")!;
   const charName = root.querySelector<HTMLElement>("#ke-char-name")!;
   const jobChip = root.querySelector<HTMLElement>("#ke-char-job")!;
   const charMeta = root.querySelector<HTMLElement>("#ke-char-meta")!;
   const charStrip = root.querySelector<HTMLElement>("#ke-char-strip")!;
+  const charWm = root.querySelector<HTMLImageElement>("#ke-passport-wm")!;
+  const rosterFilter = root.querySelector<HTMLInputElement>("#ke-roster-filter")!;
+  const rosterCount = root.querySelector<HTMLElement>("#ke-roster-count")!;
+  const rosterTotal = root.querySelector<HTMLElement>("#ke-roster-total")!;
+  const rosterNote = root.querySelector<HTMLElement>("#ke-roster-note")!;
+  const statProfiles = root.querySelector<HTMLElement>("#ke-stat-profiles")!;
+  const statActive = root.querySelector<HTMLElement>("#ke-stat-active")!;
+  const statChars = root.querySelector<HTMLElement>("#ke-stat-chars")!;
+  const passportNew = root.querySelector<HTMLButtonElement>("#ke-passport-new")!;
   const profilesHead = root.querySelector<HTMLElement>("#ke-profiles-head")!;
+  const profilesWho = root.querySelector<HTMLElement>("#ke-profiles-who")!;
   const profileList = root.querySelector<HTMLElement>("#ke-profile-list")!;
   const editor = root.querySelector<HTMLElement>("#ke-editor")!;
   const editorTitle = root.querySelector<HTMLElement>("#ke-editor-title")!;
@@ -1060,6 +1177,14 @@ export function mountKePage(root: HTMLElement): void {
   const previewNote = root.querySelector<HTMLElement>("#ke-preview-note")!;
   const sharingControls = createProfileSharing(root.ownerDocument, () => markDirty(), () => void withdrawSharing());
   editor.querySelector<HTMLElement>(".ke-editor-head")?.after(sharingControls.root);
+
+  rosterFilter.addEventListener("input", () => {
+    charFilter = rosterFilter.value;
+    renderCharacterStrip();
+  });
+  passportNew.addEventListener("click", () => {
+    if (confirmDiscard()) window.location.assign(newProfileHref());
+  });
 
   function selectedCharacter(): KeCharacter | null {
     return (
@@ -1086,46 +1211,81 @@ export function mountKePage(root: HTMLElement): void {
       : `/ke/my/create/setup-guide${demoSuffix}`;
   }
 
+  function jobLabelOf(character: KeCharacter): string {
+    return (
+      (character.job_id !== null
+        ? options?.jobs_zh?.[String(character.job_id)] ??
+          options?.jobs[String(character.job_id)]
+        : undefined) || "未知职业"
+    );
+  }
+
   /** char_name / map_name / job_id 由 KE 客户端自报或 RO 配置，必须纯文本写入。 */
   function renderCharacterStrip(): void {
     charStrip.replaceChildren();
-    const label = document.createElement("p");
-    label.className = "ke-char-strip-label";
-    label.textContent = "切换角色 · 点击下方卡片";
-    charStrip.appendChild(label);
+    const term = charFilter.trim().toLowerCase();
+    const matched = characters.filter(
+      (c) =>
+        term === "" ||
+        c.char_name.toLowerCase().includes(term) ||
+        jobLabelOf(c).toLowerCase().includes(term),
+    );
+    rosterCount.textContent = String(matched.length);
+    rosterTotal.textContent = `/ ${characters.length}`;
+    rosterNote.textContent =
+      term === ""
+        ? `全部 ${characters.length} 名角色已平铺展示 · 点击任意卡片切换当前角色`
+        : `匹配 ${matched.length} / ${characters.length} 名角色 · 清空搜索显示全部`;
+    if (matched.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ke-roster-empty";
+      empty.textContent = `没有匹配「${charFilter.trim()}」的角色，试试职业名（如「猎人」）`;
+      charStrip.appendChild(empty);
+      return;
+    }
     const currentKey = selectedKey;
-    for (const c of characters) {
+    matched.forEach((c) => {
       const key = `${c.aid}:${c.cid}:${c.nid}`;
+      const isCurrent = key === currentKey;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = `ke-char-card-chip${key === currentKey ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
+      btn.className = `ke-char-card-chip${isCurrent ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
       btn.dataset.key = key;
+      btn.setAttribute("aria-pressed", isCurrent ? "true" : "false");
       // 职业图标（只有没图标时才 fallback 字首）
+      const iconBox = document.createElement("span");
+      iconBox.className = "ke-char-card-iconbox";
       const src = iconSrc(c.job_id);
       if (src) {
         const icon = document.createElement("img");
         icon.alt = "";
         icon.className = "ke-char-card-icon";
         icon.src = src;
-        btn.appendChild(icon);
+        iconBox.appendChild(icon);
       } else {
         const fallback = document.createElement("span");
         fallback.className = "ke-char-card-icon-fallback";
         fallback.textContent = c.char_name.slice(0, 1) || "?";
-        btn.appendChild(fallback);
+        iconBox.appendChild(fallback);
       }
+      btn.appendChild(iconBox);
       // 信息
       const info = document.createElement("span");
       info.className = "ke-char-card-info";
       const name = document.createElement("span");
       name.className = "ke-char-card-name";
       name.textContent = c.char_name;
-      const zh = options?.jobs_zh?.[String(c.job_id)] ?? options?.jobs[String(c.job_id)] ?? "";
       const job = document.createElement("span");
       job.className = "ke-char-card-job";
-      job.textContent = zh || "未知职业";
+      job.textContent = jobLabelOf(c);
       info.append(name, job);
       btn.appendChild(info);
+      if (isCurrent) {
+        const flag = document.createElement("span");
+        flag.className = "ke-char-card-flag";
+        flag.textContent = "当前";
+        btn.appendChild(flag);
+      }
       btn.addEventListener("click", () => {
         if (!confirmDiscard()) return;
         selectedKey = key;
@@ -1137,31 +1297,7 @@ export function mountKePage(root: HTMLElement): void {
         void reloadProfiles();
       });
       charStrip.appendChild(btn);
-    }
-    if (characters.length > 5) {
-      const more = document.createElement("button");
-      more.type = "button";
-      more.className = "ke-char-card-more";
-      more.textContent = `+${characters.length - 5}`;
-      more.title = "点击查看全部角色";
-      // 简单展开：折叠前 5 之后的
-      const chips = Array.from(charStrip.querySelectorAll<HTMLButtonElement>(".ke-char-card-chip"));
-      const collapsed = chips.slice(5);
-      const isCollapsed = collapsed.some(c => c.style.display === "none");
-      for (const c of chips) c.style.display = "";
-      charStrip.appendChild(more);
-      if (!isCollapsed) {
-        for (const c of collapsed) c.style.display = "none";
-        more.textContent = `展开 ${collapsed.length} 个角色`;
-      }
-      more.addEventListener("click", () => {
-        const nowCollapsed = collapsed.some(c => c.style.display === "none");
-        for (const c of collapsed) c.style.display = nowCollapsed ? "" : "none";
-        more.textContent = nowCollapsed
-          ? `收起 ${collapsed.length} 个`
-          : `展开 ${collapsed.length} 个角色`;
-      });
-    }
+    });
   }
 
   // —— 状态徽章 / 预览 / 统计 ——
@@ -2304,12 +2440,17 @@ export function mountKePage(root: HTMLElement): void {
       avatarImg.src = src;
       avatarImg.hidden = false;
       avatarFallback.hidden = true;
+      charWm.src = src;
+      charWm.hidden = false;
     } else {
       avatarImg.hidden = true;
       avatarFallback.hidden = false;
       avatarFallback.textContent = character.char_name.slice(0, 1) || "?";
+      charWm.removeAttribute("src");
+      charWm.hidden = true;
     }
     charName.textContent = character.char_name;
+    avatarLive.hidden = !(character.last_seen_at > Date.now() - 5 * 60_000);
     const jobName =
       character.job_id !== null
         ? (options?.jobs_zh?.[String(character.job_id)] ??
@@ -2317,19 +2458,28 @@ export function mountKePage(root: HTMLElement): void {
         : undefined;
     jobChip.hidden = !jobName;
     jobChip.textContent = jobName ?? "";
-    charMeta.innerHTML = "";
+    charMeta.replaceChildren();
+    if (jobName) charMeta.appendChild(jobChip);
     if (character.map_name) {
       const mapChip = document.createElement("span");
       mapChip.className = "ke-chip ke-chip--map";
       mapChip.textContent = character.map_name;
       charMeta.appendChild(mapChip);
+      const mapZh = mapNames[character.map_name];
+      if (mapZh) {
+        const zhChip = document.createElement("span");
+        zhChip.className = "ke-chip ke-chip--map-zh";
+        zhChip.textContent = mapZh;
+        charMeta.appendChild(zhChip);
+      }
     }
     if (character.last_seen_at) {
       const seenChip = document.createElement("span");
-      seenChip.className = "ke-chip";
+      seenChip.className = "ke-chip ke-chip--seen";
       seenChip.textContent = `最近在线 ${relativeTime(character.last_seen_at)}`;
       charMeta.appendChild(seenChip);
     }
+    statChars.textContent = String(characters.length);
   }
 
   // —— Profile 列表 ——
@@ -2338,12 +2488,25 @@ export function mountKePage(root: HTMLElement): void {
     profilesHead.hidden = false;
     profileList.hidden = false;
     profileList.innerHTML = "";
+    const ch = selectedCharacter();
+    profilesWho.textContent = ch ? `${ch.char_name} · ${profiles.length} 套方案` : "";
+    statProfiles.textContent = String(profiles.length);
+    statActive.textContent = String(profiles.filter((p) => p.is_active).length);
     if (profiles.length === 0) {
       const empty = document.createElement("div");
       empty.className = "ke-empty";
       empty.style.gridColumn = "1 / -1";
-      empty.innerHTML =
-        "<b>该角色还没有配置方案</b><span>新建一套方案，选好挂机地图和技能，就能开始自动挂机。</span>";
+      const orbit = document.createElement("span");
+      orbit.className = "ke-empty-orbit";
+      orbit.textContent = "＋";
+      const title = document.createElement("b");
+      title.textContent = "该角色还没有配置方案";
+      const sub = document.createElement("span");
+      sub.textContent = "新建一套方案，选好挂机地图和技能，就能开始自动挂机。";
+      const steps = document.createElement("div");
+      steps.className = "ke-empty-steps";
+      steps.innerHTML = "<span>① 选地图</span><span>② 选技能</span><span>③ 保存即激活</span>";
+      empty.append(orbit, title, sub, steps);
       const btnRow = document.createElement("div");
       btnRow.className = "ke-empty-actions";
       const newBtn = document.createElement("button");
@@ -2438,13 +2601,19 @@ export function mountKePage(root: HTMLElement): void {
       remove.textContent = "删除";
       remove.addEventListener("click", () => void deleteProfile(profile.id));
       actions.append(edit, copy, activate, remove);
-      card.append(name, actions);
+      const meta = document.createElement("div");
+      meta.className = "ke-profile-meta";
+      meta.textContent = "CONFIG.TXT · 4 个规则文件";
+      // 共享行在构建时已先插入，把方案名提到卡片最前，保证「名称 → 共享 → 档案 → 操作」的阅读顺序。
+      card.prepend(name);
+      card.append(meta, actions);
       profileList.appendChild(card);
     }
     const newCard = document.createElement("button");
     newCard.type = "button";
     newCard.className = "ke-profile-new";
-    newCard.textContent = "＋ 新建配置方案";
+    newCard.innerHTML =
+      '<span class="ke-profile-new-ring">＋</span><b>新建方案</b><small>使用配置向导，几分钟完成</small>';
     newCard.addEventListener("click", () => {
       if (confirmDiscard()) window.location.assign(newProfileHref());
     });
@@ -2453,7 +2622,7 @@ export function mountKePage(root: HTMLElement): void {
     hallCard.className = "ke-profile-hall";
     hallCard.href = "/ke/hall";
     hallCard.innerHTML =
-      "<span>🏛️ 去配置大厅</span><small>看看大佬们的方案</small>";
+      "<span>配置大厅</span><small>看看大佬们的方案</small>";
     profileList.appendChild(hallCard);
   }
 

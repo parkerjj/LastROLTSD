@@ -1142,7 +1142,16 @@ describe("ke page", () => {
     expect(root.querySelector<HTMLElement>('#ke-demo-chip')!.hidden).toBe(false);
     const chips = root.querySelectorAll<HTMLButtonElement>('.ke-char-card-chip');
     expect(chips).toHaveLength(30);
+    // 默认平铺全部角色，不再有「展开 N 个角色」的折叠按钮
+    expect(root.querySelector('.ke-char-card-more')).toBeNull();
+    expect(root.querySelector<HTMLElement>('#ke-roster-count')!.textContent).toBe('30');
+    expect(root.querySelector<HTMLElement>('#ke-roster-total')!.textContent).toBe('/ 30');
+    expect(root.querySelector<HTMLElement>('#ke-roster-note')!.textContent).toContain('全部 30');
     expect(root.querySelector<HTMLElement>('#ke-char-name')!.textContent).toBe('波利猎人');
+    expect(root.querySelector<HTMLElement>('#ke-stat-profiles')!.textContent).toBe('3');
+    expect(root.querySelector<HTMLElement>('#ke-stat-active')!.textContent).toBe('1');
+    expect(root.querySelector<HTMLElement>('#ke-stat-chars')!.textContent).toBe('30');
+    expect(root.querySelector<HTMLElement>('#ke-profiles-who')!.textContent).toContain('波利猎人 · 3 套方案');
     expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(3);
     expect(vi.mocked(fetch).mock.calls.some(([path]) => path === '/api/v1/ke/characters')).toBe(false);
 
@@ -1151,6 +1160,47 @@ describe("ke page", () => {
     expect(root.querySelector<HTMLElement>('#ke-char-name')!.textContent).toBe('初心者小明');
     expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(0);
     expect(root.textContent).toContain('该角色还没有配置方案');
+    expect(root.querySelector('.ke-empty-orbit')).not.toBeNull();
+    expect(root.querySelector<HTMLElement>('#ke-stat-profiles')!.textContent).toBe('0');
+  });
+
+  it('演示模式：名册支持按角色名/职业过滤，清空后恢复全部', async () => {
+    const { root } = await mountDemoPage();
+    const filter = root.querySelector<HTMLInputElement>('#ke-roster-filter')!;
+    filter.value = '初心';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+
+    const matched = root.querySelectorAll<HTMLButtonElement>('.ke-char-card-chip');
+    expect(matched).toHaveLength(2);
+    expect(root.querySelector<HTMLElement>('#ke-roster-count')!.textContent).toBe('2');
+    expect(root.querySelector<HTMLElement>('#ke-roster-total')!.textContent).toBe('/ 30');
+    expect(root.querySelector<HTMLElement>('#ke-roster-note')!.textContent).toContain('匹配 2 / 30');
+    expect(root.querySelector('.ke-roster-empty')).toBeNull();
+
+    filter.value = '猎人';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(1);
+    expect(root.querySelector<HTMLElement>('.ke-char-card-name')!.textContent).toBe('波利猎人');
+
+    // 职业列同样参与过滤（demo 的 options 里没有这些职业，统一显示「未知职业」）
+    filter.value = '未知职业';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(30);
+
+    filter.value = '不存在';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(0);
+    expect(root.querySelector('.ke-roster-empty')!.textContent).toContain('没有匹配「不存在」');
+
+    filter.value = '';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(30);
+    expect(root.querySelector<HTMLElement>('#ke-roster-note')!.textContent).toContain('全部 30');
   });
 
   it('演示模式：复制方案到另一名角色后，目标角色下出现同名方案', async () => {
