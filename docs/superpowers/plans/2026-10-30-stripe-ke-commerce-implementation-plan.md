@@ -112,18 +112,18 @@
 
 ### Task 5: 服务端报价与购买规则
 
-**Files:** Create `apps/worker/src/commerce/quotes.ts`, `quote-repository.ts`, `quote-input.ts`, `apps/worker/test/commerce-quotes.test.ts`; modify `apps/worker/src/env.ts` only for commerce catalog version/config types.
+**Files:** Create `apps/worker/src/commerce/quotes.ts`, `quote-repository.ts`, `quote-input.ts`, `router.ts`, `apps/worker/test/commerce-quotes.test.ts`, `apps/worker/test/commerce-quote-repository.test.ts`, `apps/worker/test/commerce-quote-router.test.ts`; modify `apps/worker/src/env.ts` only for commerce catalog version/config types.
 
 **Interfaces:**
 - `QuoteSelection` is a discriminated union for `slot_add`, `slot_renew`, `standalone`, and `align_all_paid`; standard `termDays` accepts only 30/90/180/360; client never sends amount, `duration_ms`, expiry target, user ID, or discount percent.
 - `createQuote(input: { userId: string; selection: QuoteSelection[]; promotionCode?: string }, deps: QuoteDependencies): Promise<CommerceQuote>` returns an immutable short-lived quote and complete before/after account preview.
 - `POST /api/v1/commerce/quotes` requires an active session, same-origin/CSRF protection, bounded JSON body, and rate limit.
 
-- [ ] **Step 1: 写失败测试**：赠送额度不可续、只有赠送额度时报无可续项目；只续指定 paid unit；standalone 与 slots 独立；align 排除 gift、期限取 max paid expiry + term；跨度小于 24 小时拒绝 align；至少一项补足超过 30 天；同一 unit 重复出现拒绝；1000 unit 上限；本地期限折扣与 Stripe promotion 全单择优、平价用期限价。
-- [ ] **Step 2: 运行 `rtk pnpm exec vitest run apps/worker/test/commerce-quotes.test.ts` 并确认失败**。
-- [ ] **Step 3: 实现服务端选择解析、权益快照、逐项计价、促销比较和完整账户预览**；quote 保存 `pricing_version`、输入摘要、expiry 和快照，初始有效期 2 分钟。
-- [ ] **Step 4: 接入 Hono route；测试跨用户 unit ID、pending/disabled 用户、缺 CSRF/跨源、过期 quote、数据库错误均不泄露订单或权益数据。**
-- [ ] **Step 5: 运行目标测试并提交 `feat: add authoritative commerce quotes`**。
+- [x] **Step 1: 写失败测试**：赠送额度不可续、只有赠送额度时报无可续项目；只续指定 paid unit；standalone 与 slots 独立；align 排除 gift、期限取 max paid expiry + term；跨度小于 24 小时拒绝 align；至少一项补足超过 30 天；同一 unit 重复出现拒绝；1000 unit 上限；本地期限折扣与 Stripe promotion 全单择优、平价用期限价；仓储只读当前有效权益并正确保存 quote 快照。
+- [x] **Step 2: 运行 `rtk pnpm exec vitest run apps/worker/test/commerce-quotes.test.ts` 并确认失败**。
+- [x] **Step 3: 实现服务端选择解析、权益快照、逐项计价、促销比较和完整账户预览**；仓储在 account lock transaction 中规范化旧额度并读取权益，在独立短事务中保存 `pricing_version`、输入摘要、expiry 和 quote 快照，初始有效期 2 分钟。
+- [x] **Step 4: 在 `commerce/router.ts` 接入 Hono quote route；测试跨用户 unit ID、pending/disabled 用户、缺 CSRF/跨源和数据库错误均返回固定错误且不泄露订单或权益数据；验证报价有效期固定为 2 分钟。过期 quote 在 Task 6 的建单路由消费时拒绝。**
+- [x] **Step 5: 运行目标测试并提交 `feat: add authoritative commerce quotes`**。
 
 ### Task 6: 固定订单与一次性 Checkout
 
