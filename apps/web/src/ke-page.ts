@@ -2,6 +2,7 @@
 // 设计要点：枚举开关用分段按钮；字段带 ? 帮助提示（hover + 键盘可达）；技能规则按类型分节、卡片可折叠；
 // 规则表行化、低频列收进「高级」；未保存更改在编辑头与右栏双处提示，切换前需确认。仅通过 /ke/my 访问，站内不挂入口。
 
+import { openWorldmapPicker } from "./ke-worldmap";
 import {
   BLOCK_DEFS,
   CONFIG_SCALARS,
@@ -182,6 +183,172 @@ function iconUrl(jobId: number | null): string | null {
   };
   const base = HIGH_TO_BASE[String(jobId)];
   return base ? pticonMap[base] ?? null : null;
+}
+
+// RO 客户端把纯洋红 #ff00ff 当作透明色；网页里先抠成 alpha=0 再显示。
+const PTICON_CLEAN = new Map<string, string>();
+const PTICON_PENDING = new Map<string, Promise<string | null>>();
+
+function chromaKeyIcon(doc: Document, src: string): Promise<string | null> {
+  const win = doc.defaultView;
+  if (!win) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = 0;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      win.clearTimeout(timer);
+      resolve(value);
+    };
+    timer = win.setTimeout(() => finish(null), 3000);
+    const img = new win.Image();
+    img.onload = () => {
+      try {
+        const canvas = doc.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx || canvas.width === 0 || canvas.height === 0) {
+          finish(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = pixels.data;
+        // 图标是像素画，透明色为精确的 (255, 0, 255)，无需近似容差。
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] === 255 && data[i + 1] === 0 && data[i + 2] === 255) {
+            data[i + 3] = 0;
+          }
+        }
+        ctx.putImageData(pixels, 0, 0);
+        finish(canvas.toDataURL("image/png"));
+      } catch {
+        finish(null);
+      }
+    };
+    img.onerror = () => finish(null);
+    img.src = src;
+  });
+}
+
+/** 渲染角色列表前先抠色，之后 iconSrc 可以同步取到透明图标。 */
+async function prewarmPticons(doc: Document, jobIds: Array<number | null>): Promise<void> {
+  await loadPticonMap();
+  await Promise.all(
+    jobIds.map(async (jobId) => {
+      const src = iconUrl(jobId);
+      if (!src || PTICON_CLEAN.has(src)) return;
+      let pending = PTICON_PENDING.get(src);
+      if (!pending) {
+        pending = chromaKeyIcon(doc, src).then((clean) => {
+          if (clean) PTICON_CLEAN.set(src, clean);
+          return clean;
+        });
+        PTICON_PENDING.set(src, pending);
+      }
+      await pending;
+    }),
+  );
+}
+
+/** 已抠色的图标地址；处理失败时退回原图，避免图标空白。 */
+function iconSrc(jobId: number | null): string | null {
+  const src = iconUrl(jobId);
+  return src ? PTICON_CLEAN.get(src) ?? src : null;
+}
+
+/** demo 角色：模拟真实账号绑定 20-30 个角色的情况（仅第一个角色带方案）。 */
+const DEMO_CHARACTER_NAMES: ReadonlyArray<readonly [string, number, string]> = [
+  ["波利猎人", 11, "pay_fild08"],
+  ["初心者小明", 0, "prontera"],
+  ["剑士阿强", 1, "prt_fild05"],
+  ["魔法师露娜", 2, "gef_fild02"],
+  ["弓箭手小羽", 3, "pay_fild01"],
+  ["服侍小祈", 4, "prt_fild08"],
+  ["商人金币", 5, "moc_fild12"],
+  ["盗贼夜影", 6, "moc_fild17"],
+  ["骑士亚瑟", 7, "prt_fild05"],
+  ["牧师艾莉", 8, "pay_fild02"],
+  ["巫师墨言", 9, "gef_fild07"],
+  ["铁匠铁锤", 10, "gef_fild02"],
+  ["刺客暗刃", 12, "moc_fild17"],
+  ["骑乘骑士风驰", 13, "prt_fild05"],
+  ["十字军圣光", 14, "prt_fild08"],
+  ["武僧拳心", 15, "pay_fild01"],
+  ["贤者星尘", 16, "gef_fild07"],
+  ["流氓狡黠", 17, "moc_fild12"],
+  ["炼金术士瓶瓶", 18, "cmd_fild02"],
+  ["吟游诗人弦歌", 19, "pay_fild08"],
+  ["舞娘旋舞", 20, "pay_fild02"],
+  ["超级初心者小新", 23, "prontera"],
+  ["神枪手火铳", 24, "moc_fild17"],
+  ["忍者疾风", 25, "cmd_fild02"],
+  ["骑士领主苍岚", 4008, "prt_fild05"],
+  ["神射手鹰眼", 4012, "pay_fild08"],
+  ["武术宗师铁拳", 4016, "prt_fild08"],
+  ["符文骑士龙魂", 4054, "gef_fild07"],
+  ["游侠林风", 4056, "pay_fild01"],
+  ["大主教慈光", 4057, "pay_fild02"],
+];
+
+function buildDemoCharacters(): KeCharacter[] {
+  const now = Date.now();
+  return DEMO_CHARACTER_NAMES.map(([char_name, job_id, map_name], index) => ({
+    aid: 1000001,
+    cid: 2000001 + index,
+    nid: 3000001 + index,
+    char_name,
+    job_id,
+    map_name,
+    last_seen_at: now - (index === 0 ? 3 : index * 37 + 5) * 60_000,
+  }));
+}
+
+/** demo：给波利猎人准备 3 套已写好的方案，其余角色保持「没有方案」的空状态。 */
+function buildDemoProfiles(options: KeOptions | null): ProfileDetail[] {
+  const control = defaultControlDoc();
+  control["timeouts.txt"] = (options?.timeouts ?? []).map((timeout) => ({
+    name: timeout.key,
+    values: { value: TIMEOUT_DEFAULT_OVERRIDES[timeout.key] ?? timeout.value },
+  }));
+  const controlText = (file: string): string => {
+    const schema = CONTROL_SCHEMAS.find((s) => s.file === file)!;
+    return serializeControl(schema, control[file] ?? []).trim();
+  };
+  const files = {
+    mon_control: controlText("mon_control.txt"),
+    pickupitems: controlText("pickupitems.txt"),
+    items_control: controlText("items_control.txt"),
+    timeouts: controlText("timeouts.txt"),
+  };
+  const designs: Array<{
+    name: string;
+    lockMap: string;
+    saveMap: string;
+    active: boolean;
+  }> = [
+    { name: "斐扬打波利", lockMap: "pay_fild08", saveMap: "payon", active: true },
+    { name: "波利岛清怪", lockMap: "pay_fild01", saveMap: "payon", active: false },
+    { name: "北门蹲点捡卡", lockMap: "prt_fild08", saveMap: "prontera", active: false },
+  ];
+  return designs.map((design, index) => {
+    const doc = defaultDoc();
+    doc.scalars.lockMap = design.lockMap;
+    doc.scalars.saveMap = design.saveMap;
+    return {
+      id: index + 1,
+      aid: 1000001,
+      cid: 2000001,
+      nid: 3000001,
+      name: design.name,
+      is_active: design.active,
+      sharing: null,
+      config_text: serializeConfig(doc),
+      ...files,
+    };
+  });
 }
 
 const NAV: NavEntry[] = [
@@ -381,34 +548,6 @@ const BLOCK_TAB_HINTS: Record<string, string> = {
     "满足自身/怪物条件时自动切换装备。KE 按从上到下顺序逐条检查，第一张条件满足的卡片优先执行——专用套装放上面、通用兜底放下面（卡片右上角可排序）。",
 };
 
-// —— 世界地图选图（/ke/worldmap.json，由 scripts/build-ke-worldmap.mjs 从进阶客户端提取） ——
-
-interface WorldmapPoint {
-  code: string;
-  codes?: string[];
-  row: number;
-  col: number;
-  span: number;
-  mvp?: boolean;
-  name?: string;
-  codeNames?: Record<string, string>;
-}
-
-interface WorldmapLayer {
-  id: string;
-  name: string;
-  image: string;
-  cols: number;
-  rows: number;
-  cellW: number;
-  cellH: number;
-  points: WorldmapPoint[];
-}
-
-interface WorldmapData {
-  layers: WorldmapLayer[];
-}
-
 // —— 地图预设（/ke/map-mobs.json，由 scripts/build-ke-map-mobs.mjs 从进阶客户端提取） ——
 
 /** 单张地图的预设数据：mobs=该图全部怪物 ID，drops=所有怪物常规掉落物 ID 并集（不含 MVP 奖励）。 */
@@ -468,6 +607,9 @@ export function mountKePage(root: HTMLElement): void {
   let activeTab = "route";
   let dirty = false;
   let previewCollapsed = false;
+  let advancedEdit = false;
+  let previewTyping = false;
+  let charFilter = "";
   let demoProfiles: ProfileDetail[] = [];
   const expandedBlocks = new WeakSet<BlockValue>();
 
@@ -480,39 +622,70 @@ export function mountKePage(root: HTMLElement): void {
   </header>
   <main class="page-width">
     <section class="ke-hero" aria-labelledby="ke-title">
-      <p class="eyebrow">KoreEngine · 自动挂机配置</p>
-      <h1 class="ke-title" id="ke-title">挂机配置工作台</h1>
-      <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
-      <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
-      <p class="ke-hero-sub ke-hero-links">
-        <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
-        ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
+      <div class="ke-hero-main">
+        <p class="eyebrow">KoreEngine · 自动挂机配置</p>
+        <h1 class="ke-title" id="ke-title">挂机配置<em>工作台</em></h1>
+        <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
+      </div>
+      <div class="ke-hero-side">
         <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>
-      </p>
+        <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
+        <p class="ke-hero-links">
+          <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
+          ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
+        </p>
+      </div>
     </section>
 
-    <section class="ke-char-card" id="ke-char-card" aria-label="当前角色" hidden>
-      <!-- 当前角色卡 -->
-      <div class="ke-char-current">
-        <div class="ke-char-avatar" id="ke-char-avatar">
-          <img alt="" hidden />
-          <span class="ke-char-avatar-fallback">?</span>
+    <section class="ke-command" id="ke-char-card" aria-label="当前角色" hidden>
+      <div class="ke-passport">
+        <img class="ke-passport-wm" id="ke-passport-wm" alt="" hidden />
+        <div class="ke-char-current">
+          <div class="ke-char-avatar" id="ke-char-avatar">
+            <img alt="" hidden />
+            <span class="ke-char-avatar-fallback">?</span>
+            <span class="ke-char-live" aria-hidden="true"></span>
+          </div>
+          <div class="ke-char-main">
+            <p class="ke-passport-label">当前角色 · Current</p>
+            <div class="ke-char-name"><span id="ke-char-name">—</span></div>
+            <div class="ke-char-meta" id="ke-char-meta">
+              <span class="ke-chip ke-chip--job" id="ke-char-job" hidden></span>
+            </div>
+          </div>
         </div>
-        <div class="ke-char-main">
-          <div class="ke-char-name"><span id="ke-char-name">—</span><span class="ke-chip" id="ke-char-job" hidden></span></div>
-          <div class="ke-char-meta" id="ke-char-meta"></div>
+        <div class="ke-passport-stats">
+          <div class="ke-p-stat"><b id="ke-stat-profiles">0</b><span>配置方案</span></div>
+          <div class="ke-p-stat is-hot"><b id="ke-stat-active">0</b><span>使用中</span></div>
+          <div class="ke-p-stat"><b id="ke-stat-chars">0</b><span>已绑定角色</span></div>
+        </div>
+        <div class="ke-passport-actions">
+          <button type="button" class="ke-btn-primary ke-passport-new" id="ke-passport-new">＋ 新建方案</button>
+          <a class="ke-btn-ghost ke-passport-hall" href="/ke/hall">配置大厅 →</a>
         </div>
       </div>
-      <!-- 角色切换横排卡片 strip -->
-      <div class="ke-char-strip" id="ke-char-strip" aria-label="切换角色"></div>
+      <div class="ke-roster">
+        <div class="ke-roster-head">
+          <div class="ke-roster-title">
+            <p class="eyebrow">02 · 冒险者名册</p>
+            <h2>全部角色 <span class="ke-count-pill"><i id="ke-roster-count">0</i><span id="ke-roster-total">/ 0</span></span></h2>
+          </div>
+          <label class="ke-roster-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+            <input id="ke-roster-filter" type="search" placeholder="搜索角色名 / 职业" aria-label="搜索角色" autocomplete="off" />
+          </label>
+        </div>
+        <div class="ke-char-strip" id="ke-char-strip" aria-label="切换角色"></div>
+        <p class="ke-roster-note" id="ke-roster-note"></p>
+      </div>
     </section>
 
-    <div class="section-heading" id="ke-profiles-head" hidden>
+    <div class="section-heading ke-profiles-head" id="ke-profiles-head" hidden>
       <div>
-        <p class="eyebrow">Profiles</p>
-        <h2>配置方案</h2>
+        <p class="eyebrow">03 · Profiles</p>
+        <h2>配置方案 <span class="ke-profiles-who" id="ke-profiles-who"></span></h2>
       </div>
-      <p>「使用中」的方案由 KoreEngine 客户端拉取执行；编辑已激活的方案后，需要重新激活才会生效。</p>
+      <p class="ke-profiles-hint">「使用中」的方案由 KoreEngine 客户端拉取执行；编辑已激活的方案后，需要重新激活才会生效。</p>
     </div>
     <div id="ke-profile-list" class="ke-profile-grid" hidden></div>
 
@@ -546,8 +719,13 @@ export function mountKePage(root: HTMLElement): void {
               <div class="ke-side-status" id="ke-dirty-side" hidden><span class="dot"></span>有未保存的更改 · 保存前不会生效</div>
             </div>
             <div class="ke-side-card">
-              <button type="button" class="ke-preview-toggle" id="ke-preview-toggle"><span id="ke-preview-file">CONFIG.TXT</span> 预览 <span>收起 ▾</span></button>
+              <div class="ke-preview-head">
+                <button type="button" class="ke-preview-toggle" id="ke-preview-toggle"><span id="ke-preview-file">CONFIG.TXT</span> 预览 <span id="ke-preview-caret">收起 ▾</span></button>
+                <button type="button" class="ke-preview-adv" id="ke-preview-adv" aria-pressed="false">高级编辑</button>
+              </div>
               <pre id="ke-config-preview" class="ke-preview-pre" aria-live="polite"></pre>
+              <textarea id="ke-config-editor" class="ke-preview-edit" spellcheck="false" aria-label="手动编辑配置文本" hidden></textarea>
+              <p class="ke-preview-note" id="ke-preview-note" hidden>直接编辑当前文件内容，修改会立即同步到左侧表单；仅支持表单能识别的配置项。</p>
             </div>
             <div class="ke-side-save">
               <button type="button" class="ke-btn-primary" data-action="save">保存方案</button>
@@ -567,61 +745,113 @@ export function mountKePage(root: HTMLElement): void {
     .ke-demo-hall-link { color: var(--forest); font-size: .78rem; font-weight: 800; white-space: nowrap; }
     .ke-demo-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
 
-    .ke-hero { padding: 30px 0 4px; }
-    .ke-hero .eyebrow { color: var(--red-dark); }
-    .ke-title { margin: 8px 0 6px; color: var(--forest); font-family: Georgia, "Microsoft YaHei", serif; font-size: clamp(1.5rem, 2.6vw, 2rem); font-weight: 700; }
-    .ke-hero-sub { max-width: 560px; margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.7; }
-    .ke-hero-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; max-width: none; }
-    .ke-status { margin: 8px 0 0; color: var(--muted); font-size: .84rem; min-height: 1.2em; }
+    .ke-hero { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 18px 28px; padding: 30px 0 22px; }
+    .ke-hero .eyebrow { margin: 0 0 9px; color: #a97b24; font-size: .66rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+    .ke-title { margin: 0; color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: clamp(1.7rem, 3vw, 2.35rem); font-weight: 600; letter-spacing: .02em; line-height: 1.25; }
+    .ke-title em { color: #b84d3f; font-style: normal; }
+    .ke-hero-sub { max-width: 560px; margin: 9px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.75; }
+    .ke-hero-side { flex: none; display: grid; gap: 7px; justify-items: end; }
+    .ke-hero-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
+    .ke-status { margin: 0; min-height: 1.2em; color: var(--muted); font-size: .76rem; text-align: right; }
 
-    .ke-char-card { display: grid; gap: 10px; margin-top: 20px; padding: 14px 18px 16px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 22px 45px rgba(80,62,38,.11); }
-    .ke-char-current { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--line-light); }
-    .ke-char-avatar { display: grid; place-items: center; width: 46px; height: 46px; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 10px; overflow: hidden; flex: none; }
-    .ke-char-avatar img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
-    .ke-char-avatar-fallback { font-family: Georgia, serif; font-weight: 900; font-size: 1.05rem; }
-    .ke-char-main { min-width: 200px; }
-    .ke-char-name { display: flex; align-items: center; gap: 9px; color: var(--forest); font-weight: 800; font-size: .95rem; }
-    .ke-char-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+    /* 当前角色 passport + 全部角色名册 */
+    .ke-command { display: grid; grid-template-columns: 332px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+    .ke-passport {
+      position: relative; overflow: hidden; display: flex; flex-direction: column;
+      padding: 22px 22px 20px; color: #f6efe2;
+      background:
+        radial-gradient(260px 200px at 105% -5%, rgba(198,148,69,.22), transparent 70%),
+        linear-gradient(155deg, #243e33 0%, #1a2e26 48%, #172a23 100%);
+      border: 1px solid rgba(198,148,69,.42); border-radius: 16px;
+      box-shadow: 0 24px 44px rgba(23,42,35,.3), inset 0 1px 0 rgba(255,248,238,.1);
+      animation: ke-rise .5s cubic-bezier(.2,.7,.2,1) backwards;
+    }
+    .ke-passport::before, .ke-passport::after { content: ""; position: absolute; width: 24px; height: 24px; border: 1px solid rgba(198,148,69,.5); pointer-events: none; }
+    .ke-passport::before { top: 8px; left: 8px; border-right: 0; border-bottom: 0; border-top-left-radius: 7px; }
+    .ke-passport::after { bottom: 8px; right: 8px; border-left: 0; border-top: 0; border-bottom-right-radius: 7px; }
+    .ke-passport-wm { position: absolute; right: -26px; bottom: -18px; width: 168px; height: auto; opacity: .07; filter: grayscale(1) brightness(2.4); pointer-events: none; user-select: none; }
+    .ke-passport-wm[hidden] { display: none; }
+    .ke-passport-label { margin: 0 0 2px; color: #d9b97f; font-size: .58rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+    .ke-char-current { display: flex; align-items: center; gap: 14px; }
+    .ke-char-avatar { position: relative; flex: none; display: grid; place-items: center; width: 66px; height: 66px; border-radius: 18px; background: rgba(255,248,238,.07); border: 1px solid rgba(198,148,69,.55); box-shadow: inset 0 0 0 4px rgba(198,148,69,.12); }
+    .ke-char-avatar::after { content: ""; position: absolute; inset: 5px; border: 1px dashed rgba(255,248,238,.16); border-radius: 13px; pointer-events: none; }
+    .ke-char-avatar img { position: relative; z-index: 1; width: 42px; height: 42px; object-fit: contain; image-rendering: pixelated; }
+    .ke-char-avatar-fallback { position: relative; z-index: 1; color: #f6efe2; font-family: Georgia, serif; font-size: 1.35rem; font-weight: 900; }
+    .ke-char-live { position: absolute; top: -2px; right: -2px; z-index: 2; width: 11px; height: 11px; background: var(--gold); border: 2px solid #1b2f27; border-radius: 50%; animation: ke-pulse 2.4s ease-in-out infinite; }
+    .ke-char-main { min-width: 0; display: grid; gap: 2px; }
+    .ke-char-name { min-width: 0; color: #fbf5e9; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.42rem; font-weight: 600; letter-spacing: .02em; line-height: 1.3; overflow-wrap: anywhere; }
+    .ke-char-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 
-    /* 角色切换横排 strip */
-    .ke-char-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
-    .ke-char-strip-label { grid-column: 1 / -1; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .04em; }
+    .ke-passport-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 20px; padding: 12px 0; border-top: 1px dashed rgba(246,239,226,.18); border-bottom: 1px dashed rgba(246,239,226,.18); }
+    .ke-p-stat { display: grid; gap: 1px; padding: 0 8px; }
+    .ke-p-stat + .ke-p-stat { border-left: 1px solid rgba(246,239,226,.12); }
+    .ke-p-stat b { color: #fbf5e9; font-family: Georgia, serif; font-size: 1.35rem; font-weight: 600; line-height: 1.15; }
+    .ke-p-stat.is-hot b { color: #eccf97; }
+    .ke-p-stat span { color: rgba(246,239,226,.48); font-size: .56rem; font-weight: 700; letter-spacing: .14em; }
+    .ke-passport-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; }
+    .ke-passport .ke-passport-new { flex: 1; min-height: 40px; color: #24180a; background: linear-gradient(180deg, #d2a153, #c69445); border-color: #b58436; border-radius: 9px; font-weight: 800; box-shadow: 0 8px 16px rgba(198,148,69,.26); }
+    .ke-passport .ke-passport-new:hover:not(:disabled) { color: #24180a; background: linear-gradient(180deg, #dcae64, #cf9d4d); }
+    .ke-passport .ke-passport-hall { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; color: #efe4cf; background: rgba(255,248,238,.04); border: 1px solid rgba(246,239,226,.24); border-radius: 9px; font-size: .76rem; font-weight: 700; white-space: nowrap; text-decoration: none; }
+    .ke-passport .ke-passport-hall:hover { color: #fff; background: rgba(255,248,238,.1); border-color: rgba(246,239,226,.44); }
+
+    /* 名册 */
+    .ke-roster { display: flex; flex-direction: column; min-width: 0; padding: 20px 20px 14px; background: #fffdf8; border: 1px solid #cfc0a8; border-radius: 16px; box-shadow: 0 14px 30px rgba(74,57,35,.08); animation: ke-rise .5s .06s cubic-bezier(.2,.7,.2,1) backwards; }
+    .ke-roster-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; }
+    .ke-roster-title .eyebrow { margin: 0 0 5px; color: #a97b24; font-size: .58rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    .ke-roster-title h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.25rem; font-weight: 600; }
+    .ke-count-pill { display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 9px; color: #a97b24; background: #f3e7d0; border: 1px solid #e1cb94; border-radius: 999px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .68rem; font-weight: 800; }
+    .ke-count-pill i { font-style: normal; }
+    .ke-roster-search { display: flex; align-items: center; gap: 7px; width: 212px; height: 34px; padding: 0 11px; background: #fbf7ef; border: 1px solid #e2d7c4; border-radius: 9px; transition: border-color .15s, box-shadow .15s; }
+    .ke-roster-search:focus-within { background: #fffdf8; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+    .ke-roster-search svg { flex: none; width: 14px; height: 14px; stroke: #949d96; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+    .ke-roster-search input { width: 100%; min-width: 0; height: 30px; min-height: 0; padding: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: .75rem; }
+    .ke-roster-search input::placeholder { color: #949d96; }
+
+    .ke-char-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); gap: 8px; margin-top: 14px; }
     .ke-char-card-chip {
-      position: relative; display: flex; align-items: center; gap: 8px;
-      padding: 6px 10px; min-height: 44px;
-      background: #fff; border: 1px solid var(--rule); border-radius: 8px;
-      cursor: pointer; text-align: left; transition: border-color .12s, background .12s, transform .12s;
+      position: relative; display: flex; align-items: center; gap: 9px; min-height: 55px; padding: 0 10px;
+      text-align: left; cursor: pointer;
+      background: #fffdf8; border: 1px solid #e6dccb; border-radius: 9px; box-shadow: none;
+      transition: transform .14s, border-color .14s, background .14s, box-shadow .14s;
     }
-    .ke-char-card-chip:hover { border-color: var(--line-light); background: #fff6e6; transform: translateY(-1px); }
-    .ke-char-card-chip.is-active { color: var(--forest); background: var(--cream); border-color: var(--buy); box-shadow: 0 0 0 2px var(--buy-soft); }
+    .ke-char-card-chip:hover:not(:disabled) { transform: translateY(-2px); background: #fffaf0; border-color: #cfc0a8; box-shadow: 0 8px 16px rgba(74,57,35,.08); }
+    .ke-char-card-chip.is-active { background: #fff8e8; border-color: var(--gold); box-shadow: 0 0 0 1px rgba(198,148,69,.42); }
+    .ke-char-card-chip.is-active::before { content: ""; position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; background: var(--gold); border-radius: 0 3px 3px 0; }
     .ke-char-card-chip.is-live::after {
-      content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%;
-      background: var(--gold); border: 2px solid #fff;
+      content: ""; position: absolute; top: 8px; right: 8px; width: 6px; height: 6px;
+      background: var(--gold); border-radius: 50%; box-shadow: 0 0 0 2px #fffdf8;
+      animation: ke-pulse 2.4s ease-in-out infinite;
     }
-    .ke-char-card-icon { width: 28px; height: 28px; object-fit: contain; image-rendering: pixelated; flex: none; }
-    .ke-char-card-icon-fallback {
-      display: grid; place-items: center; width: 28px; height: 28px; flex: none;
-      color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 6px;
-      font-family: Georgia, serif; font-weight: 900; font-size: .85rem;
-    }
+    .ke-char-card-chip.is-active.is-live::after { display: none; }
+    .ke-char-card-iconbox { flex: none; display: grid; place-items: center; width: 34px; height: 34px; background: #f7f1e5; border: 1px solid #ecdfc9; border-radius: 8px; overflow: hidden; }
+    .ke-char-card-chip.is-active .ke-char-card-iconbox { background: #f6ead2; border-color: #ddc79c; }
+    .ke-char-card-icon { width: 27px; height: 27px; object-fit: contain; image-rendering: pixelated; }
+    .ke-char-card-icon-fallback { display: grid; place-items: center; width: 27px; height: 27px; color: var(--forest); font-family: Georgia, serif; font-size: .8rem; font-weight: 900; }
     .ke-char-card-info { display: grid; gap: 0; min-width: 0; }
-    .ke-char-card-name { color: var(--forest); font-weight: 800; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ke-char-card-job { color: var(--muted); font-size: .66rem; font-weight: 600; }
-    .ke-char-card-more {
-      display: grid; place-items: center; min-height: 44px;
-      color: var(--muted); background: transparent;
-      border: 1px dashed var(--line-light); border-radius: 8px;
-      font-size: .74rem; font-weight: 800; cursor: pointer;
-    }
-    .ke-char-card-more:hover { color: var(--forest); border-color: var(--red); }
+    .ke-char-card-name { overflow: hidden; color: #172a23; font-size: .78rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-char-card-job { color: var(--muted); font-size: .63rem; font-weight: 600; letter-spacing: .02em; }
+    .ke-char-card-flag { position: absolute; top: 4px; right: 5px; padding: 0 5px; color: #2b1c06; background: var(--gold); border-radius: 999px; font-size: .5rem; font-weight: 800; letter-spacing: .06em; }
+    .ke-roster-note { display: flex; align-items: center; gap: 8px; margin: 13px 0 0; color: var(--muted); font-size: .64rem; }
+    .ke-roster-note::before { content: ""; width: 14px; height: 1px; background: #cfc0a8; }
+    .ke-roster-empty { grid-column: 1 / -1; padding: 22px; color: var(--muted); border: 1px dashed #e2d7c4; border-radius: 10px; text-align: center; font-size: .76rem; }
 
-    .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; color: #56604f; background: #efe9dc; border: 1px solid var(--line); border-radius: 999px; font-size: .7rem; font-weight: 700; }
-    .ke-chip--map { color: var(--red-dark); background: #f6ece6; border-color: #dcc0b4; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: .62rem; font-weight: 700; }
+    .ke-chip--job { color: #eccf97; background: rgba(198,148,69,.14); border: 1px solid rgba(198,148,69,.45); }
+    .ke-chip--map { color: rgba(246,239,226,.82); background: rgba(255,248,238,.07); border: 1px solid rgba(255,248,238,.14); font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ke-chip--map-zh, .ke-chip--seen { color: rgba(246,239,226,.78); background: rgba(255,248,238,.07); border: 1px solid rgba(255,248,238,.14); }
 
-    .ke-profile-grid { display: grid; grid-template-columns: repeat(auto-fill, 258px); justify-content: start; gap: 14px; }
-    .ke-profile-card { display: flex; flex-direction: column; gap: 9px; padding: 14px 15px; background: #fffdf8; border: 1px solid #b9ab94; border-radius: 10px; box-shadow: 0 10px 22px rgba(80,62,38,.07); }
-    .ke-profile-card.is-active { border-color: #7fae94; box-shadow: 0 0 0 1px #7fae94, 0 10px 22px rgba(44,122,89,.1); }
-    .ke-profile-name { display: flex; align-items: center; gap: 8px; color: var(--forest); font-weight: 800; font-size: .92rem; overflow-wrap: anywhere; }
+    .ke-profiles-head { margin-top: 30px; }
+    .ke-profiles-head .eyebrow { color: #a97b24; }
+    .ke-profiles-head h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .ke-profiles-who { color: var(--red-dark); font-family: "PingFang SC", "Microsoft YaHei", sans-serif; font-size: .74rem; font-weight: 700; }
+    .ke-profiles-hint { max-width: 470px; color: var(--muted); font-size: .72rem; line-height: 1.7; }
+
+    .ke-profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 14px; }
+    .ke-profile-card { display: flex; flex-direction: column; gap: 9px; min-height: 186px; padding: 16px 16px 13px; background: #fffdf8; border: 1px solid #ddd0bb; border-radius: 14px; box-shadow: 0 14px 30px rgba(74,57,35,.08); animation: ke-rise .5s .12s cubic-bezier(.2,.7,.2,1) backwards; transition: transform .16s, border-color .16s, box-shadow .16s; }
+    .ke-profile-card:hover { transform: translateY(-3px); border-color: #cfc0a8; box-shadow: 0 26px 50px rgba(74,57,35,.15); }
+    .ke-profile-card.is-active { background: linear-gradient(180deg, #f2f8f3 0%, #fffdf8 62%); border-color: #7fae94; box-shadow: 0 0 0 1px rgba(44,122,89,.22), 0 14px 28px rgba(44,122,89,.12); }
+    .ke-profile-name { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.06rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+    .ke-profile-name > span:first-child { min-width: 0; }
     .ke-profile-share-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: .72rem; }
     .ke-profile-share-code { color: var(--forest); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
     .ke-profile-share-row a { color: var(--forest); font-weight: 800; }
@@ -629,13 +859,18 @@ export function mountKePage(root: HTMLElement): void {
     .ke-badge-live { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; color: var(--buy); background: var(--buy-soft); border: 1px solid #b5d4c4; border-radius: 999px; font-size: .66rem; font-weight: 800; white-space: nowrap; }
     .ke-badge-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--buy); animation: ke-pulse 2.2s ease-in-out infinite; }
     @keyframes ke-pulse { 50% { opacity: .35; } }
-    .ke-profile-actions { display: flex; gap: 7px; margin-top: 2px; }
+    @keyframes ke-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .ke-profile-meta { margin-top: auto; padding-top: 9px; color: var(--muted); border-top: 1px dashed var(--line); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .6rem; letter-spacing: .02em; }
+    .ke-profile-actions { display: flex; flex-wrap: wrap; gap: 6px 7px; margin-top: 2px; }
 
-    .ke-profile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--muted); background: transparent; border: 1.5px dashed var(--line-light); border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; }
-    .ke-profile-new:hover:not(:disabled) { color: var(--red-dark); border-color: var(--red); background: rgba(184,77,63,.04); }
-    .ke-profile-hall { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--forest); background: transparent; border: 1.5px dashed #b5d4c4; border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; text-decoration: none; }
+    .ke-profile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 186px; padding: 18px; color: var(--muted); background: transparent; border: 1.5px dashed #cfc0a8; border-radius: 14px; box-shadow: none; cursor: pointer; transition: border-color .16s, background .16s, transform .16s; }
+    .ke-profile-new:hover:not(:disabled) { color: var(--muted); background: #fffaf0; border-color: var(--gold); transform: translateY(-2px); }
+    .ke-profile-new-ring { display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 2px; color: #a97b24; background: #fff8e8; border: 1px solid var(--gold); border-radius: 50%; font-family: Georgia, serif; font-size: 1.2rem; line-height: 1; }
+    .ke-profile-new b { color: var(--forest); font-size: .8rem; }
+    .ke-profile-new small { color: #949d96; font-size: .66rem; }
+    .ke-profile-hall { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 186px; color: var(--forest); background: transparent; border: 1.5px dashed #b5d4c4; border-radius: 14px; font-weight: 700; box-shadow: none; cursor: pointer; text-decoration: none; }
     .ke-profile-hall:hover { color: #1f5e43; border-color: var(--buy); background: var(--buy-soft); }
-    .ke-profile-hall small { color: var(--muted); font-size: .7rem; font-weight: 600; }
+    .ke-profile-hall small { color: var(--muted); font-size: .66rem; font-weight: 600; }
 
     .ke-btn-ghost { color: var(--ink); background: #f7f3ea; border-color: #aa9d88; border-radius: 8px; min-height: 30px; padding: 3px 12px; font-size: .74rem; }
     .ke-btn-ghost:hover:not(:disabled) { color: var(--ink); background: #efe9dd; border-color: #97896f; }
@@ -647,8 +882,11 @@ export function mountKePage(root: HTMLElement): void {
     .ke-btn-danger { color: var(--red-dark); background: #fdf6f3; border-color: #d8b3a9; border-radius: 8px; min-height: 30px; padding: 3px 12px; font-size: .74rem; font-weight: 800; }
     .ke-btn-danger:hover:not(:disabled) { color: var(--red-dark); background: #f6e7e1; border-color: var(--red-dark); }
 
-    .ke-empty { display: grid; gap: 8px; justify-items: center; padding: 30px 20px; color: var(--muted); background: #fffdf8; border: 1.5px dashed var(--line-light); border-radius: 10px; text-align: center; font-size: .84rem; line-height: 1.7; }
-    .ke-empty b { color: var(--forest); font-size: .92rem; }
+    .ke-empty { display: grid; justify-items: center; gap: 7px; padding: 42px 24px 38px; color: var(--muted); background: radial-gradient(340px 160px at 50% 0%, #fbf4e6 0%, transparent 70%), #fffdf8; border: 1px solid #cfc0a8; border-radius: 14px; box-shadow: 0 14px 30px rgba(74,57,35,.08); text-align: center; font-size: .8rem; line-height: 1.7; }
+    .ke-empty-orbit { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 5px; color: #a97b24; background: #fff8e8; border: 1px solid var(--gold); border-radius: 50%; box-shadow: inset 0 0 0 5px rgba(198,148,69,.12); font-family: Georgia, serif; font-size: 1.6rem; line-height: 1; }
+    .ke-empty b { color: #172a23; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.05rem; font-weight: 600; }
+    .ke-empty-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 3px 0 5px; }
+    .ke-empty-steps span { padding: 2px 9px; color: var(--muted); background: #f6f1e7; border: 1px solid var(--line); border-radius: 999px; font-size: .62rem; font-weight: 600; }
     .ke-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 4px; }
     .ke-empty-hall { display: inline-flex; align-items: center; min-height: 40px; padding: 3px 18px; color: #fff; background: var(--forest); border-color: var(--forest); border-radius: 8px; font-weight: 800; text-decoration: none; box-shadow: 0 8px 18px rgba(44,74,58,.22); }
     .ke-empty-hall:hover { color: #fff; background: #1f5e43; border-color: #1f5e43; }
@@ -787,10 +1025,19 @@ export function mountKePage(root: HTMLElement): void {
     .ke-side-rows b { font-weight: 800; }
     .ke-side-status { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: var(--muted); font-size: .72rem; }
     .ke-side-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
-    .ke-preview-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 0; padding: 0; color: var(--muted); background: transparent; border: 0; font-size: .68rem; font-weight: 900; letter-spacing: .06em; box-shadow: none; cursor: pointer; }
+    .ke-preview-head { display: flex; align-items: center; gap: 8px; }
+    .ke-preview-toggle { display: flex; flex: 1; align-items: center; gap: 4px; min-height: 0; padding: 0; color: var(--muted); background: transparent; border: 0; font-size: .68rem; font-weight: 900; letter-spacing: .06em; box-shadow: none; cursor: pointer; }
     .ke-preview-toggle:hover:not(:disabled) { color: var(--forest); background: transparent; }
+    .ke-preview-adv { flex: none; min-height: 0; padding: 2px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line-light); border-radius: 6px; font-size: .64rem; font-weight: 800; letter-spacing: 0; box-shadow: none; cursor: pointer; }
+    .ke-preview-adv:hover:not(:disabled) { color: var(--forest); background: rgba(255,253,248,.7); border-color: var(--line); }
+    .ke-preview-adv.is-on { color: var(--red-dark); background: #fffdf8; border-color: #cfa692; }
     .ke-preview-pre { margin: 9px 0 0; padding: 11px 12px; max-height: 300px; overflow: auto; color: #4c5a50; background: var(--forest-card); border: 1px solid var(--line); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .7rem; line-height: 1.65; white-space: pre-wrap; word-break: break-all; }
     .ke-preview-pre[hidden] { display: none; }
+    .ke-preview-edit { display: block; width: 100%; min-height: 260px; max-height: 420px; margin: 9px 0 0; padding: 11px 12px; color: #4c5a50; background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .7rem; line-height: 1.65; resize: vertical; }
+    .ke-preview-edit:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+    .ke-preview-edit[hidden] { display: none; }
+    .ke-preview-note { margin: 8px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.6; }
+    .ke-preview-note[hidden] { display: none; }
     .ke-side-save { display: grid; gap: 8px; margin-top: 12px; }
     .ke-side-save .ke-btn-primary, .ke-side-save .ke-btn-ghost { min-height: 40px; font-size: .82rem; }
 
@@ -804,6 +1051,12 @@ export function mountKePage(root: HTMLElement): void {
       .ke-side-card + .ke-side-card { margin-top: 0; }
       .ke-side-save { margin-top: 0; align-self: start; }
     }
+    @media (max-width: 980px) {
+      .ke-command { grid-template-columns: 1fr; }
+      .ke-hero { align-items: flex-start; }
+      .ke-hero-side { justify-items: start; }
+      .ke-status { text-align: left; }
+    }
     @media (max-width: 760px) {
       .ke-editor-body { grid-template-columns: 1fr; }
       .ke-nav { flex-direction: row; overflow-x: auto; gap: 4px; border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px; }
@@ -813,7 +1066,10 @@ export function mountKePage(root: HTMLElement): void {
       .ke-main { padding: 14px 14px 20px; }
       .ke-side { grid-template-columns: 1fr; }
       .ke-fields { grid-template-columns: 1fr; }
-      .ke-char-strip { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+      .ke-hero { flex-direction: column; gap: 14px; }
+      .ke-roster-head { align-items: flex-start; }
+      .ke-roster-search { width: 100%; }
+      .ke-char-strip { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
       .ke-profile-grid { grid-template-columns: 1fr 1fr; }
       .ke-cond-row { grid-template-columns: 1fr auto; }
       .ke-cond-row > :first-child { grid-column: 1 / -1; }
@@ -824,46 +1080,20 @@ export function mountKePage(root: HTMLElement): void {
     @media (max-width: 520px) {
       .ke-profile-grid { grid-template-columns: 1fr; }
       .ke-field-name { min-width: 100%; }
+      .ke-char-strip { grid-template-columns: 1fr 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .ke-badge-live i, .ke-chev, .ke-help .ke-tip { transition: none !important; animation: none !important; }
+      .ke-badge-live i, .ke-char-live, .ke-char-card-chip.is-live::after,
+      .ke-passport, .ke-roster, .ke-profile-card, .ke-chev, .ke-help .ke-tip {
+        transition: none !important;
+        animation: none !important;
+      }
     }
 
     /* 世界地图选图：输入框 + 「选择地图」按钮行 */
     .ke-mapline { display: flex; gap: 8px; align-items: stretch; }
     .ke-mapline input { flex: 1; min-width: 0; }
     .ke-mapline .ke-wmap-open { flex: none; min-height: 40px; padding: 0 14px; font-size: .78rem; white-space: nowrap; }
-
-    /* 世界地图选图浮层：层级切换 + 原图底图 + 格子热区（底图与格子布局 1:1 复刻游戏 WorldMap 组件） */
-    .ke-wmap-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
-    .ke-wmap-dialog { display: grid; gap: 10px; width: min(960px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
-    .ke-wmap-head { position: relative; display: flex; align-items: center; justify-content: center; min-height: 30px; }
-    .ke-wmap-title { margin: 0; color: var(--forest); font-size: 1rem; font-weight: 800; text-align: center; }
-    .ke-wmap-close { position: absolute; top: 50%; right: 0; transform: translateY(-50%); min-height: 0; padding: 0; width: 30px; height: 30px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); color: var(--muted); font-size: .95rem; line-height: 1; cursor: pointer; }
-    .ke-wmap-close:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
-    .ke-wmap-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-    .ke-wmap-tab { min-height: 32px; padding: 4px 12px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); color: #4c5a50; font-size: .78rem; font-weight: 700; cursor: pointer; }
-    .ke-wmap-tab:hover:not(:disabled) { color: var(--forest); background: #f7f3ea; border-color: var(--forest); }
-    .ke-wmap-tab.active { color: #f7f3ea; background: var(--forest); border-color: var(--forest); }
-    .ke-wmap-message { margin: 26px 0; text-align: center; color: var(--muted); font-size: .82rem; }
-    /* 外框尺寸跨层固定（取所有层网格的最大宽/高），内层地图保持自身宽高比居中留边，保证切换层级时浮层大小不变 */
-    .ke-wmap-stage-frame { position: relative; width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #223034; }
-    .ke-wmap-stage { position: absolute; overflow: hidden; border-radius: 8px; }
-    .ke-wmap-stage > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .ke-wmap-cell { position: absolute; min-height: 0; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 2px; cursor: pointer; }
-    .ke-wmap-cell-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
-    .ke-wmap-cell:hover:not(:disabled), .ke-wmap-cell:focus-visible { background: transparent; border-color: transparent; outline: 2px solid #ffe9a8; outline-offset: -1px; box-shadow: 0 0 8px rgba(255,233,168,.95); z-index: 2; }
-    .ke-wmap-cell.active { outline: 2px solid #7be39a; outline-offset: -1px; box-shadow: 0 0 8px rgba(123,227,154,.95); z-index: 2; }
-    .ke-wmap-mvp { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--red-dark); box-shadow: 0 0 0 1px rgba(247,243,234,.85); pointer-events: none; }
-    .ke-wmap-tip { position: fixed; z-index: 60; pointer-events: none; padding: 3px 8px; background: rgba(24,32,28,.92); color: #f7f3ea; border-radius: 6px; font-size: .76rem; line-height: 1.4; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
-    .ke-wmap-menu { position: fixed; z-index: 70; display: grid; gap: 2px; min-width: 150px; max-height: min(320px, calc(100vh - 16px)); overflow-y: auto; padding: 6px; background: #f7f3ea; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 26px rgba(80,62,38,.22); }
-    .ke-wmap-menu button { display: flex; align-items: center; min-height: 30px; padding: 3px 10px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--forest); font-size: .76rem; cursor: pointer; white-space: nowrap; }
-    .ke-wmap-menu button:hover:not(:disabled) { color: #f7f3ea; background: var(--forest); border-color: var(--forest); }
-    .ke-wmap-menu-img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; margin-right: 6px; flex: none; }
-    .ke-wmap-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--muted); font-size: .76rem; }
-    .ke-wmap-foot p { margin: 0; }
-    .ke-wmap-status strong { color: var(--forest); }
-    .ke-wmap-retry { margin: 0 auto 20px; display: block; }
 
     /* 选图后的「添加地图预设」询问浮层（怪物 → 怪物规则，掉落物 → 拾取/物品规则） */
     .ke-preset-overlay { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
@@ -880,6 +1110,26 @@ export function mountKePage(root: HTMLElement): void {
     .ke-preset-yes:hover:not(:disabled) { background: #2e4638; border-color: #2e4638; }
     .ke-preset-no { border: 1px solid var(--line-light); background: var(--cream); color: var(--muted); }
     .ke-preset-no:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
+
+    /* 复制方案到其他角色：轻量弹窗，列出当前账号的其它角色 */
+    .ke-copy-overlay { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
+    .ke-copy-overlay[hidden] { display: none; }
+    .ke-copy-dialog { display: grid; gap: 12px; width: min(460px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
+    .ke-copy-title { margin: 0; color: var(--forest); font-size: .95rem; font-weight: 800; text-align: center; }
+    .ke-copy-sub { margin: 0; color: #4c5a50; font-size: .78rem; line-height: 1.65; }
+    .ke-copy-list { display: grid; gap: 6px; max-height: 280px; overflow-y: auto; }
+    .ke-copy-char { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; font: inherit; text-align: left; box-shadow: none; cursor: pointer; }
+    .ke-copy-char:hover:not(:disabled) { border-color: var(--line-light); background: #fff6e6; }
+    .ke-copy-char.is-on { border-color: var(--buy); background: var(--cream); box-shadow: 0 0 0 2px var(--buy-soft); }
+    .ke-copy-char-icon { width: 22px; height: 22px; flex: none; object-fit: contain; image-rendering: pixelated; }
+    .ke-copy-char-icon-fallback { display: grid; place-items: center; width: 22px; height: 22px; flex: none; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 5px; font-size: .7rem; font-weight: 800; }
+    .ke-copy-char-text { display: grid; gap: 1px; min-width: 0; }
+    .ke-copy-char-name { overflow: hidden; color: var(--forest); font-size: .82rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-copy-char-job { color: var(--muted); font-size: .7rem; }
+    .ke-copy-empty { padding: 16px; color: var(--muted); background: #fffdf8; border: 1px dashed var(--line-light); border-radius: 8px; font-size: .8rem; text-align: center; }
+    .ke-copy-error { margin: 0; color: var(--red-dark); font-size: .76rem; font-weight: 700; }
+    .ke-copy-error[hidden] { display: none; }
+    .ke-copy-actions { display: flex; justify-content: flex-end; gap: 10px; }
   </style>
   `;
 
@@ -890,11 +1140,22 @@ export function mountKePage(root: HTMLElement): void {
   const avatarWrap = root.querySelector<HTMLElement>("#ke-char-avatar")!;
   const avatarImg = avatarWrap.querySelector<HTMLImageElement>("img")!;
   const avatarFallback = avatarWrap.querySelector<HTMLElement>(".ke-char-avatar-fallback")!;
+  const avatarLive = avatarWrap.querySelector<HTMLElement>(".ke-char-live")!;
   const charName = root.querySelector<HTMLElement>("#ke-char-name")!;
   const jobChip = root.querySelector<HTMLElement>("#ke-char-job")!;
   const charMeta = root.querySelector<HTMLElement>("#ke-char-meta")!;
   const charStrip = root.querySelector<HTMLElement>("#ke-char-strip")!;
+  const charWm = root.querySelector<HTMLImageElement>("#ke-passport-wm")!;
+  const rosterFilter = root.querySelector<HTMLInputElement>("#ke-roster-filter")!;
+  const rosterCount = root.querySelector<HTMLElement>("#ke-roster-count")!;
+  const rosterTotal = root.querySelector<HTMLElement>("#ke-roster-total")!;
+  const rosterNote = root.querySelector<HTMLElement>("#ke-roster-note")!;
+  const statProfiles = root.querySelector<HTMLElement>("#ke-stat-profiles")!;
+  const statActive = root.querySelector<HTMLElement>("#ke-stat-active")!;
+  const statChars = root.querySelector<HTMLElement>("#ke-stat-chars")!;
+  const passportNew = root.querySelector<HTMLButtonElement>("#ke-passport-new")!;
   const profilesHead = root.querySelector<HTMLElement>("#ke-profiles-head")!;
+  const profilesWho = root.querySelector<HTMLElement>("#ke-profiles-who")!;
   const profileList = root.querySelector<HTMLElement>("#ke-profile-list")!;
   const editor = root.querySelector<HTMLElement>("#ke-editor")!;
   const editorTitle = root.querySelector<HTMLElement>("#ke-editor-title")!;
@@ -908,9 +1169,22 @@ export function mountKePage(root: HTMLElement): void {
   const previewToggle =
     root.querySelector<HTMLButtonElement>("#ke-preview-toggle")!;
   const previewFile = root.querySelector<HTMLElement>("#ke-preview-file")!;
+  const previewCaret = root.querySelector<HTMLElement>("#ke-preview-caret")!;
   const preview = root.querySelector<HTMLElement>("#ke-config-preview")!;
+  const previewEditor =
+    root.querySelector<HTMLTextAreaElement>("#ke-config-editor")!;
+  const previewAdv = root.querySelector<HTMLButtonElement>("#ke-preview-adv")!;
+  const previewNote = root.querySelector<HTMLElement>("#ke-preview-note")!;
   const sharingControls = createProfileSharing(root.ownerDocument, () => markDirty(), () => void withdrawSharing());
   editor.querySelector<HTMLElement>(".ke-editor-head")?.after(sharingControls.root);
+
+  rosterFilter.addEventListener("input", () => {
+    charFilter = rosterFilter.value;
+    renderCharacterStrip();
+  });
+  passportNew.addEventListener("click", () => {
+    if (confirmDiscard()) window.location.assign(newProfileHref());
+  });
 
   function selectedCharacter(): KeCharacter | null {
     return (
@@ -919,46 +1193,99 @@ export function mountKePage(root: HTMLElement): void {
     );
   }
 
+  /** demo 多角色下，每名角色只看自己的方案。 */
+  function demoProfilesForSelected(): ProfileDetail[] {
+    const ch = selectedCharacter();
+    if (!ch) return [];
+    return demoProfiles.filter(
+      (p) => p.aid === ch.aid && p.cid === ch.cid && p.nid === ch.nid,
+    );
+  }
+
+  /** 新建方案统一进一键配置向导；编辑已有方案仍走下方编辑器。 */
+  function newProfileHref(): string {
+    const ch = selectedCharacter();
+    const demoSuffix = demo ? `${ch ? "&" : "?"}demo=1` : "";
+    return ch
+      ? `/ke/my/create/setup-guide?aid=${ch.aid}&cid=${ch.cid}&nid=${ch.nid}${demoSuffix}`
+      : `/ke/my/create/setup-guide${demoSuffix}`;
+  }
+
+  function jobLabelOf(character: KeCharacter): string {
+    return (
+      (character.job_id !== null
+        ? options?.jobs_zh?.[String(character.job_id)] ??
+          options?.jobs[String(character.job_id)]
+        : undefined) || "未知职业"
+    );
+  }
+
   /** char_name / map_name / job_id 由 KE 客户端自报或 RO 配置，必须纯文本写入。 */
   function renderCharacterStrip(): void {
     charStrip.replaceChildren();
-    const label = document.createElement("p");
-    label.className = "ke-char-strip-label";
-    label.textContent = "切换角色 · 点击下方卡片";
-    charStrip.appendChild(label);
+    const term = charFilter.trim().toLowerCase();
+    const matched = characters.filter(
+      (c) =>
+        term === "" ||
+        c.char_name.toLowerCase().includes(term) ||
+        jobLabelOf(c).toLowerCase().includes(term),
+    );
+    rosterCount.textContent = String(matched.length);
+    rosterTotal.textContent = `/ ${characters.length}`;
+    rosterNote.textContent =
+      term === ""
+        ? `全部 ${characters.length} 名角色已平铺展示 · 点击任意卡片切换当前角色`
+        : `匹配 ${matched.length} / ${characters.length} 名角色 · 清空搜索显示全部`;
+    if (matched.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ke-roster-empty";
+      empty.textContent = `没有匹配「${charFilter.trim()}」的角色，试试职业名（如「猎人」）`;
+      charStrip.appendChild(empty);
+      return;
+    }
     const currentKey = selectedKey;
-    for (const c of characters) {
+    matched.forEach((c) => {
       const key = `${c.aid}:${c.cid}:${c.nid}`;
+      const isCurrent = key === currentKey;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = `ke-char-card-chip${key === currentKey ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
+      btn.className = `ke-char-card-chip${isCurrent ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
       btn.dataset.key = key;
+      btn.setAttribute("aria-pressed", isCurrent ? "true" : "false");
       // 职业图标（只有没图标时才 fallback 字首）
-      const iconSrc = iconUrl(c.job_id);
-      if (iconSrc) {
+      const iconBox = document.createElement("span");
+      iconBox.className = "ke-char-card-iconbox";
+      const src = iconSrc(c.job_id);
+      if (src) {
         const icon = document.createElement("img");
         icon.alt = "";
         icon.className = "ke-char-card-icon";
-        icon.src = iconSrc;
-        btn.appendChild(icon);
+        icon.src = src;
+        iconBox.appendChild(icon);
       } else {
         const fallback = document.createElement("span");
         fallback.className = "ke-char-card-icon-fallback";
         fallback.textContent = c.char_name.slice(0, 1) || "?";
-        btn.appendChild(fallback);
+        iconBox.appendChild(fallback);
       }
+      btn.appendChild(iconBox);
       // 信息
       const info = document.createElement("span");
       info.className = "ke-char-card-info";
       const name = document.createElement("span");
       name.className = "ke-char-card-name";
       name.textContent = c.char_name;
-      const zh = options?.jobs_zh?.[String(c.job_id)] ?? options?.jobs[String(c.job_id)] ?? "";
       const job = document.createElement("span");
       job.className = "ke-char-card-job";
-      job.textContent = zh || "未知职业";
+      job.textContent = jobLabelOf(c);
       info.append(name, job);
       btn.appendChild(info);
+      if (isCurrent) {
+        const flag = document.createElement("span");
+        flag.className = "ke-char-card-flag";
+        flag.textContent = "当前";
+        btn.appendChild(flag);
+      }
       btn.addEventListener("click", () => {
         if (!confirmDiscard()) return;
         selectedKey = key;
@@ -970,31 +1297,7 @@ export function mountKePage(root: HTMLElement): void {
         void reloadProfiles();
       });
       charStrip.appendChild(btn);
-    }
-    if (characters.length > 5) {
-      const more = document.createElement("button");
-      more.type = "button";
-      more.className = "ke-char-card-more";
-      more.textContent = `+${characters.length - 5}`;
-      more.title = "点击查看全部角色";
-      // 简单展开：折叠前 5 之后的
-      const chips = Array.from(charStrip.querySelectorAll<HTMLButtonElement>(".ke-char-card-chip"));
-      const collapsed = chips.slice(5);
-      const isCollapsed = collapsed.some(c => c.style.display === "none");
-      for (const c of chips) c.style.display = "";
-      charStrip.appendChild(more);
-      if (!isCollapsed) {
-        for (const c of collapsed) c.style.display = "none";
-        more.textContent = `展开 ${collapsed.length} 个角色`;
-      }
-      more.addEventListener("click", () => {
-        const nowCollapsed = collapsed.some(c => c.style.display === "none");
-        for (const c of collapsed) c.style.display = nowCollapsed ? "" : "none";
-        more.textContent = nowCollapsed
-          ? `收起 ${collapsed.length} 个`
-          : `展开 ${collapsed.length} 个角色`;
-      });
-    }
+    });
   }
 
   // —— 状态徽章 / 预览 / 统计 ——
@@ -1015,17 +1318,65 @@ export function mountKePage(root: HTMLElement): void {
     return !dirty || window.confirm("有未保存的更改，确定放弃这些修改吗？");
   }
 
-  function updatePreview(): void {
+  /** 当前激活分区对应的预览文件（scalars/skills → CONFIG.TXT，其余为规则文件）。 */
+  function currentPreview(): { file: string; text: string; emptyText: string } {
     const entry = NAV.find((n) => n.id === activeTab) ?? NAV[0]!;
     if (entry.kind === "controls") {
       const schema = CONTROL_SCHEMAS.find((s) => s.file === entry.file)!;
-      previewFile.textContent = entry.file!.toUpperCase();
-      const text = serializeControl(schema, controlDoc[entry.file!] ?? []);
-      preview.textContent = text === "" ? "（空）" : text;
-    } else {
-      previewFile.textContent = "CONFIG.TXT";
-      preview.textContent = serializeConfig(configDoc);
+      return {
+        file: entry.file!.toUpperCase(),
+        text: serializeControl(schema, controlDoc[entry.file!] ?? []),
+        emptyText: "（空）",
+      };
     }
+    return {
+      file: "CONFIG.TXT",
+      text: serializeConfig(configDoc),
+      emptyText: "",
+    };
+  }
+
+  /** 预览区显示状态：折叠 / 只读预览 / 高级编辑三者互斥。 */
+  function syncPreviewVisibility(): void {
+    const expanded = !previewCollapsed;
+    preview.hidden = !(expanded && !advancedEdit);
+    previewEditor.hidden = !(expanded && advancedEdit);
+    previewNote.hidden = !advancedEdit;
+    previewCaret.textContent = previewCollapsed ? "展开 ▸" : "收起 ▾";
+    previewAdv.textContent = advancedEdit ? "退出高级" : "高级编辑";
+    previewAdv.classList.toggle("is-on", advancedEdit);
+    previewAdv.setAttribute("aria-pressed", advancedEdit ? "true" : "false");
+  }
+
+  function updatePreview(): void {
+    const content = currentPreview();
+    previewFile.textContent = content.file;
+    preview.textContent =
+      content.text === "" ? content.emptyText : content.text;
+    // 输入中（input 事件内）不能回写，否则光标会被重置。
+    if (!previewTyping && document.activeElement !== previewEditor) {
+      previewEditor.value = content.text;
+    }
+  }
+
+  /** 高级编辑：把 textarea 文本解析回表单模型，左侧 GUI 立即重建。 */
+  function applyPreviewEdit(): void {
+    const entry = NAV.find((n) => n.id === activeTab) ?? NAV[0]!;
+    previewTyping = true;
+    try {
+      if (entry.kind === "controls") {
+        const schema = CONTROL_SCHEMAS.find((s) => s.file === entry.file)!;
+        controlDoc[entry.file!] = parseControl(schema, previewEditor.value);
+      } else {
+        configDoc = parseConfig(previewEditor.value);
+      }
+    } finally {
+      previewTyping = false;
+    }
+    markDirty();
+    renderActivePanel();
+    updateNavCounts();
+    updateSideStats();
   }
 
   function updateNavCounts(): void {
@@ -1829,31 +2180,7 @@ export function mountKePage(root: HTMLElement): void {
     return (options?.maps ?? []).map((m) => ({ label: m.code, value: m.code }));
   }
 
-  // —— 世界地图选图浮层 ——
-
-  // 缓存挂在 mount 闭包上：页面生命周期内只拉一次；失败后清空以允许重试。
-  let worldmapCache: Promise<WorldmapData> | null = null;
-  function loadWorldmap(): Promise<WorldmapData> {
-    worldmapCache ??= fetch("/ke/worldmap.json", { credentials: "same-origin" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<WorldmapData>;
-      })
-      .catch((err: unknown) => {
-        worldmapCache = null;
-        throw err;
-      });
-    return worldmapCache;
-  }
-
-  interface WorldmapPickerOptions {
-    title: string;
-    value: string;
-    onSelect: (code: string) => void;
-    trigger: HTMLElement;
-  }
-
-  // 地图预设数据缓存：页面生命周期内只拉一次；失败后清空以允许重试（仅选图后按需加载）。
+  // —— 地图预设数据（选图后按需加载） ——
   let mapMobsCache: Promise<MapMobsData> | null = null;
   function loadMapMobs(): Promise<MapMobsData> {
     mapMobsCache ??= fetch("/ke/map-mobs.json", { credentials: "same-origin" })
@@ -1866,306 +2193,6 @@ export function mountKePage(root: HTMLElement): void {
         throw err;
       });
     return mapMobsCache;
-  }
-
-  /** 打开与游戏一致的世界地图选图浮层；选中后回调 onSelect 并关闭，焦点归还原按钮。 */
-  function openWorldmapPicker(opts: WorldmapPickerOptions): void {
-    root.querySelector(".ke-wmap-overlay")?.remove();
-
-    const overlay = document.createElement("div");
-    overlay.className = "ke-wmap-overlay";
-    overlay.innerHTML = `
-      <section class="ke-wmap-dialog" role="dialog" aria-modal="true" aria-labelledby="ke-wmap-title">
-        <div class="ke-wmap-head">
-          <h2 class="ke-wmap-title" id="ke-wmap-title"></h2>
-          <button type="button" class="ke-wmap-close" aria-label="关闭">×</button>
-        </div>
-        <div class="ke-wmap-tabs" role="tablist"></div>
-        <div class="ke-wmap-stage-wrap">
-          <p class="ke-wmap-message">地图加载中…</p>
-        </div>
-        <div class="ke-wmap-foot">
-          <p class="ke-wmap-status">将鼠标移到地图格子上查看地图名称。</p>
-          <p class="ke-wmap-hint" id="ke-wmap-hint">点击格子选图；带关联地图的格子（如红点 MVP 格）会弹出二级列表。也可直接在输入框填写地图代码。</p>
-        </div>
-      </section>`;
-    overlay.querySelector<HTMLElement>(".ke-wmap-title")!.textContent = opts.title;
-    root.appendChild(overlay);
-
-    const dialog = overlay.querySelector<HTMLElement>(".ke-wmap-dialog")!;
-    dialog.setAttribute("aria-describedby", "ke-wmap-hint");
-    const tabsEl = overlay.querySelector<HTMLElement>(".ke-wmap-tabs")!;
-    const stageWrap = overlay.querySelector<HTMLElement>(".ke-wmap-stage-wrap")!;
-    const statusEl = overlay.querySelector<HTMLElement>(".ke-wmap-status")!;
-    const closeBtn = overlay.querySelector<HTMLButtonElement>(".ke-wmap-close")!;
-    // 悬停悬浮提示（中文名+代码，跟随光标，与游戏一致）
-    const tipEl = document.createElement("div");
-    tipEl.className = "ke-wmap-tip";
-    tipEl.hidden = true;
-    overlay.appendChild(tipEl);
-
-    const close = () => {
-      disposeMenu?.();
-      disposeMenu = null;
-      overlay.remove();
-      opts.trigger.focus();
-    };
-    closeBtn.addEventListener("click", close);
-    overlay.addEventListener("mousedown", (event) => {
-      if (event.target === overlay) close();
-    });
-    overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-      }
-    });
-
-    const pointLabel = (point: WorldmapPoint): string => {
-      const name = point.name ?? point.code;
-      if (point.codes && point.codes.length > 1) {
-        return `${name}（${point.code}，一格 ${point.codes.length} 张图）`;
-      }
-      return `${name}（${point.code}）`;
-    };
-
-    let disposeMenu: (() => void) | null = null; // 二级列表的监听清理器
-
-    const renderLayer = (data: WorldmapData, layerId: string) => {
-      disposeMenu?.();
-      disposeMenu = null;
-      const layer = data.layers.find((l) => l.id === layerId) ?? data.layers[0]!;
-      tabsEl.querySelectorAll<HTMLButtonElement>(".ke-wmap-tab").forEach((tab) => {
-        tab.classList.toggle("active", tab.dataset.layer === layer.id);
-      });
-      stageWrap.innerHTML = "";
-      // 外框跨层取最大网格宽/高，切换层级时浮层尺寸不变；内层按自身宽高比缩放居中。
-      const maxGridW = Math.max(...data.layers.map((l) => l.cols * l.cellW));
-      const maxGridH = Math.max(...data.layers.map((l) => l.rows * l.cellH));
-      const gridW = layer.cols * layer.cellW;
-      const gridH = layer.rows * layer.cellH;
-      const frame = document.createElement("div");
-      frame.className = "ke-wmap-stage-frame";
-      frame.style.aspectRatio = `${maxGridW} / ${maxGridH}`;
-      const stage = document.createElement("div");
-      stage.className = "ke-wmap-stage";
-      stage.style.aspectRatio = `${gridW} / ${gridH}`;
-      if (gridW / gridH >= maxGridW / maxGridH) {
-        stage.style.width = "100%";
-        stage.style.left = "0";
-        stage.style.top = "50%";
-        stage.style.transform = "translateY(-50%)";
-      } else {
-        stage.style.height = "100%";
-        stage.style.left = "50%";
-        stage.style.top = "0";
-        stage.style.transform = "translateX(-50%)";
-      }
-      const img = document.createElement("img");
-      img.src = layer.image;
-      img.alt = "";
-      stage.appendChild(img);
-      for (const point of layer.points) {
-        const cell = document.createElement("button");
-        cell.type = "button";
-        cell.className = "ke-wmap-cell";
-        cell.dataset.code = point.code;
-        cell.style.left = `${(point.col / layer.cols) * 100}%`;
-        cell.style.top = `${(point.row / layer.rows) * 100}%`;
-        cell.style.width = `${(point.span / layer.cols) * 100}%`;
-        cell.style.height = `${(1 / layer.rows) * 100}%`;
-        cell.setAttribute("aria-label", pointLabel(point));
-        // 与游戏一致的格子小地图贴图（60x60，拉伸铺满格子）
-        const tile = document.createElement("img");
-        tile.className = "ke-wmap-cell-img";
-        tile.src = `/ke/worldmap/tiles/${encodeURIComponent(point.code)}.png`;
-        tile.alt = "";
-        tile.draggable = false;
-        cell.appendChild(tile);
-        const isCurrent =
-          opts.value !== "" &&
-          (point.code === opts.value || (point.codes ?? []).includes(opts.value));
-        if (isCurrent) cell.classList.add("active");
-        if (point.mvp) {
-          const mvp = document.createElement("i");
-          mvp.className = "ke-wmap-mvp";
-          mvp.title = "有 MVP";
-          cell.appendChild(mvp);
-        }
-        const label = () => (point.name ? `${point.name}（${point.code}）` : point.code);
-        const showStatus = () => {
-          statusEl.innerHTML = "";
-          const strong = document.createElement("strong");
-          strong.textContent = point.name ?? point.code;
-          statusEl.append(strong, document.createTextNode(` ${point.code}`));
-        };
-        // 悬停：框住格子 + 光标旁悬浮中文名（与游戏一致）
-        const showTip = (x: number, y: number) => {
-          tipEl.textContent = label();
-          tipEl.hidden = false;
-          const maxX = window.innerWidth - tipEl.offsetWidth - 8;
-          const maxY = window.innerHeight - tipEl.offsetHeight - 8;
-          tipEl.style.left = `${Math.max(4, Math.min(x + 14, maxX))}px`;
-          tipEl.style.top = `${Math.max(4, Math.min(y + 16, maxY))}px`;
-        };
-        const hideTip = () => {
-          tipEl.hidden = true;
-        };
-        cell.addEventListener("mouseenter", (e) => {
-          showStatus();
-          showTip((e as MouseEvent).clientX, (e as MouseEvent).clientY);
-        });
-        cell.addEventListener("mousemove", (e) => {
-          showTip((e as MouseEvent).clientX, (e as MouseEvent).clientY);
-        });
-        cell.addEventListener("mouseleave", hideTip);
-        cell.addEventListener("focus", () => {
-          showStatus();
-          const rect = cell.getBoundingClientRect();
-          showTip(rect.left + rect.width / 2, rect.bottom);
-        });
-        cell.addEventListener("blur", hideTip);
-        cell.addEventListener("click", () => {
-          if (point.codes && point.codes.length > 1) {
-            openMultiMenu(point, cell);
-            return;
-          }
-          opts.onSelect(point.code);
-          close();
-        });
-        stage.appendChild(cell);
-      }
-      frame.appendChild(stage);
-      stageWrap.appendChild(frame);
-    };
-
-    // 一格多图（如海龟洞 tur_dun01~04）：在格子附近弹出二级菜单选具体层。
-    // 菜单挂在浮层根节点上（position: fixed），避免被地图容器的 overflow 裁切。
-    const openMultiMenu = (point: WorldmapPoint, cell: HTMLElement) => {
-      disposeMenu?.();
-      disposeMenu = null;
-      const menu = document.createElement("div");
-      menu.className = "ke-wmap-menu";
-      menu.setAttribute("role", "menu");
-      for (const code of point.codes ?? []) {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.setAttribute("role", "menuitem");
-        const thumb = document.createElement("img");
-        thumb.className = "ke-wmap-menu-img";
-        thumb.src = `/ke/worldmap/tiles/${encodeURIComponent(code)}.png`;
-        thumb.alt = "";
-        thumb.draggable = false;
-        const text = document.createElement("span");
-        const name = point.codeNames?.[code];
-        text.textContent = name && name !== code ? `${name}（${code}）` : code;
-        item.append(thumb, text);
-        item.addEventListener("click", () => {
-          opts.onSelect(code);
-          close();
-        });
-        menu.appendChild(item);
-      }
-      // 先隐藏插入再测量尺寸，贴格子下方展开；空间不足时翻到上方，并夹在视口内。
-      menu.style.visibility = "hidden";
-      overlay.appendChild(menu);
-      const rect = cell.getBoundingClientRect();
-      const menuW = menu.offsetWidth;
-      const menuH = menu.offsetHeight;
-      const gap = 4;
-      const edge = 8;
-      let left = rect.left;
-      let top = rect.bottom + gap;
-      if (top + menuH > window.innerHeight - edge) {
-        top = Math.max(edge, rect.top - gap - menuH);
-      }
-      if (left + menuW > window.innerWidth - edge) left = window.innerWidth - edge - menuW;
-      if (left < edge) left = edge;
-      menu.style.left = `${left}px`;
-      menu.style.top = `${top}px`;
-      menu.style.visibility = "";
-      menu.querySelector<HTMLButtonElement>("button")?.focus();
-
-      // 鼠标移开格子和菜单后自动收起（保留从格子移到菜单的过渡时间）
-      let closeTimer: number | null = null;
-      const cancelClose = () => {
-        if (closeTimer !== null) {
-          window.clearTimeout(closeTimer);
-          closeTimer = null;
-        }
-      };
-      const detach = () => {
-        cancelClose();
-        cell.removeEventListener("mouseleave", onCellLeave);
-        cell.removeEventListener("mouseenter", cancelClose);
-        menu.removeEventListener("mouseenter", cancelClose);
-        menu.removeEventListener("mouseleave", scheduleClose);
-        dialog.removeEventListener("scroll", onViewportChange, true);
-        window.removeEventListener("resize", onViewportChange);
-      };
-      const closeMenu = () => {
-        detach();
-        menu.remove();
-      };
-      const scheduleClose = () => {
-        cancelClose();
-        closeTimer = window.setTimeout(() => {
-          const focusInside = menu.contains(document.activeElement);
-          closeMenu();
-          if (focusInside) cell.focus();
-        }, 160);
-      };
-      const onCellLeave = () => scheduleClose();
-      // 滚动或缩放后固定定位会与格子错位，直接收起
-      const onViewportChange = () => closeMenu();
-      cell.addEventListener("mouseleave", onCellLeave);
-      cell.addEventListener("mouseenter", cancelClose);
-      menu.addEventListener("mouseenter", cancelClose);
-      menu.addEventListener("mouseleave", scheduleClose);
-      dialog.addEventListener("scroll", onViewportChange, true);
-      window.addEventListener("resize", onViewportChange);
-      disposeMenu = closeMenu;
-    };
-
-    void loadWorldmap()
-      .then((data) => {
-        if (!overlay.isConnected || data.layers.length === 0) return;
-        tabsEl.innerHTML = "";
-        for (const layer of data.layers) {
-          const tab = document.createElement("button");
-          tab.type = "button";
-          tab.className = "ke-wmap-tab";
-          tab.dataset.layer = layer.id;
-          tab.setAttribute("role", "tab");
-          tab.textContent = layer.name;
-          tab.addEventListener("click", () => renderLayer(data, layer.id));
-          tabsEl.appendChild(tab);
-        }
-        // 默认打开当前值所在的层；无当前值时打开第一层。
-        const current = data.layers.find((layer) =>
-          layer.points.some(
-            (p) => p.code === opts.value || (p.codes ?? []).includes(opts.value),
-          ),
-        );
-        renderLayer(data, (current ?? data.layers[0]!).id);
-        closeBtn.focus();
-      })
-      .catch(() => {
-        if (!overlay.isConnected) return;
-        stageWrap.innerHTML = "";
-        const message = document.createElement("p");
-        message.className = "ke-wmap-message";
-        message.textContent = "地图数据加载失败，请检查网络后重试。仍可直接在输入框填写地图代码。";
-        const retry = document.createElement("button");
-        retry.type = "button";
-        retry.className = "ke-btn-ghost ke-wmap-retry";
-        retry.textContent = "重试";
-        retry.addEventListener("click", () => {
-          overlay.remove();
-          openWorldmapPicker(opts);
-        });
-        stageWrap.append(message, retry);
-      });
   }
 
   // —— 选图后的「添加地图预设」询问浮层 ——
@@ -2387,6 +2414,19 @@ export function mountKePage(root: HTMLElement): void {
 
   // —— 角色卡 ——
 
+  /** 图标映射就绪后异步抠掉洋红底再重绘角色卡；失败时保留原图/字首，不阻塞渲染。 */
+  function refreshCharacterIcons(): void {
+    if (characters.length === 0) return;
+    void prewarmPticons(
+      root.ownerDocument,
+      characters.map((c) => c.job_id),
+    ).then(() => {
+      if (characters.length === 0) return;
+      renderCharCard();
+      renderCharacterStrip();
+    });
+  }
+
   function renderCharCard(): void {
     const character = selectedCharacter();
     if (!character) {
@@ -2395,17 +2435,22 @@ export function mountKePage(root: HTMLElement): void {
     }
     charCard.hidden = false;
     // 职业图标
-    const iconSrc = iconUrl(character.job_id);
-    if (iconSrc) {
-      avatarImg.src = iconSrc;
+    const src = iconSrc(character.job_id);
+    if (src) {
+      avatarImg.src = src;
       avatarImg.hidden = false;
       avatarFallback.hidden = true;
+      charWm.src = src;
+      charWm.hidden = false;
     } else {
       avatarImg.hidden = true;
       avatarFallback.hidden = false;
       avatarFallback.textContent = character.char_name.slice(0, 1) || "?";
+      charWm.removeAttribute("src");
+      charWm.hidden = true;
     }
     charName.textContent = character.char_name;
+    avatarLive.hidden = !(character.last_seen_at > Date.now() - 5 * 60_000);
     const jobName =
       character.job_id !== null
         ? (options?.jobs_zh?.[String(character.job_id)] ??
@@ -2413,19 +2458,28 @@ export function mountKePage(root: HTMLElement): void {
         : undefined;
     jobChip.hidden = !jobName;
     jobChip.textContent = jobName ?? "";
-    charMeta.innerHTML = "";
+    charMeta.replaceChildren();
+    if (jobName) charMeta.appendChild(jobChip);
     if (character.map_name) {
       const mapChip = document.createElement("span");
       mapChip.className = "ke-chip ke-chip--map";
       mapChip.textContent = character.map_name;
       charMeta.appendChild(mapChip);
+      const mapZh = mapNames[character.map_name];
+      if (mapZh) {
+        const zhChip = document.createElement("span");
+        zhChip.className = "ke-chip ke-chip--map-zh";
+        zhChip.textContent = mapZh;
+        charMeta.appendChild(zhChip);
+      }
     }
     if (character.last_seen_at) {
       const seenChip = document.createElement("span");
-      seenChip.className = "ke-chip";
+      seenChip.className = "ke-chip ke-chip--seen";
       seenChip.textContent = `最近在线 ${relativeTime(character.last_seen_at)}`;
       charMeta.appendChild(seenChip);
     }
+    statChars.textContent = String(characters.length);
   }
 
   // —— Profile 列表 ——
@@ -2434,12 +2488,25 @@ export function mountKePage(root: HTMLElement): void {
     profilesHead.hidden = false;
     profileList.hidden = false;
     profileList.innerHTML = "";
+    const ch = selectedCharacter();
+    profilesWho.textContent = ch ? `${ch.char_name} · ${profiles.length} 套方案` : "";
+    statProfiles.textContent = String(profiles.length);
+    statActive.textContent = String(profiles.filter((p) => p.is_active).length);
     if (profiles.length === 0) {
       const empty = document.createElement("div");
       empty.className = "ke-empty";
       empty.style.gridColumn = "1 / -1";
-      empty.innerHTML =
-        "<b>该角色还没有配置方案</b><span>新建一套方案，选好挂机地图和技能，就能开始自动挂机。</span>";
+      const orbit = document.createElement("span");
+      orbit.className = "ke-empty-orbit";
+      orbit.textContent = "＋";
+      const title = document.createElement("b");
+      title.textContent = "该角色还没有配置方案";
+      const sub = document.createElement("span");
+      sub.textContent = "新建一套方案，选好挂机地图和技能，就能开始自动挂机。";
+      const steps = document.createElement("div");
+      steps.className = "ke-empty-steps";
+      steps.innerHTML = "<span>① 选地图</span><span>② 选技能</span><span>③ 保存即激活</span>";
+      empty.append(orbit, title, sub, steps);
       const btnRow = document.createElement("div");
       btnRow.className = "ke-empty-actions";
       const newBtn = document.createElement("button");
@@ -2447,7 +2514,7 @@ export function mountKePage(root: HTMLElement): void {
       newBtn.className = "ke-btn-primary";
       newBtn.textContent = "＋ 新建第一套方案";
       newBtn.addEventListener("click", () => {
-        if (confirmDiscard()) void openEditor(null);
+        if (confirmDiscard()) window.location.assign(newProfileHref());
       });
       const hallBtn = document.createElement("a");
       hallBtn.className = "ke-btn-ghost ke-empty-hall";
@@ -2521,30 +2588,263 @@ export function mountKePage(root: HTMLElement): void {
         "click",
         () => void activateProfile(profile.id),
       );
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "ke-btn-ghost";
+      copy.textContent = "复制";
+      copy.addEventListener("click", (event) => {
+        openCopyDialog(profile, event.currentTarget as HTMLElement);
+      });
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "ke-btn-danger";
       remove.textContent = "删除";
       remove.addEventListener("click", () => void deleteProfile(profile.id));
-      actions.append(edit, activate, remove);
-      card.append(name, actions);
+      actions.append(edit, copy, activate, remove);
+      const meta = document.createElement("div");
+      meta.className = "ke-profile-meta";
+      meta.textContent = "CONFIG.TXT · 4 个规则文件";
+      // 共享行在构建时已先插入，把方案名提到卡片最前，保证「名称 → 共享 → 档案 → 操作」的阅读顺序。
+      card.prepend(name);
+      card.append(meta, actions);
       profileList.appendChild(card);
     }
     const newCard = document.createElement("button");
     newCard.type = "button";
     newCard.className = "ke-profile-new";
-    newCard.textContent = "＋ 新建配置方案";
+    newCard.innerHTML =
+      '<span class="ke-profile-new-ring">＋</span><b>新建方案</b><small>使用配置向导，几分钟完成</small>';
     newCard.addEventListener("click", () => {
-      if (confirmDiscard()) void openEditor(null);
+      if (confirmDiscard()) window.location.assign(newProfileHref());
     });
     profileList.appendChild(newCard);
     const hallCard = document.createElement("a");
     hallCard.className = "ke-profile-hall";
     hallCard.href = "/ke/hall";
     hallCard.innerHTML =
-      "<span>🏛️ 去配置大厅</span><small>看看大佬们的方案</small>";
+      "<span>配置大厅</span><small>看看大佬们的方案</small>";
     profileList.appendChild(hallCard);
   }
+
+  // —— 复制方案到其他角色 ——
+
+  function uniqueProfileName(base: string, taken: readonly string[]): string {
+    const limit = 64;
+    const clean = base.trim().slice(0, limit) || "复制的方案";
+    if (!taken.includes(clean)) return clean;
+    for (let n = 1; n < 100; n += 1) {
+      const suffix = n === 1 ? "（副本）" : `（副本 ${n}）`;
+      const candidate = `${clean.slice(0, Math.max(1, limit - suffix.length))}${suffix}`;
+      if (!taken.includes(candidate)) return candidate;
+    }
+    return `${clean.slice(0, 50)}（副本 ${Date.now()}）`.slice(0, limit);
+  }
+
+  /** 把 sourceId 的方案完整复制到 target 角色名下（不会带走共享状态）。 */
+  async function duplicateProfile(
+    sourceId: number,
+    target: KeCharacter,
+  ): Promise<string> {
+    if (demo) {
+      const source = demoProfiles.find((profile) => profile.id === sourceId);
+      if (!source) throw new Error("找不到这套演示方案，请刷新后重试。");
+      const targetProfiles = demoProfiles.filter(
+        (profile) =>
+          profile.aid === target.aid &&
+          profile.cid === target.cid &&
+          profile.nid === target.nid,
+      );
+      const name = uniqueProfileName(
+        source.name,
+        targetProfiles.map((profile) => profile.name),
+      );
+      const id = Math.max(0, ...demoProfiles.map((profile) => profile.id)) + 1;
+      demoProfiles = [
+        ...demoProfiles,
+        {
+          ...source,
+          id,
+          aid: target.aid,
+          cid: target.cid,
+          nid: target.nid,
+          name,
+          is_active: false,
+          sharing: null,
+        },
+      ];
+      return name;
+    }
+    const [source, targetProfiles] = await Promise.all([
+      keFetch<ProfileDetail>(`/api/v1/ke/profiles/${sourceId}`),
+      keFetch<{ profiles: ProfileSummary[] }>(
+        `/api/v1/ke/profiles?aid=${target.aid}&cid=${target.cid}&nid=${target.nid}`,
+      ),
+    ]);
+    const name = uniqueProfileName(
+      source.name,
+      targetProfiles.profiles.map((profile) => profile.name),
+    );
+    await keFetch<{ id: number }>("/api/v1/ke/profiles", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        aid: target.aid,
+        cid: target.cid,
+        nid: target.nid,
+        name,
+        config_text: source.config_text,
+        mon_control: source.mon_control ?? "",
+        pickupitems: source.pickupitems ?? "",
+        items_control: source.items_control ?? "",
+        timeouts: source.timeouts,
+      }),
+    });
+    return name;
+  }
+
+  const copyOverlay = document.createElement("div");
+  copyOverlay.className = "ke-copy-overlay";
+  copyOverlay.hidden = true;
+  copyOverlay.innerHTML = `
+    <section class="ke-copy-dialog" role="dialog" aria-modal="true" aria-labelledby="ke-copy-title">
+      <h2 class="ke-copy-title" id="ke-copy-title">复制方案到其他角色</h2>
+      <p class="ke-copy-sub" id="ke-copy-sub"></p>
+      <div class="ke-copy-list" id="ke-copy-list" role="list"></div>
+      <p class="ke-copy-error" id="ke-copy-error" role="alert" hidden></p>
+      <div class="ke-copy-actions">
+        <button type="button" class="ke-btn-ghost" id="ke-copy-cancel">取消</button>
+        <button type="button" class="ke-btn-primary" id="ke-copy-confirm">确认复制</button>
+      </div>
+    </section>`;
+  root.appendChild(copyOverlay);
+  const copyList = copyOverlay.querySelector<HTMLElement>("#ke-copy-list")!;
+  const copySub = copyOverlay.querySelector<HTMLElement>("#ke-copy-sub")!;
+  const copyError = copyOverlay.querySelector<HTMLElement>("#ke-copy-error")!;
+  const copyCancel =
+    copyOverlay.querySelector<HTMLButtonElement>("#ke-copy-cancel")!;
+  const copyConfirm =
+    copyOverlay.querySelector<HTMLButtonElement>("#ke-copy-confirm")!;
+  let copySourceId: number | null = null;
+  let copyTargetKey: string | null = null;
+  let copyTrigger: HTMLElement | null = null;
+
+  function renderCopyTargets(): void {
+    const ch = selectedCharacter();
+    copyTargetKey = null;
+    copyConfirm.disabled = true;
+    copyList.replaceChildren();
+    const others = characters.filter(
+      (c) =>
+        !ch || `${c.aid}:${c.cid}:${c.nid}` !== `${ch.aid}:${ch.cid}:${ch.nid}`,
+    );
+    if (others.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ke-copy-empty";
+      empty.textContent = "当前账号没有其他已绑定角色，暂时无处可复制。";
+      copyList.appendChild(empty);
+      return;
+    }
+    for (const c of others) {
+      const key = `${c.aid}:${c.cid}:${c.nid}`;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "ke-copy-char";
+      row.setAttribute("role", "listitem");
+      row.dataset.key = key;
+      const src = iconSrc(c.job_id);
+      if (src) {
+        const icon = document.createElement("img");
+        icon.alt = "";
+        icon.className = "ke-copy-char-icon";
+        icon.src = src;
+        row.appendChild(icon);
+      } else {
+        const fallback = document.createElement("span");
+        fallback.className = "ke-copy-char-icon-fallback";
+        fallback.textContent = c.char_name.slice(0, 1) || "?";
+        row.appendChild(fallback);
+      }
+      const text = document.createElement("span");
+      text.className = "ke-copy-char-text";
+      const name = document.createElement("span");
+      name.className = "ke-copy-char-name";
+      name.textContent = c.char_name;
+      const job = document.createElement("span");
+      job.className = "ke-copy-char-job";
+      job.textContent =
+        options?.jobs_zh?.[String(c.job_id)] ??
+        options?.jobs[String(c.job_id)] ??
+        "未知职业";
+      text.append(name, job);
+      row.appendChild(text);
+      row.addEventListener("click", () => {
+        copyTargetKey = key;
+        copyConfirm.disabled = false;
+        for (const item of Array.from(
+          copyList.querySelectorAll<HTMLElement>(".ke-copy-char"),
+        )) {
+          item.classList.toggle("is-on", item.dataset.key === key);
+        }
+      });
+      copyList.appendChild(row);
+    }
+  }
+
+  function closeCopyDialog(): void {
+    copyOverlay.hidden = true;
+    copySourceId = null;
+    copyTargetKey = null;
+    copyTrigger?.focus();
+    copyTrigger = null;
+  }
+
+  function openCopyDialog(profile: ProfileSummary, trigger: HTMLElement): void {
+    copySourceId = profile.id;
+    copyTrigger = trigger;
+    copyError.hidden = true;
+    copySub.textContent = `把「${profile.name}」完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。`;
+    renderCopyTargets();
+    copyOverlay.hidden = false;
+    copyCancel.focus();
+  }
+
+  async function confirmCopy(): Promise<void> {
+    const target = characters.find(
+      (c) => `${c.aid}:${c.cid}:${c.nid}` === copyTargetKey,
+    );
+    if (copySourceId === null || !target) {
+      copyError.hidden = false;
+      copyError.textContent = "请先选择要复制到的角色。";
+      return;
+    }
+    copyError.hidden = true;
+    copyConfirm.disabled = true;
+    copyConfirm.textContent = "复制中…";
+    try {
+      const name = await duplicateProfile(copySourceId, target);
+      closeCopyDialog();
+      status.textContent = `已复制到「${target.char_name}」：${name}`;
+    } catch (error) {
+      copyError.hidden = false;
+      copyError.textContent =
+        error instanceof Error ? error.message : "复制失败";
+      copyConfirm.disabled = false;
+    } finally {
+      copyConfirm.textContent = "确认复制";
+    }
+  }
+
+  copyCancel.addEventListener("click", closeCopyDialog);
+  copyConfirm.addEventListener("click", () => void confirmCopy());
+  copyOverlay.addEventListener("mousedown", (event) => {
+    if (event.target === copyOverlay) closeCopyDialog();
+  });
+  copyOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      closeCopyDialog();
+    }
+  });
 
   // —— 编辑器导航 ——
 
@@ -2695,7 +2995,7 @@ export function mountKePage(root: HTMLElement): void {
         pickBtn.className = "ke-btn-ghost ke-wmap-open";
         pickBtn.textContent = "选择地图";
         pickBtn.addEventListener("click", () => {
-          openWorldmapPicker({
+          openWorldmapPicker(root, {
             title: scalar.label,
             value: configDoc.scalars[scalar.key] ?? "",
             onSelect: (code) => {
@@ -3943,7 +4243,7 @@ export function mountKePage(root: HTMLElement): void {
       return;
     }
     if (demo) {
-      renderProfiles(demoProfiles);
+      renderProfiles(demoProfilesForSelected());
       return;
     }
     const query = `aid=${character.aid}&cid=${character.cid}&nid=${character.nid}`;
@@ -3964,7 +4264,7 @@ export function mountKePage(root: HTMLElement): void {
           profile.sharing = { ...profile.sharing, status: "WITHDRAWN", updated_at: Date.now() };
           sharingControls.markWithdrawn();
           sharingControls.message("演示中已撤回；实际账号和共享条目没有变化。");
-          renderProfiles(demoProfiles);
+          renderProfiles(demoProfilesForSelected());
         }
         return;
       }
@@ -3981,8 +4281,14 @@ export function mountKePage(root: HTMLElement): void {
 
   async function activateProfile(id: number): Promise<void> {
     if (demo) {
-      demoProfiles = demoProfiles.map((profile) => ({ ...profile, is_active: profile.id === id }));
-      renderProfiles(demoProfiles);
+      // 激活只影响当前角色，其他角色的激活状态保持不变。
+      const ch = selectedCharacter();
+      demoProfiles = demoProfiles.map((profile) =>
+        ch && profile.aid === ch.aid && profile.cid === ch.cid && profile.nid === ch.nid
+          ? { ...profile, is_active: profile.id === id }
+          : profile,
+      );
+      renderProfiles(demoProfilesForSelected());
       status.textContent = "已在演示中模拟激活；不会写入账号。";
       return;
     }
@@ -4001,7 +4307,7 @@ export function mountKePage(root: HTMLElement): void {
     if (demo) {
       demoProfiles = demoProfiles.filter((profile) => profile.id !== id);
       if (editingId === id) hideForm();
-      renderProfiles(demoProfiles);
+      renderProfiles(demoProfilesForSelected());
       status.textContent = "演示方案已从本次预览移除；刷新后会恢复。";
       return;
     }
@@ -4099,7 +4405,7 @@ export function mountKePage(root: HTMLElement): void {
         if (existingIndex === -1) demoProfiles = [...demoProfiles, demoProfile];
         else demoProfiles[existingIndex] = demoProfile;
         hideForm();
-        renderProfiles(demoProfiles);
+        renderProfiles(demoProfilesForSelected());
         status.textContent = "仅在演示中模拟保存；刷新后恢复，未写入账号。";
         return;
       }
@@ -4144,11 +4450,24 @@ export function mountKePage(root: HTMLElement): void {
   }
   previewToggle.addEventListener("click", () => {
     previewCollapsed = !previewCollapsed;
-    preview.hidden = previewCollapsed;
-    previewToggle.querySelector("span")!.textContent = previewCollapsed
-      ? "展开 ▸"
-      : "收起 ▾";
+    syncPreviewVisibility();
   });
+  previewAdv.addEventListener("click", () => {
+    advancedEdit = !advancedEdit;
+    previewCollapsed = false;
+    updatePreview();
+    syncPreviewVisibility();
+    if (advancedEdit) previewEditor.focus();
+  });
+  previewEditor.addEventListener("input", applyPreviewEdit);
+  previewEditor.addEventListener("blur", () => {
+    // 失焦时把文本规范化（去掉注释/无法识别的键），与表单模型保持一致。
+    const content = currentPreview();
+    preview.textContent =
+      content.text === "" ? content.emptyText : content.text;
+    previewEditor.value = content.text;
+  });
+  syncPreviewVisibility();
   nameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -4163,13 +4482,6 @@ export function mountKePage(root: HTMLElement): void {
   // —— 初始化 ——
 
   async function init(): Promise<void> {
-    // 并行加载职业图标映射；加载完后重绘角色卡，让 fallback 字首替换成真图标
-    void loadPticonMap().then(() => {
-      if (characters.length > 0) {
-        renderCharCard();
-        renderCharacterStrip();
-      }
-    });
     options = await keFetch<KeOptions>("/ke/options.json").catch(() => null);
     // 中文地图名表：缺失时退化为直接显示地图代码，不影响手动填写。
     const mapNamesFile = await keFetch<MapNamesFile>("/ke/mapnames.json").catch(() => null);
@@ -4179,25 +4491,16 @@ export function mountKePage(root: HTMLElement): void {
     );
     if (demo) {
       root.querySelector<HTMLElement>("#ke-demo-chip")!.hidden = false;
-      characters = [
-        {
-          aid: 1000001,
-          cid: 2000002,
-          nid: 3000003,
-          char_name: "波利猎人",
-          job_id: 11,
-          map_name: "prt_fild08",
-          last_seen_at: Date.now() - 3 * 60000,
-        },
-      ];
-      const firstKey = `${characters[0]!.aid}:${characters[0]!.cid}:${characters[0]!.nid}`;
-      selectedKey = firstKey;
-      selectedJobId = characters[0]!.job_id ?? null;
+      characters = buildDemoCharacters();
+      demoProfiles = buildDemoProfiles(options);
+      const first = characters[0]!;
+      selectedKey = `${first.aid}:${first.cid}:${first.nid}`;
+      selectedJobId = first.job_id ?? null;
       renderCharacterStrip();
-      status.textContent = "演示模式：示例数据只在当前页面模拟，不会写入账号。";
       renderCharCard();
-      renderProfiles(demoProfiles);
-      void openEditor(null);
+      status.textContent = "演示模式：示例数据只在当前页面模拟，不会写入账号。";
+      renderProfiles(demoProfilesForSelected());
+      refreshCharacterIcons();
       return;
     }
     try {
@@ -4218,6 +4521,7 @@ export function mountKePage(root: HTMLElement): void {
       status.textContent = "";
       renderCharacterStrip();
       renderCharCard();
+      refreshCharacterIcons();
       await reloadProfiles();
       const requestedProfile = Number(query.get("profile"));
       if (Number.isSafeInteger(requestedProfile) && requestedProfile > 0) {

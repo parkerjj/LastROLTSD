@@ -13,7 +13,8 @@ function configure(mode = 'hyperdrive', configId = id) {
   const result = spawnSync(process.execPath, [join(root, 'scripts/configure-hyperdrive.mjs'), '--environment', 'production', '--config', config], {
     encoding: 'utf8', env: { ...process.env, MYSQL_CONNECTION_MODE: mode, CLOUDFLARE_HYPERDRIVE_ID: configId },
   });
-  return { ...result, config: readFileSync(config, 'utf8') };
+  // Windows 检出（core.autocrlf=true）会带 CRLF，断言按 LF 文本比较，避免平台相关失败。
+  return { ...result, config: readFileSync(config, 'utf8').replace(/\r\n/gu, '\n') };
 }
 
 describe('Hyperdrive deployment configuration', () => {

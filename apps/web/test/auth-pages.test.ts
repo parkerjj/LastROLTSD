@@ -454,7 +454,8 @@ describe('auth pages', () => {
     const accounts = installDom('/accounts');
     await import('../src/main');
     expect(mainMocks.initAnalytics).toHaveBeenCalledTimes(1);
-    expect(mainMocks.mountAccountsPage).toHaveBeenCalledTimes(1);
+    // 页面模块改为按需加载：挂载发生在动态 import 完成之后。
+    await vi.waitFor(() => expect(mainMocks.mountAccountsPage).toHaveBeenCalledTimes(1));
     accounts.dom.window.close();
   });
 

@@ -125,7 +125,13 @@ it('local demo save stays in memory and never sends a KE write request', async (
   await tick();
 
   expect(root.querySelector<HTMLElement>('#ke-demo-chip')?.hidden).toBe(false);
+  // 波利猎人预置 3 套方案；打开第一套改个名字，并开启共享
+  expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(3);
+  root.querySelector<HTMLElement>('.ke-profile-card')!
+    .querySelector<HTMLButtonElement>('.ke-profile-actions .ke-btn-ghost')!.click();
+  await tick();
   const name = root.querySelector<HTMLInputElement>('#ke-profile-name')!;
+  expect(name.value).toBe('斐扬打波利');
   name.value = '猎场安全配置';
   name.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   enableSharing(dom, root);
@@ -141,7 +147,9 @@ it('local demo save stays in memory and never sends a KE write request', async (
 
   let card = root.querySelector<HTMLElement>('.ke-profile-card')!;
   expect(card.textContent).toContain('DEM-0001');
-  card.querySelector<HTMLButtonElement>('.ke-btn-live')!.click();
+  // 第一套已是激活状态，激活第二套
+  root.querySelectorAll<HTMLElement>('.ke-profile-card')[1]!
+    .querySelector<HTMLButtonElement>('.ke-btn-live')!.click();
   await tick();
   expect(root.textContent).toContain('已在演示中模拟激活');
 
@@ -159,7 +167,7 @@ it('local demo save stays in memory and never sends a KE write request', async (
   card.querySelector<HTMLButtonElement>('.ke-btn-danger')!.click();
   await tick();
 
-  expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(0);
+  expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(2);
   expect(vi.mocked(fetch).mock.calls.some(([path, init]) =>
     String(path).startsWith('/api/v1/ke/') && ['POST', 'PUT', 'DELETE'].includes(init?.method ?? ''),
   )).toBe(false);

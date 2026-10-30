@@ -306,7 +306,8 @@ const ALL_FALLBACK_ROWS: Record<string, ControlRow[]> = {
     {
       name: "all_miniboss",
       values: {
-        attack_auto: "1",
+        // 0 = 只还击不主动招惹（-1 才是完全不打，1/2 会主动攻击）
+        attack_auto: "0",
         teleport_auto: "0",
         teleport_search: "0",
         skillcancel_auto: "0",
@@ -320,7 +321,7 @@ const ALL_FALLBACK_ROWS: Record<string, ControlRow[]> = {
     {
       name: "all_mvp",
       values: {
-        attack_auto: "-1",
+        attack_auto: "0",
         teleport_auto: "1",
         teleport_search: "0",
         skillcancel_auto: "0",
@@ -360,10 +361,20 @@ export function allFallbackRows(file: string): ControlRow[] {
   }));
 }
 
+/** 草类怪物：不掉落有用物品、打了只浪费 SP，默认在 mon_control 里忽略（attack_auto -1）。
+ *  地图生成具名怪行时也要跳过它们，避免被后写的 attack_auto 2 覆盖。 */
+export const GRASS_MOB_NAMES: readonly string[] = [
+  "红草", "蓝草", "绿草", "黄草", "白草", "光芒草", "白草_E", "蓝草_E",
+];
+
 /** 默认控制文件自带的实用预设行（仅新 profile，用户可修改/删除）。
  *  不存仓也不卖的特殊道具：具名道具在前，通配符在后，最后是卡片兜底——
  *  通配符多条命中时取文件里靠前的一条，所以顺序即优先级。 */
 const DEFAULT_PRESET_ROWS: Record<string, ControlRow[]> = {
+  "mon_control.txt": GRASS_MOB_NAMES.map((name) => ({
+    name,
+    values: { attack_auto: "-1" },
+  })),
   "items_control.txt": [
     {
       name: "魔法箭矢筒",
@@ -420,6 +431,21 @@ export function defaultControlDoc(): ControlDoc {
   }
   doc["timeouts.txt"] = [];
   return doc;
+}
+
+/** 控制文件用空格分隔字段；物品/怪物名本身可能带空格（如「毒草 夹竹桃」），
+ *  KE 用「数值尾巴」定位名字，普通的空格名可以正常识别。但名字里若含纯数字单词
+ *  （如「晚祷钟核心 01」）或连续空格（如「雪花魔力(物理)  2Lv」），空格会被误当成列分隔符。
+ *  生成配置时把这类名字的空格逐个换成 `?` 通配符（KE 支持，`?` 恰好匹配一个字符），
+ *  即可保持整名是单个字段。 */
+export function controlSafeName(name: string): string {
+  const trimmed = name.trim();
+  if (!/\s/u.test(trimmed)) return trimmed;
+  const words = trimmed.split(/\s+/u);
+  const unsafe =
+    /\s{2,}/u.test(trimmed) ||
+    words.some((word) => /^[+-]?\d+(?:\.\d+)?$/u.test(word));
+  return unsafe ? trimmed.replace(/\s/gu, "?") : trimmed;
 }
 
 /** 序列化（空格分隔；未设置列省略，仅保留从首列到最后一个已设列）。
@@ -519,6 +545,51 @@ export function validateControlDoc(doc: ControlDoc): string[] {
   return errors;
 }
 
+/** 复刻 KE 的分词规则（crates/kore-core/src/config/parser.rs）：
+ *  pickupitems / items_control 从第一个「后续全是整数」的字段切分，mon_control 从第一个
+ *  数字字段切分，这样「毒草 夹竹桃 1」的名字不会被拆开。 */
+function splitControlFields(schema: ControlSchema, line: string): string[] {
+  if (line.startsWith('"')) {
+    // KE 支持用双引号包住带空格的名字。
+    const fields: string[] = [];
+    let current = "";
+    let quoted = false;
+    for (const character of line) {
+      if (character === '"') {
+        quoted = !quoted;
+      } else if (/\s/u.test(character) && !quoted) {
+        if (current !== "") {
+          fields.push(current);
+          current = "";
+        }
+      } else {
+        current += character;
+      }
+    }
+    if (current !== "") fields.push(current);
+    return fields;
+  }
+  const words = line.split(/\s+/u).filter((word) => word !== "");
+  if (words.length < 2) return words;
+  const isInt = (word: string): boolean => /^[+-]?\d+$/u.test(word);
+  if (schema.file === "pickupitems.txt" || schema.file === "items_control.txt") {
+    for (let index = 1; index < words.length; index += 1) {
+      if (words.slice(index).every(isInt)) {
+        return [words.slice(0, index).join(" "), ...words.slice(index)];
+      }
+    }
+  } else if (schema.file === "mon_control.txt") {
+    const index = words.findIndex(
+      (word, position) =>
+        position > 0 && Number.isFinite(Number(word)),
+    );
+    if (index > 0) {
+      return [words.slice(0, index).join(" "), ...words.slice(index)];
+    }
+  }
+  return words;
+}
+
 /** 解析（按空白切分，首列为 name，后续按列顺序取值）。 */
 export function parseControl(
   schema: ControlSchema,
@@ -526,9 +597,10 @@ export function parseControl(
 ): ControlRow[] {
   const rows: ControlRow[] = [];
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    const parts = line.split(/\s+/u);
+    // KE 把 # 之后的内容都当注释。
+    const line = (raw.split("#")[0] ?? "").trim();
+    if (line === "") continue;
+    const parts = splitControlFields(schema, line);
     // 旧配置里的全角符号（如全角 ＊ / ？ 通配符）读入时归一化为半角。
     const name = normalizeFullWidth(parts[0] ?? "");
     if (name === "") continue;
