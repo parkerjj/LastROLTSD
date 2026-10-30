@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONTROL_SCHEMAS, TIMEOUT_DEFAULT_OVERRIDES, allFallbackRows, defaultControlDoc, emptyControlDoc, ensureAllFallback, newControlRow, parseControl, serializeControl, validateControlDoc } from '../src/ke-controls';
+import { CONTROL_SCHEMAS, GRASS_MOB_NAMES, TIMEOUT_DEFAULT_OVERRIDES, allFallbackRows, controlSafeName, defaultControlDoc, emptyControlDoc, ensureAllFallback, newControlRow, parseControl, serializeControl, validateControlDoc } from '../src/ke-controls';
 
 const monControl = CONTROL_SCHEMAS.find((s) => s.file === 'mon_control.txt')!;
 const pickupitems = CONTROL_SCHEMAS.find((s) => s.file === 'pickupitems.txt')!;
@@ -51,10 +51,13 @@ describe('ke control files', () => {
     const rows = allFallbackRows('mon_control.txt');
     rows[0]!.values.attack_auto = '9';
 
-    expect(allFallbackRows('mon_control.txt')[0]!.values.attack_auto).toBe('1');
-    // defaultControlDoc 新 profile：mon_control 只有三个兜底（无预设）。
+    expect(allFallbackRows('mon_control.txt')[0]!.values.attack_auto).toBe('0');
+    // defaultControlDoc 新 profile：草类怪物默认忽略，排在三个兜底之前。
     const defaults = defaultControlDoc()['mon_control.txt']!;
-    expect(defaults.map((r) => r.name)).toEqual(['all_miniboss', 'all_mvp', 'all']);
+    expect(defaults.map((r) => r.name)).toEqual([...GRASS_MOB_NAMES, 'all_miniboss', 'all_mvp', 'all']);
+    for (const name of GRASS_MOB_NAMES) {
+      expect(defaults.find((r) => r.name === name)!.values.attack_auto).toBe('-1');
+    }
     expect(allFallbackRows('timeouts.txt')).toEqual([]);
   });
 
@@ -188,5 +191,42 @@ describe('ke control files', () => {
     doc['pickupitems.txt'] = [{ name: '501', values: { flag: '-1' } }];
     doc['mon_control.txt'] = [{ name: '红草', values: { attack_auto: '0' } }];
     expect(validateControlDoc(doc)).toEqual([]);
+  });
+
+  it('带空格的物品/怪物名按 KE 规则整名识别（名字不被空格拆开）', () => {
+    // KE 从「后续全是整数」的字段切分，这类名字里的空格属于名字本身。
+    const itemRows = parseControl(itemsControl, '毒草 夹竹桃 0 1 0 0 0\n毒草 斑叶竹 0 1 0 0 0\n');
+    expect(itemRows).toEqual([
+      { name: '毒草 夹竹桃', values: { keep: '0', storage: '1', sell: '0', cart_add: '0', cart_get: '0' } },
+      { name: '毒草 斑叶竹', values: { keep: '0', storage: '1', sell: '0', cart_add: '0', cart_get: '0' } },
+    ]);
+    expect(parseControl(pickupitems, '毒草 斑叶竹 1\n')).toEqual([
+      { name: '毒草 斑叶竹', values: { flag: '1' } },
+    ]);
+    // mon_control 从第一个数字字段切分，带空格的怪物名同样保留完整。
+    expect(parseControl(monControl, '骑士领主 赛依连 2 0 0\n')).toEqual([
+      { name: '骑士领主 赛依连', values: { attack_auto: '2', teleport_auto: '0', teleport_search: '0' } },
+    ]);
+  });
+
+  it('带空格名字的序列化可直接被再次解析（round-trip 不丢列）', () => {
+    const rows = [{ name: '毒草 夹竹桃', values: { keep: '0', storage: '1', sell: '0', cart_add: '0', cart_get: '0' } }];
+    const text = serializeControl(itemsControl, rows);
+    expect(text).toBe('毒草 夹竹桃 0 1 0 0 0\n');
+    expect(parseControl(itemsControl, text)).toEqual([
+      { name: '毒草 夹竹桃', values: { keep: '0', storage: '1', sell: '0', cart_add: '0', cart_get: '0' } },
+    ]);
+  });
+
+  it('controlSafeName：普通空格名保持原样，含数字单词/连续空格的名字用 ? 占位', () => {
+    // 普通空格名 KE 能识别，不要改动（改成 ? 会变成通配符）。
+    expect(controlSafeName('毒草 夹竹桃')).toBe('毒草 夹竹桃');
+    expect(controlSafeName('骑士领主 赛依连')).toBe('骑士领主 赛依连');
+    // 名字里有纯数字单词时会被 KE 当成数值列，用 ? 匹配那个空格。
+    expect(controlSafeName('晚祷钟核心 01')).toBe('晚祷钟核心?01');
+    // 连续空格会被空格折叠吞掉，逐字符换成 ? 保证「恰好一个字符」。
+    expect(controlSafeName('雪花魔力(物理)  2Lv')).toBe('雪花魔力(物理)??2Lv');
+    // 不含空格的普通名字原样返回。
+    expect(controlSafeName('红药水')).toBe('红药水');
   });
 });

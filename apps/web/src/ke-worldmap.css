@@ -1,0 +1,30 @@
+/* 世界地图选图浮层：层级切换 + 原图底图 + 格子热区（底图与格子布局 1:1 复刻游戏 WorldMap 组件） */
+.ke-wmap-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
+.ke-wmap-dialog { display: grid; gap: 10px; width: min(960px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
+.ke-wmap-head { position: relative; display: flex; align-items: center; justify-content: center; min-height: 30px; }
+.ke-wmap-title { margin: 0; color: var(--forest); font-size: 1rem; font-weight: 800; text-align: center; }
+.ke-wmap-close { position: absolute; top: 50%; right: 0; transform: translateY(-50%); min-height: 0; padding: 0; width: 30px; height: 30px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); color: var(--muted); font-size: .95rem; line-height: 1; cursor: pointer; }
+.ke-wmap-close:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
+.ke-wmap-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.ke-wmap-tab { min-height: 32px; padding: 4px 12px; border: 1px solid var(--line-light); border-radius: 8px; background: var(--cream); color: #4c5a50; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.ke-wmap-tab:hover:not(:disabled) { color: var(--forest); background: #f7f3ea; border-color: var(--forest); }
+.ke-wmap-tab.active { color: #f7f3ea; background: var(--forest); border-color: var(--forest); }
+.ke-wmap-message { margin: 26px 0; text-align: center; color: var(--muted); font-size: .82rem; }
+/* 外框尺寸跨层固定（取所有层网格的最大宽/高），内层地图保持自身宽高比居中留边，保证切换层级时浮层大小不变 */
+.ke-wmap-stage-frame { position: relative; width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #223034; }
+.ke-wmap-stage { position: absolute; overflow: hidden; border-radius: 8px; }
+.ke-wmap-stage > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ke-wmap-cell { position: absolute; min-height: 0; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 2px; cursor: pointer; }
+.ke-wmap-cell-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.ke-wmap-cell:hover:not(:disabled), .ke-wmap-cell:focus-visible { background: transparent; border-color: transparent; outline: 2px solid #ffe9a8; outline-offset: -1px; box-shadow: 0 0 8px rgba(255,233,168,.95); z-index: 2; }
+.ke-wmap-cell.active { outline: 2px solid #7be39a; outline-offset: -1px; box-shadow: 0 0 8px rgba(123,227,154,.95); z-index: 2; }
+.ke-wmap-mvp { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--red-dark); box-shadow: 0 0 0 1px rgba(247,243,234,.85); pointer-events: none; }
+.ke-wmap-tip { position: fixed; z-index: 60; pointer-events: none; padding: 3px 8px; background: rgba(24,32,28,.92); color: #f7f3ea; border-radius: 6px; font-size: .76rem; line-height: 1.4; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+.ke-wmap-menu { position: fixed; z-index: 70; display: grid; gap: 2px; min-width: 150px; max-height: min(320px, calc(100vh - 16px)); overflow-y: auto; padding: 6px; background: #f7f3ea; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 26px rgba(80,62,38,.22); }
+.ke-wmap-menu button { display: flex; align-items: center; min-height: 30px; padding: 3px 10px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--forest); font-size: .76rem; cursor: pointer; white-space: nowrap; }
+.ke-wmap-menu button:hover:not(:disabled) { color: #f7f3ea; background: var(--forest); border-color: var(--forest); }
+.ke-wmap-menu-img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; margin-right: 6px; flex: none; }
+.ke-wmap-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--muted); font-size: .76rem; }
+.ke-wmap-foot p { margin: 0; }
+.ke-wmap-status strong { color: var(--forest); }
+.ke-wmap-retry { margin: 0 auto 20px; display: block; }

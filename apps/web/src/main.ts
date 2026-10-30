@@ -29,20 +29,6 @@ import {
   createDescriptionLoader,
   findCatalogMatches,
 } from "./catalog";
-import { mountReleasePage } from "./release-page";
-import { mountGuestbookPage } from "./guestbook-page";
-import { mountAccountsPage } from "./accounts-page";
-import { mountPlayPage } from "./play-page";
-import { mountClientPage } from "./client-page";
-import { mountSponsorPage } from "./sponsor-page";
-import { mountKePage } from "./ke-page";
-import { mountKeGuidePage } from "./ke-guide-page";
-import { mountKeDevicePage } from "./ke-device-page";
-import { mountProfileHall } from "./profile-hall-page";
-import { mountVipPage } from "./vip-page";
-import { mountTermsPage } from "./terms-page";
-import { mountPrivacyPage } from "./privacy-page";
-import { mountRefundsPage } from "./refunds-page";
 import { injectLegalLinksIntoFooters } from "./footer-links";
 import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
@@ -50,7 +36,6 @@ import { authApi } from "./auth/api";
 import { authStore } from "./auth/store";
 import type { AuthSessionResponse } from "./auth/types";
 import { isAuthPage, mountAuthPage } from "./auth/pages";
-import { mountAdminPage } from "./admin-page";
 
 const pathname = window.location.pathname;
 const authPage = isAuthPage(pathname);
@@ -80,6 +65,16 @@ if (commerceBootstrapElement?.tagName === "SCRIPT" && (commerceBootstrapElement 
   }
 }
 
+/** 路由页面按需加载：非当前页面的 JS/CSS 不进首屏包，减少首包体积与解析耗时。 */
+function mountLazy(load: () => Promise<(container: HTMLElement) => void>): void {
+  void load()
+    .then((mount) => mount(root))
+    .catch(() => {
+      root.innerHTML =
+        '<main class="page-width"><p role="alert">页面资源加载失败，请检查网络后刷新重试。</p></main>';
+    });
+}
+
 const isReleasePage = /^\/updates\/?$/u.test(pathname);
 const isGuestbookPage = /^\/guestbook\/?$/u.test(pathname);
 const isAccountsPage = /^\/accounts\/?$/u.test(pathname);
@@ -89,6 +84,7 @@ const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 // 配置工作台已迁移至 /ke/my；旧路径 /ke 继续命中本页，加载后归一地址栏。
 const isKePage = /^\/ke(?:\/my)?\/?$/u.test(pathname);
 const isKeGuidePage = /^\/ke\/guide\/?$/u.test(pathname);
+const isKeSetupGuidePage = /^\/ke\/my\/create\/setup-guide\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
 const isProfileHallPage = /^\/ke\/hall\/?$/u.test(pathname);
 // 管理员后台刻意不进导航；账号页只对 permission_level >= 100 的账号显示入口。
@@ -1227,26 +1223,27 @@ function mountSearchPage(): void {
 }
 
 if (authPage) mountAuthPage(root, pathname, authApi, authStore);
-else if (isPlayPage) mountPlayPage(root);
-else if (isClientPage) mountClientPage(root);
-else if (isSponsorPage) mountSponsorPage(root);
-else if (isReleasePage) mountReleasePage(root);
-else if (isGuestbookPage) mountGuestbookPage(root);
-else if (isAccountsPage) mountAccountsPage(root);
-else if (isKeGuidePage) mountKeGuidePage(root);
+else if (isPlayPage) mountLazy(() => import("./play-page").then((m) => m.mountPlayPage));
+else if (isClientPage) mountLazy(() => import("./client-page").then((m) => m.mountClientPage));
+else if (isSponsorPage) mountLazy(() => import("./sponsor-page").then((m) => m.mountSponsorPage));
+else if (isReleasePage) mountLazy(() => import("./release-page").then((m) => m.mountReleasePage));
+else if (isGuestbookPage) mountLazy(() => import("./guestbook-page").then((m) => m.mountGuestbookPage));
+else if (isAccountsPage) mountLazy(() => import("./accounts-page").then((m) => m.mountAccountsPage));
+else if (isKeGuidePage) mountLazy(() => import("./ke-guide-page").then((m) => m.mountKeGuidePage));
+else if (isKeSetupGuidePage) mountLazy(() => import("./ke-setup-guide-page").then((m) => m.mountKeSetupGuidePage));
 else if (isKePage) {
   if (/^\/ke\/?$/u.test(pathname)) {
     window.history.replaceState(null, "", `/ke/my${window.location.search}${window.location.hash}`);
   }
-  mountKePage(root);
+  mountLazy(() => import("./ke-page").then((m) => m.mountKePage));
 }
-else if (isKeDevicePage) mountKeDevicePage(root);
-else if (isProfileHallPage) mountProfileHall(root);
-else if (isAdminPage) mountAdminPage(root);
-else if (isVipPage) mountVipPage(root);
-else if (isTermsPage) mountTermsPage(root);
-else if (isPrivacyPage) mountPrivacyPage(root);
-else if (isRefundsPage) mountRefundsPage(root);
+else if (isKeDevicePage) mountLazy(() => import("./ke-device-page").then((m) => m.mountKeDevicePage));
+else if (isProfileHallPage) mountLazy(() => import("./profile-hall-page").then((m) => m.mountProfileHall));
+else if (isAdminPage) mountLazy(() => import("./admin-page").then((m) => m.mountAdminPage));
+else if (isVipPage) mountLazy(() => import("./vip-page").then((m) => m.mountVipPage));
+else if (isTermsPage) mountLazy(() => import("./terms-page").then((m) => m.mountTermsPage));
+else if (isPrivacyPage) mountLazy(() => import("./privacy-page").then((m) => m.mountPrivacyPage));
+else if (isRefundsPage) mountLazy(() => import("./refunds-page").then((m) => m.mountRefundsPage));
 else if (isCommercePage) {
   root.innerHTML = '<main class="page-width"><p role="status">正在加载购买页面…</p></main>';
   void Promise.all([import("./commerce-api"), import("./commerce-page")]).then(([commerceApi, commercePage]) => {

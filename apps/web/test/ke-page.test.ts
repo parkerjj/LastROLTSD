@@ -312,7 +312,7 @@ describe("ke page", () => {
     const body = JSON.parse(put![1]!.body as string) as Record<string, string>;
     // 已有 profile（字段为 null）加载时走 ensureAllFallback：只补兜底行，不加 *卡片 预设（预设仅新建 profile）。
     expect(body.mon_control).toBe(
-      'all_miniboss 1 0 0 0 0 0 0 0 0\nall_mvp -1 1 0 0 0 0 0 0 0\nall 1 0 0 0 0 0 0 0 0',
+      'all_miniboss 0 0 0 0 0 0 0 0 0\nall_mvp 0 1 0 0 0 0 0 0 0\nall 1 0 0 0 0 0 0 0 0',
     );
     expect(body.pickupitems).toBe('all 1');
     expect(body.items_control).toBe('all 0 0 0');
@@ -1086,5 +1086,161 @@ describe("ke page", () => {
     await pickWorldmapCell(root, openBtn, 'prt_fild08');
     expect(root.querySelector('.ke-preset-overlay')).toBeNull();
     expect(input.value).toBe('prt_fild08');
+  });
+
+  // —— 高级编辑（直接改 CONFIG.TXT / 规则文件） ——
+
+  it('高级编辑：修改 CONFIG.TXT 文本后左侧表单同步更新', async () => {
+    const { dom, root } = await mountProfileEditor('attackCheckLOS 1\nuseSelf_skill 29 {\n\tlvl 10\n}\n');
+    const editor = root.querySelector<HTMLTextAreaElement>('#ke-config-editor')!;
+    const adv = root.querySelector<HTMLButtonElement>('#ke-preview-adv')!;
+    expect(editor.hidden).toBe(true);
+
+    adv.click();
+    expect(editor.hidden).toBe(false);
+    expect(adv.getAttribute('aria-pressed')).toBe('true');
+    expect(editor.value).toContain('attackCheckLOS 1');
+
+    // 把开启改成关闭，左侧「检查视线」开关应同步切换
+    editor.value = editor.value.replace('attackCheckLOS 1', 'attackCheckLOS 0');
+    editor.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="combat"]')!.click();
+    const field = Array.from(root.querySelectorAll<HTMLElement>('.ke-field'))
+      .find((el) => el.textContent?.includes('检查视线'))!;
+    expect(field).toBeTruthy();
+    expect(field.querySelector<HTMLButtonElement>('.ke-seg button.is-on')!.textContent).toBe('关闭');
+    expect(root.querySelector<HTMLElement>('#ke-dirty')!.hidden).toBe(false);
+
+    // 退出高级编辑后恢复只读预览
+    adv.click();
+    expect(editor.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>('#ke-config-preview')!.hidden).toBe(false);
+  });
+
+  it('高级编辑：修改规则文件文本后规则表条目同步更新', async () => {
+    const { dom, root } = await mountProfileEditor();
+    root.querySelector<HTMLButtonElement>('#ke-nav [data-tab="mon_control"]')!.click();
+    await wait(10);
+    root.querySelector<HTMLButtonElement>('#ke-preview-adv')!.click();
+    const editor = root.querySelector<HTMLTextAreaElement>('#ke-config-editor')!;
+    expect(editor.value).toContain('all_mvp');
+
+    editor.value = 'all 1 0 0\n';
+    editor.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+
+    // 规则行被替换成单条 all，导航计数同步为 1
+    const count = root.querySelector<HTMLElement>('#ke-nav [data-tab="mon_control"] .ke-count')!;
+    expect(count.textContent).toBe('1');
+    expect(count.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>('#ke-config-preview')!.textContent).toContain('all 1 0 0');
+  });
+
+  // —— demo：多角色与复制方案 ——
+
+  async function mountDemoPage() {
+    const dom = new JSDOM('<main id="app"></main>', { url: 'http://localhost/ke/my?demo=1' });
+    vi.stubGlobal('document', dom.window.document);
+    vi.stubGlobal('window', dom.window);
+    vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+      if (path === '/ke/options.json') return jsonResponse(PROFILE_OPTIONS);
+      if (path === '/ke/mapnames.json') return jsonResponse(MAPNAMES_FIXTURE);
+      return jsonResponse({});
+    }));
+    const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+    mountKePage(root);
+    await wait(20);
+    return { dom, root };
+  }
+
+  it('演示模式：30 个角色，只有波利猎人有 3 套方案，其他角色为空状态', async () => {
+    const { root } = await mountDemoPage();
+    expect(root.querySelector<HTMLElement>('#ke-demo-chip')!.hidden).toBe(false);
+    const chips = root.querySelectorAll<HTMLButtonElement>('.ke-char-card-chip');
+    expect(chips).toHaveLength(30);
+    // 默认平铺全部角色，不再有「展开 N 个角色」的折叠按钮
+    expect(root.querySelector('.ke-char-card-more')).toBeNull();
+    expect(root.querySelector<HTMLElement>('#ke-roster-count')!.textContent).toBe('30');
+    expect(root.querySelector<HTMLElement>('#ke-roster-total')!.textContent).toBe('/ 30');
+    expect(root.querySelector<HTMLElement>('#ke-roster-note')!.textContent).toContain('全部 30');
+    expect(root.querySelector<HTMLElement>('#ke-char-name')!.textContent).toBe('波利猎人');
+    expect(root.querySelector<HTMLElement>('#ke-stat-profiles')!.textContent).toBe('3');
+    expect(root.querySelector<HTMLElement>('#ke-stat-active')!.textContent).toBe('1');
+    expect(root.querySelector<HTMLElement>('#ke-stat-chars')!.textContent).toBe('30');
+    expect(root.querySelector<HTMLElement>('#ke-profiles-who')!.textContent).toContain('波利猎人 · 3 套方案');
+    expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(3);
+    expect(vi.mocked(fetch).mock.calls.some(([path]) => path === '/api/v1/ke/characters')).toBe(false);
+
+    chips[1]!.click();
+    await wait(10);
+    expect(root.querySelector<HTMLElement>('#ke-char-name')!.textContent).toBe('初心者小明');
+    expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(0);
+    expect(root.textContent).toContain('该角色还没有配置方案');
+    expect(root.querySelector('.ke-empty-orbit')).not.toBeNull();
+    expect(root.querySelector<HTMLElement>('#ke-stat-profiles')!.textContent).toBe('0');
+  });
+
+  it('演示模式：名册支持按角色名/职业过滤，清空后恢复全部', async () => {
+    const { root } = await mountDemoPage();
+    const filter = root.querySelector<HTMLInputElement>('#ke-roster-filter')!;
+    filter.value = '初心';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+
+    const matched = root.querySelectorAll<HTMLButtonElement>('.ke-char-card-chip');
+    expect(matched).toHaveLength(2);
+    expect(root.querySelector<HTMLElement>('#ke-roster-count')!.textContent).toBe('2');
+    expect(root.querySelector<HTMLElement>('#ke-roster-total')!.textContent).toBe('/ 30');
+    expect(root.querySelector<HTMLElement>('#ke-roster-note')!.textContent).toContain('匹配 2 / 30');
+    expect(root.querySelector('.ke-roster-empty')).toBeNull();
+
+    filter.value = '猎人';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(1);
+    expect(root.querySelector<HTMLElement>('.ke-char-card-name')!.textContent).toBe('波利猎人');
+
+    // 职业列同样参与过滤（demo 的 options 里没有这些职业，统一显示「未知职业」）
+    filter.value = '未知职业';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(30);
+
+    filter.value = '不存在';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(0);
+    expect(root.querySelector('.ke-roster-empty')!.textContent).toContain('没有匹配「不存在」');
+
+    filter.value = '';
+    filter.dispatchEvent(new root.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+    await wait(10);
+    expect(root.querySelectorAll('.ke-char-card-chip')).toHaveLength(30);
+    expect(root.querySelector<HTMLElement>('#ke-roster-note')!.textContent).toContain('全部 30');
+  });
+
+  it('演示模式：复制方案到另一名角色后，目标角色下出现同名方案', async () => {
+    const { root } = await mountDemoPage();
+    const copyBtn = Array.from(root.querySelectorAll<HTMLButtonElement>('.ke-profile-actions button'))
+      .find((button) => button.textContent === '复制')!;
+    copyBtn.click();
+
+    const overlay = root.querySelector<HTMLElement>('.ke-copy-overlay')!;
+    expect(overlay.hidden).toBe(false);
+    expect(overlay.querySelectorAll('.ke-copy-char')).toHaveLength(29);
+    const target = overlay.querySelector<HTMLButtonElement>('.ke-copy-char[data-key="1000001:2000002:3000002"]')!;
+    target.click();
+    const confirmBtn = overlay.querySelector<HTMLButtonElement>('#ke-copy-confirm')!;
+    expect(confirmBtn.disabled).toBe(false);
+    confirmBtn.click();
+    await wait(10);
+
+    expect(overlay.hidden).toBe(true);
+    root.querySelector<HTMLButtonElement>('.ke-char-card-chip[data-key="1000001:2000002:3000002"]')!.click();
+    await wait(10);
+    expect(root.querySelector<HTMLElement>('#ke-char-name')!.textContent).toBe('初心者小明');
+    const cards = root.querySelectorAll<HTMLElement>('.ke-profile-card');
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.querySelector('.ke-profile-name')!.textContent).toContain('斐扬打波利');
   });
 });

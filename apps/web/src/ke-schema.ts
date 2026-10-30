@@ -514,7 +514,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "卡住时传送",
     help: "被卡住走不动时是否瞬移脱离。",
     type: "enum",
-    default: "0",
+    default: "1",
     group: "传送",
     options: ON_OFF,
   },
@@ -523,7 +523,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "遇到传送点瞬移",
     help: "走到传送点/传送门时是否直接瞬移过去（而非走过去）。",
     type: "enum",
-    default: "0",
+    default: "1",
     group: "传送",
     options: ON_OFF,
   },
@@ -705,7 +705,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "SP 低于（%）坐下",
     help: "SP 低于这个百分比就坐下回蓝。",
     type: "int",
-    default: "0",
+    default: "15",
     suffix: "%",
     group: "坐下",
   },
@@ -714,7 +714,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "SP 高于（%）站起",
     help: "SP 回到这个百分比以上就站起。",
     type: "int",
-    default: "0",
+    default: "80",
     suffix: "%",
     group: "坐下",
   },
@@ -2360,6 +2360,17 @@ export function serializeConfig(doc: ConfigDoc): string {
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
 }
 
+/**
+ * 删除所有以 # 开头的整行注释。
+ * KE 只把「整行 #」当注释；行内 # 会留在值里（如 `useSelf_skill 8 # 霸体 {`
+ * 会被解析成错误技能名），因此保存前统一剥掉注释行。
+ */
+export function stripConfigComments(text: string): string {
+  const kept = text.split(/\r?\n/).filter((line) => !line.trim().startsWith("#"));
+  const body = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return body === "" ? "" : `${body}\n`;
+}
+
 // —— 保存前校验 ——
 
 /** 比较表达式合法格式：> 5、>= 5、< 5%、= 5、3..8、3-8、纯数字（等于）。 */
@@ -2427,6 +2438,13 @@ export function validateConfigDoc(doc: ConfigDoc): string[] {
               `「${name}」的「${field.label}」取值无效：「${value}」。`,
             );
           }
+        }
+      }
+      // 未知条件键一律报错：KE 会把它当成非法条件静默忽略，用户很难发现写错。
+      const allKeyDefs = def.conditions.flatMap((g) => conditionKeysOf(g));
+      for (const key of Object.keys(block.conditions)) {
+        if (!allKeyDefs.some((k) => k.key === key)) {
+          errors.push(`「${name}」含未知条件「${key}」，KE 不认识该条件键。`);
         }
       }
       for (const group of def.conditions) {
