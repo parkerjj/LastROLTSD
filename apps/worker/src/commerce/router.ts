@@ -9,7 +9,7 @@ import type { QuoteDependencies, CommerceQuote, CommerceQuoteErrorCode } from '.
 import { CommerceQuoteError, createQuote } from './quotes';
 import { parseQuoteInput, QuoteInputError } from './quote-input';
 import type { OrderDependencies, CommerceOrderErrorCode } from './orders';
-import { CommerceOrderError, createOrderAndCheckout } from './orders';
+import { CommerceOrderError, createOrderAndCheckout, getCommerceOrder, listCommerceOrders } from './orders';
 import type { WebhookDependencies } from './webhook';
 import { receiveStripeEvent } from './webhook';
 
@@ -17,6 +17,7 @@ const QUOTE_JSON_LIMIT = 32 * 1024;
 const QUOTE_RATE_LIMIT = { scope: 'commerce_quote_session', limit: 10, windowMs: 60_000 } as const;
 const ORDER_JSON_LIMIT = 4 * 1024;
 const ORDER_RATE_LIMIT = { scope: 'commerce_order_session', limit: 5, windowMs: 60_000 } as const;
+const ORDER_READ_RATE_LIMIT = { scope: 'commerce_order_read_session', limit: 90, windowMs: 60_000 } as const;
 
 export interface CommerceQuoteRouteContext {
   authConfig: EnabledAuthConfig;
@@ -67,12 +68,14 @@ function rateLimited(request: Request, retryAfter: number): Response {
   return response;
 }
 
-const ORDER_ERRORS: Record<CommerceOrderErrorCode, { status: 404 | 409 | 503; message: string }> = {
+const ORDER_ERRORS: Record<CommerceOrderErrorCode, { status: 400 | 404 | 409 | 503; message: string }> = {
   COMMERCE_QUOTE_UNAVAILABLE: { status: 404, message: '报价不存在或不可用' },
   COMMERCE_QUOTE_EXPIRED: { status: 409, message: '报价已过期，请重新获取' },
   COMMERCE_PRICING_CHANGED: { status: 409, message: '价格已更新，请重新获取报价' },
   COMMERCE_IDEMPOTENCY_CONFLICT: { status: 409, message: '该确认请求已用于不同订单' },
   COMMERCE_ORDER_EXPIRED: { status: 409, message: '订单付款时间已过，请重新获取报价' },
+  COMMERCE_ORDER_NOT_FOUND: { status: 404, message: '订单不存在或不可用' },
+  COMMERCE_CURSOR_INVALID: { status: 400, message: '购买记录游标无效，请刷新页面' },
   COMMERCE_ORDER_UNAVAILABLE: { status: 503, message: '订单暂不可用，请稍后重试' },
 };
 
@@ -146,6 +149,82 @@ export function registerCommerceQuoteRoute(app: Hono<any>, options: CommerceQuot
 }
 
 export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrderRouteOptions): void {
+  app.get('/api/v1/commerce/orders', async (c) => {
+    try {
+      const context = options.setup();
+      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买记录暂不可用，请稍后重试', 503);
+      const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
+      const identity = await sessions.authenticate(c.req.raw);
+      const session = await sessions.me(identity);
+      if (session.user.status !== 'ACTIVE' || session.user.permission_level < 1) {
+        return fixedError(c.req.raw, 'COMMERCE_ACCOUNT_REQUIRED', '请使用已验证邮箱的正式账号查看购买记录', 403);
+      }
+      const keyDigest = await authRateLimitKey(context.authConfig.rateSecret, 'session', identity.sessionToken);
+      const rate = await consumeAuthRateLimit(context.authRepository, [{
+        kind: 'window', scope: ORDER_READ_RATE_LIMIT.scope, keyDigest,
+        limit: ORDER_READ_RATE_LIMIT.limit, windowMs: ORDER_READ_RATE_LIMIT.windowMs,
+      }], context.runtime.now);
+      if (!rate.allowed) {
+        const response = fixedError(c.req.raw, 'COMMERCE_RATE_LIMITED', '购买记录请求过于频繁，请稍后重试', 429);
+        response.headers.set('retry-after', String(Math.max(1, Math.ceil(rate.retryAfter))));
+        return response;
+      }
+      const page = await listCommerceOrders(session.user.id, c.req.query('cursor'), context.orderDependencies);
+      return new Response(JSON.stringify(page), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
+      });
+    } catch (error) {
+      if (error instanceof AuthFailure) return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      if (error instanceof CommerceOrderError) {
+        const publicError = ORDER_ERRORS[error.code];
+        return fixedError(c.req.raw, error.code, publicError.message, publicError.status);
+      }
+      return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买记录暂不可用，请稍后重试', 503);
+    }
+  });
+
+  app.get('/api/v1/commerce/orders/:orderId', async (c) => {
+    try {
+      const context = options.setup();
+      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单状态暂不可用，请稍后重试', 503);
+      const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
+      const identity = await sessions.authenticate(c.req.raw);
+      const session = await sessions.me(identity);
+      if (session.user.status !== 'ACTIVE' || session.user.permission_level < 1) {
+        return fixedError(c.req.raw, 'COMMERCE_ACCOUNT_REQUIRED', '请使用已验证邮箱的正式账号查看订单', 403);
+      }
+      const keyDigest = await authRateLimitKey(context.authConfig.rateSecret, 'session', identity.sessionToken);
+      const rate = await consumeAuthRateLimit(context.authRepository, [{
+        kind: 'window', scope: ORDER_READ_RATE_LIMIT.scope, keyDigest,
+        limit: ORDER_READ_RATE_LIMIT.limit, windowMs: ORDER_READ_RATE_LIMIT.windowMs,
+      }], context.runtime.now);
+      if (!rate.allowed) {
+        const response = fixedError(c.req.raw, 'COMMERCE_RATE_LIMITED', '订单状态请求过于频繁，请稍后重试', 429);
+        response.headers.set('retry-after', String(Math.max(1, Math.ceil(rate.retryAfter))));
+        return response;
+      }
+      const statusOnly = c.req.query('status_only');
+      if (statusOnly !== undefined && statusOnly !== '1') {
+        return fixedError(c.req.raw, 'COMMERCE_BAD_REQUEST', '订单状态请求无效', 400);
+      }
+      const order = await getCommerceOrder(session.user.id, c.req.param('orderId'), context.orderDependencies, {
+        includeCheckoutUrl: statusOnly !== '1',
+      });
+      return new Response(JSON.stringify(order), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
+      });
+    } catch (error) {
+      if (error instanceof AuthFailure) return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      if (error instanceof CommerceOrderError) {
+        const publicError = ORDER_ERRORS[error.code];
+        return fixedError(c.req.raw, error.code, publicError.message, publicError.status);
+      }
+      return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单状态暂不可用，请稍后重试', 503);
+    }
+  });
+
   app.post('/api/v1/commerce/orders', async (c) => {
     try {
       const context = options.setup();

@@ -1,7 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COMMERCE_DAY_MS, getCommerceCatalog } from '@lastroweb/commerce';
-import { createCommerceApi, type CommerceApi, type CommerceBootstrap, type CommerceQuote } from '../src/commerce-api';
+import { createCommerceApi, type CommerceApi, type CommerceBootstrap, type CommerceOrderPage, type CommerceOrderView, type CommerceQuote } from '../src/commerce-api';
 import { mountCommercePage, readCommerceBootstrap } from '../src/commerce-page';
 
 const NOW = Date.now();
@@ -66,15 +66,42 @@ function quote(overrides: Partial<CommerceQuote> = {}): CommerceQuote {
   } as CommerceQuote;
 }
 
+function orderView(overrides: Partial<CommerceOrderView> = {}): CommerceOrderView {
+  const reviewed = quote();
+  return {
+    orderId: '902', createdAt: String(NOW), currency: 'CNY', pricingVersion: 'ke-commerce-test-v1',
+    rawTotalCents: '5000', tierTotalCents: '5000', promoTotalCents: null, paidTotalCents: '5000',
+    discountStrategy: 'term', accountPreview: reviewed.accountPreview, checkoutState: 'ready',
+    checkoutExpiresAt: String(NOW + 1_800_000), paymentState: 'paid', fulfillmentState: 'fulfilled',
+    refundState: 'none', paidAt: String(NOW + 1000), fulfilledAt: String(NOW + 1000),
+    refundedTotalCents: '0', checkoutUrl: null,
+    items: [{ ...reviewed.items[0]!, operation: 'RENEW', deliveryState: 'delivered', deliveredAt: String(NOW + 1000),
+      fulfillmentBefore: { startsAt: String(NOW - DAY), expiresAt: String(NOW + 15 * DAY) },
+      fulfillmentAfter: { startsAt: String(NOW - DAY), expiresAt: String(NOW + 45 * DAY) }, refundAdjustments: [] }],
+    refunds: [], ...overrides,
+  };
+}
+
 function mount(options: {
   account?: CommerceBootstrap['account'];
   quote?: CommerceQuote;
+  historyPage?: CommerceOrderPage;
+  url?: string;
+  orderStatuses?: CommerceOrderView[];
 } = {}) {
-  const dom = new JSDOM('<main id="app"></main>', { url: 'https://ltsd.ro/ke/buy' });
+  const dom = new JSDOM('<main id="app"></main>', { url: options.url ?? 'https://ltsd.ro/ke/buy' });
   const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+  let statusIndex = 0;
   const api: CommerceApi = {
     quoteCommerceSelection: vi.fn(async () => options.quote ?? quote()),
     createOrder: vi.fn(async () => ({ orderId: '902', checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test', expiresAt: String(NOW + 1_800_000), paymentStatus: 'unpaid' })),
+    listOrders: vi.fn(async () => options.historyPage ?? ({ items: [], nextCursor: null } satisfies CommerceOrderPage)),
+    getOrder: vi.fn(async () => {
+      const rows = options.orderStatuses ?? [orderView()];
+      const row = rows[Math.min(statusIndex, rows.length - 1)]!;
+      statusIndex += 1;
+      return row;
+    }),
     navigateToCheckout: vi.fn(),
   };
   mountCommercePage(root, bootstrap(options.account ? { account: options.account } : {}), api);
@@ -97,7 +124,10 @@ async function settle(): Promise<void> {
 }
 
 describe('commerce purchase page', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it('validates the server-rendered bootstrap and rejects unsupported or incomplete data', () => {
     const dom = new JSDOM('<script id="commerce-bootstrap" type="application/json"></script>');
@@ -188,8 +218,8 @@ describe('commerce purchase page', () => {
   it('does not request an alignment quote when the paid expiry spread is under 24 hours', async () => {
     const account = bootstrap().account;
     account.units[2]!.expiresAt = String(Number(account.units[1]!.expiresAt) + 23 * 60 * 60 * 1000);
-    account.entitlements.find((row) => row.entitlementId === '11')!.expiresAt = account.units[2]!.expiresAt;
-    account.entitlements.find((row) => row.entitlementId === '13')!.expiresAt = String(Number(account.units[1]!.expiresAt) + 12 * 60 * 60 * 1000);
+    account.entitlements.find((row) => row.id === '11')!.expiresAt = account.units[2]!.expiresAt;
+    account.entitlements.find((row) => row.id === '13')!.expiresAt = String(Number(account.units[1]!.expiresAt) + 12 * 60 * 60 * 1000);
     const { root, api } = mount({ account });
     click(root, '[data-action="align"]');
 
@@ -263,8 +293,72 @@ describe('commerce purchase page', () => {
     expect(api.navigateToCheckout).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test');
   });
 
+  it('loads purchase history on demand and opens immutable order details', async () => {
+    const { root, api } = mount({ historyPage: {
+      items: [{
+        orderId: '902', createdAt: String(NOW), currency: 'CNY', paidTotalCents: '5000',
+        paymentState: 'paid', fulfillmentState: 'fulfilled', refundState: 'none', refundedTotalCents: '0', itemCount: 1,
+      }], nextCursor: null,
+    } });
+    expect(api.listOrders).not.toHaveBeenCalled();
+    click(root, '[data-action="purchase-history"]');
+    await settle();
+
+    expect(api.listOrders).toHaveBeenCalledTimes(1);
+    expect(root.textContent).toContain('购买记录');
+    expect(root.textContent).toContain('902');
+    click(root, '[data-action="open-order"][data-order-id="902"]');
+    await settle();
+
+    expect(api.getOrder).toHaveBeenCalledWith('902', undefined);
+    expect(root.textContent).toContain('购买前');
+    expect(root.textContent).toContain('购买后');
+    expect(root.textContent).toContain('额度');
+  });
+
+  it('polls only the returned order until delivery completes and ignores the Stripe session query value', async () => {
+    vi.useFakeTimers();
+    const processing = orderView({ paymentState: 'processing', fulfillmentState: 'pending', fulfilledAt: null });
+    const paid = orderView({ paymentState: 'paid', fulfillmentState: 'pending', fulfilledAt: null });
+    const fulfilled = orderView();
+    const { root, api } = mount({
+      url: 'https://ltsd.ro/ke/buy?checkout=success&order_id=902&session_id=untrusted',
+      orderStatuses: [processing, paid, fulfilled],
+    });
+
+    expect(root.textContent).toContain('正在确认付款');
+    await vi.advanceTimersByTimeAsync(0);
+    for (let index = 0; index < 2; index += 1) {
+      await vi.advanceTimersByTimeAsync(1500);
+    }
+
+    expect(api.getOrder).toHaveBeenNthCalledWith(1, '902', { statusOnly: true });
+    expect(api.getOrder).toHaveBeenCalledTimes(3);
+    expect(api.listOrders).not.toHaveBeenCalled();
+    expect(root.textContent).toContain('购买已完成');
+    expect(root.textContent).not.toContain('暂无购买记录');
+    vi.useRealTimers();
+  });
+
+  it('reads a canceled Checkout order once and leaves its unpaid state available for resuming payment', async () => {
+    const pending = orderView({
+      paymentState: 'unpaid', fulfillmentState: 'pending', paidAt: null, fulfilledAt: null,
+      checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test',
+    });
+    const { root, api } = mount({
+      url: 'https://ltsd.ro/ke/buy?checkout=cancelled&order_id=902', orderStatuses: [pending],
+    });
+    await settle();
+
+    expect(api.getOrder).toHaveBeenCalledTimes(1);
+    expect(api.getOrder).toHaveBeenCalledWith('902', undefined);
+    expect(api.createOrder).not.toHaveBeenCalled();
+    expect(root.textContent).toContain('付款未完成');
+    expect(root.querySelector('[data-action="resume-checkout"]')).not.toBeNull();
+  });
+
   it('serializes quote selections and sends checkout idempotency through sessionRequest headers', async () => {
-    const calls: Array<{ path: string; method: string; body: unknown; headers?: HeadersInit }> = [];
+    const calls: Array<{ path: string; method: string; body: unknown; headers: HeadersInit | undefined }> = [];
     const authClient = {
       sessionRequest: vi.fn(async (path: string, method: string, body?: unknown, headers?: HeadersInit) => {
         calls.push({ path, method, body, headers });
@@ -283,5 +377,31 @@ describe('commerce purchase page', () => {
     } });
     expect(calls[1]?.path).toBe('/api/v1/commerce/orders');
     expect(new Headers(calls[1]?.headers).get('Idempotency-Key')).toBe('idempotency-1');
+  });
+
+  it('uses authenticated no-CSRF reads for order history and status polling', async () => {
+    const reads: string[] = [];
+    const summary = {
+      orderId: '902', createdAt: String(NOW), currency: 'CNY', paidTotalCents: '5000',
+      paymentState: 'paid', fulfillmentState: 'fulfilled', refundState: 'none', refundedTotalCents: '0', itemCount: 1,
+    } as const;
+    const authClient = {
+      sessionRequest: vi.fn(),
+      sessionRead: vi.fn(async (path: string) => {
+        reads.push(path);
+        return path.startsWith('/api/v1/commerce/orders?') ? { items: [summary], nextCursor: 'next_cursor' } : orderView();
+      }),
+    };
+    const api = createCommerceApi(authClient as never);
+    const page = await api.listOrders('cursor_1');
+    const detail = await api.getOrder('902', { statusOnly: true });
+
+    expect(reads).toEqual([
+      '/api/v1/commerce/orders?cursor=cursor_1',
+      '/api/v1/commerce/orders/902?status_only=1',
+    ]);
+    expect(page.items).toEqual([summary]);
+    expect(detail.orderId).toBe('902');
+    expect(authClient.sessionRequest).not.toHaveBeenCalled();
   });
 });

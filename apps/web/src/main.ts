@@ -68,7 +68,7 @@ function isAuthSessionResponse(value: unknown): value is AuthSessionResponse {
 }
 
 const commerceBootstrapElement = document.getElementById("commerce-bootstrap");
-if (commerceBootstrapElement?.type === "application/json") {
+if (commerceBootstrapElement?.tagName === "SCRIPT" && (commerceBootstrapElement as HTMLScriptElement).type === "application/json") {
   try {
     const bootstrap = JSON.parse(commerceBootstrapElement.textContent ?? "") as { session?: unknown };
     if (Object.prototype.hasOwnProperty.call(bootstrap, "session")

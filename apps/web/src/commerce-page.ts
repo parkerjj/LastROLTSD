@@ -15,6 +15,9 @@ import type {
   CommerceBootstrap,
   CommerceBootstrapEntitlement,
   CommerceBootstrapUnit,
+  CommerceOrderPage,
+  CommerceOrderSummary,
+  CommerceOrderView,
   CommercePreviewEntitlement,
   CommerceQuote,
   CommerceQuoteSelection,
@@ -165,7 +168,8 @@ function activeStandalone(account: CommerceBootstrap["account"], now: number): C
 }
 
 function alignmentExpiries(account: CommerceBootstrap["account"], now: number): Array<{ key: "slots" | "module:standalone"; expiresAt: number }> {
-  const rows = activePaidSlots(account, now).map((unit) => ({ key: "slots" as const, expiresAt: Number(unit.expiresAt) }));
+  const rows: Array<{ key: "slots" | "module:standalone"; expiresAt: number }> = activePaidSlots(account, now)
+    .map((unit) => ({ key: "slots", expiresAt: Number(unit.expiresAt) }));
   const features = activeStandalone(account, now);
   if (features.length) {
     rows.push({ key: "module:standalone", expiresAt: Math.max(...features.map((row) => Number(row.expiresAt))) });
@@ -198,9 +202,9 @@ function entitlementName(row: CommercePreviewEntitlement): string {
   return `额度调整 · ${row.resource}`;
 }
 
-function renderAccountPreview(quote: CommerceQuote): string {
-  const before = quote.accountPreview.before.entitlements;
-  const after = quote.accountPreview.after.entitlements;
+function renderAccountPreview(preview: { before: { entitlements: CommercePreviewEntitlement[] }; after: { entitlements: CommercePreviewEntitlement[] } }): string {
+  const before = preview.before.entitlements;
+  const after = preview.after.entitlements;
   const beforeByKey = new Map<string, CommercePreviewEntitlement>();
   before.forEach((row, index) => beforeByKey.set(row.entitlementId ? `id:${row.entitlementId}` : `row:${index}`, row));
   const used = new Set<string>();
@@ -273,6 +277,25 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   let alignmentNotice = false;
   let orderMessage = "";
   let idempotencyKey: string | null = null;
+  let historyOpen = false;
+  let historyLoading = false;
+  let historyLoaded = false;
+  let historyError = "";
+  let historyPage: CommerceOrderPage = { items: [], nextCursor: null };
+  let orderDetailLoading = false;
+  let orderDetailError = "";
+  let selectedOrderId: string | null = null;
+  let selectedOrder: CommerceOrderView | null = null;
+  let returnMessage = "";
+  let returnOrderId: string | null = null;
+  let returnPollAttempts = 0;
+  let returnPollTimer: number | null = null;
+  let returnPollExhausted = false;
+  const location = root.ownerDocument.defaultView?.location;
+  const checkoutResult = location ? new URL(location.href).searchParams.get("checkout") : null;
+  const checkoutOrderId = location ? new URL(location.href).searchParams.get("order_id") : null;
+  const isSuccessReturn = checkoutResult === "success";
+  const isCancelledReturn = checkoutResult === "cancelled";
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "本地时区";
   const canPurchase = bootstrap.session?.user.status === "ACTIVE" && bootstrap.session.user.permission_level >= 1;
   const slotsProduct = product(bootstrap.catalog, "slots");
@@ -317,7 +340,118 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       const operation = item.operation === "ADD" ? "新增" : "续期";
       return `<tr><th scope="row">${name} · ${operation}</th><td>${formatDuration(item.durationMs)}</td><td>${formatDate(item.expectedExpiresAt)}</td><td>${formatCents(item.paidCents)}</td></tr>`;
     }).join("");
-    return `<section class="commerce-review" data-review-result aria-labelledby="commerce-review-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">最终确认</p><h2 id="commerce-review-title" data-focus-key="commerce-review-title">本次订单</h2></div><p>报价有效至 ${formatDate(quote.expiresAt)}</p></div><div class="commerce-review-summary"><div><span>期限优惠合计</span><strong>${tierTotal}</strong></div>${promoTotal ? `<div><span>优惠码整单价</span><strong>${promoTotal}</strong></div>` : ""}<div class="commerce-review-total"><span>${strategy} · 不重复叠加</span><strong>${formatCents(quote.selectedTotalCents)}</strong></div></div><div class="commerce-preview-table-wrap"><table class="commerce-preview-table"><thead><tr><th scope="col">购买项目</th><th scope="col">新增时长</th><th scope="col">预计到期</th><th scope="col">金额</th></tr></thead><tbody>${itemRows}</tbody></table></div><div class="commerce-section-heading commerce-account-heading"><div><p class="commerce-kicker">完整账号预览</p><h3>购买前后所有权益</h3></div><p>赠送、未选择和只读调整项目也会保留显示</p></div><div data-account-preview>${renderAccountPreview(quote)}</div><div class="commerce-pay-row"><button class="commerce-button commerce-button--primary" type="button" data-focus-key="commerce-pay" data-action="pay" ${orderBusy ? "disabled" : ""}>${orderBusy ? "正在创建订单…" : `确认订单并前往付款 ${formatCents(quote.selectedTotalCents)}`}</button><span>确认后订单内容固定，付款时间为 30 分钟。</span></div>${orderMessage ? `<p class="commerce-success" role="status">${escapeHtml(orderMessage)}</p>` : ""}</section>`;
+    return `<section class="commerce-review" data-review-result aria-labelledby="commerce-review-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">最终确认</p><h2 id="commerce-review-title" data-focus-key="commerce-review-title">本次订单</h2></div><p>报价有效至 ${formatDate(quote.expiresAt)}</p></div><div class="commerce-review-summary"><div><span>期限优惠合计</span><strong>${tierTotal}</strong></div>${promoTotal ? `<div><span>优惠码整单价</span><strong>${promoTotal}</strong></div>` : ""}<div class="commerce-review-total"><span>${strategy} · 不重复叠加</span><strong>${formatCents(quote.selectedTotalCents)}</strong></div></div><div class="commerce-preview-table-wrap"><table class="commerce-preview-table"><thead><tr><th scope="col">购买项目</th><th scope="col">新增时长</th><th scope="col">预计到期</th><th scope="col">金额</th></tr></thead><tbody>${itemRows}</tbody></table></div><div class="commerce-section-heading commerce-account-heading"><div><p class="commerce-kicker">完整账号预览</p><h3>购买前后所有权益</h3></div><p>赠送、未选择和只读调整项目也会保留显示</p></div><div data-account-preview>${renderAccountPreview(quote.accountPreview)}</div><div class="commerce-pay-row"><button class="commerce-button commerce-button--primary" type="button" data-focus-key="commerce-pay" data-action="pay" ${orderBusy ? "disabled" : ""}>${orderBusy ? "正在创建订单…" : `确认订单并前往付款 ${formatCents(quote.selectedTotalCents)}`}</button><span>确认后订单内容固定，付款时间为 30 分钟。</span></div>${orderMessage ? `<p class="commerce-success" role="status">${escapeHtml(orderMessage)}</p>` : ""}</section>`;
+  }
+
+  function operationLabel(operation: CommerceOrderView["items"][number]["operation"]): string {
+    if (operation === "ADD") return "加购";
+    if (operation === "ALIGN") return "统一续期";
+    return "续期";
+  }
+
+  function orderStatus(order: CommerceOrderView): string {
+    if (order.paymentState === "processing") return "付款正在确认";
+    if (order.paymentState === "unpaid") return order.checkoutState === "expired" ? "付款期限已结束" : "等待付款";
+    if (order.fulfillmentState === "pending") return "付款已确认，权益正在同步";
+    if (order.fulfillmentState === "settled") return "已付款；未交付项目已结算";
+    return "购买已完成";
+  }
+
+  function renderOrderDetail(): string {
+    if (!selectedOrderId) return "";
+    if (orderDetailLoading) return '<p class="commerce-history-message" role="status">正在读取订单…</p>';
+    if (orderDetailError) return `<p class="commerce-error" role="alert">${escapeHtml(orderDetailError)}</p>`;
+    const order = selectedOrder;
+    if (!order) return "";
+    const itemRows = order.items.map((item) => {
+      const name = item.productKey === "slots" ? "KE 实例额度" : "全平台离线 KoreEngine";
+      const actualBefore = item.fulfillmentBefore?.expiresAt ? formatDate(item.fulfillmentBefore.expiresAt) : "无既有付费期限";
+      const actualAfter = item.fulfillmentAfter?.expiresAt ? formatDate(item.fulfillmentAfter.expiresAt) : "尚未交付";
+      const adjustments = item.refundAdjustments.map((adjustment) => `<p class="commerce-refund-adjustment">退款重算 ${formatDate(adjustment.occurredAt)}：扣减 ${formatDuration(adjustment.deductedDurationMs)}，调整后到期 ${adjustment.afterExpiresAt ? formatDate(adjustment.afterExpiresAt) : "无有效期限"}</p>`).join("");
+      return `<article class="commerce-order-item"><div class="commerce-order-item-heading"><strong>${name} · ${operationLabel(item.operation)}</strong><span>${formatCents(item.paidCents)}</span></div><dl><div><dt>购买时长</dt><dd>${formatDuration(item.durationMs)}</dd></div><div><dt>订单预计到期</dt><dd>${formatDate(item.expectedExpiresAt)}</dd></div><div><dt>交付状态</dt><dd>${item.deliveryState === "delivered" ? "已交付" : item.deliveryState === "settled_no_entitlement" ? "已结算" : "等待交付"}</dd></div><div><dt>购买前期限</dt><dd>${actualBefore}</dd></div><div><dt>实际交付后</dt><dd>${actualAfter}</dd></div></dl>${adjustments}</article>`;
+    }).join("");
+    const refunds = order.refunds.length ? `<div class="commerce-order-refunds"><h4>退款记录</h4>${order.refunds.map((refund) => `<p>${formatDate(refund.createdAt)} · ${refund.status === "succeeded" ? "已退款" : refund.status === "pending" || refund.status === "requires_action" ? "退款处理中" : "退款未完成"} ${formatCents(refund.amountCents)} · 累计退款 ${Number(refund.cumulativeRatioBasisPoints / 100).toFixed(2)}%</p>`).join("")}</div>` : "";
+    const resume = order.checkoutUrl ? '<button class="commerce-button commerce-button--primary" type="button" data-action="resume-checkout">继续付款</button>' : "";
+    return `<section class="commerce-order-detail" aria-labelledby="commerce-order-detail-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单详情</p><h3 id="commerce-order-detail-title">订单 ${escapeHtml(order.orderId)}</h3></div><button class="commerce-button commerce-button--secondary" type="button" data-action="close-order">返回购买记录</button></div><div class="commerce-order-status"><strong>${orderStatus(order)}</strong><span>创建于 ${formatDate(order.createdAt)} · ${timezone}</span><span>订单金额 ${formatCents(order.paidTotalCents)} · 已退款 ${formatCents(order.refundedTotalCents)}</span>${resume}</div><div class="commerce-order-items">${itemRows}</div>${refunds}<div class="commerce-order-account"><div class="commerce-section-heading"><div><p class="commerce-kicker">下单时记录的账号权益</p><h4>购买前后预览</h4></div></div>${renderAccountPreview(order.accountPreview)}</div></section>`;
+  }
+
+  function renderHistory(): string {
+    const rows = historyPage.items.map((order: CommerceOrderSummary) => `<li><button type="button" class="commerce-history-row" data-action="open-order" data-order-id="${escapeHtml(order.orderId)}"><span><strong>订单 ${escapeHtml(order.orderId)}</strong><small>${formatDate(order.createdAt)} · ${order.itemCount} 项</small></span><span><strong>${formatCents(order.paidTotalCents)}</strong><small>${order.paymentState === "paid" ? order.fulfillmentState === "pending" ? "已付款，权益处理中" : "已付款" : order.paymentState === "processing" ? "付款确认中" : "待付款"}${order.refundState === "none" ? "" : ` · ${order.refundState === "partial" ? "部分退款" : "已全额退款"}`}</small></span></button></li>`).join("");
+    return `<section class="commerce-history" aria-labelledby="commerce-history-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单</p><h2 id="commerce-history-title">购买记录</h2></div><button class="commerce-button commerce-button--secondary" type="button" data-action="toggle-history">${historyOpen ? "收起记录" : "展开记录"}</button></div>${historyOpen ? `${historyLoading ? '<p class="commerce-history-message" role="status">正在读取购买记录…</p>' : ""}${historyError ? `<p class="commerce-error" role="alert">${escapeHtml(historyError)}</p>` : ""}<ul class="commerce-history-list">${rows || (!historyLoading && !historyError && !selectedOrderId ? '<li class="commerce-history-message">暂无购买记录</li>' : "")}</ul>${historyPage.nextCursor ? '<button class="commerce-button commerce-button--secondary" type="button" data-action="more-orders"' + (historyLoading ? " disabled" : "") + '>加载更多</button>' : ""}${renderOrderDetail()}` : ""}</section>`;
+  }
+
+  async function loadHistory(cursor?: string): Promise<void> {
+    if (historyLoading) return;
+    historyLoading = true;
+    historyError = "";
+    historyOpen = true;
+    render("commerce-history-title");
+    try {
+      const page = await api.listOrders(cursor);
+      historyPage = cursor === undefined ? page : {
+        items: [...historyPage.items, ...page.items], nextCursor: page.nextCursor,
+      };
+      historyLoaded = true;
+    } catch (error) {
+      historyError = quoteMessage(error);
+    } finally {
+      historyLoading = false;
+      render("commerce-history-title");
+    }
+  }
+
+  async function openOrder(orderId: string, statusOnly = false): Promise<void> {
+    selectedOrderId = orderId;
+    selectedOrder = null;
+    orderDetailError = "";
+    orderDetailLoading = true;
+    historyOpen = true;
+    render("commerce-history-title");
+    try {
+      selectedOrder = await api.getOrder(orderId, statusOnly ? { statusOnly: true } : undefined);
+    } catch (error) {
+      orderDetailError = quoteMessage(error);
+    } finally {
+      orderDetailLoading = false;
+      render("commerce-history-title");
+    }
+  }
+
+  async function pollReturnedOrder(): Promise<void> {
+    if (!returnOrderId) return;
+    returnPollAttempts += 1;
+    await openOrder(returnOrderId, true);
+    if (!selectedOrder) {
+      returnMessage = "暂时无法读取订单状态，请稍后重试。";
+    } else {
+      returnMessage = orderStatus(selectedOrder);
+    }
+    const terminal = selectedOrder && ((selectedOrder.paymentState === "paid"
+      && (selectedOrder.fulfillmentState === "fulfilled" || selectedOrder.fulfillmentState === "settled"))
+      || (selectedOrder.paymentState === "unpaid" && selectedOrder.checkoutState === "expired"));
+    if (!terminal && returnPollAttempts < 40) {
+      returnPollTimer = root.ownerDocument.defaultView!.setTimeout(() => { void pollReturnedOrder(); }, 1500);
+    } else if (!terminal && returnPollAttempts >= 40) {
+      returnPollExhausted = true;
+      returnMessage = "状态仍在确认中，可手动刷新订单状态。";
+    }
+    render("commerce-history-title");
+  }
+
+  function startCheckoutReturn(): void {
+    if (!isSuccessReturn && !isCancelledReturn) return;
+    if (!checkoutOrderId || !decimal(checkoutOrderId)) {
+      returnMessage = "无法识别付款订单，请从购买记录中查看订单状态。";
+      return;
+    }
+    returnOrderId = checkoutOrderId;
+    if (isSuccessReturn) {
+      returnMessage = "正在确认付款";
+      void pollReturnedOrder();
+    } else {
+      returnMessage = "付款未完成，原订单仍保留。可在付款期限内继续付款。";
+      void openOrder(returnOrderId);
+    }
   }
 
   function render(focusKey?: string, caret?: number | null): void {
@@ -341,6 +475,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       <main class="page-width commerce-page">
         <section class="commerce-heading"><div><p class="commerce-kicker">KE 额度与功能</p><h1>购买与续期</h1><p>实例额度按个数和时长计价；离线 KoreEngine 是账号级功能，开通后该账号所有实例都可使用。</p></div><p class="commerce-timezone">日期按浏览器本地时区显示：<strong>${escapeHtml(timezone)}</strong></p></section>
         ${loginNotice}
+        ${returnMessage ? `<p class="commerce-return-status" role="status">${escapeHtml(returnMessage)}${isSuccessReturn && returnPollExhausted ? '<button type="button" class="commerce-button commerce-button--secondary" data-action="refresh-order-status">刷新订单状态</button>' : ""}</p>` : ""}
         <section class="commerce-products" aria-label="购买项目">
           <article class="commerce-product commerce-product--slots" data-product="slots"><div class="commerce-product-head"><div><p class="commerce-kicker">按额度 × 时长</p><h2>${escapeHtml(slotsProduct.name)}</h2><p>${escapeHtml(slotsProduct.description)} 每个额度每 30 天 ¥50。</p></div><div class="commerce-product-price">¥50<span> / 个 / 30 天</span></div></div>
             <div class="commerce-mode" role="group" aria-label="实例额度操作"><button type="button" data-focus-key="slot-mode-add" data-mode="add" aria-pressed="${slotMode === "add"}">加购额度</button><button type="button" data-focus-key="slot-mode-renew" data-mode="renew" aria-pressed="${slotMode === "renew"}" ${freeUnits === 0 ? "disabled" : ""}>续期额度</button></div>
@@ -355,9 +490,10 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
           </article>
         </section>
         <section class="commerce-alignment" aria-labelledby="commerce-align-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">可选操作</p><h2 id="commerce-align-title">统一付费项目到期时间</h2><p>把所有当前生效的付费额度与离线功能延长至同一天；赠送额度、核心功能和调整记录不计入目标。</p></div><div class="commerce-align-estimate">${alignAmount === null ? "没有可统一的付费项目" : `当前预估 <strong>${formatCents(alignAmount)}</strong>`}</div></div><div class="commerce-alignment-controls"><div>${renderTerms("alignment", "slots", alignTermDays)}</div><button type="button" class="commerce-button commerce-button--secondary" data-focus-key="align-action" data-action="align" ${!canPurchase || !alignAmount || quoteBusy || orderBusy ? "disabled" : ""}>一键统一到期并购买所选时长</button></div><p class="commerce-fine-print">至少补足 30 天；若所有收费项目的到期时差不足 24 小时，会提示改用普通续期并且不会创建报价。</p></section>
-        <section class="commerce-order-controls" aria-label="报价设置"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单优惠</p><h2>整笔订单择优</h2></div><p>期限折扣与 Stripe 优惠码比较整单金额，只采用更低的一种，不重复叠加。</p></div><label class="commerce-promo-field">Stripe 优惠码（可选）<input data-focus-key="promotion-code" name="promotion-code" type="text" maxlength="100" autocomplete="off" value="${escapeHtml(promotionCode)}" placeholder="输入优惠码" ${!canPurchase ? "disabled" : ""}></label><div class="commerce-review-trigger"><div><strong>当前选择预估 ${formatCents(estimate)}</strong><span>最终金额以服务器报价为准。</span></div><button class="commerce-button commerce-button--primary" type="button" data-action="review" ${!canPurchase || selection.length === 0 || quoteBusy || orderBusy ? "disabled" : ""}>${quoteBusy ? "正在获取报价…" : "查看全部权益变化与金额"}</button></div></section>
+        <section class="commerce-order-controls" aria-label="报价设置"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单优惠</p><h2>整笔订单择优</h2></div><p>期限折扣与 Stripe 优惠码比较整单金额，只采用更低的一种，不重复叠加。</p></div><label class="commerce-promo-field">Stripe 优惠码（可选）<input data-focus-key="promotion-code" name="promotion-code" type="text" maxlength="100" autocomplete="off" value="${escapeHtml(promotionCode)}" placeholder="输入优惠码" ${!canPurchase ? "disabled" : ""}></label><div class="commerce-review-trigger"><div><strong>当前选择预估 ${formatCents(estimate)}</strong><span>最终金额以服务器报价为准。</span></div><div class="commerce-order-actions"><button class="commerce-button commerce-button--secondary" type="button" data-action="purchase-history" aria-expanded="${historyOpen}">查看购买记录</button><button class="commerce-button commerce-button--primary" type="button" data-action="review" ${!canPurchase || selection.length === 0 || quoteBusy || orderBusy ? "disabled" : ""}>${quoteBusy ? "正在获取报价…" : "查看全部权益变化与金额"}</button></div></div></section>
         ${errorMessage ? `<p class="commerce-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
         ${currentQuote ? renderQuote() : ""}
+        ${renderHistory()}
         <dialog class="commerce-dialog" data-alignment-notice ${alignmentNotice ? "open" : ""}><h2>到期时间已基本一致</h2><p>收费项目之间不到 24 小时，无需统一到期。请使用普通续期，不会生成报价或订单。</p><button class="commerce-button commerce-button--secondary" type="button" data-focus-key="alignment-notice-close" data-action="close-alignment-notice">知道了</button></dialog>
       </main>`;
     mountSiteNav(root, authStore, authApi);
@@ -482,6 +618,45 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         render("commerce-review-title");
       });
     }
+    if (target.dataset.action === "purchase-history") {
+      historyOpen = true;
+      if (!historyLoaded) void loadHistory();
+      else render("commerce-history-title");
+      return;
+    }
+    if (target.dataset.action === "toggle-history") {
+      historyOpen = !historyOpen;
+      render("commerce-history-title");
+      return;
+    }
+    if (target.dataset.action === "open-order" && target.dataset.orderId) {
+      void openOrder(target.dataset.orderId);
+      return;
+    }
+    if (target.dataset.action === "close-order") {
+      selectedOrderId = null;
+      selectedOrder = null;
+      orderDetailError = "";
+      render("commerce-history-title");
+      return;
+    }
+    if (target.dataset.action === "more-orders" && historyPage.nextCursor) {
+      void loadHistory(historyPage.nextCursor);
+      return;
+    }
+    if (target.dataset.action === "resume-checkout" && selectedOrder?.checkoutUrl) {
+      api.navigateToCheckout(selectedOrder.checkoutUrl);
+      return;
+    }
+    if (target.dataset.action === "refresh-order-status" && returnOrderId) {
+      if (returnPollTimer !== null) root.ownerDocument.defaultView!.clearTimeout(returnPollTimer);
+      returnPollTimer = null;
+      returnPollAttempts = 0;
+      returnPollExhausted = false;
+      returnMessage = "正在确认付款";
+      void pollReturnedOrder();
+      return;
+    }
   });
 
   root.addEventListener("input", (event) => {
@@ -511,4 +686,5 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   });
 
   render();
+  startCheckoutReturn();
 }

@@ -647,6 +647,164 @@ body:has(.commerce-page) {
   outline-offset: 2px;
 }
 
+.commerce-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.commerce-return-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-left: 3px solid #24725c;
+  background: #edf8f3;
+  color: #245b4a;
+  line-height: 1.5;
+}
+
+.commerce-history {
+  padding: 24px 0;
+  border-bottom: 1px solid #d9e0dd;
+}
+
+.commerce-history-list {
+  margin: 0 0 12px;
+  padding: 0;
+  border-top: 1px solid #dfe6e2;
+  list-style: none;
+}
+
+.commerce-history-list li {
+  border-bottom: 1px solid #dfe6e2;
+}
+
+.commerce-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 4px;
+  border: 0;
+  background: transparent;
+  color: #263f39;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commerce-history-row > span:last-child {
+  text-align: right;
+}
+
+.commerce-history-row strong,
+.commerce-history-row small {
+  display: block;
+}
+
+.commerce-history-row small {
+  margin-top: 4px;
+  color: #65736f;
+  font-size: 12px;
+}
+
+.commerce-history-row:hover {
+  background: #f4f8f6;
+}
+
+.commerce-history-message {
+  margin: 10px 0;
+  color: #65736f;
+}
+
+.commerce-order-detail {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #cfd9d5;
+}
+
+.commerce-order-detail .commerce-section-heading h3 {
+  font-size: 18px;
+}
+
+.commerce-order-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e1e7e4;
+  color: #52645f;
+  font-size: 13px;
+}
+
+.commerce-order-status > strong {
+  color: #1f604d;
+  font-size: 15px;
+}
+
+.commerce-order-status .commerce-button {
+  margin-left: auto;
+}
+
+.commerce-order-item {
+  padding: 16px 0;
+  border-bottom: 1px solid #e1e7e4;
+}
+
+.commerce-order-item-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #273f39;
+}
+
+.commerce-order-item dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 18px;
+  margin: 12px 0 0;
+}
+
+.commerce-order-item dl > div {
+  min-width: 0;
+}
+
+.commerce-order-item dt {
+  color: #667570;
+  font-size: 12px;
+}
+
+.commerce-order-item dd {
+  margin: 3px 0 0;
+  color: #293b36;
+  overflow-wrap: anywhere;
+}
+
+.commerce-refund-adjustment,
+.commerce-order-refunds p {
+  margin: 10px 0 0;
+  color: #7b4b22;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.commerce-order-refunds,
+.commerce-order-account {
+  padding-top: 16px;
+}
+
+.commerce-order-refunds h4,
+.commerce-order-account h4 {
+  margin: 0;
+  color: #263f39;
+}
+
 @media (max-width: 760px) {
   .commerce-heading {
     display: block;
@@ -687,6 +845,15 @@ body:has(.commerce-page) {
   .commerce-order-controls .commerce-section-heading > p {
     max-width: 46%;
     text-align: left;
+  }
+
+  .commerce-return-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .commerce-order-status .commerce-button {
+    margin-left: 0;
   }
 }
 

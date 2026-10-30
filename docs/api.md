@@ -24,6 +24,20 @@ Unverified users can sign in as `PENDING_EMAIL`, read their own session, update 
 
 JSON bodies for ordinary account operations are limited to 8 KiB. Registration and avatar writes are limited to 64 KiB. Passwords are 5–256 Unicode code points and are not trimmed; display names are trimmed to 1–32 code points. An avatar is plain Base64 for one static 256×256 WebP image, at most 32 KiB (43,692 Base64 characters); do not send a data URL, animation, or original image. GET only renders an action form; email verification or password reset consumes its one-use token on POST.
 
+## KE commerce orders
+
+Commerce endpoints require a signed-in `ACTIVE` account with `permission_level >= 1`. Browser writes require the session CSRF token and trusted `Origin`; authenticated GETs do not require CSRF. Responses are private and `no-store`.
+
+| Method and path | Behavior |
+| --- | --- |
+| `POST /api/v1/commerce/quotes` | Price a selected set of instance credits, renewals, or the account-level offline KoreEngine feature. Quote results are previews and do not create an order. |
+| `POST /api/v1/commerce/orders` | Fix an immutable order from `{ "quote_id": "…" }`; requires `Idempotency-Key`. Returns the order ID, Checkout URL, expiry, and initial payment status. |
+| `GET /api/v1/commerce/orders?cursor=…` | Read up to 20 of the caller's orders, newest first. `nextCursor` is opaque; pass it unchanged to fetch the next page. |
+| `GET /api/v1/commerce/orders/:orderId` | Read the caller's saved order snapshot, actual delivered dates, payment and fulfillment state, and refund adjustments. An order owned by another account returns the same 404 as a missing order. |
+| `GET /api/v1/commerce/orders/:orderId?status_only=1` | Read the local payment and fulfillment state for Checkout-return polling without contacting Stripe or returning a Checkout URL. |
+
+The order detail retains the purchase-time amounts and terms even if catalog prices later change. It also reports each item's persisted delivery window and refund-projection deductions. Stripe Checkout returns to `/ke/buy` with `checkout=success` or `checkout=cancelled` and the fixed `order_id`; clients must use the authenticated order endpoint to inspect that order. A browser-supplied `session_id` is not used to identify or authorize an order. Canceling Checkout leaves the pending order unchanged and available until its stored expiry.
+
 ## KE configuration profiles and hall
 
 The KE editor and profile hall use the signed-in web session. `PENDING_EMAIL` and `ACTIVE` accounts may use them regardless of `permission_level`; email verification and KE runtime entitlements are not required. Disabled accounts and expired or revoked sessions remain blocked. Responses use `Cache-Control: no-store`. Write requests require an `Origin` matching `AUTH_SITE_URL`.

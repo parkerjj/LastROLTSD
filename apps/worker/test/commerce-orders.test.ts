@@ -71,6 +71,8 @@ function dependencies(options: {
   let stored = options.order ?? order();
   const repository: OrderRepository = {
     reserveOrder: options.reserveOrder ?? vi.fn(async () => stored),
+    readOrderHistory: vi.fn(async () => null),
+    listOrderHistory: vi.fn(async () => ({ items: [], nextCursor: null })),
     prepareCheckout: vi.fn(async (_orderId, proposedExpiry) => {
       stored = { ...stored, checkoutExpiresAt: stored.checkoutExpiresAt ?? proposedExpiry };
       return stored.checkoutExpiresAt;

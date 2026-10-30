@@ -154,13 +154,13 @@ describe('AuthApi', () => {
   });
 
   it('preserves optional operation headers on a CSRF-protected session request', async () => {
-    let orderHeaders: Headers | null = null;
+    const orderHeaders: Headers[] = [];
     const fetcher = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
       const path = String(input);
       if (path === '/api/v1/auth/csrf') return jsonResponse({ csrf_token: 'anonymous-csrf' });
       if (path === '/api/v1/auth/login') return jsonResponse(session);
       if (path === '/api/v1/commerce/orders') {
-        orderHeaders = new Headers(init.headers);
+        orderHeaders.push(new Headers(init.headers));
         return jsonResponse({ orderId: '901' });
       }
       throw new Error(`Unexpected request: ${path}`);
@@ -170,8 +170,30 @@ describe('AuthApi', () => {
 
     await api.sessionRequest('/api/v1/commerce/orders', 'POST', { quote_id: '901' }, { 'Idempotency-Key': 'idem-1' });
 
-    expect(orderHeaders?.get('Idempotency-Key')).toBe('idem-1');
-    expect(orderHeaders?.get('X-CSRF-Token')).toBe('session-csrf-a');
-    expect(orderHeaders?.get('Content-Type')).toBe('application/json');
+    expect(orderHeaders[0]?.get('Idempotency-Key')).toBe('idem-1');
+    expect(orderHeaders[0]?.get('X-CSRF-Token')).toBe('session-csrf-a');
+    expect(orderHeaders[0]?.get('Content-Type')).toBe('application/json');
+  });
+
+  it('performs authenticated session reads without CSRF and broadcasts expired sessions', async () => {
+    let requestInit: RequestInit | undefined;
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      requestInit = init;
+      return jsonResponse({ error: { code: 'AUTH_SESSION_INVALID', message: 'expired', request_id: 'req-read' } }, 401);
+    });
+    const api = new AuthApi(fetcher as unknown as typeof fetch);
+    api.setSessionCsrf('session-csrf-a');
+    const failures = vi.fn();
+    api.onSessionFailure(failures);
+
+    await expect(api.sessionRead('/api/v1/commerce/orders')).rejects.toMatchObject({
+      status: 401, code: 'AUTH_SESSION_INVALID',
+    } satisfies Partial<AuthApiError>);
+
+    expect(requestInit?.method).toBe('GET');
+    expect(requestInit?.credentials).toBe('same-origin');
+    expect(requestInit?.cache).toBe('no-store');
+    expect(new Headers(requestInit?.headers).has('X-CSRF-Token')).toBe(false);
+    expect(failures).toHaveBeenCalledWith(expect.objectContaining({ status: 401, code: 'AUTH_SESSION_INVALID' }));
   });
 });

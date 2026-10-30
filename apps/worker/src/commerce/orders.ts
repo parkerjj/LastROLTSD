@@ -44,6 +44,80 @@ export interface StoredCommerceOrder {
   createdAt: number;
 }
 
+export interface CommerceOrderRefund {
+  status: 'pending' | 'requires_action' | 'succeeded' | 'failed' | 'canceled';
+  amountCents: string;
+  createdAt: string;
+  cumulativeSuccessfulCents: string;
+  cumulativeRatioBasisPoints: number;
+}
+
+export interface CommerceOrderRefundAdjustment {
+  revision: number;
+  cumulativeRefundCents: string;
+  retainedDurationMs: string;
+  deductedDurationMs: string;
+  occurredAt: string;
+  afterExpiresAt: string | null;
+}
+
+export interface CommerceOrderHistoryItem extends QuoteOrderItem {
+  deliveryState: 'pending' | 'delivered' | 'settled_no_entitlement';
+  deliveredAt: string | null;
+  fulfillmentBefore: { startsAt: string | null; expiresAt: string | null } | null;
+  fulfillmentAfter: { startsAt: string | null; expiresAt: string | null } | null;
+  refundAdjustments: CommerceOrderRefundAdjustment[];
+}
+
+export interface CommerceOrderSummary {
+  orderId: string;
+  createdAt: string;
+  currency: 'CNY';
+  paidTotalCents: string;
+  paymentState: 'unpaid' | 'processing' | 'paid';
+  fulfillmentState: 'pending' | 'fulfilled' | 'settled';
+  refundState: 'none' | 'partial' | 'full';
+  refundedTotalCents: string;
+  itemCount: number;
+}
+
+export interface CommerceOrderPage {
+  items: CommerceOrderSummary[];
+  nextCursor: string | null;
+}
+
+export interface CommerceOrderView {
+  orderId: string;
+  createdAt: string;
+  currency: 'CNY';
+  pricingVersion: string;
+  rawTotalCents: string;
+  tierTotalCents: string;
+  promoTotalCents: string | null;
+  paidTotalCents: string;
+  discountStrategy: 'term' | 'promotion_code';
+  accountPreview: CommerceQuote['accountPreview'];
+  checkoutState: CheckoutState;
+  checkoutExpiresAt: string | null;
+  paymentState: 'unpaid' | 'processing' | 'paid';
+  fulfillmentState: 'pending' | 'fulfilled' | 'settled';
+  refundState: 'none' | 'partial' | 'full';
+  paidAt: string | null;
+  fulfilledAt: string | null;
+  refundedTotalCents: string;
+  checkoutUrl: string | null;
+  items: CommerceOrderHistoryItem[];
+  refunds: CommerceOrderRefund[];
+}
+
+interface StoredCommerceOrderHistory extends CommerceOrderView {
+  stripeCheckoutSessionId: string | null;
+  stripeAccountId: string;
+  livemode: boolean;
+  paymentMethodConfigurationId: string;
+  siteOrigin: string;
+}
+
 export interface ReserveOrderInput {
   userId: string;
   quoteId: string;
@@ -59,6 +133,8 @@ export interface ReserveOrderInput {
 
 export interface OrderRepository {
   reserveOrder(input: ReserveOrderInput): Promise<StoredCommerceOrder>;
+  readOrderHistory(userId: string, orderId: string): Promise<StoredCommerceOrderHistory | null>;
+  listOrderHistory(userId: string, cursor: string | undefined, pageSize: number): Promise<CommerceOrderPage>;
   prepareCheckout(orderId: string, proposedExpiry: number, updatedAt: number): Promise<number>;
   markCheckoutReady(orderId: string, session: CheckoutSessionSnapshot, updatedAt: number): Promise<void>;
   markCheckoutFailed(orderId: string, updatedAt: number): Promise<void>;
@@ -91,6 +167,8 @@ export type CommerceOrderErrorCode =
   | 'COMMERCE_PRICING_CHANGED'
   | 'COMMERCE_IDEMPOTENCY_CONFLICT'
   | 'COMMERCE_ORDER_EXPIRED'
+  | 'COMMERCE_ORDER_NOT_FOUND'
+  | 'COMMERCE_CURSOR_INVALID'
   | 'COMMERCE_ORDER_UNAVAILABLE';
 
 export class CommerceOrderError extends Error {
@@ -140,6 +218,51 @@ interface OrderRow extends MysqlRow {
   stripe_checkout_session_id: string | null;
   checkout_expires_at: string | number | bigint | null;
   created_at: string | number | bigint;
+  payment_state?: string;
+  fulfillment_state?: string;
+  refund_state?: string;
+  paid_at?: string | number | bigint | null;
+  fulfilled_at?: string | number | bigint | null;
+}
+
+interface OrderHistoryItemRow extends MysqlRow {
+  id: string | number | bigint;
+  ordinal: string | number | bigint;
+  delivery_state: string;
+  delivered_at: string | number | bigint | null;
+}
+
+interface OrderRefundRow extends MysqlRow {
+  amount_cents: string | number | bigint;
+  currency: string;
+  status: string;
+  stripe_created_at: string | number | bigint | null;
+  created_at: string | number | bigint;
+}
+
+interface OrderHistoryEventRow extends MysqlRow {
+  order_item_id: string | number | bigint;
+  event_type: string;
+  refund_revision: string | number | bigint | null;
+  before_starts_at: string | number | bigint | null;
+  before_expires_at: string | number | bigint | null;
+  after_starts_at: string | number | bigint | null;
+  after_expires_at: string | number | bigint | null;
+  occurred_at: string | number | bigint;
+  duration_ms: string | number | bigint;
+  detail_json: unknown;
+}
+
+interface OrderHistorySummaryRow extends MysqlRow {
+  id: string | number | bigint;
+  created_at: string | number | bigint;
+  currency: string;
+  paid_total_cents: string | number | bigint;
+  payment_state: string;
+  fulfillment_state: string;
+  refund_state: string;
+  refunded_total_cents: string | number | bigint;
+  item_count: string | number | bigint;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -525,6 +648,222 @@ async function insertOrder(tx: CommerceTransaction, input: ReserveOrderInput, qu
   };
 }
 
+const ORDER_HISTORY_PAGE_SIZE = 20;
+
+function encodeOrderHistoryCursor(createdAt: string, orderId: string): string {
+  const encoded = btoa(`${createdAt}:${orderId}`);
+  return encoded.replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '');
+}
+
+function decodeOrderHistoryCursor(cursor: string): { createdAt: string; orderId: string } {
+  if (!/^[A-Za-z0-9_-]{1,128}$/u.test(cursor)) throw new CommerceOrderError('COMMERCE_CURSOR_INVALID');
+  try {
+    const base64 = cursor.replace(/-/gu, '+').replace(/_/gu, '/') + '='.repeat((4 - cursor.length % 4) % 4);
+    const decoded = atob(base64);
+    const [createdAt, orderId, extra] = decoded.split(':');
+    if (extra !== undefined || !createdAt || !orderId || !/^(?:0|[1-9]\d{0,19})$/u.test(createdAt)
+      || !/^[1-9]\d{0,19}$/u.test(orderId)
+      || encodeOrderHistoryCursor(createdAt, orderId) !== cursor) {
+      throw new Error('invalid cursor');
+    }
+    const createdAtValue = BigInt(createdAt);
+    if (createdAtValue > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('invalid cursor');
+    return { createdAt, orderId: assertCommerceId(orderId) };
+  } catch {
+    throw new CommerceOrderError('COMMERCE_CURSOR_INVALID');
+  }
+}
+
+export function validateOrderHistoryCursor(cursor: string | undefined): void {
+  if (cursor !== undefined) decodeOrderHistoryCursor(cursor);
+}
+
+function timestampString(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) return null;
+  const timestamp = readBigint(value, field);
+  if (timestamp > BigInt(Number.MAX_SAFE_INTEGER)) throw new TypeError(`invalid commerce ${field}`);
+  return timestamp.toString();
+}
+
+function checkedOrderState<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) throw new TypeError(`invalid commerce ${field}`);
+  return value as T;
+}
+
+function readHistoryEvents(rows: readonly OrderHistoryEventRow[]): Map<string, {
+  purchase: {
+    before: { startsAt: string | null; expiresAt: string | null };
+    after: { startsAt: string | null; expiresAt: string | null };
+  } | null;
+  refundAdjustments: CommerceOrderRefundAdjustment[];
+}> {
+  const result = new Map<string, {
+    purchase: {
+      before: { startsAt: string | null; expiresAt: string | null };
+      after: { startsAt: string | null; expiresAt: string | null };
+    } | null;
+    refundAdjustments: CommerceOrderRefundAdjustment[];
+  }>();
+  for (const row of rows) {
+    const itemId = assertCommerceId(String(row.order_item_id));
+    const entry = result.get(itemId) ?? { purchase: null, refundAdjustments: [] };
+    if (row.event_type === 'PURCHASE') {
+      if (entry.purchase) throw new TypeError('duplicate commerce purchase event');
+      entry.purchase = {
+        before: {
+          startsAt: timestampString(row.before_starts_at, 'purchase before start'),
+          expiresAt: timestampString(row.before_expires_at, 'purchase before expiry'),
+        },
+        after: {
+          startsAt: timestampString(row.after_starts_at, 'purchase after start'),
+          expiresAt: timestampString(row.after_expires_at, 'purchase after expiry'),
+        },
+      };
+    } else if (row.event_type === 'REFUND_REPROJECT') {
+      const revision = Number(readBigint(row.refund_revision, 'refund event revision'));
+      if (!Number.isSafeInteger(revision) || revision < 1) throw new TypeError('invalid commerce refund revision');
+      const detail = asRecord(readJson(row.detail_json, 'refund event detail'));
+      const cumulativeRefundCents = readSafeAmount(detail?.refundedTotalCents, 'cumulative refund amount');
+      const retainedDurationMs = readSafeAmount(detail?.retainedDurationMs, 'retained refund duration');
+      const signedDurationMs = readBigint(row.duration_ms, 'refund duration');
+      if (signedDurationMs > 0n) throw new TypeError('invalid commerce refund duration');
+      entry.refundAdjustments.push({
+        revision,
+        cumulativeRefundCents,
+        retainedDurationMs,
+        deductedDurationMs: (-signedDurationMs).toString(),
+        occurredAt: timestampString(row.occurred_at, 'refund event timestamp')!,
+        afterExpiresAt: timestampString(row.after_expires_at, 'refund event expiry'),
+      });
+    } else {
+      throw new TypeError('invalid commerce order history event');
+    }
+    result.set(itemId, entry);
+  }
+  for (const value of result.values()) value.refundAdjustments.sort((a, b) => a.revision - b.revision);
+  return result;
+}
+
+function readHistoryRefunds(rows: readonly OrderRefundRow[], paidTotalCents: string): {
+  refunds: CommerceOrderRefund[];
+  refundedTotalCents: string;
+  refundState: CommerceOrderView['refundState'];
+} {
+  let cumulative = 0n;
+  const paid = BigInt(paidTotalCents);
+  const refunds = rows.map((row) => {
+    if (row.currency !== 'CNY') throw new TypeError('invalid commerce refund currency');
+    const status = checkedOrderState(row.status, ['pending', 'requires_action', 'succeeded', 'failed', 'canceled'] as const, 'refund status');
+    const amountCents = readSafeAmount(row.amount_cents, 'refund amount');
+    if (status === 'succeeded') cumulative += BigInt(amountCents);
+    const cumulativeSuccessfulCents = (cumulative > paid ? paid : cumulative).toString();
+    return {
+      status,
+      amountCents,
+      createdAt: timestampString(row.stripe_created_at ?? row.created_at, 'refund timestamp')!,
+      cumulativeSuccessfulCents,
+      cumulativeRatioBasisPoints: paid === 0n ? 0 : Number(BigInt(cumulativeSuccessfulCents) * 10_000n / paid),
+    };
+  });
+  const refundedTotal = cumulative > paid ? paid : cumulative;
+  return {
+    refunds,
+    refundedTotalCents: refundedTotal.toString(),
+    refundState: refundedTotal === 0n ? 'none' : refundedTotal >= paid ? 'full' : 'partial',
+  };
+}
+
+function readCommerceOrderHistory(
+  row: OrderRow,
+  itemRows: readonly OrderHistoryItemRow[],
+  refundRows: readonly OrderRefundRow[],
+  eventRows: readonly OrderHistoryEventRow[],
+): StoredCommerceOrderHistory {
+  const order = readOrderRow(row);
+  const paymentState = checkedOrderState(row.payment_state, ['unpaid', 'processing', 'paid'] as const, 'payment state');
+  const fulfillmentState = checkedOrderState(row.fulfillment_state, ['pending', 'fulfilled', 'settled'] as const, 'fulfillment state');
+  const events = readHistoryEvents(eventRows);
+  const rowsByOrdinal = new Map(itemRows.map((item) => [Number(readBigint(item.ordinal, 'order item ordinal')), item]));
+  if (rowsByOrdinal.size !== order.items.length) throw new TypeError('commerce order item snapshot mismatch');
+  const items = order.items.map((snapshot) => {
+    const rowItem = rowsByOrdinal.get(snapshot.ordinal);
+    if (!rowItem) throw new TypeError('commerce order item snapshot mismatch');
+    const deliveryState = checkedOrderState(rowItem.delivery_state, ['pending', 'delivered', 'settled_no_entitlement'] as const, 'item delivery state');
+    const event = events.get(assertCommerceId(String(rowItem.id)));
+    const fulfillmentAfter = event?.purchase?.after ?? null;
+    return {
+      ordinal: snapshot.ordinal,
+      productKey: snapshot.productKey,
+      operation: snapshot.operation,
+      targetUnitId: snapshot.targetUnitId,
+      targetEntitlementId: snapshot.targetEntitlementId,
+      durationMs: snapshot.durationMs,
+      expectedStartsAt: snapshot.expectedStartsAt,
+      expectedExpiresAt: snapshot.expectedExpiresAt,
+      discountPercent: snapshot.discountPercent,
+      rawCents: snapshot.rawCents,
+      tierCents: snapshot.tierCents,
+      paidCents: snapshot.paidCents,
+      deliveryState,
+      deliveredAt: timestampString(rowItem.delivered_at, 'item delivered timestamp'),
+      fulfillmentBefore: event?.purchase?.before ?? null,
+      fulfillmentAfter,
+      refundAdjustments: event?.refundAdjustments ?? [],
+    };
+  });
+  const refundInfo = readHistoryRefunds(refundRows, order.paidTotalCents);
+  const checkoutState = order.checkoutState;
+  return {
+    orderId: order.orderId,
+    createdAt: String(order.createdAt),
+    currency: order.currency,
+    pricingVersion: order.pricingVersion,
+    rawTotalCents: order.rawTotalCents,
+    tierTotalCents: order.tierTotalCents,
+    promoTotalCents: order.promoTotalCents,
+    paidTotalCents: order.paidTotalCents,
+    discountStrategy: order.discountStrategy,
+    accountPreview: order.accountPreview,
+    checkoutState,
+    checkoutExpiresAt: order.checkoutExpiresAt === null ? null : String(order.checkoutExpiresAt),
+    paymentState,
+    fulfillmentState,
+    refundState: refundInfo.refundState,
+    paidAt: timestampString(row.paid_at, 'order paid timestamp'),
+    fulfilledAt: timestampString(row.fulfilled_at, 'order fulfillment timestamp'),
+    refundedTotalCents: refundInfo.refundedTotalCents,
+    checkoutUrl: null,
+    items,
+    refunds: refundInfo.refunds,
+    stripeCheckoutSessionId: order.stripeCheckoutSessionId,
+    stripeAccountId: order.stripeAccountId,
+    livemode: order.livemode,
+    paymentMethodConfigurationId: order.paymentMethodConfigurationId,
+    siteOrigin: order.siteOrigin,
+  };
+}
+
+function readCommerceOrderSummary(row: OrderHistorySummaryRow): CommerceOrderSummary {
+  const paidTotalCents = readSafeAmount(row.paid_total_cents, 'order paid amount');
+  const refundedTotalCents = readSafeAmount(row.refunded_total_cents, 'order refunded amount');
+  const paymentState = checkedOrderState(row.payment_state, ['unpaid', 'processing', 'paid'] as const, 'payment state');
+  const fulfillmentState = checkedOrderState(row.fulfillment_state, ['pending', 'fulfilled', 'settled'] as const, 'fulfillment state');
+  const refundState = checkedOrderState(row.refund_state, ['none', 'partial', 'full'] as const, 'refund state');
+  const itemCount = Number(readBigint(row.item_count, 'order item count'));
+  if (row.currency !== 'CNY' || !Number.isSafeInteger(itemCount) || itemCount < 0) throw new TypeError('invalid commerce order summary');
+  return {
+    orderId: assertCommerceId(String(row.id)),
+    createdAt: timestampString(row.created_at, 'order creation timestamp')!,
+    currency: 'CNY',
+    paidTotalCents,
+    paymentState,
+    fulfillmentState,
+    refundState,
+    refundedTotalCents,
+    itemCount,
+  };
+}
+
 export function createOrderRepository(database: MysqlDatabase): OrderRepository {
   const commerceRepository: CommerceRepository = createCommerceRepository(database);
   return {
@@ -571,6 +910,82 @@ export function createOrderRepository(database: MysqlDatabase): OrderRepository 
         if (Number(readBigint(quoteRow.expires_at, 'quote expiry')) <= input.now) throw new CommerceOrderError('COMMERCE_QUOTE_EXPIRED');
         return insertOrder(tx, { ...input, ...checkoutConfig }, quoteRow);
       });
+    },
+    async readOrderHistory(userIdInput, orderIdInput) {
+      const userId = assertCommerceId(userIdInput);
+      const orderId = assertCommerceId(orderIdInput);
+      const row = await database.first<OrderRow>(
+        `SELECT id, user_id, quote_id, request_hash, confirmation_idempotency_key,
+                stripe_account_id, stripe_livemode, pricing_version, currency,
+                items_snapshot, preview_snapshot, raw_total_cents, tier_total_cents,
+                promo_total_cents, paid_total_cents, discount_strategy, promotion_snapshot,
+                checkout_state, stripe_checkout_session_id, checkout_expires_at, created_at,
+                payment_state, fulfillment_state, refund_state, paid_at, fulfilled_at
+           FROM commerce_orders
+          WHERE id = ? AND user_id = ?
+          LIMIT 1`,
+        [orderId, userId],
+      );
+      if (!row) return null;
+      const itemRows = await database.all<OrderHistoryItemRow>(
+        `SELECT id, ordinal, delivery_state, delivered_at
+           FROM commerce_order_items
+          WHERE order_id = ?
+          ORDER BY ordinal`,
+        [orderId],
+      );
+      const refundRows = await database.all<OrderRefundRow>(
+        `SELECT amount_cents, currency, status, stripe_created_at, created_at
+           FROM commerce_refunds
+          WHERE order_id = ?
+          ORDER BY COALESCE(stripe_created_at, created_at), id`,
+        [orderId],
+      );
+      const eventRows = await database.all<OrderHistoryEventRow>(
+        `SELECT e.order_item_id, e.event_type, e.refund_revision,
+                e.before_starts_at, e.before_expires_at, e.after_starts_at, e.after_expires_at,
+                e.occurred_at, e.duration_ms, e.detail_json
+           FROM commerce_unit_events e
+           JOIN commerce_order_items oi ON oi.id = e.order_item_id
+          WHERE oi.order_id = ? AND e.event_type IN ('PURCHASE', 'REFUND_REPROJECT')
+          ORDER BY oi.ordinal, e.refund_revision, e.occurred_at, e.id`,
+        [orderId],
+      );
+      return readCommerceOrderHistory(row, itemRows, refundRows, eventRows);
+    },
+    async listOrderHistory(userIdInput, cursor, pageSize) {
+      const userId = assertCommerceId(userIdInput);
+      if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) throw new RangeError('invalid commerce history page size');
+      const after = cursor === undefined ? null : decodeOrderHistoryCursor(cursor);
+      const conditions = after ? 'AND (o.created_at < ? OR (o.created_at = ? AND o.id < ?))' : '';
+      const values: unknown[] = after
+        ? [userId, after.createdAt, after.createdAt, after.orderId, pageSize + 1]
+        : [userId, pageSize + 1];
+      const rows = await database.all<OrderHistorySummaryRow>(
+        `SELECT o.id, o.created_at, o.currency, o.paid_total_cents,
+                o.payment_state, o.fulfillment_state, o.refund_state,
+                (SELECT COALESCE(SUM(r.amount_cents), 0)
+                   FROM commerce_refunds r
+                  WHERE r.order_id = o.id AND r.status = 'succeeded') AS refunded_total_cents,
+                COUNT(oi.id) AS item_count
+           FROM commerce_orders o
+           LEFT JOIN commerce_order_items oi ON oi.order_id = o.id
+          WHERE o.user_id = ? ${conditions}
+          GROUP BY o.id
+          ORDER BY o.created_at DESC, o.id DESC
+          LIMIT ?`,
+        values,
+      );
+      const hasMore = rows.length > pageSize;
+      const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+      const items = pageRows.map(readCommerceOrderSummary);
+      const last = pageRows.at(-1);
+      return {
+        items,
+        nextCursor: hasMore && last
+          ? encodeOrderHistoryCursor(items.at(-1)!.createdAt, items.at(-1)!.orderId)
+          : null,
+      };
     },
     async prepareCheckout(orderIdInput, proposedExpiry, updatedAt) {
       const orderId = assertCommerceId(orderIdInput);
@@ -785,4 +1200,77 @@ export async function createOrderAndCheckout(
     expiresAt: session.expiresAt,
     paymentStatus: session.paymentStatus,
   };
+}
+
+export async function getCommerceOrder(
+  userIdInput: string,
+  orderIdInput: string,
+  dependencies: OrderDependencies,
+  options: { includeCheckoutUrl?: boolean } = {},
+): Promise<CommerceOrderView> {
+  let userId: string;
+  let orderId: string;
+  try {
+    userId = assertCommerceId(userIdInput);
+    orderId = assertCommerceId(orderIdInput);
+  } catch {
+    throw new CommerceOrderError('COMMERCE_ORDER_NOT_FOUND');
+  }
+  const stored = await dependencies.repository.readOrderHistory(userId, orderId);
+  if (!stored) throw new CommerceOrderError('COMMERCE_ORDER_NOT_FOUND');
+  if (stored.stripeAccountId !== dependencies.stripeAccountId || stored.livemode !== dependencies.livemode) {
+    throw new CommerceOrderError('COMMERCE_ORDER_UNAVAILABLE');
+  }
+
+  let checkoutUrl: string | null = null;
+  let checkoutState = stored.checkoutState;
+  let paymentState = stored.paymentState;
+  if (options.includeCheckoutUrl !== false && stored.stripeCheckoutSessionId && stored.checkoutExpiresAt !== null
+    && stored.paymentState === 'unpaid' && stored.checkoutState === 'ready') {
+    const expiresAt = Number(stored.checkoutExpiresAt);
+    if (!Number.isSafeInteger(expiresAt) || expiresAt < 1) throw new CommerceOrderError('COMMERCE_ORDER_UNAVAILABLE');
+    if (expiresAt <= dependencies.now()) {
+      checkoutState = 'expired';
+    } else {
+      try {
+        const session = await retrieveCheckoutSession(stored.stripeCheckoutSessionId, expiresAt, {
+          stripe: dependencies.stripe,
+          stripeAccountId: stored.stripeAccountId,
+          livemode: stored.livemode,
+          paymentMethodConfigurationId: stored.paymentMethodConfigurationId,
+          siteOrigin: stored.siteOrigin,
+        });
+        if (session.status === 'open' && session.paymentStatus === 'unpaid') checkoutUrl = session.checkoutUrl;
+        else if (session.status === 'expired' || session.expiresAt <= dependencies.now()) checkoutState = 'expired';
+        else if (session.status === 'complete') paymentState = 'processing';
+      } catch {
+        // A history read remains useful while Stripe is temporarily unavailable.
+      }
+    }
+  }
+
+  const {
+    stripeCheckoutSessionId: _stripeCheckoutSessionId,
+    stripeAccountId: _stripeAccountId,
+    livemode: _livemode,
+    paymentMethodConfigurationId: _paymentMethodConfigurationId,
+    siteOrigin: _siteOrigin,
+    ...view
+  } = stored;
+  return { ...view, checkoutState, paymentState, checkoutUrl };
+}
+
+export async function listCommerceOrders(
+  userIdInput: string,
+  cursor: string | undefined,
+  dependencies: Pick<OrderDependencies, 'repository'>,
+): Promise<CommerceOrderPage> {
+  let userId: string;
+  try {
+    userId = assertCommerceId(userIdInput);
+  } catch {
+    throw new CommerceOrderError('COMMERCE_ORDER_UNAVAILABLE');
+  }
+  validateOrderHistoryCursor(cursor);
+  return dependencies.repository.listOrderHistory(userId, cursor, ORDER_HISTORY_PAGE_SIZE);
 }

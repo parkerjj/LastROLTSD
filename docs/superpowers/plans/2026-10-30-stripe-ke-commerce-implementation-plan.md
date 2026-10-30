@@ -215,17 +215,18 @@
 
 ### Task 12: 支付返回与购买记录
 
-**Files:** Extend `apps/worker/src/commerce/router.ts`, `orders.ts`; extend `apps/web/src/commerce-page.ts`, `commerce-page.css`; create `apps/worker/test/commerce-order-history.test.ts`, extend `apps/web/test/commerce-page.test.ts`; modify `docs/api.md`.
+**Files:** Extend `apps/worker/src/commerce/router.ts`, `orders.ts`; extend `apps/web/src/commerce-page.ts`, `commerce-page.css`, `auth/api.ts`; create `apps/worker/test/commerce-order-history.test.ts`, extend `apps/web/test/commerce-page.test.ts`, `apps/web/test/auth-api.test.ts`; modify `docs/api.md`.
 
 **Interfaces:**
 - `getCommerceOrder(userId: string, orderId: string): Promise<CommerceOrderView>` verifies ownership and returns order/payment/fulfillment/refund facts.
 - `listCommerceOrders(userId: string, cursor?: string): Promise<CommerceOrderPage>` returns bounded created_at/id cursor pagination.
+- `AuthApiClient.sessionRead<T>(path: string): Promise<T>` performs a same-origin, no-store authenticated GET and broadcasts expired-session failures; `CommerceApi` uses it for lazy order history and bounded return-status polling.
 - `/ke/buy` includes a lazily loaded purchase-history view; Checkout return identifies an order, then the browser polls only that user's order status.
 
-- [ ] **Step 1: 写失败测试**：无法查看其他用户 order；invalid cursor 拒绝；原订单快照不可变；退款记录显示累计比例与各项抵扣；success page 在 processing/paid/fulfilled 状态正确轮询；取消支付不关闭或修改旧订单。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现购买记录分页和返回状态 view**；页面日期使用 `Intl.DateTimeFormat` 的浏览器本地时区，标出 timezone。
-- [ ] **Step 4: 更新 `docs/api.md`，运行目标测试；提交 `feat: show commerce order history and status`**。
+- [x] **Step 1: 写失败测试**：无法查看其他用户 order；invalid cursor 拒绝；原订单快照不可变；退款记录显示累计比例与各项抵扣；success page 在 processing/paid/fulfilled 状态正确轮询；取消支付不关闭或修改旧订单。
+- [x] **Step 2: 运行目标测试并确认失败**。
+- [x] **Step 3: 实现购买记录分页和返回状态 view**；页面日期使用 `Intl.DateTimeFormat` 的浏览器本地时区，标出 timezone。
+- [x] **Step 4: 更新 `docs/api.md`，运行目标测试；提交 `feat: show commerce order history and status`**：全仓 `pnpm test` 1385 passed / 66 skipped；Worker/web typecheck、lint、web build、docs（58 assertions）、migration checks 与 `git diff --check` 均通过。Checkout success 只以认证订单 ID 轮询本地状态，cancel 保留原订单。
 
 ### Task 13: 配置、测试环境联调与发布前验证
 
