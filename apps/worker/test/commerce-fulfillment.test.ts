@@ -23,7 +23,7 @@ const ORDER_ROW = {
   refund_snapshot_hash: null,
   stripe_checkout_session_id: 'cs_test_701',
   stripe_payment_intent_id: null,
-  stripe_charge_id: null,
+  stripe_charge_id: null as string | null,
 };
 
 const ADD_ITEM = {
@@ -159,6 +159,10 @@ class FulfillmentRepository implements CommerceRepository {
             this.items = this.items.map((item) => item.id === itemId ? { ...item, delivery_state: 'delivered' } : item);
           }
           if (sql.includes("UPDATE commerce_orders SET payment_state = 'paid'")) this.order = { ...this.order, payment_state: 'paid', fulfillment_state: 'fulfilled' };
+          if (sql.includes("UPDATE commerce_orders SET payment_state = 'failed'")) this.order = { ...this.order, payment_state: 'failed' };
+          if (sql.includes('stripe_charge_id = COALESCE')) {
+            this.order = { ...this.order, stripe_charge_id: values[1] === null ? this.order.stripe_charge_id : String(values[1]) };
+          }
           if (sql.includes('refund_sync_generation =')) {
             this.order = {
               ...this.order,
@@ -226,6 +230,41 @@ describe('paid commerce order fulfillment', () => {
     expect(deps.stripe.get).toHaveBeenCalledTimes(1);
   });
 
+  it('records a confirmed asynchronous Checkout failure without granting entitlements', async () => {
+    const repository = new FulfillmentRepository();
+    const deps = dependencies({ repository, session: stripeSession({ payment_status: 'unpaid' }) });
+
+    const result = await reconcilePaidOrder('701', deps, 'checkout.session.async_payment_failed');
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(repository.order.payment_state).toBe('failed');
+    expect(repository.writes.some(({ sql }) => sql.includes("SET payment_state = 'failed'"))).toBe(true);
+    expect(repository.writes.some(({ sql }) => sql.includes('ke_entitlements'))).toBe(false);
+  });
+
+  it('treats an already recorded asynchronous failure as terminal while Checkout remains unpaid', async () => {
+    const repository = new FulfillmentRepository();
+    repository.order = { ...repository.order, payment_state: 'failed' };
+
+    const result = await reconcilePaidOrder('701', dependencies({
+      repository, session: stripeSession({ payment_status: 'unpaid' }),
+    }));
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(repository.writes.some(({ sql }) => sql.includes('ke_entitlements'))).toBe(false);
+  });
+
+  it('fulfills a delayed payment that succeeds after an earlier failure event', async () => {
+    const repository = new FulfillmentRepository();
+    repository.order = { ...repository.order, payment_state: 'failed' };
+
+    const result = await reconcilePaidOrder('701', dependencies({ repository }));
+
+    expect(result).toMatchObject({ status: 'fulfilled' });
+    expect(repository.order.payment_state).toBe('paid');
+    expect(repository.items[0]?.delivery_state).toBe('delivered');
+  });
+
   it('does not grant when Checkout is expired or the PaymentIntent has not succeeded', async () => {
     for (const options of [
       { session: stripeSession({ status: 'expired', payment_status: 'unpaid' }) },
@@ -250,6 +289,16 @@ describe('paid commerce order fulfillment', () => {
     expect(purchase?.values).toContain('order-item:801');
     expect(repository.writes.some(({ sql }) => sql.includes('INSERT INTO ke_entitlements'))).toBe(true);
     expect(repository.items[0]?.delivery_state).toBe('delivered');
+  });
+
+  it('persists the Stripe payment charge ID, including Alipay py_ IDs, for refund event matching', async () => {
+    const repository = new FulfillmentRepository();
+
+    await reconcilePaidOrder('701', dependencies({ repository, intent: stripeIntent({ latest_charge: 'py_test_701' }) }));
+
+    expect(repository.order.stripe_charge_id).toBe('py_test_701');
+    expect(repository.writes.some(({ sql, values }) => sql.includes('stripe_charge_id = COALESCE')
+      && values[1] === 'py_test_701')).toBe(true);
   });
 
   it('grants a zero-cost order only for a completed no-payment-required Session', async () => {

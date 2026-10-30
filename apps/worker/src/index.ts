@@ -48,6 +48,7 @@ import { createTransferRepository } from './admin/transfer-repository';
 import { createTransferService } from './admin/transfer-service';
 import { createActionService } from './auth/action-service';
 import { runCommerceCronTick } from './commerce/jobs';
+import { reconcilePaidOrder } from './commerce/fulfillment';
 import { renderCommerceHtml } from './commerce/page';
 import { registerCommerceOrderRoute, registerCommerceQuoteRoute, registerCommerceWebhookRoute } from './commerce/router';
 import { createStripeClient } from './commerce/stripe-client';
@@ -146,14 +147,31 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
         return validation;
       };
       const commerceRuntime = { now: () => Date.now(), fetch: globalThis.fetch };
+      const commerceRepository = createCommerceRepository(database);
 
       registerCommerceWebhookRoute(app, {
         setup: () => ({
-          repository: createCommerceRepository(database),
+          repository: commerceRepository,
           signingSecret: commerceConfig.webhookSecret,
           stripeAccountId: commerceConfig.stripeAccountId,
           livemode: commerceConfig.livemode,
           now: () => Date.now(),
+          resolveRefundOrderIdFromPaymentIntent: async (paymentIntentId) => {
+            const value = await stripe.get<unknown>('/payment_intents/' + paymentIntentId);
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+            const intent = value as Record<string, unknown>;
+            if (intent.id !== paymentIntentId || intent.object !== 'payment_intent' || intent.livemode !== commerceConfig.livemode
+              || !intent.metadata || typeof intent.metadata !== 'object' || Array.isArray(intent.metadata)) return null;
+            const orderId = (intent.metadata as Record<string, unknown>).ltsd_commerce_order_id;
+            return typeof orderId === 'string' && /^\d{1,20}$/u.test(orderId) ? orderId : null;
+          },
+          reconcileOrder: (orderId, eventType) => reconcilePaidOrder(orderId, {
+            repository: commerceRepository,
+            stripe,
+            stripeAccountId: commerceConfig.stripeAccountId,
+            livemode: commerceConfig.livemode,
+            now: () => Date.now(),
+          }, eventType),
         }),
       });
 

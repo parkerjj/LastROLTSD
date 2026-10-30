@@ -232,6 +232,24 @@ describe('Stripe refund synchronization', () => {
     expect(repository.refunds[0]?.status).toBe('failed');
   });
 
+  it('accepts Alipay pyr_/py_ refund snapshots and excludes pending refunds from totals', async () => {
+    const repository = new RefundRepository();
+    repository.order = { ...repository.order, stripe_charge_id: null };
+    const refund = { ...stripeRefund('pyr_test_1', 2_500, 'pending'), charge: 'py_test_701' };
+    const { stripe } = dependencies({ repository, pages: [{ object: 'list', data: [refund], has_more: false }] });
+
+    const result = await syncOrderRefunds('701', {
+      repository,
+      stripe,
+      stripeAccountId: 'acct_test',
+      livemode: false,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({ refundedTotalCents: '0', refundState: 'none' });
+    expect(repository.refunds).toEqual([expect.objectContaining({ stripe_refund_id: 'pyr_test_1', status: 'pending' })]);
+  });
+
   it('does not allow an older concurrent Stripe snapshot to overwrite the newer one', async () => {
     const repository = new RefundRepository();
     let releaseOldSnapshot: (snapshot: Record<string, unknown>) => void = () => {};

@@ -215,7 +215,7 @@ Checkout 必须：
 订单状态分别记录，避免一个 enum 丢失事实：
 
 - checkout_state：creating / ready / failed / expired。
-- payment_state：unpaid / processing / paid。
+- payment_state：unpaid / processing / paid / failed。异步付款失败事件只有在重新读取 Stripe Session 确认 complete + unpaid 后才写入 failed；后续权威付款成功仍可交付。
 - fulfillment_state：pending / fulfilled；已全额退款且未交付的订单也记录“已结清、无净权益发放”。
 - refund_state：none / partial / full，从累计成功退款金额派生。
 
@@ -362,9 +362,11 @@ Webhook 原始字节验签后，持久保存 event_id/类型/对象/账号模式
 ### 9.3 事件与过期状态
 
 - checkout.session.completed、checkout.session.async_payment_succeeded：触发权威核对，仅确认 paid 才发放；零金额单要求 complete 且 no_payment_required。
-- checkout.session.async_payment_failed、checkout.session.expired：更新支付流程事实，不发放未付权益。
+- checkout.session.async_payment_failed：重新读取 Stripe Session；仅在 complete + unpaid 时把 payment_state 写为 failed，不发权益。订单保留为不可变历史，用户重新报价并创建新订单；若之后 Stripe 权威状态变为 paid，仍按原订单完整交付。
+- 若 async_payment_failed 到达时 Session 尚未显示终态，Webhook 返回非 2xx 并保留已验证 inbox 项；持久 job 从 inbox 恢复事件类型并重试，直到付款失败、付款成功或 Session 过期得到权威确认后才完成。
+- checkout.session.expired：不发放未付权益，保留旧订单；用户需要重新报价并创建订单。
 - refund.created、refund.updated、refund.failed、charge.refunded：核对对应订单与最新退款对象，不按事件次数相加。
-- 支付失败后如仍是同一有效 Session，可回到该单继续支付；过期后新建订单，旧单保留历史。
+- Checkout Session 创建失败与异步付款失败是不同状态：前者仍可按原订单流程重试创建；后者已完成 Checkout 流程，需新建订单。
 - 已进入 processing 的支付可能在会话窗口之后才确认。不能仅根据本地时间或过期通知把后到的真实付款丢掉；确认已收款则完整交付。
 - 与捐款或其他命名空间无关的 Stripe 事件记录忽略原因，不触发权益变更。
 
@@ -400,7 +402,7 @@ Webhook 原始字节验签后，持久保存 event_id/类型/对象/账号模式
 
 ## 11. 配置、迁移与运行
 
-新增独立 COMMERCE_ENABLED、商务受限 Stripe API key、Webhook signing secret、两个 Product/常用 Price 映射、普通支付配置 ID、LTSD 基准价格与 `COMMERCE_PRICING_VERSION`、账号/模式及稳定 API 版本配置。复用既有 secret 部署机制，不复用捐款 key 扩权；不打印或提交密钥。
+新增独立 COMMERCE_ENABLED、Commerce 专用 API key、Webhook signing secret、两个 Product/常用 Price 映射、普通支付配置 ID、LTSD 基准价格与 `COMMERCE_PRICING_VERSION`、账号/模式及稳定 API 版本配置。`COMMERCE_STRIPE_SECRET_KEY` 专用于购买和订单；`STRIPE_SECRET_KEY` 仅供 donate 金额查询，两者互不回退。复用既有 secret 部署机制，不打印或提交密钥。
 
 Cloudflare Assets 的 worker-first 路径需包含 `/ke/buy`（所有 Wrangler 环境保持一致），并由 Worker 注入首屏 bootstrap；Vite 本地开发代理也需覆盖该路径。购买页 HTML 响应不进入 Cloudflare 缓存，静态 JS/CSS 继续由 Assets 缓存。
 

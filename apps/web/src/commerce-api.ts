@@ -102,7 +102,7 @@ export interface CommerceOrderSummary {
   createdAt: string;
   currency: "CNY";
   paidTotalCents: string;
-  paymentState: "unpaid" | "processing" | "paid";
+  paymentState: "unpaid" | "processing" | "paid" | "failed";
   fulfillmentState: "pending" | "fulfilled" | "settled";
   refundState: "none" | "partial" | "full";
   refundedTotalCents: string;
@@ -153,7 +153,7 @@ export interface CommerceOrderView {
   accountPreview: CommerceQuote["accountPreview"];
   checkoutState: "creating" | "ready" | "failed" | "expired";
   checkoutExpiresAt: string | null;
-  paymentState: "unpaid" | "processing" | "paid";
+  paymentState: "unpaid" | "processing" | "paid" | "failed";
   fulfillmentState: "pending" | "fulfilled" | "settled";
   refundState: "none" | "partial" | "full";
   paidAt: string | null;
@@ -253,7 +253,7 @@ function safeCheckoutUrl(value: unknown): string | null | undefined {
 
 function orderSummary(value: unknown): value is CommerceOrderSummary {
   return record(value) && decimal(value.orderId) && decimal(value.createdAt) && value.currency === "CNY"
-    && decimal(value.paidTotalCents) && ["unpaid", "processing", "paid"].includes(String(value.paymentState))
+    && decimal(value.paidTotalCents) && ["unpaid", "processing", "paid", "failed"].includes(String(value.paymentState))
     && ["pending", "fulfilled", "settled"].includes(String(value.fulfillmentState))
     && ["none", "partial", "full"].includes(String(value.refundState))
     && decimal(value.refundedTotalCents) && Number.isSafeInteger(value.itemCount) && Number(value.itemCount) >= 0;
@@ -278,7 +278,7 @@ function orderView(value: unknown): value is CommerceOrderView {
     || !validAccountPreview(value.accountPreview)
     || !["creating", "ready", "failed", "expired"].includes(String(value.checkoutState))
     || (value.checkoutExpiresAt !== null && !decimal(value.checkoutExpiresAt))
-    || !["unpaid", "processing", "paid"].includes(String(value.paymentState))
+    || !["unpaid", "processing", "paid", "failed"].includes(String(value.paymentState))
     || !["pending", "fulfilled", "settled"].includes(String(value.fulfillmentState))
     || !["none", "partial", "full"].includes(String(value.refundState))
     || (value.paidAt !== null && !decimal(value.paidAt))

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const migration = readFileSync(new URL('../../../migrations/mysql/023_ke_commerce.sql', import.meta.url), 'utf8');
+const paymentStateMigration = readFileSync(new URL('../../../migrations/mysql/026_commerce_failed_payment_state.sql', import.meta.url), 'utf8');
 
 const commerceTables = [
   'commerce_customers',
@@ -111,5 +112,12 @@ describe('MySQL migration 023 commerce schema', () => {
     expect(jobs).toMatch(/UNIQUE KEY [^(]+\(job_key\)/u);
     expect(jobs).toMatch(/INDEX [^(]+\(state, next_run_at, lease_until, id\)/u);
     expect(jobs).toMatch(/FOREIGN KEY \(order_id\) REFERENCES commerce_orders \(id\) ON DELETE RESTRICT/u);
+  });
+});
+
+describe('MySQL migration 026 failed payment state', () => {
+  it('allows a persisted failed payment state for terminal asynchronous Checkout failures', () => {
+    expect(paymentStateMigration).toMatch(/DROP CHECK chk_commerce_orders_payment/u);
+    expect(paymentStateMigration).toMatch(/CHECK \(payment_state IN \('unpaid', 'processing', 'paid', 'failed'\)\)/u);
   });
 });

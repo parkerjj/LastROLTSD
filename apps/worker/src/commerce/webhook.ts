@@ -1,15 +1,22 @@
-import { assertCommerceId, type CommerceRepository } from './repository';
+import { assertCommerceId, type CommerceRepository, type CommerceTransaction } from './repository';
 import { enqueueCommerceReconcile } from './commerce-job-repository';
+import type { FulfillmentResult } from './fulfillment';
 import type { MysqlRow } from '../db/mysql-client';
 
 const SIGNATURE_TOLERANCE_SECONDS = 300;
 const MAX_WEBHOOK_BYTES = 1_000_000;
-const ORDER_EVENT_TYPES = new Set([
+const CHECKOUT_SESSION_EVENT_TYPES = new Set([
   'checkout.session.completed',
   'checkout.session.async_payment_succeeded',
   'checkout.session.async_payment_failed',
   'checkout.session.expired',
 ]);
+const REFUND_EVENT_TYPES = new Set(['refund.created', 'refund.updated', 'refund.failed']);
+
+interface RefundReferences {
+  paymentIntentId: string | null;
+  chargeId: string | null;
+}
 
 export interface WebhookDependencies {
   repository: CommerceRepository;
@@ -17,6 +24,8 @@ export interface WebhookDependencies {
   stripeAccountId: string;
   livemode: boolean;
   now: () => number;
+  resolveRefundOrderIdFromPaymentIntent: (paymentIntentId: string) => Promise<string | null>;
+  reconcileOrder: (orderId: string, eventType: string) => Promise<FulfillmentResult>;
 }
 
 interface StripeEvent {
@@ -40,18 +49,9 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-function decodeSigningSecret(value: string): Uint8Array {
-  const encoded = value.startsWith('whsec_') ? value.slice(6) : '';
-  if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/u.test(encoded) || encoded.length % 4 !== 0) {
-    throw new InvalidStripeEvent();
-  }
-  try {
-    const binary = atob(encoded);
-    if (btoa(binary) !== encoded || binary.length === 0) throw new InvalidStripeEvent();
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  } catch {
-    throw new InvalidStripeEvent();
-  }
+function signingSecretBytes(value: string): Uint8Array {
+  if (!/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(value)) throw new InvalidStripeEvent();
+  return new TextEncoder().encode(value);
 }
 
 function parseSignatures(value: string | null): { timestamp: number; signatures: Uint8Array[] } {
@@ -86,7 +86,7 @@ async function verifyStripeSignature(
   if (!Number.isSafeInteger(now) || Math.abs(Math.floor(now / 1000) - timestamp) > SIGNATURE_TOLERANCE_SECONDS) {
     throw new InvalidStripeEvent();
   }
-  const secretBytes = decodeSigningSecret(signingSecret);
+  const secretBytes = signingSecretBytes(signingSecret);
   const key = await crypto.subtle.importKey('raw', toArrayBuffer(secretBytes), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
   const prefix = new TextEncoder().encode(timestamp + '.');
   const signedPayload = new Uint8Array(prefix.length + body.length);
@@ -114,13 +114,13 @@ function parseStripeEvent(value: unknown): StripeEvent {
     type: event.type,
     livemode: event.livemode,
     account: typeof event.account === 'string' ? event.account : null,
-    objectId: typeof object?.id === 'string' && object.id.length <= 64 ? object.id : null,
+    objectId: typeof object?.id === 'string' && object.id.length <= 255 ? object.id : null,
     object,
   };
 }
 
 function candidateOrderId(event: StripeEvent): string | null {
-  if (!ORDER_EVENT_TYPES.has(event.type) || !event.object || event.object.object !== 'checkout.session'
+  if (!CHECKOUT_SESSION_EVENT_TYPES.has(event.type) || !event.object || event.object.object !== 'checkout.session'
     || event.objectId === null || !/^cs_[A-Za-z0-9_]+$/u.test(event.objectId)) return null;
   const metadata = asRecord(event.object.metadata);
   const metadataId = metadata?.ltsd_commerce_order_id;
@@ -134,6 +134,127 @@ function candidateOrderId(event: StripeEvent): string | null {
   } catch {
     return null;
   }
+}
+
+function stripeReferenceId(value: unknown, prefix: 'pi' | 'ch' | 'py'): string | null {
+  const object = asRecord(value);
+  const id = typeof value === 'string' ? value : object?.id;
+  return typeof id === 'string' && id.length <= 255 && new RegExp('^' + prefix + '_[A-Za-z0-9_]+$', 'u').test(id)
+    ? id
+    : null;
+}
+
+function stripeChargeReferenceId(value: unknown): string | null {
+  return stripeReferenceId(value, 'ch') ?? stripeReferenceId(value, 'py');
+}
+
+function optionalStripeReference(value: unknown, prefix: 'pi' | 'ch' | 'py'): { valid: boolean; id: string | null } {
+  if (value === null || value === undefined) return { valid: true, id: null };
+  const id = stripeReferenceId(value, prefix);
+  return { valid: id !== null, id };
+}
+
+function optionalStripeChargeReference(value: unknown): { valid: boolean; id: string | null } {
+  if (value === null || value === undefined) return { valid: true, id: null };
+  const id = stripeChargeReferenceId(value);
+  return { valid: id !== null, id };
+}
+
+function candidateRefundReferences(event: StripeEvent): RefundReferences | null {
+  const object = event.object;
+  if (!object) return null;
+  if (REFUND_EVENT_TYPES.has(event.type)) {
+    if (object.object !== 'refund' || event.objectId === null || !/^(?:re|pyr)_[A-Za-z0-9_]+$/u.test(event.objectId)) return null;
+  } else if (event.type === 'charge.refunded') {
+    if (object.object !== 'charge' || event.objectId === null || stripeChargeReferenceId(event.objectId) === null) return null;
+  } else {
+    return null;
+  }
+
+  const paymentIntent = optionalStripeReference(object.payment_intent, 'pi');
+  const charge = event.type === 'charge.refunded'
+    ? { valid: true, id: stripeChargeReferenceId(event.objectId) }
+    : optionalStripeChargeReference(object.charge);
+  if (!paymentIntent.valid || !charge.valid || (paymentIntent.id === null && charge.id === null)) return null;
+  return { paymentIntentId: paymentIntent.id, chargeId: charge.id };
+}
+
+async function findRefundOrderId(
+  tx: CommerceTransaction,
+  references: RefundReferences,
+  stripeAccountId: string,
+  livemode: boolean,
+): Promise<string | null> {
+  const clauses: string[] = [];
+  const values: unknown[] = [stripeAccountId, livemode ? 1 : 0];
+  if (references.paymentIntentId !== null) {
+    clauses.push('stripe_payment_intent_id = ?');
+    values.push(references.paymentIntentId);
+  }
+  if (references.chargeId !== null) {
+    clauses.push('stripe_charge_id = ?');
+    values.push(references.chargeId);
+  }
+  const rows = await tx.all<MysqlRow>(
+    'SELECT CAST(id AS CHAR) AS id, stripe_payment_intent_id, stripe_charge_id FROM commerce_orders '
+      + 'WHERE stripe_account_id = ? AND stripe_livemode = ? AND (' + clauses.join(' OR ') + ') '
+      + 'ORDER BY id LIMIT 2 FOR UPDATE',
+    values,
+  );
+  if (rows.length !== 1) return null;
+  const row = rows[0]!;
+  const paymentIntentId = row.stripe_payment_intent_id === null || row.stripe_payment_intent_id === undefined
+    ? null
+    : String(row.stripe_payment_intent_id);
+  const chargeId = row.stripe_charge_id === null || row.stripe_charge_id === undefined ? null : String(row.stripe_charge_id);
+  if ((references.paymentIntentId !== null && paymentIntentId !== null && paymentIntentId !== references.paymentIntentId)
+    || (references.chargeId !== null && chargeId !== null && chargeId !== references.chargeId)) return null;
+  try {
+    return assertCommerceId(String(row.id));
+  } catch {
+    return null;
+  }
+}
+
+async function findRefundOrderIdFromMetadata(
+  tx: CommerceTransaction,
+  orderIdInput: string,
+  references: RefundReferences,
+  stripeAccountId: string,
+  livemode: boolean,
+): Promise<string | null> {
+  let orderId: string;
+  try {
+    orderId = assertCommerceId(orderIdInput);
+  } catch {
+    return null;
+  }
+  const row = await tx.first<MysqlRow>(
+    'SELECT id, stripe_payment_intent_id, stripe_charge_id FROM commerce_orders '
+      + 'WHERE id = ? AND stripe_account_id = ? AND stripe_livemode = ? LIMIT 1 FOR UPDATE',
+    [orderId, stripeAccountId, livemode ? 1 : 0],
+  );
+  if (!row) return null;
+  const paymentIntentId = row.stripe_payment_intent_id === null || row.stripe_payment_intent_id === undefined
+    ? null
+    : String(row.stripe_payment_intent_id);
+  const chargeId = row.stripe_charge_id === null || row.stripe_charge_id === undefined ? null : String(row.stripe_charge_id);
+  if ((paymentIntentId !== null && paymentIntentId !== references.paymentIntentId)
+    || (references.chargeId !== null && chargeId !== null && references.chargeId !== chargeId)) return null;
+  return orderId;
+}
+
+async function readJobGeneration(tx: CommerceTransaction, orderId: string): Promise<string> {
+  const row = await tx.first<MysqlRow>(
+    'SELECT CAST(dirty_generation AS CHAR) AS dirty_generation FROM commerce_jobs '
+      + 'WHERE job_type = \'order_reconcile\' AND order_id = ? LIMIT 1 FOR UPDATE',
+    [orderId],
+  );
+  const generation = row?.dirty_generation;
+  if (generation === null || generation === undefined || !/^\d{1,20}$/u.test(String(generation))) {
+    throw new Error('commerce reconcile job is missing');
+  }
+  return String(generation);
 }
 
 function response(status: number): Response {
@@ -192,34 +313,53 @@ export async function receiveStripeEvent(request: Request, dependencies: Webhook
     return response(503);
   }
 
-  const orderId = (event.account !== null && event.account !== dependencies.stripeAccountId)
-    || event.livemode !== dependencies.livemode
-    ? null
-    : candidateOrderId(event);
+  const scoped = (event.account === null || event.account === dependencies.stripeAccountId)
+    && event.livemode === dependencies.livemode;
+  const checkoutOrderId = scoped ? candidateOrderId(event) : null;
+  const refundReferences = scoped ? candidateRefundReferences(event) : null;
   const objectId = event.objectId;
   try {
-    await dependencies.repository.transaction(async (tx) => {
+    let refundOrderIdFromMetadata: string | null = null;
+    if (refundReferences?.paymentIntentId !== null && refundReferences?.paymentIntentId !== undefined) {
+      const indexedOrderId = await dependencies.repository.transaction((tx) =>
+        findRefundOrderId(tx, refundReferences, dependencies.stripeAccountId, dependencies.livemode));
+      if (indexedOrderId === null) {
+        refundOrderIdFromMetadata = await dependencies.resolveRefundOrderIdFromPaymentIntent(refundReferences.paymentIntentId);
+      }
+    }
+
+    const reconciliation = await dependencies.repository.transaction(async (tx) => {
       const duplicate = await tx.first<MysqlRow>(
-        'SELECT payload_sha256 FROM commerce_provider_events '
+        'SELECT payload_sha256, CAST(order_id AS CHAR) AS order_id, state FROM commerce_provider_events '
           + 'WHERE stripe_account_id = ? AND stripe_livemode = ? AND stripe_event_id = ? FOR UPDATE',
         [dependencies.stripeAccountId, dependencies.livemode ? 1 : 0, event.id],
       );
       if (duplicate) {
         if (String(duplicate.payload_sha256) !== payloadSha256) throw new InvalidStripeEvent();
-        return;
+        if (duplicate.state !== 'queued' || duplicate.order_id === null || duplicate.order_id === undefined) return null;
+        const orderId = assertCommerceId(String(duplicate.order_id));
+        await enqueueCommerceReconcile(tx, orderId, now);
+        return { orderId, generation: await readJobGeneration(tx, orderId) };
       }
 
       let matchedOrderId: string | null = null;
-      if (orderId !== null && objectId !== null
+      if (checkoutOrderId !== null && objectId !== null
         && typeof event.object?.mode === 'string' && event.object.mode === 'payment') {
         const order = await tx.first<MysqlRow>(
           'SELECT id, stripe_checkout_session_id FROM commerce_orders '
             + 'WHERE id = ? AND stripe_account_id = ? AND stripe_livemode = ? LIMIT 1 FOR UPDATE',
-          [orderId, dependencies.stripeAccountId, dependencies.livemode ? 1 : 0],
+          [checkoutOrderId, dependencies.stripeAccountId, dependencies.livemode ? 1 : 0],
         );
         if (order && (String(order.stripe_checkout_session_id ?? '') === objectId
           || order.stripe_checkout_session_id === null || order.stripe_checkout_session_id === undefined)) {
-          matchedOrderId = orderId;
+          matchedOrderId = checkoutOrderId;
+        }
+      } else if (refundReferences !== null) {
+        matchedOrderId = await findRefundOrderId(tx, refundReferences, dependencies.stripeAccountId, dependencies.livemode);
+        if (matchedOrderId === null && refundOrderIdFromMetadata !== null) {
+          matchedOrderId = await findRefundOrderIdFromMetadata(
+            tx, refundOrderIdFromMetadata, refundReferences, dependencies.stripeAccountId, dependencies.livemode,
+          );
         }
       }
 
@@ -230,15 +370,40 @@ export async function receiveStripeEvent(request: Request, dependencies: Webhook
         [dependencies.stripeAccountId, dependencies.livemode ? 1 : 0, event.id, event.type, objectId,
           matchedOrderId, payloadSha256, matchedOrderId === null ? 'ignored' : 'queued', now],
       );
-      if (matchedOrderId === null) return;
-      await tx.run(
-        'UPDATE commerce_orders SET stripe_checkout_session_id = ? '
-          + 'WHERE id = ? AND stripe_checkout_session_id IS NULL',
-        [objectId, matchedOrderId],
-      );
+      if (matchedOrderId === null) return null;
+      if (checkoutOrderId !== null) {
+        await tx.run(
+          'UPDATE commerce_orders SET stripe_checkout_session_id = ? '
+            + 'WHERE id = ? AND stripe_checkout_session_id IS NULL',
+          [objectId, matchedOrderId],
+        );
+      }
 
       await enqueueCommerceReconcile(tx, matchedOrderId, now);
+      return { orderId: matchedOrderId, generation: await readJobGeneration(tx, matchedOrderId) };
     });
+
+    if (reconciliation !== null) {
+      const result = await dependencies.reconcileOrder(reconciliation.orderId, event.type);
+      if (result.status === 'pending' && event.type === 'checkout.session.async_payment_failed') return response(503);
+      if (result.status !== 'pending') {
+        const processedAt = dependencies.now();
+        if (!Number.isSafeInteger(processedAt) || processedAt < 0) return response(503);
+        await dependencies.repository.transaction(async (tx) => {
+          await tx.run(
+            'UPDATE commerce_provider_events SET state = \'processed\', processed_at = ? '
+              + 'WHERE stripe_account_id = ? AND stripe_livemode = ? AND stripe_event_id = ? AND state = \'queued\'',
+            [processedAt, dependencies.stripeAccountId, dependencies.livemode ? 1 : 0, event.id],
+          );
+          await tx.run(
+            'UPDATE commerce_jobs SET processed_generation = ?, state = \'done\', '
+              + 'next_run_at = ?, lease_owner = NULL, lease_until = NULL, last_error_code = NULL, updated_at = ? '
+              + 'WHERE job_type = \'order_reconcile\' AND order_id = ? AND state = \'queued\' AND dirty_generation = ?',
+            [reconciliation.generation, processedAt, processedAt, reconciliation.orderId, reconciliation.generation],
+          );
+        });
+      }
+    }
     return response(200);
   } catch (error) {
     if (error instanceof InvalidStripeEvent) return response(409);

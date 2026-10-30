@@ -135,13 +135,13 @@ class HistoryDatabase implements MysqlDatabase {
   readonly firstCalls: Array<{ sql: string; values: readonly unknown[] }> = [];
   readonly allCalls: Array<{ sql: string; values: readonly unknown[] }> = [];
 
-  constructor(private readonly orderUserId = '42') {}
+  constructor(private readonly orderUserId = '42', private readonly paymentState = 'paid') {}
 
   async all<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> {
     this.allCalls.push({ sql, values });
     if (sql.includes('FROM commerce_orders o')) return values[0] === '42' ? [{
       id: '701', created_at: NOW, currency: 'CNY', paid_total_cents: '5000',
-      payment_state: 'paid', fulfillment_state: 'fulfilled', refund_state: 'partial',
+      payment_state: this.paymentState, fulfillment_state: 'fulfilled', refund_state: 'partial',
       refunded_total_cents: '1000', item_count: 1,
     }] as unknown as T[] : [];
     if (sql.includes('FROM commerce_order_items')) return [{
@@ -184,7 +184,7 @@ class HistoryDatabase implements MysqlDatabase {
       preview_snapshot: JSON.stringify({
         accountPreview: ORDER_VIEW.accountPreview, paymentMethodConfigurationId: 'pmc_ordinary', checkoutSiteOrigin: ORIGIN,
       }),
-      promotion_snapshot: null, checkout_state: 'ready', payment_state: 'paid',
+      promotion_snapshot: null, checkout_state: 'ready', payment_state: this.paymentState,
       fulfillment_state: 'fulfilled', refund_state: 'partial', stripe_account_id: 'acct_test', stripe_livemode: 0,
       stripe_checkout_session_id: 'cs_test_701', checkout_expires_at: NOW + 1_800_000,
       paid_at: NOW + 1000, fulfilled_at: NOW + 1000, created_at: NOW,
@@ -210,6 +210,16 @@ class OrderListDatabase extends HistoryDatabase {
 }
 
 describe('commerce order history and return status', () => {
+  it('reads a failed payment state consistently in order detail and history', async () => {
+    const repository = createOrderRepository(new HistoryDatabase('42', 'failed'));
+
+    const detail = await repository.readOrderHistory('42', '701');
+    const history = await repository.listOrderHistory('42', undefined, 20);
+
+    expect(detail?.paymentState).toBe('failed');
+    expect(history.items[0]?.paymentState).toBe('failed');
+  });
+
   it('lists only the signed-in user orders in a private response without requiring write CSRF', async () => {
     const fixture = await setup();
     const response = await fixture.app.request(`${ORIGIN}/api/v1/commerce/orders`, { headers: fixture.headers });

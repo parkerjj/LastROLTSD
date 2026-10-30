@@ -93,6 +93,14 @@ function stripeId(value: unknown, prefix: string): string | null {
   return record ? stripeId(record.id, prefix) : null;
 }
 
+function stripeRefundId(value: unknown): string | null {
+  return stripeId(value, 're') ?? stripeId(value, 'pyr');
+}
+
+function stripeChargeId(value: unknown): string | null {
+  return stripeId(value, 'ch') ?? stripeId(value, 'py');
+}
+
 function parseOrder(row: MysqlRow): OrderSnapshot {
   const accountId = String(row.stripe_account_id);
   if (!/^acct_[A-Za-z0-9]+$/u.test(accountId)) throw new TypeError('invalid commerce account');
@@ -101,7 +109,7 @@ function parseOrder(row: MysqlRow): OrderSnapshot {
     : String(row.stripe_payment_intent_id);
   const charge = row.stripe_charge_id === null || row.stripe_charge_id === undefined ? null : String(row.stripe_charge_id);
   if (paymentIntent !== null && !/^pi_[A-Za-z0-9_]+$/u.test(paymentIntent)) throw new TypeError('invalid commerce PaymentIntent');
-  if (charge !== null && !/^ch_[A-Za-z0-9_]+$/u.test(charge)) throw new TypeError('invalid commerce charge');
+  if (charge !== null && stripeChargeId(charge) !== charge) throw new TypeError('invalid commerce charge');
   const refundHash = row.refund_snapshot_hash === null || row.refund_snapshot_hash === undefined
     ? null
     : String(row.refund_snapshot_hash);
@@ -123,13 +131,13 @@ function parseOrder(row: MysqlRow): OrderSnapshot {
 
 function parseStripeRefund(value: unknown, paymentIntentId: string, chargeId: string | null): RefundSnapshot {
   const refund = asRecord(value);
-  const id = stripeId(refund?.id, 're');
+  const id = stripeRefundId(refund?.id);
   const amount = refund?.amount;
   const status = refund?.status;
   const created = refund?.created;
   const currency = refund?.currency;
   const linkedPaymentIntent = refund?.payment_intent === null ? null : stripeId(refund?.payment_intent, 'pi');
-  const linkedCharge = refund?.charge === null ? null : stripeId(refund?.charge, 'ch');
+  const linkedCharge = refund?.charge === null ? null : stripeChargeId(refund?.charge);
   if (!refund || refund.object !== 'refund' || !id
     || !Number.isSafeInteger(amount) || (amount as number) < 0
     || currency !== 'cny' || typeof status !== 'string' || !REFUND_STATUSES.has(status)
@@ -176,7 +184,7 @@ async function fetchRefundSnapshot(
     }
     if (!page.has_more) return [...refunds.values()].sort((left, right) => left.id.localeCompare(right.id));
     if (data.length === 0) throw new Error('Stripe refund pagination did not advance');
-    startingAfter = [...data].map((item) => stripeId(asRecord(item)?.id, 're')).at(-1) ?? undefined;
+    startingAfter = [...data].map((item) => stripeRefundId(asRecord(item)?.id)).at(-1) ?? undefined;
     if (!startingAfter) throw new Error('Stripe refund pagination cursor is invalid');
   }
   throw new Error('Stripe refund snapshot exceeds reconciliation page limit');
@@ -185,7 +193,7 @@ async function fetchRefundSnapshot(
 function parseStoredRefund(row: MysqlRow): RefundSnapshot {
   const id = String(row.stripe_refund_id);
   const status = String(row.status);
-  if (!/^re_[A-Za-z0-9_]+$/u.test(id) || !REFUND_STATUSES.has(status)) throw new TypeError('invalid stored commerce refund');
+  if (!/^(?:re|pyr)_[A-Za-z0-9_]+$/u.test(id) || !REFUND_STATUSES.has(status)) throw new TypeError('invalid stored commerce refund');
   return {
     id,
     amountCents: readBigint(row.amount_cents, 'refund amount'),

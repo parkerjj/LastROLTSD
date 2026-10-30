@@ -77,7 +77,7 @@ export function createStripeClient(options: {
 
     let response: Response;
     try {
-      response = await options.fetch(url, init);
+      response = await options.fetch.call(globalThis, url, init);
     } catch {
       throw new StripeRequestError();
     }

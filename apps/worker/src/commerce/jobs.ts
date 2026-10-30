@@ -1,5 +1,5 @@
 import { COMMERCE_STRIPE_API_VERSION, resolveCommerceConfig, type AppEnv } from '../env';
-import type { MysqlDatabase } from '../db/mysql-client';
+import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
 import { createWorkerDatabase } from '../db/mysql-connection';
 import { logError } from '../observability';
 import { createCommerceJobRepository, type CommerceJobClaim } from './commerce-job-repository';
@@ -39,15 +39,45 @@ export interface CommerceReconcileConfig {
 }
 
 export function createCommerceOrderProcessor(database: MysqlDatabase, config: CommerceReconcileConfig) {
+  const repository = createCommerceRepository(database);
   const dependencies = {
-    repository: createCommerceRepository(database),
+    repository,
     stripe: config.stripe,
     stripeAccountId: config.stripeAccountId,
     livemode: config.livemode,
     now: config.now,
   };
   return async (orderId: string): Promise<void> => {
-    await reconcilePaidOrder(orderId, dependencies);
+    const pendingFailures = await repository.transaction((tx) => tx.all<MysqlRow>(
+      'SELECT stripe_event_id FROM commerce_provider_events WHERE order_id = ? '
+        + 'AND event_type = \'checkout.session.async_payment_failed\' AND state = \'queued\' '
+        + 'ORDER BY received_at, stripe_event_id',
+      [orderId],
+    ));
+    const eventIds = pendingFailures.map((event) => {
+      const eventId = event.stripe_event_id;
+      if (typeof eventId !== 'string' || eventId.length > 255 || !/^evt_[A-Za-z0-9_]+$/u.test(eventId)) {
+        throw new TypeError('invalid commerce provider event');
+      }
+      return eventId;
+    });
+
+    const result = await reconcilePaidOrder(
+      orderId,
+      dependencies,
+      eventIds.length > 0 ? 'checkout.session.async_payment_failed' : undefined,
+    );
+    if (eventIds.length > 0) {
+      if (result.status === 'pending') throw new Error('async payment failure is not terminal yet');
+      const processedAt = config.now();
+      if (!Number.isSafeInteger(processedAt) || processedAt < 0) throw new RangeError('invalid commerce event processing time');
+      await repository.transaction((tx) => tx.run(
+        'UPDATE commerce_provider_events SET state = \'processed\', processed_at = ? '
+          + 'WHERE order_id = ? AND state = \'queued\' AND stripe_event_id IN ('
+          + eventIds.map(() => '?').join(',') + ')',
+        [processedAt, orderId, ...eventIds],
+      ));
+    }
   };
 }
 

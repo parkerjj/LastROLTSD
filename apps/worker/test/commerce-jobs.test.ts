@@ -5,9 +5,13 @@ import {
   enqueueCommerceReconcile,
   type CommerceJobClaim,
 } from '../src/commerce/commerce-job-repository';
-import { runCommerceCronTick, runCommerceJobTick } from '../src/commerce/jobs';
+import { createCommerceOrderProcessor, runCommerceCronTick, runCommerceJobTick } from '../src/commerce/jobs';
+import { reconcilePaidOrder } from '../src/commerce/fulfillment';
 import { resolveAppEnv } from '../src/env';
 import type { MysqlDatabase, MysqlRow, MysqlWriteResult } from '../src/db/mysql-client';
+import type { StripeClient } from '../src/commerce/stripe-client';
+
+vi.mock('../src/commerce/fulfillment', () => ({ reconcilePaidOrder: vi.fn() }));
 
 interface JobRow extends MysqlRow {
   id: string;
@@ -37,6 +41,7 @@ function makeJob(overrides: Partial<JobRow> = {}): JobRow {
 class JobDatabase implements MysqlDatabase {
   readonly calls: Array<{ method: 'all' | 'first' | 'run'; sql: string; values: readonly unknown[] }> = [];
   readonly jobs = new Map<string, JobRow>();
+  readonly providerEvents: Array<{ stripe_event_id: string; event_type: string; order_id: string; state: string }> = [];
   closeCalls = 0;
   failQueries = false;
 
@@ -47,6 +52,10 @@ class JobDatabase implements MysqlDatabase {
   async all<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T[]> {
     this.calls.push({ method: 'all', sql, values });
     if (this.failQueries) throw new Error('database unavailable');
+    if (sql.includes('FROM commerce_provider_events')) {
+      return this.providerEvents.filter((row) => row.order_id === String(values[0]) && row.state === 'queued'
+        && row.event_type === 'checkout.session.async_payment_failed').map((row) => ({ ...row }) as T);
+    }
     if (!sql.includes('FROM commerce_jobs')) return [];
     const now = Number(values[0]);
     const limit = Number(values[2]);
@@ -60,6 +69,11 @@ class JobDatabase implements MysqlDatabase {
 
   async first<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T | null> {
     this.calls.push({ method: 'first', sql, values });
+    if (sql.includes('FROM commerce_provider_events')) {
+      const event = this.providerEvents.find((row) => row.order_id === String(values[0]) && row.state === 'queued'
+        && row.event_type === 'checkout.session.async_payment_failed');
+      return event ? { ...event } as T : null;
+    }
     if (!sql.includes('FROM commerce_jobs')) return null;
     const row = this.jobs.get(String(values[0]));
     return row ? { ...row } as T : null;
@@ -67,6 +81,13 @@ class JobDatabase implements MysqlDatabase {
 
   async run(sql: string, values: readonly unknown[] = []): Promise<MysqlWriteResult> {
     this.calls.push({ method: 'run', sql, values });
+    if (sql.includes("UPDATE commerce_provider_events SET state = 'processed'")) {
+      const eventIds = new Set(values.slice(2).map(String));
+      const events = this.providerEvents.filter((row) => row.order_id === String(values[1])
+        && eventIds.has(row.stripe_event_id) && row.state === 'queued');
+      for (const event of events) event.state = 'processed';
+      return { affectedRows: events.length, insertId: 0 };
+    }
     if (sql.startsWith('INSERT INTO commerce_jobs')) {
       const [jobKey, orderId, now] = values;
       const existing = [...this.jobs.values()].find((row) => row.job_key === jobKey);
@@ -256,6 +277,39 @@ describe('durable commerce jobs', () => {
     expect(db.jobs.get('1')).toMatchObject({ state: 'done', processed_generation: '1' });
     expect(processOrder).toHaveBeenCalledTimes(2);
     expect(db.closeCalls).toBe(2);
+  });
+
+  it('retains async failure event context and retries until Stripe reports a terminal result', async () => {
+    const db = new JobDatabase([makeJob()]);
+    db.providerEvents.push({
+      stripe_event_id: 'evt_async_failed_7', event_type: 'checkout.session.async_payment_failed', order_id: '7', state: 'queued',
+    }, {
+      stripe_event_id: 'evt_async_failed_duplicate_7', event_type: 'checkout.session.async_payment_failed', order_id: '7', state: 'queued',
+    });
+    vi.mocked(reconcilePaidOrder).mockReset()
+      .mockResolvedValueOnce({ orderId: '7', status: 'pending' })
+      .mockResolvedValueOnce({ orderId: '7', status: 'failed' });
+    const config = {
+      stripe: {} as StripeClient, stripeAccountId: 'acct_test', livemode: false, now: () => 6_000,
+    };
+    const createProcessor = (database: MysqlDatabase) => createCommerceOrderProcessor(database, config);
+
+    const first = await runCommerceJobTick(noBindings, {
+      now: 1_000, owner: 'worker-first', createDatabase: () => db, createProcessor,
+    });
+
+    expect(first).toMatchObject({ processed: 0, retried: 1 });
+    expect(db.providerEvents.every((event) => event.state === 'queued')).toBe(true);
+    expect(reconcilePaidOrder).toHaveBeenNthCalledWith(1, '7', expect.anything(), 'checkout.session.async_payment_failed');
+
+    const second = await runCommerceJobTick(noBindings, {
+      now: 6_000, owner: 'worker-next', createDatabase: () => db, createProcessor,
+    });
+
+    expect(second).toMatchObject({ processed: 1, retried: 0 });
+    expect(db.providerEvents.every((event) => event.state === 'processed')).toBe(true);
+    expect(db.jobs.get('1')).toMatchObject({ state: 'done', processed_generation: '1' });
+    expect(reconcilePaidOrder).toHaveBeenNthCalledWith(2, '7', expect.anything(), 'checkout.session.async_payment_failed');
   });
 
   it('closes its database connection when claiming fails during an outage', async () => {

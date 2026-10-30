@@ -17,12 +17,12 @@ function configure(mode = 'hyperdrive', configId = id) {
 }
 
 describe('Hyperdrive deployment configuration', () => {
-  it('binds the selected ID only in production and defaults deployed environments to Hyperdrive', () => {
+  it('binds the selected ID only in production without persisting its GitHub-sourced mode variable', () => {
     const result = configure();
     expect(result.status, result.stderr).toBe(0);
     expect(result.config).toContain(`[[env.production.hyperdrive]]\nbinding = "HYPERDRIVE"\nid = "${id}"`);
     expect(result.config).toContain('[[env.staging.hyperdrive]]\nbinding = "HYPERDRIVE"\nid = "replace-at-deploy"');
-    expect(result.config.match(/MYSQL_CONNECTION_MODE = "hyperdrive"/gu)).toHaveLength(2);
+    expect(result.config.match(/MYSQL_CONNECTION_MODE = "hyperdrive"/gu)).toHaveLength(1);
   });
 
   it('removes the production binding when direct mode is explicitly requested', () => {
@@ -30,7 +30,8 @@ describe('Hyperdrive deployment configuration', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.config).not.toContain('[[env.production.hyperdrive]]');
     expect(result.config).toContain('[[env.staging.hyperdrive]]');
-    expect(result.config.match(/MYSQL_CONNECTION_MODE = "direct"/gu)).toHaveLength(2);
+    const production = result.config.split('[env.production]')[1]?.split('[env.production.cache]')[0] ?? '';
+    expect(production).not.toContain('MYSQL_CONNECTION_MODE');
   });
 
   it.each(['', 'not-an-id', 'a"\ninjected=true'])('rejects missing or invalid IDs without echoing them: %j', (value) => {

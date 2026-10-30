@@ -71,7 +71,8 @@ STRIPE_SECRET_KEY=
 # https://donate.stripe.com/3cI3cxa8B4Q0fY8ejM1RC00 when left empty.
 STRIPE_DONATE_URL=
 
-# Commerce Stripe credentials are isolated from STRIPE_SECRET_KEY above.
+# Dedicated Stripe API key for Commerce purchases. Keep separate from STRIPE_SECRET_KEY,
+# which is used only by the /sponsor donation honor roll.
 # Keep sales disabled until the matching test/live account, Products, Alipay-enabled payment
 # configuration, and webhook secret are configured. Checkout uses dynamic one-time price_data.
 COMMERCE_ENABLED=false

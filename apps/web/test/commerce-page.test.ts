@@ -340,6 +340,18 @@ describe('commerce purchase page', () => {
     vi.useRealTimers();
   });
 
+  it('stops polling and offers a fresh order after asynchronous payment failure', async () => {
+    const failed = orderView({ paymentState: 'failed', fulfillmentState: 'pending', fulfilledAt: null });
+    const { root, api } = mount({
+      url: 'https://ltsd.ro/ke/buy?checkout=success&order_id=902', orderStatuses: [failed],
+    });
+    await settle();
+
+    expect(api.getOrder).toHaveBeenCalledTimes(1);
+    expect(root.textContent).toContain('付款失败');
+    expect(root.querySelector('a[href="/ke/buy"]')?.textContent).toContain('重新下单');
+  });
+
   it('reads a canceled Checkout order once and leaves its unpaid state available for resuming payment', async () => {
     const pending = orderView({
       paymentState: 'unpaid', fulfillmentState: 'pending', paidAt: null, fulfilledAt: null,
@@ -403,5 +415,25 @@ describe('commerce purchase page', () => {
     expect(page.items).toEqual([summary]);
     expect(detail.orderId).toBe('902');
     expect(authClient.sessionRequest).not.toHaveBeenCalled();
+  });
+
+  it('accepts failed payment states from order history and detail API responses', async () => {
+    const failedSummary = {
+      orderId: '902', createdAt: String(NOW), currency: 'CNY', paidTotalCents: '5000',
+      paymentState: 'failed', fulfillmentState: 'pending', refundState: 'none', refundedTotalCents: '0', itemCount: 1,
+    } as const;
+    const failedDetail = orderView({ paymentState: 'failed', fulfillmentState: 'pending', fulfilledAt: null });
+    const authClient = {
+      sessionRead: vi.fn(async (path: string) => path === '/api/v1/commerce/orders' || path.startsWith('/api/v1/commerce/orders?')
+        ? { items: [failedSummary], nextCursor: null }
+        : failedDetail),
+    };
+    const api = createCommerceApi(authClient as never);
+
+    const history = await api.listOrders();
+    const detail = await api.getOrder('902');
+
+    expect(history.items[0]?.paymentState).toBe('failed');
+    expect(detail.paymentState).toBe('failed');
   });
 });

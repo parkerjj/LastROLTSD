@@ -350,6 +350,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   }
 
   function orderStatus(order: CommerceOrderView): string {
+    if (order.paymentState === "failed") return "付款失败，请返回购买页重新下单。";
     if (order.paymentState === "processing") return "付款正在确认";
     if (order.paymentState === "unpaid") return order.checkoutState === "expired" ? "付款期限已结束" : "等待付款";
     if (order.fulfillmentState === "pending") return "付款已确认，权益正在同步";
@@ -371,12 +372,12 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       return `<article class="commerce-order-item"><div class="commerce-order-item-heading"><strong>${name} · ${operationLabel(item.operation)}</strong><span>${formatCents(item.paidCents)}</span></div><dl><div><dt>购买时长</dt><dd>${formatDuration(item.durationMs)}</dd></div><div><dt>订单预计到期</dt><dd>${formatDate(item.expectedExpiresAt)}</dd></div><div><dt>交付状态</dt><dd>${item.deliveryState === "delivered" ? "已交付" : item.deliveryState === "settled_no_entitlement" ? "已结算" : "等待交付"}</dd></div><div><dt>购买前期限</dt><dd>${actualBefore}</dd></div><div><dt>实际交付后</dt><dd>${actualAfter}</dd></div></dl>${adjustments}</article>`;
     }).join("");
     const refunds = order.refunds.length ? `<div class="commerce-order-refunds"><h4>退款记录</h4>${order.refunds.map((refund) => `<p>${formatDate(refund.createdAt)} · ${refund.status === "succeeded" ? "已退款" : refund.status === "pending" || refund.status === "requires_action" ? "退款处理中" : "退款未完成"} ${formatCents(refund.amountCents)} · 累计退款 ${Number(refund.cumulativeRatioBasisPoints / 100).toFixed(2)}%</p>`).join("")}</div>` : "";
-    const resume = order.checkoutUrl ? '<button class="commerce-button commerce-button--primary" type="button" data-action="resume-checkout">继续付款</button>' : "";
+    const resume = order.checkoutUrl ? '<button class="commerce-button commerce-button--primary" type="button" data-action="resume-checkout">继续付款</button>' : order.paymentState === "failed" ? '<a class="commerce-button commerce-button--primary" href="/ke/buy">返回购买页重新下单</a>' : "";
     return `<section class="commerce-order-detail" aria-labelledby="commerce-order-detail-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单详情</p><h3 id="commerce-order-detail-title">订单 ${escapeHtml(order.orderId)}</h3></div><button class="commerce-button commerce-button--secondary" type="button" data-action="close-order">返回购买记录</button></div><div class="commerce-order-status"><strong>${orderStatus(order)}</strong><span>创建于 ${formatDate(order.createdAt)} · ${timezone}</span><span>订单金额 ${formatCents(order.paidTotalCents)} · 已退款 ${formatCents(order.refundedTotalCents)}</span>${resume}</div><div class="commerce-order-items">${itemRows}</div>${refunds}<div class="commerce-order-account"><div class="commerce-section-heading"><div><p class="commerce-kicker">下单时记录的账号权益</p><h4>购买前后预览</h4></div></div>${renderAccountPreview(order.accountPreview)}</div></section>`;
   }
 
   function renderHistory(): string {
-    const rows = historyPage.items.map((order: CommerceOrderSummary) => `<li><button type="button" class="commerce-history-row" data-action="open-order" data-order-id="${escapeHtml(order.orderId)}"><span><strong>订单 ${escapeHtml(order.orderId)}</strong><small>${formatDate(order.createdAt)} · ${order.itemCount} 项</small></span><span><strong>${formatCents(order.paidTotalCents)}</strong><small>${order.paymentState === "paid" ? order.fulfillmentState === "pending" ? "已付款，权益处理中" : "已付款" : order.paymentState === "processing" ? "付款确认中" : "待付款"}${order.refundState === "none" ? "" : ` · ${order.refundState === "partial" ? "部分退款" : "已全额退款"}`}</small></span></button></li>`).join("");
+    const rows = historyPage.items.map((order: CommerceOrderSummary) => `<li><button type="button" class="commerce-history-row" data-action="open-order" data-order-id="${escapeHtml(order.orderId)}"><span><strong>订单 ${escapeHtml(order.orderId)}</strong><small>${formatDate(order.createdAt)} · ${order.itemCount} 项</small></span><span><strong>${formatCents(order.paidTotalCents)}</strong><small>${order.paymentState === "paid" ? order.fulfillmentState === "pending" ? "已付款，权益处理中" : "已付款" : order.paymentState === "failed" ? "付款失败" : order.paymentState === "processing" ? "付款确认中" : "待付款"}${order.refundState === "none" ? "" : ` · ${order.refundState === "partial" ? "部分退款" : "已全额退款"}`}</small></span></button></li>`).join("");
     return `<section class="commerce-history" aria-labelledby="commerce-history-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单</p><h2 id="commerce-history-title">购买记录</h2></div><button class="commerce-button commerce-button--secondary" type="button" data-action="toggle-history">${historyOpen ? "收起记录" : "展开记录"}</button></div>${historyOpen ? `${historyLoading ? '<p class="commerce-history-message" role="status">正在读取购买记录…</p>' : ""}${historyError ? `<p class="commerce-error" role="alert">${escapeHtml(historyError)}</p>` : ""}<ul class="commerce-history-list">${rows || (!historyLoading && !historyError && !selectedOrderId ? '<li class="commerce-history-message">暂无购买记录</li>' : "")}</ul>${historyPage.nextCursor ? '<button class="commerce-button commerce-button--secondary" type="button" data-action="more-orders"' + (historyLoading ? " disabled" : "") + '>加载更多</button>' : ""}${renderOrderDetail()}` : ""}</section>`;
   }
 
@@ -428,6 +429,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     }
     const terminal = selectedOrder && ((selectedOrder.paymentState === "paid"
       && (selectedOrder.fulfillmentState === "fulfilled" || selectedOrder.fulfillmentState === "settled"))
+      || selectedOrder.paymentState === "failed"
       || (selectedOrder.paymentState === "unpaid" && selectedOrder.checkoutState === "expired"));
     if (!terminal && returnPollAttempts < 40) {
       returnPollTimer = root.ownerDocument.defaultView!.setTimeout(() => { void pollReturnedOrder(); }, 1500);

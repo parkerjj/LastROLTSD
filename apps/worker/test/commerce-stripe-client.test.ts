@@ -61,6 +61,19 @@ describe('Stripe REST client', () => {
     expect(new Headers(requestInit?.headers).get('Idempotency-Key')).toBeNull();
   });
 
+  it('calls the platform fetch with its global receiver', async () => {
+    let calledWithGlobalReceiver = false;
+    const fetch = async function (this: unknown, _input: RequestInfo | URL, _init?: RequestInit) {
+      calledWithGlobalReceiver = this === globalThis;
+      return new Response(JSON.stringify({ id: 'acct_test123' }), { status: 200 });
+    } as unknown as typeof globalThis.fetch;
+    const stripe = createStripeClient({ secretKey: 'sk_test_only', apiVersion: '2026-09-30.endive', fetch });
+
+    await stripe.get('/account');
+
+    expect(calledWithGlobalReceiver).toBe(true);
+  });
+
   it('maps Stripe HTTP errors to a fixed public error without leaking provider details', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: 'private account diagnostics', code: 'secret_code' } }), { status: 400 })) as unknown as typeof globalThis.fetch;
     const stripe = createStripeClient({ secretKey: 'sk_test_only', apiVersion: '2026-09-30.endive', fetch });

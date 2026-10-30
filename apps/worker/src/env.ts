@@ -157,7 +157,7 @@ export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
   const paymentMethodConfigurationId = env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
   const siteOrigin = env.COMMERCE_SITE_ORIGIN;
   if (!stripeSecretKey || keyMode !== (livemode ? 'live' : 'test')
-    || !webhookSecret || !/^whsec_[A-Za-z0-9+/]{43}=$/u.test(webhookSecret)
+    || !webhookSecret || !/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(webhookSecret)
     || !stripeAccountId || !/^acct_[A-Za-z0-9]+$/u.test(stripeAccountId)
     || !pricingVersion || !/^[A-Za-z0-9._-]{1,32}$/u.test(pricingVersion)
     || !slotsProductId || !/^prod_[A-Za-z0-9]+$/u.test(slotsProductId)

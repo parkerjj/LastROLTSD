@@ -49,6 +49,7 @@ interface StripeEventPaymentSnapshot {
   status: string;
   paymentStatus: string;
   paymentIntentId: string | null;
+  chargeId: string | null;
   confirmedPaid: boolean;
 }
 
@@ -62,7 +63,7 @@ export interface FulfillmentDependencies {
 
 export interface FulfillmentResult {
   orderId: string;
-  status: 'fulfilled' | 'pending' | 'not_paid';
+  status: 'fulfilled' | 'pending' | 'not_paid' | 'failed';
 }
 
 class InvalidPaymentSnapshot extends Error {}
@@ -227,6 +228,10 @@ function stripeObjectId(value: unknown, prefix: string): string | null {
   return record ? stripeObjectId(record.id, prefix) : null;
 }
 
+function stripeChargeId(value: unknown): string | null {
+  return stripeObjectId(value, 'ch') ?? stripeObjectId(value, 'py');
+}
+
 function paymentIntentMetadata(value: unknown): Record<string, unknown> | null {
   return asRecord(asRecord(value)?.metadata);
 }
@@ -262,16 +267,16 @@ async function fetchSessionPayment(
       || (session.payment_intent !== null && session.payment_intent !== undefined)) {
       throw new InvalidPaymentSnapshot();
     }
-    return { status: 'complete', paymentStatus: 'no_payment_required', paymentIntentId: null, confirmedPaid: true };
+    return { status: 'complete', paymentStatus: 'no_payment_required', paymentIntentId: null, chargeId: null, confirmedPaid: true };
   }
   if (session.payment_status !== 'paid') {
     return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, confirmedPaid: false };
   }
   if (!paymentIntentId) {
     if (session.status === 'complete' && session.payment_status === 'paid' && order.paidTotalCents === 0n) {
-      return { status: 'complete', paymentStatus: 'paid', paymentIntentId: null, confirmedPaid: true };
+      return { status: 'complete', paymentStatus: 'paid', paymentIntentId: null, chargeId: null, confirmedPaid: true };
     }
-    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId: null, confirmedPaid: false };
+    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId: null, chargeId: null, confirmedPaid: false };
   }
 
   const intentResponse = await dependencies.stripe.get<unknown>('/payment_intents/' + paymentIntentId);
@@ -287,13 +292,19 @@ async function fetchSessionPayment(
     || !['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing', 'succeeded', 'canceled'].includes(String(intent.status))) {
     throw new InvalidPaymentSnapshot();
   }
+  const chargeId = intent.latest_charge === null || intent.latest_charge === undefined
+    ? null
+    : stripeChargeId(intent.latest_charge);
+  if (intent.latest_charge !== null && intent.latest_charge !== undefined && chargeId === null) {
+    throw new InvalidPaymentSnapshot();
+  }
   if (intent.status !== 'succeeded' || intent.amount_received !== Number(order.paidTotalCents)) {
-    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, confirmedPaid: false };
+    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, chargeId, confirmedPaid: false };
   }
   if (session.status !== 'complete' || session.payment_status !== 'paid') {
-    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, confirmedPaid: false };
+    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, chargeId, confirmedPaid: false };
   }
-  return { status: 'complete', paymentStatus: 'paid', paymentIntentId, confirmedPaid: true };
+  return { status: 'complete', paymentStatus: 'paid', paymentIntentId, chargeId, confirmedPaid: true };
 }
 
 function fulfillmentResult(orderId: string, status: FulfillmentResult['status']): FulfillmentResult {
@@ -310,6 +321,41 @@ async function readOrder(repository: CommerceRepository, orderId: string): Promi
     );
     if (!row) throw new Error('commerce order not found');
     return parseOrderSnapshot(row);
+  });
+}
+
+async function markOrderPaymentFailed(order: OrderSnapshot, dependencies: FulfillmentDependencies): Promise<FulfillmentResult> {
+  const now = dependencies.now();
+  if (!Number.isSafeInteger(now) || now < 0) throw new RangeError('invalid commerce payment failure time');
+  return dependencies.repository.transaction(async (tx) => {
+    if (!await tx.lockUser(order.userId)) throw new Error('commerce user not found');
+    const row = await tx.first<MysqlRow>(
+      'SELECT id, user_id, stripe_account_id, stripe_livemode, paid_total_cents, checkout_state, payment_state, '
+        + 'fulfillment_state, refund_revision, stripe_checkout_session_id, stripe_payment_intent_id '
+        + 'FROM commerce_orders WHERE id = ? FOR UPDATE',
+      [order.orderId],
+    );
+    if (!row) throw new Error('commerce order not found');
+    const current = parseOrderSnapshot(row);
+    if (current.userId !== order.userId
+      || current.stripeAccountId !== order.stripeAccountId
+      || current.livemode !== order.livemode
+      || current.paidTotalCents !== order.paidTotalCents
+      || current.stripeCheckoutSessionId !== order.stripeCheckoutSessionId) {
+      throw new InvalidPaymentSnapshot();
+    }
+    if (current.fulfillmentState === 'fulfilled' || current.fulfillmentState === 'settled') {
+      return fulfillmentResult(order.orderId, 'fulfilled');
+    }
+    if (current.paymentState === 'paid') return fulfillmentResult(order.orderId, 'pending');
+    if (current.paymentState === 'failed') return fulfillmentResult(order.orderId, 'failed');
+
+    await tx.run(
+      'UPDATE commerce_orders SET payment_state = \'failed\', updated_at = ? '
+        + 'WHERE id = ? AND payment_state IN (\'unpaid\', \'processing\') AND fulfillment_state = \'pending\'',
+      [now, order.orderId],
+    );
+    return fulfillmentResult(order.orderId, 'failed');
   });
 }
 
@@ -489,7 +535,11 @@ async function deliverItem(
   );
 }
 
-export async function reconcilePaidOrder(orderIdInput: string, dependencies: FulfillmentDependencies): Promise<FulfillmentResult> {
+export async function reconcilePaidOrder(
+  orderIdInput: string,
+  dependencies: FulfillmentDependencies,
+  eventType?: string,
+): Promise<FulfillmentResult> {
   const orderId = assertCommerceId(orderIdInput);
   const order = await readOrder(dependencies.repository, orderId);
   if (order.fulfillmentState === 'fulfilled' || order.fulfillmentState === 'settled') {
@@ -505,6 +555,10 @@ export async function reconcilePaidOrder(orderIdInput: string, dependencies: Ful
 
   const payment = await fetchSessionPayment(order, dependencies);
   if (!payment.confirmedPaid) {
+    if (payment.status === 'complete' && payment.paymentStatus === 'unpaid'
+      && (eventType === 'checkout.session.async_payment_failed' || order.paymentState === 'failed')) {
+      return markOrderPaymentFailed(order, dependencies);
+    }
     return fulfillmentResult(orderId, payment.status === 'expired' ? 'not_paid' : 'pending');
   }
 
@@ -550,9 +604,10 @@ export async function reconcilePaidOrder(orderIdInput: string, dependencies: Ful
     await tx.run(
       'UPDATE commerce_orders SET payment_state = \'paid\', fulfillment_state = \'fulfilled\', '
         + 'stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id), '
+        + 'stripe_charge_id = COALESCE(?, stripe_charge_id), '
         + 'applied_refund_revision = refund_revision, paid_at = COALESCE(paid_at, ?), '
         + 'fulfilled_at = COALESCE(fulfilled_at, ?), updated_at = ? WHERE id = ?',
-      [payment.paymentIntentId, now, now, now, orderId],
+      [payment.paymentIntentId, payment.chargeId, now, now, now, orderId],
     );
     return fulfillmentResult(orderId, 'fulfilled');
   });

@@ -75,7 +75,7 @@
 - [x] **Step 1: 写迁移与仓储失败测试**：每表的 owner/FK、幂等唯一键、订单快照、退款 revision、provider event 去重、job lease/fencing 字段及查询索引均存在；SQL 不含 SQLite-only 语法。仓储测试锁定用户并在异常时 rollback。
 - [x] **Step 2: 运行 `rtk pnpm exec vitest run apps/worker/test/ke-commerce-schema.test.ts apps/worker/test/commerce-repository.test.ts`**，确认失败。
 - [x] **Step 3: 编写 023 migration 和最小仓储接口/实现**；金额、时间及 duration 用无符号 BIGINT 或有符号 BIGINT 按字段语义区分，API 大整数全部用字符串传输。
-- [ ] **Step 4: 重跑目标测试、`rtk pnpm test:migration` 与 `rtk pnpm typecheck`**；在隔离 MySQL 8 数据库应用所有迁移并检查 `SHOW CREATE TABLE`、外键和索引，不连接正式库。
+- [x] **Step 4: 重跑目标测试、`rtk pnpm test:migration` 与 `rtk pnpm typecheck`**；在隔离 MySQL 8 数据库应用所有迁移并检查 `SHOW CREATE TABLE`、外键和索引，不连接正式库。验证 `_dev` 与 `_test` 均有 27 个迁移且校验和匹配；各有 9 张 InnoDB Commerce 表、16 个外键和 49 个唯一索引。
 
 > 本机没有可用 MySQL 8 测试服务（`MYSQL_TEST_URL` 未设置、Docker daemon 未运行、`mysqld` 未运行）；SQL 应用验证待有隔离测试库时补跑。
 - [x] **Step 5: 提交 `feat: add commerce persistence schema`**。
@@ -146,12 +146,12 @@
 
 **Interfaces:**
 - `receiveStripeEvent(request: Request, deps: WebhookDependencies): Promise<Response>` reads original bytes, verifies Stripe signature/timestamp, persists `event_id` and coalesced order job before 2xx.
-- `reconcilePaidOrder(orderId: string, deps: FulfillmentDependencies): Promise<FulfillmentResult>` reads authoritative latest Session/PaymentIntent state and applies every immutable order item once.
+- `reconcilePaidOrder(orderId: string, deps: FulfillmentDependencies, eventType?: string): Promise<FulfillmentResult>` reads authoritative latest Session/PaymentIntent state and applies every immutable order item once; a confirmed async payment failure is persisted without entitlement delivery, and a later confirmed success remains deliverable.
 
-- [x] **Step 1: 写失败测试**：签名错误/过期拒绝；重复 event_id 去重；数据库不可用返回 non-2xx；仅 completed+paid 或 async succeeded 发放；completed+unpaid/failed/expired 不发放；付款事件先于完成页面仍完整交付；交付从 `delivered_at` 起新购完整期限、续期按 `max(latest_end, delivered_at)+duration`。
+- [x] **Step 1: 写失败测试**：签名错误/过期拒绝；重复 event_id 去重；数据库不可用返回 non-2xx；仅 completed+paid 或 async succeeded 发放；completed+unpaid/expired 不发放；async failed 持久化付款失败且不发权益；状态暂未终结时 Webhook 保持可重试、job 保留 event type 并退避重试；迟到成功仍完整交付；付款事件先于完成页面仍完整交付；交付从 `delivered_at` 起新购完整期限、续期按 `max(latest_end, delivered_at)+duration`。
 - [x] **Step 2: 运行目标测试并确认失败**。
 - [x] **Step 3: 实现 webhook inbox 和 account-lock 下的幂等交付事务**；多个 unit 的订单完整写 order item contribution 与 `ke_entitlements` projection。
-- [x] **Step 4: 模拟重复、乱序和事务提交后响应丢失，确认不漏发、不双发；运行目标测试。**
+- [x] **Step 4: 模拟重复、乱序和事务提交后响应丢失，确认不漏发、不双发；失败 Session 延迟转为终态时 job 保留 inbox 事件上下文并完成收尾；运行目标测试。**
 - [x] **Step 5: 提交 `feat: fulfill paid commerce orders idempotently`**。
 
 ### Task 8: 自动比例退款与贡献重放
@@ -233,15 +233,15 @@
 **Files:** Modify `apps/worker/src/env.ts`, `apps/worker/src/index.ts`, `apps/worker/src/commerce/jobs.ts`, `wrangler.toml`, `.dev.vars.example`, `docs/api.md`; create/extend `apps/worker/test/commerce-deployment-preflight.test.ts` and required migration/deployment checks.
 
 **Interfaces:**
-- `resolveCommerceConfig(env: AppEnv): CommerceConfig | null` validates mode/account pairing and required test/live secrets without falling back to donation `STRIPE_SECRET_KEY`.
+- `resolveCommerceConfig(env: AppEnv): CommerceConfig | null` validates mode/account pairing and requires the dedicated `COMMERCE_STRIPE_SECRET_KEY`; `STRIPE_SECRET_KEY` remains reserved for donation lookup.
 - Test/staging/live `stripe_account_id`, `livemode`, Product mapping, payment configuration and webhook secret must be explicit and environment-scoped. The app creates dynamic one-time `price_data` for the immutable order amount, so persistent Price IDs are not part of runtime configuration.
 
 - [x] **Step 1: 写失败配置测试**：commerce disabled 时不接受新报价/建单但 webhook/已存在 job 仍运行；缺失 key/价格版本/Alipay-capable payment configuration 在新建单前返回固定 unavailable；test/live ID 混用拒绝；Managed Payments 永远为 false。
 - [x] **Step 2: 运行配置测试并确认失败**：新增缺失配置下 Worker 商务路径固定不可用、错误 Product metadata、Stripe Account 缺少 livemode 字段和 cron 多余账户请求等回归测试，分别观察到失败后修复。
-- [x] **Step 3: 实现环境解析和占位模板并将真实 processor 工厂接入每分钟 cron**；只从独立 `COMMERCE_STRIPE_SECRET_KEY` 取商务密钥，不输出密钥或完整 Stripe error body。关闭新销售时，已入队订单仍会对账/交付/同步退款。
-- [ ] **Step 4: 在隔离 test mode 完成 1/6 个额度、180/360 天、促销码胜出/不胜出、Alipay 能力、付款成功/失败/过期、重复 webhook、部分/全部退款闭环；在独立 MySQL 8 数据库执行 migration 与故障补偿测试。** 暂未能执行：当前 Stripe connector 只有正式模式上下文，且本机无隔离 MySQL 8 服务。
-- [x] **Step 5: 跑 `rtk pnpm lint`、`rtk pnpm typecheck`、`rtk pnpm test`、`rtk pnpm test:docs`、`rtk pnpm test:migration`、`rtk pnpm --filter web build`、`rtk git diff --check`；检查 Wrangler dry-run 和工作区。** 全部通过；Vitest 1395 passed / 66 skipped，Wrangler production dry-run 成功。
-- [ ] **Step 6: 测试与审核通过后，在已指定的 LTSD.Ro 正式账号创建两个 Product，分别设置 metadata `ltsd_commerce_product_key=slots` / `module:standalone`；不启用 Managed Payments，不创建订阅，不进行正式扣款或部署。** 固定 Price 不需要预建；任意期限与按时长补差由 Checkout inline `price_data` 收取。
+- [x] **Step 3: 实现环境解析和占位模板并将真实 processor 工厂接入每分钟 cron**；Commerce 只使用独立 `COMMERCE_STRIPE_SECRET_KEY`，donate 的 `STRIPE_SECRET_KEY` 不参与购买/订单调用；不输出密钥或完整 Stripe error body。关闭新销售时，已入队订单仍会对账/交付/同步退款。
+- [ ] **Step 4: 在隔离 test mode 完成 1/6 个额度、180/360 天、促销码胜出/不胜出、Alipay 能力、付款成功/失败/过期、重复 webhook、部分/全部退款闭环；在独立 MySQL 8 数据库执行 migration 与故障补偿测试。** 已完成实际 Alipay 一次性 Checkout（CNY 50）与累计 CNY 50 的部分/全额退款；实时 `refund.created`、`refund.updated`、`charge.refunded` 均被处理，部分退款将 30 天按实退款比例重算为 9 天，全额退款将权益归零。另用回归测试覆盖退款通知早于 Checkout 事件、Stripe 临时不可用时返回 503 以供重试，以及冲突 PI 不关联错误订单。`_dev` 与 `_test` 的 27 个迁移及 schema 已核验。额度/期限与故障恢复有自动化覆盖。仍未通过真实 Stripe sandbox 优惠码完成“优惠码胜出/期限折扣胜出”端到端验证。
+- [x] **Step 5: 跑 `rtk pnpm lint`、`rtk pnpm typecheck`、`rtk pnpm test`、`rtk pnpm test:docs`、`rtk pnpm test:migration`、`rtk pnpm --filter web build`、`rtk git diff --check`；检查 Wrangler dry-run 和工作区。** Vitest 1419 passed / 67 skipped；lint、typecheck、docs（58 assertions）、migration checks（5 tests）、web build、Wrangler `--dry-run --env production` 与 diff-check 通过。MySQL 集成测试在默认全量 Vitest 中因未从本地 `.dev.vars` 注入 `MYSQL_TEST_URL` 而跳过；本轮另行只读核验了 `_dev` / `_test` 的全部迁移校验和及 Commerce 表结构。Wrangler dry-run 的环境 vars 由生产 GitHub workflow 注入。
+- [x] **Step 6: 在已指定的 LTSD.Ro 正式账号创建并回读复核两个 Product，分别设置 metadata `ltsd_commerce_product_key=slots` / `module:standalone`；不启用 Managed Payments，不创建订阅，不进行正式扣款或部署。** Product IDs：`prod_VXQz4vwLf9MXdU`、`prod_VXQzn1xr79W7OI`。固定 Price 不需要预建；任意期限与按时长补差由 Checkout inline `price_data` 收取。
 
 ## Self-Review
 

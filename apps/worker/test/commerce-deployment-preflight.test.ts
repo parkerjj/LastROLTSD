@@ -48,12 +48,39 @@ function mockStripe(overrides: {
 }
 
 describe('commerce deployment configuration preflight', () => {
-  it('does not reuse the donation key and fails closed when commerce is not configured', () => {
+  it('fails closed when commerce is not fully configured even if a donation key exists', () => {
     expect(resolveCommerceConfig({
       ENVIRONMENT: 'production',
-      STRIPE_SECRET_KEY: 'sk_live_donation_key',
+      STRIPE_SECRET_KEY: 'sk_live_donationkey',
     } as never)).toBeNull();
     expect(resolveCommerceConfig(testBindings({ COMMERCE_STRIPE_WEBHOOK_SECRET: undefined } as never))).toBeNull();
+  });
+
+  it('requires the commerce-specific key even when a donation key is configured', () => {
+    expect(resolveCommerceConfig(testBindings({
+      ENVIRONMENT: 'production', COMMERCE_STRIPE_LIVEMODE: 'true',
+      COMMERCE_STRIPE_SECRET_KEY: undefined, STRIPE_SECRET_KEY: 'sk_live_donationkey',
+      COMMERCE_STRIPE_ACCOUNT_ID: 'acct_live',
+      COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slotslive',
+      COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_offlinelive',
+      COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_live',
+      COMMERCE_SITE_ORIGIN: 'https://ltsd.ro',
+    } as never))).toBeNull();
+  });
+
+  it('uses the commerce-specific key while keeping the donation key separate', () => {
+    expect(resolveCommerceConfig(testBindings({
+      STRIPE_SECRET_KEY: 'sk_test_donationkey',
+    } as never))).toMatchObject({
+      stripeSecretKey: 'sk_test_commercekey', salesEnabled: true, livemode: false, stripeAccountId: 'acct_test',
+    });
+  });
+
+  it('accepts the 64-hex signing secret emitted by Stripe CLI', () => {
+    const secret = `whsec_${'a'.repeat(64)}`;
+
+    expect(resolveCommerceConfig(testBindings({ COMMERCE_STRIPE_WEBHOOK_SECRET: secret } as never)))
+      .toMatchObject({ webhookSecret: secret, salesEnabled: true, livemode: false });
   });
 
   it('requires the Stripe key prefix and explicit livemode to match the deployment environment', () => {

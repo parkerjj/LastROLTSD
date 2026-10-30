@@ -74,7 +74,7 @@ export interface CommerceOrderSummary {
   createdAt: string;
   currency: 'CNY';
   paidTotalCents: string;
-  paymentState: 'unpaid' | 'processing' | 'paid';
+  paymentState: 'unpaid' | 'processing' | 'paid' | 'failed';
   fulfillmentState: 'pending' | 'fulfilled' | 'settled';
   refundState: 'none' | 'partial' | 'full';
   refundedTotalCents: string;
@@ -99,7 +99,7 @@ export interface CommerceOrderView {
   accountPreview: CommerceQuote['accountPreview'];
   checkoutState: CheckoutState;
   checkoutExpiresAt: string | null;
-  paymentState: 'unpaid' | 'processing' | 'paid';
+  paymentState: 'unpaid' | 'processing' | 'paid' | 'failed';
   fulfillmentState: 'pending' | 'fulfilled' | 'settled';
   refundState: 'none' | 'partial' | 'full';
   paidAt: string | null;
@@ -781,7 +781,7 @@ function readCommerceOrderHistory(
   eventRows: readonly OrderHistoryEventRow[],
 ): StoredCommerceOrderHistory {
   const order = readOrderRow(row);
-  const paymentState = checkedOrderState(row.payment_state, ['unpaid', 'processing', 'paid'] as const, 'payment state');
+  const paymentState = checkedOrderState(row.payment_state, ['unpaid', 'processing', 'paid', 'failed'] as const, 'payment state');
   const fulfillmentState = checkedOrderState(row.fulfillment_state, ['pending', 'fulfilled', 'settled'] as const, 'fulfillment state');
   const events = readHistoryEvents(eventRows);
   const rowsByOrdinal = new Map(itemRows.map((item) => [Number(readBigint(item.ordinal, 'order item ordinal')), item]));
@@ -847,7 +847,7 @@ function readCommerceOrderHistory(
 function readCommerceOrderSummary(row: OrderHistorySummaryRow): CommerceOrderSummary {
   const paidTotalCents = readSafeAmount(row.paid_total_cents, 'order paid amount');
   const refundedTotalCents = readSafeAmount(row.refunded_total_cents, 'order refunded amount');
-  const paymentState = checkedOrderState(row.payment_state, ['unpaid', 'processing', 'paid'] as const, 'payment state');
+  const paymentState = checkedOrderState(row.payment_state, ['unpaid', 'processing', 'paid', 'failed'] as const, 'payment state');
   const fulfillmentState = checkedOrderState(row.fulfillment_state, ['pending', 'fulfilled', 'settled'] as const, 'fulfillment state');
   const refundState = checkedOrderState(row.refund_state, ['none', 'partial', 'full'] as const, 'refund state');
   const itemCount = Number(readBigint(row.item_count, 'order item count'));
