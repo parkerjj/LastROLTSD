@@ -180,7 +180,7 @@
 - [x] **Step 2: 运行目标测试并确认失败**。
 - [x] **Step 3: 实现持久 job runner；接入已存在的每分钟 cron，商务处理失败单独记录，不能阻止 auth/mail/market job。Webhook 在现有 MySQL 事务内持久入队；Task 13 引入环境配置后向 cron 提供真实处理器工厂。无需改 `wrangler.toml`，其每分钟触发器已存在。**
 - [x] **Step 4: 扩展 Worker lifecycle 测试，模拟 DB 暂断、worker 终止、重启后 cron 补偿；运行目标测试。**
-- [x] **Step 5: 提交 `feat: reconcile commerce orders with durable jobs` (`53b3280`)**；目标测试 42 passed，全仓测试 1354 passed / 66 skipped；typecheck、lint、docs（58 assertions）、migration checks 和 diff check 通过。
+- [x] **Step 5: 提交 `feat: reconcile commerce orders with durable jobs` (`47c0023`)**；目标测试 42 passed，全仓测试 1354 passed / 66 skipped；typecheck、lint、docs（58 assertions）、migration checks 和 diff check 通过。
 
 ### Task 10: `/ke/buy` 动态 HTML bootstrap
 
