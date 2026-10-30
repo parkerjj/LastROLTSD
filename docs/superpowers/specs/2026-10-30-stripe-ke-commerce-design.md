@@ -198,7 +198,7 @@ Checkout 必须：
 | --- | --- |
 | commerce_customers | user_id + Stripe 账号/模式唯一；stripe_customer_id 唯一；仅保存支付客户映射 |
 | commerce_quotes | 不可变的短期报价、完整前后预览、输入摘要、报价版本、用户和截止时间；用于确认前核对，不是订单 |
-| commerce_orders | 固定商业快照、金额、优惠、预览、created_at、Stripe 关联；另存可变化的 checkout/payment/fulfillment/refund 状态 |
+| commerce_orders | 固定商业快照、金额、优惠、预览、created_at、Stripe 关联；另存可变化的 checkout/payment/fulfillment/refund 状态与退款同步 fencing generation |
 | commerce_order_items | 每个额度一个单元；功能一个单元；resource、操作类型、目标 unit_ref、duration_ms、原价/期限价/分摊实付、预计日期；订单建立后不可改 |
 | commerce_units | 稳定 unit_id、user_id/resource、ke_entitlement_id、来源/基线、legacy_origin_id/ordinal、独立管理员撤销标记；首次交付已全退且无基线时 projection ID 可为空；一条当前投影可关联多次订单贡献 |
 | commerce_unit_events | 不可变贡献与审计：初次/续期交付、管理员期限调整、退款重算结果；含 unit_seq、order_item_id、实际 before/after、occurred_at、delivered_at、duration_ms、dedupe_key；管理员事件必须保留发生时刻 |
@@ -208,7 +208,9 @@ Checkout 必须：
 
 订单固定字段至少包括：user_id、currency、items_snapshot、pricing_version、raw_total_cents、tier_total_cents、promo_total_cents、paid_total_cents、discount_strategy、promotion_snapshot、preview_snapshot、confirmation_idempotency_key/request_hash。
 
-退款核对额外保存 refund_snapshot_hash、refund_revision、applied_refund_revision。每次权威退款对象集合发生真实变化就递增 revision；重算审计按 order_item_id + refund_revision 去重，不能以“累计退款金额”作唯一键，因为成功/失败变化后同一累计金额可能再次出现。
+退款核对额外保存 refund_snapshot_hash、refund_sync_generation、refund_revision、applied_refund_revision。每次同步先递增 generation；只有 generation 仍为最新的 Stripe 列表响应能写入，避免较早发出的慢响应覆盖新状态。每次权威退款对象集合发生真实变化就递增 revision；重算审计按 order_item_id + refund_revision 去重，不能以“累计退款金额”作唯一键，因为成功/失败变化后同一累计金额可能再次出现。
+
+退款表保留 Stripe 最新状态 `pending`、`requires_action`、`succeeded`、`failed` 或 `canceled`，只有 `succeeded` 参与退款金额合计。
 
 订单状态分别记录，避免一个 enum 丢失事实：
 

@@ -162,10 +162,10 @@
 - `syncOrderRefunds(orderId: string, deps: RefundDependencies): Promise<RefundSyncResult>` fetches the authoritative paginated Stripe refund set, stores latest state by `refund_id`, and increments refund revision only when the set changes.
 - `replayCommerceUnit(unitId: string, events: readonly CommerceUnitEvent[], refundRevision: number): UnitProjection` computes the current paid/admin contributions without editing original events.
 
-- [ ] **Step 1: 写失败测试**：实付 180 元、90/30 天，退款 36 元回收 18/6 天，再退 18 元再回收 9/3 天；同样累计 30% 的一次/分次结果一致；其他订单与 gift 不变；失败退款恢复本单贡献；0 实付不除零；部分 Stripe 分页完成前不提交半套退款状态。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现累计成功退款比例、每项 floor 毫秒目标差额、revision 去重和受影响单元重放**；退款事件只更新 projection，不改原订单或 PURCHASE 事件。
-- [ ] **Step 4: 测试退款先于交付、退款事件乱序、同 refund 多事件和新订单交错续期；运行目标测试。**
+- [x] **Step 1: 写失败测试**：实付 180 元、90/30 天，退款 36 元回收 18/6 天，再退 18 元再回收 9/3 天；同样累计 30% 的一次/分次结果一致；其他订单与 gift 不变；失败退款恢复本单贡献；0 实付不除零；部分 Stripe 分页完成前不提交半套退款状态。
+- [x] **Step 2: 运行目标测试并确认失败**。
+- [x] **Step 3: 实现累计成功退款比例、每项 floor 毫秒目标差额、revision 去重和受影响单元重放**；退款事件只更新 projection，不改原订单或 PURCHASE 事件。退款同步使用独立 generation fencing，旧请求晚返回时不能覆盖较新的完整快照；023 迁移补入退款快照哈希、generation、revision 和 applied revision，并保存 `requires_action` 状态。
+- [x] **Step 4: 测试退款先于交付、重复/乱序对账、退款失败恢复和分页失败不落半套状态；运行目标测试。**
 - [ ] **Step 5: 提交 `feat: reverse commerce entitlements for Stripe refunds`**。
 
 ### Task 9: 持久 job、租约和周期补偿

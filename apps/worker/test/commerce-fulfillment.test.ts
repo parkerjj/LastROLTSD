@@ -18,6 +18,9 @@ const ORDER_ROW = {
   checkout_state: 'ready',
   payment_state: 'unpaid',
   fulfillment_state: 'pending',
+  refund_revision: '0',
+  applied_refund_revision: '0',
+  refund_snapshot_hash: null,
   stripe_checkout_session_id: 'cs_test_701',
   stripe_payment_intent_id: null,
   stripe_charge_id: null,
@@ -70,6 +73,7 @@ function stripeIntent(overrides: Record<string, unknown> = {}) {
 class FulfillmentRepository implements CommerceRepository {
   order = { ...ORDER_ROW };
   items = [{ ...ADD_ITEM }];
+  refunds: MysqlRow[] = [];
   unitEvents: MysqlRow[] = [];
   writes: Array<{ sql: string; values: readonly unknown[] }> = [];
   entitlementExpiry: number | null = null;
@@ -89,11 +93,20 @@ class FulfillmentRepository implements CommerceRepository {
         lockUser: async (userId) => userId === '42',
         all: async <R extends MysqlRow = MysqlRow>(sql: string) => {
           if (sql.includes('FROM commerce_order_items')) return this.items.filter((item) => item.delivery_state === 'pending') as unknown as R[];
+          if (sql.includes('FROM commerce_refunds')) return this.refunds as unknown as R[];
           if (sql.includes('FROM commerce_unit_events')) return this.unitEvents as R[];
           return [] as R[];
         },
         first: async <R extends MysqlRow = MysqlRow>(sql: string) => {
           if (sql.includes('FROM commerce_orders')) return this.order as unknown as R;
+          if (sql.includes('FROM commerce_refunds') && sql.includes('SUM(amount_cents)')) {
+            const refunded = this.refunds.reduce((sum, refund) => sum + Number(refund.amount_cents), 0);
+            return { refunded_cents: String(refunded) } as unknown as R;
+          }
+          if (sql.includes('FROM commerce_refunds') && sql.includes('stripe_refund_id')) return null;
+          if (sql.includes("FROM commerce_unit_events") && sql.includes("event_type = 'PURCHASE'")) {
+            return { unit_id: '900' } as unknown as R;
+          }
           if (sql.includes('SELECT CAST(LAST_INSERT_ID() AS CHAR)')) {
             const id = String(this.nextInsertId);
             this.nextInsertId += 1;
@@ -115,16 +128,53 @@ class FulfillmentRepository implements CommerceRepository {
             this.unitEntitlementId = values[3] === null ? null : String(values[3]);
             return { affectedRows: 1, insertId: 900 };
           }
-          if (sql.includes('INSERT INTO ke_entitlements')) return { affectedRows: 1, insertId: 901 };
+          if (sql.includes('INSERT INTO ke_entitlements')) {
+            this.entitlementExpiry = Number(values[4]);
+            return { affectedRows: 1, insertId: 901 };
+          }
           if (sql.includes('INSERT INTO commerce_unit_events')) {
-            this.unitEvents.push({ unit_seq: values[1], event_type: values[2], order_item_id: values[3], delivered_at: values[7], duration_ms: values[8], dedupe_key: values[9] });
+            if (sql.includes("'PURCHASE'")) {
+              this.unitEvents.push({
+                unit_seq: values[1], event_type: 'PURCHASE', order_item_id: values[2], occurred_at: values[7],
+                delivered_at: values[8], duration_ms: values[9], dedupe_key: values[10], detail_json: values[11],
+              });
+            } else {
+              this.unitEvents.push({
+                unit_seq: values[1], event_type: 'REFUND_REPROJECT', order_item_id: values[2],
+                refund_revision: values[3], occurred_at: values[9], duration_ms: values[10],
+                dedupe_key: values[11], detail_json: values[12],
+              });
+            }
           }
           if (sql.includes('UPDATE ke_entitlements SET starts_at')) this.entitlementExpiry = Number(values[1]);
+          if (sql.includes('INSERT INTO commerce_refunds')) {
+            this.refunds.push({
+              order_id: values[0], stripe_account_id: values[1], stripe_livemode: values[2],
+              stripe_refund_id: values[3], amount_cents: values[4], currency: 'CNY', status: values[5],
+              stripe_created_at: values[6],
+            });
+          }
           if (sql.includes('UPDATE commerce_order_items SET delivery_state')) {
             const itemId = String(values[1]);
             this.items = this.items.map((item) => item.id === itemId ? { ...item, delivery_state: 'delivered' } : item);
           }
           if (sql.includes("UPDATE commerce_orders SET payment_state = 'paid'")) this.order = { ...this.order, payment_state: 'paid', fulfillment_state: 'fulfilled' };
+          if (sql.includes('refund_sync_generation =')) {
+            this.order = {
+              ...this.order,
+              stripe_payment_intent_id: String(values[0]),
+              refund_sync_generation: String(values[1]),
+            };
+          }
+          if (sql.includes('SET refund_snapshot_hash =')) {
+            this.order = {
+              ...this.order,
+              refund_snapshot_hash: String(values[0]),
+              refund_revision: String(values[1]),
+              applied_refund_revision: String(values[2]),
+              refund_state: values[3],
+            };
+          }
           return { affectedRows: 1, insertId: 1 } as MysqlWriteResult;
         },
       };
@@ -144,12 +194,15 @@ function dependencies(options: {
   repository?: FulfillmentRepository;
   session?: Record<string, unknown>;
   intent?: Record<string, unknown>;
+  refunds?: Array<Record<string, unknown>>;
 } = {}) {
   const repository = options.repository ?? new FulfillmentRepository();
   const stripe = {
     get: vi.fn(async (path: string) => path.startsWith('/checkout/sessions/')
       ? stripeSession(options.session)
-      : stripeIntent(options.intent)),
+      : path.startsWith('/payment_intents/')
+        ? stripeIntent(options.intent)
+        : { object: 'list', data: options.refunds ?? [], has_more: false }),
     post: vi.fn(),
   } as unknown as StripeClient;
   return {
@@ -211,6 +264,24 @@ describe('paid commerce order fulfillment', () => {
 
     expect(result.status).toBe('fulfilled');
     expect(repository.writes.some(({ sql }) => sql.includes('INSERT INTO commerce_unit_events'))).toBe(true);
+  });
+
+  it('applies an already-successful refund before first delivery', async () => {
+    const repository = new FulfillmentRepository();
+    repository.order = { ...repository.order, paid_total_cents: '5000' };
+    const deps = dependencies({
+      repository,
+      refunds: [{
+        id: 're_test_701', object: 'refund', amount: 2500, currency: 'cny', status: 'succeeded',
+        created: Math.floor(NOW / 1000), payment_intent: 'pi_test_701', charge: 'ch_test_701',
+      }],
+    });
+
+    await reconcilePaidOrder('701', deps);
+
+    expect(repository.entitlementExpiry).toBe(NOW + DURATION_MS / 2);
+    expect(repository.writes.some(({ sql }) => sql.includes("'REFUND_REPROJECT'"))).toBe(true);
+    expect(repository.items[0]?.delivery_state).toBe('delivered');
   });
 
   it('retries and concurrent duplicate events do not deliver a paid order twice', async () => {

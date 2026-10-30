@@ -1,6 +1,7 @@
 import type { MysqlRow } from '../db/mysql-client';
 import { assertCommerceId, readLastInsertId, type CommerceRepository, type CommerceTransaction } from './repository';
 import { applyUnitProjection, replayCommerceUnit, type CommerceUnitEvent, type CommerceUnitEventType } from './projection';
+import { appendRefundProjection, retainedDurationMs, syncOrderRefunds } from './refunds';
 import type { StripeClient } from './stripe-client';
 
 const MAX_SAFE_MILLIS = BigInt(Number.MAX_SAFE_INTEGER);
@@ -15,6 +16,7 @@ interface OrderSnapshot {
   checkoutState: string;
   paymentState: string;
   fulfillmentState: string;
+  refundRevision: number;
   stripeCheckoutSessionId: string;
   stripePaymentIntentId: string | null;
 }
@@ -139,6 +141,7 @@ function parseOrderSnapshot(row: MysqlRow): OrderSnapshot {
     checkoutState: String(row.checkout_state),
     paymentState: String(row.payment_state),
     fulfillmentState: String(row.fulfillment_state),
+    refundRevision: readSmallNumber(row.refund_revision ?? 0, 'refund revision'),
     stripeCheckoutSessionId,
     stripePaymentIntentId: row.stripe_payment_intent_id === null || row.stripe_payment_intent_id === undefined
       ? null
@@ -198,6 +201,12 @@ function readUnitEvent(row: MysqlRow): CommerceUnitEvent {
   return {
     unitSeq: readSmallNumber(row.unit_seq, 'unit event sequence'),
     eventType,
+    orderItemId: row.order_item_id === null || row.order_item_id === undefined
+      ? null
+      : assertCommerceId(String(row.order_item_id)),
+    refundRevision: row.refund_revision === null || row.refund_revision === undefined
+      ? null
+      : readSmallNumber(row.refund_revision, 'refund event revision'),
     occurredAt: readBigint(row.occurred_at, 'unit event timestamp'),
     deliveredAt: readNullableBigint(row.delivered_at, 'unit event delivery timestamp'),
     durationMs: row.duration_ms === null || row.duration_ms === undefined
@@ -205,6 +214,9 @@ function readUnitEvent(row: MysqlRow): CommerceUnitEvent {
       : readSignedBigint(row.duration_ms, 'unit event duration'),
     requestedExpiresAt: eventType === 'ADMIN_CUTOFF' && detail?.afterExpiresAt !== null && detail?.afterExpiresAt !== undefined
       ? readBigint(detail.afterExpiresAt, 'admin requested expiry')
+      : undefined,
+    retainedDurationMs: eventType === 'REFUND_REPROJECT' && detail?.retainedDurationMs !== null && detail?.retainedDurationMs !== undefined
+      ? readBigint(detail.retainedDurationMs, 'retained refund duration')
       : undefined,
   };
 }
@@ -292,7 +304,7 @@ async function readOrder(repository: CommerceRepository, orderId: string): Promi
   return repository.transaction(async (tx) => {
     const row = await tx.first<MysqlRow>(
       'SELECT id, user_id, stripe_account_id, stripe_livemode, paid_total_cents, checkout_state, payment_state, '
-        + 'fulfillment_state, stripe_checkout_session_id, stripe_payment_intent_id '
+      + 'fulfillment_state, refund_revision, stripe_checkout_session_id, stripe_payment_intent_id '
         + 'FROM commerce_orders WHERE id = ? LIMIT 1',
       [orderId],
     );
@@ -312,7 +324,7 @@ async function readOrderItems(tx: CommerceTransaction, orderId: string): Promise
 
 async function readUnitEvents(tx: CommerceTransaction, unitId: string): Promise<CommerceUnitEvent[]> {
   const rows = await tx.all<MysqlRow>(
-    'SELECT unit_seq, event_type, occurred_at, delivered_at, duration_ms, detail_json '
+    'SELECT unit_seq, event_type, order_item_id, refund_revision, occurred_at, delivered_at, duration_ms, detail_json '
       + 'FROM commerce_unit_events WHERE unit_id = ? ORDER BY unit_seq FOR UPDATE',
     [unitId],
   );
@@ -436,6 +448,14 @@ async function deliverItem(
     durationMs: item.durationMs,
   }]);
 
+  const refundRow = await tx.first<MysqlRow>(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS refunded_cents FROM commerce_refunds
+      WHERE order_id = ? AND status = 'succeeded'`,
+    [order.orderId],
+  );
+  const refundedCents = readBigint(refundRow?.refunded_cents ?? 0, 'successful refund total');
+  const retainedDuration = retainedDurationMs(item.durationMs, order.paidTotalCents, refundedCents);
+
   await tx.run(
     'INSERT INTO commerce_unit_events '
       + '(unit_id, unit_seq, event_type, order_item_id, before_starts_at, before_expires_at, '
@@ -449,7 +469,19 @@ async function deliverItem(
       item.durationMs, 'order-item:' + item.id, JSON.stringify({ operation: item.operation, orderId: order.orderId }),
       mysqlMillis(deliveredAt, 'delivery timestamp')],
   );
-  await applyUnitProjection(tx, unitId, { ...after, appliedAt: deliveredAt });
+  const refundApplied = retainedDuration < item.durationMs
+    ? await appendRefundProjection(tx, {
+      orderId: order.orderId,
+      orderItemId: item.id,
+      unitId,
+      userId: order.userId,
+      refundRevision: order.refundRevision,
+      retainedDurationMs: retainedDuration,
+      refundedTotalCents: refundedCents,
+      occurredAt: deliveredAt,
+    })
+    : false;
+  if (!refundApplied) await applyUnitProjection(tx, unitId, { ...after, appliedAt: deliveredAt });
   await tx.run(
     'UPDATE commerce_order_items SET delivery_state = \'delivered\', delivered_at = ? '
       + 'WHERE id = ? AND order_id = ? AND delivery_state = \'pending\'',
@@ -469,13 +501,21 @@ export async function reconcilePaidOrder(orderIdInput: string, dependencies: Ful
     return fulfillmentResult(orderId, payment.status === 'expired' ? 'not_paid' : 'pending');
   }
 
+  await syncOrderRefunds(orderId, {
+    repository: dependencies.repository,
+    stripe: dependencies.stripe,
+    stripeAccountId: dependencies.stripeAccountId,
+    livemode: dependencies.livemode,
+    now: dependencies.now,
+  }, payment.paymentIntentId);
+
   const now = dependencies.now();
   if (!Number.isSafeInteger(now) || now < 0) throw new RangeError('invalid commerce delivery time');
   return dependencies.repository.transaction(async (tx) => {
     if (!await tx.lockUser(order.userId)) throw new Error('commerce user not found');
     const row = await tx.first<MysqlRow>(
       'SELECT id, user_id, stripe_account_id, stripe_livemode, paid_total_cents, checkout_state, payment_state, '
-        + 'fulfillment_state, stripe_checkout_session_id, stripe_payment_intent_id '
+        + 'fulfillment_state, refund_revision, stripe_checkout_session_id, stripe_payment_intent_id '
         + 'FROM commerce_orders WHERE id = ? FOR UPDATE',
       [orderId],
     );
@@ -502,7 +542,8 @@ export async function reconcilePaidOrder(orderIdInput: string, dependencies: Ful
 
     await tx.run(
       'UPDATE commerce_orders SET payment_state = \'paid\', fulfillment_state = \'fulfilled\', '
-        + 'stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id), paid_at = COALESCE(paid_at, ?), '
+        + 'stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id), '
+        + 'applied_refund_revision = refund_revision, paid_at = COALESCE(paid_at, ?), '
         + 'fulfilled_at = COALESCE(fulfilled_at, ?), updated_at = ? WHERE id = ?',
       [payment.paymentIntentId, now, now, now, orderId],
     );

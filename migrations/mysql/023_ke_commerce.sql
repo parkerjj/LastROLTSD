@@ -65,6 +65,10 @@ CREATE TABLE commerce_orders (
   payment_state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'unpaid',
   fulfillment_state VARCHAR(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'pending',
   refund_state VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'none',
+  refund_snapshot_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  refund_sync_generation BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  refund_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  applied_refund_revision BIGINT UNSIGNED NOT NULL DEFAULT 0,
   stripe_checkout_session_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
   stripe_payment_intent_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
   stripe_charge_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
@@ -201,7 +205,7 @@ CREATE TABLE commerce_refunds (
   CONSTRAINT fk_commerce_refunds_order FOREIGN KEY (order_id) REFERENCES commerce_orders (id) ON DELETE RESTRICT,
   CONSTRAINT chk_commerce_refunds_livemode CHECK (stripe_livemode IN (0, 1)),
   CONSTRAINT chk_commerce_refunds_currency CHECK (currency = 'CNY'),
-  CONSTRAINT chk_commerce_refunds_status CHECK (status IN ('pending', 'succeeded', 'failed', 'canceled'))
+  CONSTRAINT chk_commerce_refunds_status CHECK (status IN ('pending', 'requires_action', 'succeeded', 'failed', 'canceled'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE commerce_provider_events (

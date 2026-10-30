@@ -57,6 +57,51 @@ describe('commerce unit projection replay', () => {
     expect(projection).toMatchObject({ startsAt: 5n * DAY_MS, expiresAt: 10n * DAY_MS, quantity: 1 });
   });
 
+  it('applies successive refund deltas to only the current paid time window', () => {
+    const first = replayCommerceUnit(emptyBaseline, [
+      { unitSeq: 1, eventType: 'PURCHASE', orderItemId: '801', occurredAt: 0n, deliveredAt: 0n, durationMs: 90n * DAY_MS },
+      { unitSeq: 2, eventType: 'PURCHASE', orderItemId: '802', occurredAt: 0n, deliveredAt: 0n, durationMs: 30n * DAY_MS },
+      { unitSeq: 3, eventType: 'REFUND_REPROJECT', orderItemId: '801', refundRevision: 1, occurredAt: 1n * DAY_MS, durationMs: -18n * DAY_MS, retainedDurationMs: 72n * DAY_MS },
+      { unitSeq: 4, eventType: 'REFUND_REPROJECT', orderItemId: '802', refundRevision: 1, occurredAt: 1n * DAY_MS, durationMs: -6n * DAY_MS, retainedDurationMs: 24n * DAY_MS },
+    ]);
+    const splitRefunds = replayCommerceUnit(emptyBaseline, [
+      { unitSeq: 1, eventType: 'PURCHASE', orderItemId: '801', occurredAt: 0n, deliveredAt: 0n, durationMs: 90n * DAY_MS },
+      { unitSeq: 2, eventType: 'PURCHASE', orderItemId: '802', occurredAt: 0n, deliveredAt: 0n, durationMs: 30n * DAY_MS },
+      { unitSeq: 3, eventType: 'REFUND_REPROJECT', orderItemId: '801', refundRevision: 1, occurredAt: 1n * DAY_MS, durationMs: -18n * DAY_MS, retainedDurationMs: 72n * DAY_MS },
+      { unitSeq: 4, eventType: 'REFUND_REPROJECT', orderItemId: '802', refundRevision: 1, occurredAt: 1n * DAY_MS, durationMs: -6n * DAY_MS, retainedDurationMs: 24n * DAY_MS },
+      { unitSeq: 5, eventType: 'REFUND_REPROJECT', orderItemId: '801', refundRevision: 2, occurredAt: 2n * DAY_MS, durationMs: -9n * DAY_MS, retainedDurationMs: 63n * DAY_MS },
+      { unitSeq: 6, eventType: 'REFUND_REPROJECT', orderItemId: '802', refundRevision: 2, occurredAt: 2n * DAY_MS, durationMs: -3n * DAY_MS, retainedDurationMs: 21n * DAY_MS },
+    ]);
+
+    expect(first.expiresAt).toBe(96n * DAY_MS);
+    expect(splitRefunds.expiresAt).toBe(84n * DAY_MS);
+  });
+
+  it('restores a failed refund with a positive contribution delta', () => {
+    const projection = replayCommerceUnit(emptyBaseline, [
+      { unitSeq: 1, eventType: 'PURCHASE', orderItemId: '801', occurredAt: 0n, deliveredAt: 0n, durationMs: 90n * DAY_MS },
+      { unitSeq: 2, eventType: 'REFUND_REPROJECT', orderItemId: '801', refundRevision: 1, occurredAt: 1n * DAY_MS, durationMs: -27n * DAY_MS, retainedDurationMs: 63n * DAY_MS },
+      { unitSeq: 3, eventType: 'REFUND_REPROJECT', orderItemId: '801', refundRevision: 2, occurredAt: 2n * DAY_MS, durationMs: 27n * DAY_MS, retainedDurationMs: 90n * DAY_MS },
+    ]);
+
+    expect(projection.expiresAt).toBe(90n * DAY_MS);
+  });
+
+  it('preserves unrelated order and legacy gift time when one purchase is fully refunded', () => {
+    const projection = replayCommerceUnit({
+      ...emptyBaseline,
+      startsAt: 0n,
+      expiresAt: 99n * 365n * DAY_MS,
+    }, [
+      { unitSeq: 1, eventType: 'PURCHASE', orderItemId: '801', occurredAt: 0n, deliveredAt: 0n, durationMs: 90n * DAY_MS },
+      { unitSeq: 2, eventType: 'PURCHASE', orderItemId: '802', occurredAt: 0n, deliveredAt: 0n, durationMs: 30n * DAY_MS },
+      { unitSeq: 3, eventType: 'REFUND_REPROJECT', orderItemId: '801', refundRevision: 1, occurredAt: DAY_MS, durationMs: -90n * DAY_MS, retainedDurationMs: 0n },
+    ]);
+
+    expect(projection.expiresAt).toBe(99n * 365n * DAY_MS + 30n * DAY_MS);
+    expect(projection.refundZeroedAt).toBeNull();
+  });
+
   it('clears refund zeroing when a later paid purchase restores the unit', () => {
     const projection = replayCommerceUnit({
       ...emptyBaseline,

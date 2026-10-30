@@ -52,7 +52,8 @@ describe('MySQL migration 023 commerce schema', () => {
     }
     for (const column of ['items_snapshot JSON', 'pricing_version', 'raw_total_cents', 'tier_total_cents',
       'promo_total_cents', 'paid_total_cents', 'discount_strategy', 'promotion_snapshot JSON', 'preview_snapshot JSON',
-      'confirmation_idempotency_key', 'request_hash', 'checkout_state', 'payment_state', 'fulfillment_state', 'refund_state']) {
+      'confirmation_idempotency_key', 'request_hash', 'checkout_state', 'payment_state', 'fulfillment_state', 'refund_state',
+      'refund_snapshot_hash', 'refund_sync_generation', 'refund_revision', 'applied_refund_revision']) {
       expect(orders).toContain(column);
     }
     expect(orders).toMatch(/UNIQUE KEY [^(]+\(user_id, confirmation_idempotency_key\)/u);
@@ -94,6 +95,7 @@ describe('MySQL migration 023 commerce schema', () => {
     expect(refunds).toMatch(/UNIQUE KEY [^(]+\(stripe_account_id, stripe_livemode, stripe_refund_id\)/u);
     expect(refunds).toContain('amount_cents');
     expect(refunds).toContain('status');
+    expect(refunds).toContain('requires_action');
     expect(refunds).toMatch(/FOREIGN KEY \(order_id\) REFERENCES commerce_orders \(id\) ON DELETE RESTRICT/u);
     expect(events).toMatch(/UNIQUE KEY [^(]+\(stripe_account_id, stripe_livemode, stripe_event_id\)/u);
     expect(events).toContain('payload_sha256');

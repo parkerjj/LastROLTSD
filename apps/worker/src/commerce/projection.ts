@@ -15,6 +15,8 @@ export interface CommerceUnitBaseline {
 export interface CommerceUnitEvent {
   unitSeq: number;
   eventType: CommerceUnitEventType;
+  orderItemId?: string | null;
+  refundRevision?: number | null;
   occurredAt: bigint;
   deliveredAt?: bigint | null;
   durationMs?: bigint;
@@ -67,10 +69,24 @@ export function replayCommerceUnit(baseline: CommerceUnitBaseline, events: reado
   let expiresAt = baseline.expiresAt;
   let adminRevokedAt = baseline.adminRevokedAt;
   let refundZeroedAt = baseline.refundZeroedAt;
+  const orderedEvents = [...events].sort((left, right) => left.unitSeq - right.unitSeq);
+  const retainedDurations = new Map<string, bigint>();
+  let zeroedByRefundAt: bigint | null = null;
 
-  for (const event of [...events].sort((left, right) => left.unitSeq - right.unitSeq)) {
+  for (const event of orderedEvents) {
+    if (event.eventType !== 'REFUND_REPROJECT') continue;
+    if (event.orderItemId && event.retainedDurationMs !== undefined) {
+      retainedDurations.set(event.orderItemId, event.retainedDurationMs);
+      if (event.retainedDurationMs === 0n) zeroedByRefundAt = event.occurredAt;
+      else zeroedByRefundAt = null;
+    }
+  }
+
+  for (const event of orderedEvents) {
+    if (event.eventType === 'REFUND_REPROJECT') continue;
     if (event.eventType === 'PURCHASE') {
-      const duration = event.retainedDurationMs ?? event.durationMs ?? 0n;
+      const duration = (event.orderItemId ? retainedDurations.get(event.orderItemId) : undefined)
+        ?? event.retainedDurationMs ?? event.durationMs ?? 0n;
       if (duration <= 0n) continue;
       const deliveredAt = event.deliveredAt ?? event.occurredAt;
       if (startsAt === null || expiresAt === null || expiresAt <= deliveredAt) {
@@ -118,6 +134,10 @@ export function replayCommerceUnit(baseline: CommerceUnitBaseline, events: reado
 
     if (event.eventType === 'ADMIN_REVOKE') adminRevokedAt = event.occurredAt;
     else if (event.eventType === 'ADMIN_RESTORE') adminRevokedAt = null;
+  }
+
+  if (startsAt === null && expiresAt === null && zeroedByRefundAt !== null) {
+    refundZeroedAt = zeroedByRefundAt;
   }
 
   return { quantity: baseline.quantity, startsAt, expiresAt, adminRevokedAt, refundZeroedAt };
