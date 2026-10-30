@@ -131,4 +131,20 @@ describe('commerce unit projection replay', () => {
     expect(tx.writes.some(({ sql }) => sql.startsWith('UPDATE ke_entitlements SET starts_at'))).toBe(true);
     expect(tx.writes.some(({ sql }) => sql.startsWith('INSERT INTO ke_entitlements'))).toBe(false);
   });
+
+  it('preserves a multi-quantity legacy standalone module projection', async () => {
+    const tx = new ProjectionTransaction();
+
+    await applyUnitProjection(tx, '90', {
+      quantity: 3,
+      startsAt: 0n,
+      expiresAt: 60n * DAY_MS,
+      adminRevokedAt: null,
+      refundZeroedAt: null,
+      appliedAt: 30n * DAY_MS,
+    });
+
+    const update = tx.writes.find(({ sql }) => sql.startsWith('UPDATE ke_entitlements SET starts_at'));
+    expect(update?.values[2]).toBe(3);
+  });
 });

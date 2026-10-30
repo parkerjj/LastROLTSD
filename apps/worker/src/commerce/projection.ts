@@ -124,7 +124,9 @@ export function replayCommerceUnit(baseline: CommerceUnitBaseline, events: reado
 }
 
 export async function applyUnitProjection(tx: CommerceTransaction, unitId: string, projection: UnitProjection): Promise<void> {
-  if (projection.quantity !== 1) throw new RangeError('commerce unit quantity must be one');
+  if (!Number.isSafeInteger(projection.quantity) || projection.quantity <= 0) {
+    throw new RangeError('commerce unit quantity must be positive');
+  }
   if ((projection.startsAt === null) !== (projection.expiresAt === null)) throw new RangeError('incomplete commerce unit window');
   if (projection.startsAt !== null && projection.expiresAt !== null && projection.expiresAt <= projection.startsAt) {
     throw new RangeError('invalid commerce unit window');

@@ -148,11 +148,11 @@
 - `receiveStripeEvent(request: Request, deps: WebhookDependencies): Promise<Response>` reads original bytes, verifies Stripe signature/timestamp, persists `event_id` and coalesced order job before 2xx.
 - `reconcilePaidOrder(orderId: string, deps: FulfillmentDependencies): Promise<FulfillmentResult>` reads authoritative latest Session/PaymentIntent state and applies every immutable order item once.
 
-- [ ] **Step 1: 写失败测试**：签名错误/过期拒绝；重复 event_id 去重；数据库不可用返回 non-2xx；仅 completed+paid 或 async succeeded 发放；completed+unpaid/failed/expired 不发放；付款事件先于完成页面仍完整交付；交付从 `delivered_at` 起新购完整期限、续期按 `max(latest_end, delivered_at)+duration`。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现 webhook inbox 和 account-lock 下的幂等交付事务**；多个 unit 的订单完整写 order item contribution 与 `ke_entitlements` projection。
-- [ ] **Step 4: 模拟重复、乱序和事务提交后响应丢失，确认不漏发、不双发；运行目标测试。**
-- [ ] **Step 5: 提交 `feat: fulfill paid commerce orders idempotently`**。
+- [x] **Step 1: 写失败测试**：签名错误/过期拒绝；重复 event_id 去重；数据库不可用返回 non-2xx；仅 completed+paid 或 async succeeded 发放；completed+unpaid/failed/expired 不发放；付款事件先于完成页面仍完整交付；交付从 `delivered_at` 起新购完整期限、续期按 `max(latest_end, delivered_at)+duration`。
+- [x] **Step 2: 运行目标测试并确认失败**。
+- [x] **Step 3: 实现 webhook inbox 和 account-lock 下的幂等交付事务**；多个 unit 的订单完整写 order item contribution 与 `ke_entitlements` projection。
+- [x] **Step 4: 模拟重复、乱序和事务提交后响应丢失，确认不漏发、不双发；运行目标测试。**
+- [x] **Step 5: 提交 `feat: fulfill paid commerce orders idempotently`**。
 
 ### Task 8: 自动比例退款与贡献重放
 

@@ -10,6 +10,8 @@ import { CommerceQuoteError, createQuote } from './quotes';
 import { parseQuoteInput, QuoteInputError } from './quote-input';
 import type { OrderDependencies, CommerceOrderErrorCode } from './orders';
 import { CommerceOrderError, createOrderAndCheckout } from './orders';
+import type { WebhookDependencies } from './webhook';
+import { receiveStripeEvent } from './webhook';
 
 const QUOTE_JSON_LIMIT = 32 * 1024;
 const QUOTE_RATE_LIMIT = { scope: 'commerce_quote_session', limit: 10, windowMs: 60_000 } as const;
@@ -36,6 +38,10 @@ export interface CommerceOrderRouteContext {
 
 export interface CommerceOrderRouteOptions {
   setup(): CommerceOrderRouteContext | null;
+}
+
+export interface CommerceWebhookRouteOptions {
+  setup(): WebhookDependencies | null;
 }
 
 const QUOTE_ERRORS: Record<CommerceQuoteErrorCode, { status: 400 | 404 | 503; message: string }> = {
@@ -182,5 +188,18 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
       }
       return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单暂不可用，请稍后重试', 503);
     }
+  });
+}
+
+export function registerCommerceWebhookRoute(app: Hono<any>, options: CommerceWebhookRouteOptions): void {
+  app.post('/api/v1/commerce/stripe/webhook', async (c) => {
+    let dependencies: WebhookDependencies | null;
+    try {
+      dependencies = options.setup();
+    } catch {
+      return new Response(null, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!dependencies) return new Response(null, { status: 503, headers: { 'cache-control': 'no-store' } });
+    return receiveStripeEvent(c.req.raw, dependencies);
   });
 }
