@@ -211,7 +211,7 @@
 - [x] **Step 2: 运行目标 web 测试并确认失败**。
 - [x] **Step 3: 使用批准的 renewal prototype 布局实现 UI，并从 `/ke/my` 提供 `/ke/buy` 入口；不得复用假 VIP 静态支付链接。**
 - [x] **Step 4: 验证 390px/320px 无横向溢出；2 个额度×180 天显示 ¥480；15/20/3 天统一续期 30 天分别补 35/30/47 天，总价 ¥155.33；完整预览包含赠送与未选项目。**
-- [ ] **Step 5: 运行 web 测试和 build；提交 `feat: add KE commerce purchase page`**。
+- [x] **Step 5: 运行 `rtk pnpm test`（1372 passed / 66 skipped）、`rtk pnpm --filter web build`、typecheck、lint、docs（58 assertions）、migration checks、diff check；提交 `feat: add KE commerce purchase page`（`aad73e1`）。**
 
 ### Task 12: 支付返回与购买记录
 
