@@ -2,7 +2,7 @@
 
 日期：2026-10-30
 
-状态：业务规则已讨论确认；整套技术设计已完成独立可实施性审阅，待用户审阅后另行编写实施计划。
+状态：业务规则与整套技术设计已完成审阅，实施计划已获用户批准，正在按任务实现。
 
 范围：设计订单、计价、Stripe 收款、权益交付、购买记录、自动退款与自动补偿；本阶段不部署、不创建正式 Stripe 商品。
 
@@ -127,7 +127,9 @@
 
 ```mermaid
 flowchart TD
-  UI[购买页面] --> Quote[报价与完整权益预览]
+  Browser[浏览器 GET /ke/buy] --> Page[Worker 返回 HTML 与初始化数据]
+  Page --> UI[购买页面]
+  UI --> Quote[报价与完整权益预览]
   Quote --> Confirm[确认不可变订单]
   Confirm --> Checkout[Stripe 一次性 Checkout]
   Checkout --> Inbox[验签 Webhook 持久收件箱]
@@ -144,11 +146,19 @@ flowchart TD
 
 模块建议放在 apps/worker/src/commerce/，分为 catalog、pricing、quote、orders、stripe-client、fulfillment、refunds、projection、jobs、repository、router。前端新增独立购买及订单页面，复用现有登录状态和导航；不沿用假 VIP 套餐逻辑。
 
+购买页固定路由为 `GET /ke/buy`，正式地址 `https://ltsd.ro/ke/buy`。页面采用服务端 HTML 响应加初始化数据的混合方式，不引入完整 SSR 框架：Worker 从 Vite 构建产物读取 `index.html`，在专用占位处注入安全序列化的 JSON bootstrap，前端仍负责挂载交互界面。
+
+bootstrap 包含公开商品文案、常用期限、当前价格版本、登录状态以及已登录用户的当前额度/功能明细。匿名访问仍可读取商品和价格；没有会话时返回匿名状态及空权益。已有有效会话时，Worker 在同一个页面请求中读取会话、用户资料、CSRF bootstrap 和权益快照。前端先用该快照初始化账号状态和购买页，不再为首屏另行请求 `/api/v1/auth/me`、商品或权益 JSON 接口。页面内更改选择时可即时计算展示；用户进入付款前确认步骤时才请求权威报价。
+
+这是个性化响应，必须返回 `Cache-Control: private, no-store`，不能进入 Cloudflare 共享缓存。注入 JSON 必须使用 HTML 安全序列化，不能直接拼入可执行脚本；不向浏览器注入 Stripe 密钥、session token、内部 Stripe Product/Price ID 或订单私密字段。Worker 静态资源路由需将 `/ke/buy` 配成 worker-first，开发环境也需把此路径代理到本地 Worker。
+
 ## 5. Stripe 接入
 
 ### 5.1 商品及配置
 
 配置两个 Product：KE 实例额度、全平台离线 KoreEngine 功能。常用期限可创建 CNY 一次性 Price；任意整月、按时间补差使用关联已有 Product 的 inline price_data。
+
+商品文案、基准单价、可选期限、折扣规则和 `pricing_version` 由 LTSD 服务端的正式商品目录配置提供，随页面 bootstrap 一起返回；打开购买页不逐次调用 Stripe API 拉取商品或价格。Stripe Product/Price ID 只在 Worker 内部保存与使用。价格或规则改变时更新服务端目录及 `pricing_version`；报价接口始终按服务端当前版本重算，不能信任浏览器携带的版本或金额。
 
 本设计不创建正式商品。实施及联调先用隔离测试环境、测试数据库及测试 Webhook；正式账号和测试模式不可混用，订单与事件都保存 stripe_account_id、livemode。
 
@@ -356,20 +366,22 @@ Webhook 原始字节验签后，持久保存 event_id/类型/对象/账号模式
 - 已进入 processing 的支付可能在会话窗口之后才确认。不能仅根据本地时间或过期通知把后到的真实付款丢掉；确认已收款则完整交付。
 - 与捐款或其他命名空间无关的 Stripe 事件记录忽略原因，不触发权益变更。
 
-## 10. API 与界面契约
+## 10. 路由、API 与界面契约
 
-catalog 可以匿名只读；其余用户接口复用现有 session、ACTIVE 账号校验和写操作 Origin/CSRF；服务端自行确定 user_id。金额、duration_ms、折扣和到期时间不能信任前端提交值。响应 no-store。
+`GET /ke/buy` 返回 Vite 构建的 HTML 外壳和首屏 bootstrap。前端不再调用独立的 `GET /catalog`、`GET /entitlements` 或首屏 `GET /api/v1/auth/me`；其中商品目录来自服务端配置，登录态和当前权益在 Worker 处理页面请求时合并读取。HTML 及下列用户专属接口均使用 `Cache-Control: private, no-store`。
+
+报价和订单接口复用现有 session、ACTIVE 账号校验及写操作 Origin/CSRF；服务端自行确定 user_id。浏览器用 bootstrap 做即时交互预览，但创建报价时服务端重新读取当前权益、价格版本和促销资格。若页面停留期间价格或权益已变化，返回新的权威预览并要求用户重新确认，不能静默建立不同于屏幕所见的订单。金额、duration_ms、折扣和到期时间不能信任前端提交值。
 
 | 接口 | 用途 |
 | --- | --- |
-| GET /api/v1/commerce/catalog | 商品、常用期限、当前价格版本 |
-| GET /api/v1/commerce/entitlements | 当前净权益、逐个正向额度、功能、赠送和只读调整明细 |
-| POST /api/v1/commerce/quotes | 输入购买动作、目标单元、月数和可选 code；返回权威报价与完整前后预览 |
-| POST /api/v1/commerce/orders | quote_id + confirmation idempotency key；创建固定订单 |
+| GET /ke/buy | HTML 页面及内嵌商品目录、价格版本、会话状态和当前权益 bootstrap；可匿名访问 |
+| POST /api/v1/commerce/quotes | 用户准备查看最终付款确认时提交购买动作、目标单元、期限和可选 code；服务端重读权益并返回权威报价与完整前后预览 |
+| POST /api/v1/commerce/orders | quote_id + confirmation idempotency key；创建固定订单并建立 Checkout，返回付款 URL |
 | GET /api/v1/commerce/orders/:id | 本人订单、Session URL、支付/交付/退款状态 |
-| POST /api/v1/commerce/orders/:id/refresh | 有限频率唤醒自动核对，不重复交付 |
-| GET /api/v1/commerce/orders | 按 created_at/id 游标分页购买记录 |
+| GET /api/v1/commerce/orders | 仅在用户打开购买记录时，按 created_at/id 游标分页读取 |
 | POST /api/v1/commerce/stripe/webhook | Stripe 验签入口，不使用浏览器 CSRF 代替验签 |
+
+用户付款返回页通过 `GET /orders/:id` 读取状态；订单处理仍由 Stripe webhook 和持久化 cron 自动推进，不需要浏览器调用“强制刷新”接口。首屏不产生任何独立商务 JSON 读取；用户选好内容并进入最终确认后才调用 quote/order，成功返回后才读取订单状态。页面加载所需的 JS/CSS 静态资源请求仍然存在，它们不是商务 API。
 
 写入 JSON 采用白名单字段和有界请求体；月数必须为正整数，写库前检查时长、时间戳和金额的安全整数/数据库/provider 范围，超限明确拒绝，不能截断。初始安全上限选择每单 1000 个额度单元，超过在付款前明确提示分单，不截断后悄悄收费；不限制账号总额度。完整权益预览按稳定游标逐项可浏览全部记录，显示总数量；不合并同日额度、不只展示购买项。Stripe 收款行上限按所选稳定版本校验。
 
@@ -377,6 +389,7 @@ catalog 可以匿名只读；其余用户接口复用现有 session、ACTIVE 账
 
 前端：
 
+- 购买页路径为 `/ke/buy`；按 HTML bootstrap 初始化账号状态和商品/权益数据，避免首屏重复读取接口。
 - 购买入口包含加购、逐个续期、功能开通/续期、统一到期。
 - 续期选择常显分段期限和半年/12 个月优惠。
 - 付款前列表包含赠送、所有额度、未变化项目、功能和必要的只读调整；显示原时间、新时间、增加天数/小时、费用、采用的整单优惠。
@@ -385,7 +398,9 @@ catalog 可以匿名只读；其余用户接口复用现有 session、ACTIVE 账
 
 ## 11. 配置、迁移与运行
 
-新增独立 COMMERCE_ENABLED、商务受限 Stripe API key、Webhook signing secret、两个 Product/常用 Price 映射、普通支付配置 ID、账号/模式及稳定 API 版本配置。复用既有 secret 部署机制，不复用捐款 key 扩权；不打印或提交密钥。
+新增独立 COMMERCE_ENABLED、商务受限 Stripe API key、Webhook signing secret、两个 Product/常用 Price 映射、普通支付配置 ID、LTSD 基准价格与 `COMMERCE_PRICING_VERSION`、账号/模式及稳定 API 版本配置。复用既有 secret 部署机制，不复用捐款 key 扩权；不打印或提交密钥。
+
+Cloudflare Assets 的 worker-first 路径需包含 `/ke/buy`（所有 Wrangler 环境保持一致），并由 Worker 注入首屏 bootstrap；Vite 本地开发代理也需覆盖该路径。购买页 HTML 响应不进入 Cloudflare 缓存，静态 JS/CSS 继续由 Assets 缓存。
 
 开关分工：
 
@@ -421,6 +436,7 @@ catalog 可以匿名只读；其余用户接口复用现有 session、ACTIVE 账
 20. 浏览器不同时区及夏令时切换只改变显示；实际30×24小时、费用和订单内容一致。
 21. 现有 KE 鉴权、管理员普通操作、捐款榜、市场及邮件/快照后台任务的相关回归测试通过。
 22. 多条 standalone 正向/负向旧记录保持原 signed SUM；选择最晚到期基线、同期限取最小id；不合并旧物理行。另一开通单先付后，后付功能单仍完整顺延；退款仅重算实际绑定的单元。
+23. `/ke/buy` 首屏包含当前价格版本、商品期限和用户权益；正常登录态不重复调用 `/api/v1/auth/me`、商品或权益 JSON 接口；HTML 响应不被共享缓存；过期 bootstrap 在 quote 阶段被服务端发现并要求重新确认。
 
 正式验证采用仓库已有 Vitest/MySQL 集成框架，复用现有 MySQL 8 测试方式。文档查证不等于已运行 Stripe 契约测试，本轮不会宣称已验证正式支付或已上线。
 
@@ -433,6 +449,7 @@ catalog 可以匿名只读；其余用户接口复用现有 session、ACTIVE 账
 - 同一逻辑单元维护贡献账本，退款重放生成当前投影；不把订单 before 日期当作回滚指令。
 - 报价初始 2 分钟有效；平价优惠保留期限价；统一模式独占该订单，不混入尚未加购的新额度。
 - UI 首选30/90/180/360天分段按钮；每单1000单元是可调整的输入保护上限。
+- `/ke/buy` 使用 Worker 返回的 HTML bootstrap 合并首屏配置、会话和权益；价格与权益在 quote 阶段再次权威校验。
 - 临时争议不当成退款，最终本金撤回才按同一贡献机制自动处理，手续费不扣用户时长。
 - 管理员期限调整保存原始绝对 before/after 及以操作时刻为基准的有效差额；无窗口时的正差额从该时刻起算，负差额与截止事件不形成未来购时欠额。
 - 旧功能授权不合并，按最晚到期的当前正向行接管续期，保留原数量和其他正负行；功能订单冻结账号/资源目标，实际投影绑定留在交付事件中。
