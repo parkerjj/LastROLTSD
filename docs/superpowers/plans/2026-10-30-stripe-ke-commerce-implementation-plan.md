@@ -195,7 +195,7 @@
 - [x] **Step 2: 运行目标测试并确认失败**。
 - [x] **Step 3: 实现 Worker HTML 注入和 AuthStore hydration**；注入只用安全 JSON serializer，不含 session token、Stripe ID/key；前端 bootstrap 仅用于即时交互展示。
 - [x] **Step 4: 配置顶层、staging、production 的 Assets `run_worker_first` 包含 `/ke/buy`；配置 Vite 本地代理；测试无独立 catalog/entitlements/auth-me 首屏 JSON 请求。**
-- [ ] **Step 5: 运行 Worker/web bootstrap 测试、`rtk pnpm --filter web build`；提交 `feat: serve commerce bootstrap at ke buy route`**。
+- [x] **Step 5: 运行 Worker/web bootstrap 测试、`rtk pnpm --filter web build`；全量测试 1358 passed / 66 skipped，typecheck、lint、docs（58 assertions）、migration checks、Wrangler production dry-run 与 diff check 通过；提交 `feat: serve commerce bootstrap at ke buy route`（`dce08db`）。**
 
 ### Task 11: 购买、续期与统一到期界面
 
