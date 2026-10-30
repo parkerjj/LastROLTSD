@@ -151,6 +151,7 @@ export interface OrderDependencies {
   paymentMethodConfigurationId: string;
   productIds: Partial<Record<CommerceProductKey, string>>;
   siteOrigin: string;
+  validateStripeConfiguration?: () => Promise<void>;
   ensureCustomer(userId: string): Promise<string>;
 }
 
@@ -1104,6 +1105,13 @@ export async function createOrderAndCheckout(
   }
   if (typeof input.idempotencyKey !== 'string' || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 255
     || !/^[\x21-\x7e]+$/u.test(input.idempotencyKey)) throw new CommerceOrderError('COMMERCE_ORDER_UNAVAILABLE');
+  if (dependencies.validateStripeConfiguration) {
+    try {
+      await dependencies.validateStripeConfiguration();
+    } catch {
+      throw new CommerceOrderError('COMMERCE_ORDER_UNAVAILABLE');
+    }
+  }
   const keyDigest = await digestIdempotencyKey(input.idempotencyKey);
   const now = dependencies.now();
   const order = await dependencies.repository.reserveOrder({

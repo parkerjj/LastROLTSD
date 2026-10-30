@@ -3,12 +3,11 @@ import { createAuthRepository } from '../auth/repository';
 import { mailRepositoryOptions, resolveAuthConfig } from '../auth/config';
 import { AuthFailure } from '../auth/types';
 import { createSessionService } from '../auth/session-service';
-import type { AppEnv } from '../env';
+import { DEFAULT_COMMERCE_PRICING_VERSION, resolveCommerceConfig, type AppEnv } from '../env';
 import type { MysqlDatabase } from '../db/mysql-client';
 import { createQuoteRepository } from './quote-repository';
 
 const COMMERCE_BOOTSTRAP_MARKER = '<!--commerce-bootstrap-->';
-const COMMERCE_PRICING_VERSION = 'ke-commerce-2026-10-v1';
 
 export interface CommerceBootstrap {
   version: 1;
@@ -114,7 +113,7 @@ export async function buildCommerceBootstrap(
 
   return {
     version: 1,
-    catalog: getCommerceCatalog(COMMERCE_PRICING_VERSION),
+    catalog: getCommerceCatalog(resolveCommerceConfig(env)?.pricingVersion ?? DEFAULT_COMMERCE_PRICING_VERSION),
     session,
     account,
   };

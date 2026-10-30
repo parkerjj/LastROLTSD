@@ -24,6 +24,7 @@ export interface CommerceQuoteRouteContext {
   authRepository: AuthRepository;
   quoteDependencies: QuoteDependencies;
   runtime: AuthRuntime;
+  salesEnabled?: boolean;
 }
 
 export interface CommerceQuoteRouteOptions {
@@ -35,6 +36,7 @@ export interface CommerceOrderRouteContext {
   authRepository: AuthRepository;
   orderDependencies: OrderDependencies;
   runtime: AuthRuntime;
+  salesEnabled?: boolean;
 }
 
 export interface CommerceOrderRouteOptions {
@@ -117,6 +119,7 @@ export function registerCommerceQuoteRoute(app: Hono<any>, options: CommerceQuot
     try {
       const context = options.setup();
       if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买报价暂不可用，请稍后重试', 503);
+      if (context.salesEnabled === false) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
       const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
       const identity = await sessions.authenticate(c.req.raw);
       await assertCsrf(c.req.raw, context.authConfig, 'session', identity, context.runtime.now);
@@ -229,6 +232,7 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
     try {
       const context = options.setup();
       if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
+      if (context.salesEnabled === false) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
       const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
       const identity = await sessions.authenticate(c.req.raw);
       await assertCsrf(c.req.raw, context.authConfig, 'session', identity, context.runtime.now);

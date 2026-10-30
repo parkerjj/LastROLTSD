@@ -110,7 +110,8 @@ export interface QuoteDependencies {
   pricingVersion: string;
   now: () => number;
   productIds: Partial<Record<CommerceProductKey, string>>;
-  previewPromotion?: (promotionCode: string, items: readonly StripePreviewItem[]) => Promise<PromotionPreview>;
+  validateStripeConfiguration?: () => Promise<void>;
+  previewPromotion?: (promotionCode: string, items: readonly StripePreviewItem[], userId: string) => Promise<PromotionPreview>;
 }
 
 export type CommerceQuoteErrorCode =
@@ -412,6 +413,7 @@ export async function createQuote(
     invalidSelection();
   }
   validateSelection(input.selection);
+  if (dependencies.validateStripeConfiguration) await dependencies.validateStripeConfiguration();
   const now = dependencies.now();
   if (!Number.isSafeInteger(now) || now < 0 || now + QUOTE_TTL_MS > Number.MAX_SAFE_INTEGER) throw new Error('invalid commerce quote timestamp');
   const catalog = getCommerceCatalog(dependencies.pricingVersion);
@@ -439,7 +441,7 @@ export async function createQuote(
       };
     });
     try {
-      promotion = await dependencies.previewPromotion(input.promotionCode, stripeItems);
+      promotion = await dependencies.previewPromotion(input.promotionCode, stripeItems, userId!);
     } catch (error) {
       throw new CommerceQuoteError(error instanceof PromotionCodeError ? 'COMMERCE_PROMOTION_INVALID' : 'COMMERCE_PROMOTION_UNAVAILABLE');
     }

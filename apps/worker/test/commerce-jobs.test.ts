@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   commerceRetryDelayMs,
   createCommerceJobRepository,
   enqueueCommerceReconcile,
   type CommerceJobClaim,
 } from '../src/commerce/commerce-job-repository';
-import { runCommerceJobTick } from '../src/commerce/jobs';
+import { runCommerceCronTick, runCommerceJobTick } from '../src/commerce/jobs';
+import { resolveAppEnv } from '../src/env';
 import type { MysqlDatabase, MysqlRow, MysqlWriteResult } from '../src/db/mysql-client';
 
 interface JobRow extends MysqlRow {
@@ -274,5 +275,39 @@ describe('durable commerce jobs', () => {
       status: 'unconfigured', processed: 0,
     });
     expect(createDatabase).not.toHaveBeenCalled();
+  });
+});
+
+describe('commerce cron configuration', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('continues polling reconciliation jobs while new sales are disabled', async () => {
+    const env = resolveAppEnv({
+      ENVIRONMENT: 'local',
+      BUILD_VERSION: 'test',
+      COMMERCE_ENABLED: 'false',
+      COMMERCE_STRIPE_SECRET_KEY: 'sk_test_commerce',
+      COMMERCE_STRIPE_WEBHOOK_SECRET: `whsec_${'A'.repeat(43)}=`,
+      COMMERCE_STRIPE_ACCOUNT_ID: 'acct_test',
+      COMMERCE_STRIPE_LIVEMODE: 'false',
+      COMMERCE_PRICING_VERSION: 'ke-commerce-test-v1',
+      COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slotstest',
+      COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_offlinetest',
+      COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_alipaytest',
+      COMMERCE_SITE_ORIGIN: 'https://ltsd.example',
+    });
+    const database = new JobDatabase();
+    const stripeFetch = vi.fn(async () => Response.json({ id: 'acct_test', object: 'account' }));
+    vi.stubGlobal('fetch', stripeFetch);
+
+    await runCommerceCronTick(env, {
+      createDatabase: () => database,
+      owner: 'commerce-test',
+      now: 1_800_000_000_000,
+    });
+
+    expect(stripeFetch).not.toHaveBeenCalled();
+    expect(database.calls.some((call) => call.sql.includes('FROM commerce_jobs'))).toBe(true);
+    expect(database.closeCalls).toBe(1);
   });
 });

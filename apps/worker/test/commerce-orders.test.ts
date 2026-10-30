@@ -121,6 +121,16 @@ describe('immutable commerce orders and Stripe Checkout', () => {
     expect(deps.repository.markCheckoutReady).toHaveBeenCalledWith('701', expect.objectContaining({ sessionId: 'cs_test_701' }), NOW);
   });
 
+  it('rejects a failed Stripe configuration preflight before reserving an immutable order', async () => {
+    const deps = dependencies();
+    deps.validateStripeConfiguration = vi.fn(async () => { throw new Error('provider configuration invalid'); });
+
+    await expect(createOrderAndCheckout({ userId: '42', quoteId: '501', idempotencyKey: 'confirm-preflight' }, deps))
+      .rejects.toMatchObject({ code: 'COMMERCE_ORDER_UNAVAILABLE' });
+    expect(deps.validateStripeConfiguration).toHaveBeenCalledOnce();
+    expect(deps.repository.reserveOrder).not.toHaveBeenCalled();
+  });
+
   it('applies the Stripe-native promotion only when the fixed quote selected it', async () => {
     const promotion = { promotionCodeId: 'promo_holiday', couponId: 'coupon_holiday', subtotalCents: 5000, totalCents: 3000, discountCents: 2000, currency: 'cny' as const };
     const promoOrder = order({
@@ -502,7 +512,7 @@ describe('commerce order confirmation route', () => {
     };
   }
 
-  async function setup(status: AuthSessionResponse['user']['status'] = 'ACTIVE') {
+  async function setup(status: AuthSessionResponse['user']['status'] = 'ACTIVE', salesEnabled = true) {
     const sessionDigest = await digestToken(SESSION_TOKEN);
     const userProfile = profile(status);
     const identity: AuthIdentity & { expiresAt: number } = {
@@ -525,7 +535,7 @@ describe('commerce order confirmation route', () => {
     const csrf = await issueCsrf(new Request(`${ORIGIN}/`), authConfig, 'session', identity, () => NOW);
     const app = new Hono();
     registerCommerceOrderRoute(app, {
-      setup: () => ({ authConfig, authRepository, orderDependencies, runtime }),
+      setup: () => ({ authConfig, authRepository, orderDependencies, runtime, salesEnabled }),
     });
     return { app, csrfToken: csrf.token, authRepository, orderDependencies };
   }
@@ -555,6 +565,17 @@ describe('commerce order confirmation route', () => {
     expect((await post(active.app, active.csrfToken, 'https://attacker.example')).status).toBe(403);
     expect((await post(active.app, active.csrfToken, ORIGIN, '')).status).toBe(400);
     expect(active.orderDependencies.repository.reserveOrder).not.toHaveBeenCalled();
+  });
+
+  it('rejects new orders while sales are disabled before authenticating or reserving an order', async () => {
+    const fixture = await setup('ACTIVE', false);
+    const response = await post(fixture.app);
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(fixture.authRepository.readIdentity).not.toHaveBeenCalled();
+    expect(fixture.orderDependencies.repository.reserveOrder).not.toHaveBeenCalled();
+    expect(fixture.orderDependencies.stripe.post).not.toHaveBeenCalled();
   });
 
   it('returns only the fixed order result and applies a per-session rate limit', async () => {

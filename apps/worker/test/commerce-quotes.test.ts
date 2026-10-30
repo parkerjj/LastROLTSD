@@ -258,6 +258,7 @@ describe('authoritative commerce quotes', () => {
     }, dependencies(makeState(), { previewPromotion: promo }));
 
     expect(promo).toHaveBeenCalledTimes(1);
+    expect(promo).toHaveBeenCalledWith('SPRING', expect.any(Array), '42');
     expect(chosen).toMatchObject({ rawTotalCents: '60000', tierTotalCents: '48000', promoTotalCents: '47000', selectedTotalCents: '47000', discountStrategy: 'promotion_code' });
     expect(chosen.items.map((item) => item.paidCents)).toEqual(['23500', '23500']);
     expect(chosen.items.every((item) => item.tierCents === '24000')).toBe(true);

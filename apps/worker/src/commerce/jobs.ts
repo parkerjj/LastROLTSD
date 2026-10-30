@@ -1,4 +1,4 @@
-import type { AppEnv } from '../env';
+import { COMMERCE_STRIPE_API_VERSION, resolveCommerceConfig, type AppEnv } from '../env';
 import type { MysqlDatabase } from '../db/mysql-client';
 import { createWorkerDatabase } from '../db/mysql-connection';
 import { logError } from '../observability';
@@ -6,6 +6,7 @@ import { createCommerceJobRepository, type CommerceJobClaim } from './commerce-j
 import { reconcilePaidOrder } from './fulfillment';
 import { createCommerceRepository } from './repository';
 import type { StripeClient } from './stripe-client';
+import { createStripeClient } from './stripe-client';
 
 const MAX_JOBS_PER_TICK = 20;
 const MAX_RUNTIME_MS = 20_000;
@@ -104,7 +105,26 @@ export async function runCommerceJobTick(env: AppEnv, options: CommerceTickOptio
 
 export async function runCommerceCronTick(env: AppEnv, options: CommerceTickOptions = {}): Promise<void> {
   try {
-    await runCommerceJobTick(env, options);
+    if (options.processOrder || options.createProcessor) {
+      await runCommerceJobTick(env, options);
+      return;
+    }
+    const config = resolveCommerceConfig(env);
+    if (!config) return;
+    const stripe = createStripeClient({
+      secretKey: config.stripeSecretKey,
+      apiVersion: COMMERCE_STRIPE_API_VERSION,
+      fetch: globalThis.fetch,
+    });
+    await runCommerceJobTick(env, {
+      ...options,
+      createProcessor: (database) => createCommerceOrderProcessor(database, {
+        stripe,
+        stripeAccountId: config.stripeAccountId,
+        livemode: config.livemode,
+        now: () => Date.now(),
+      }),
+    });
   } catch (error) {
     logError('lastroweb.commerce_job_tick_failed', error);
     throw new Error('commerce background job failed');

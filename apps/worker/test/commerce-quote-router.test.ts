@@ -26,6 +26,7 @@ async function setup(options: {
   readAccount?: () => Promise<QuoteAccountState>;
   rateAllowed?: boolean;
   previewPromotion?: QuoteDependencies['previewPromotion'];
+  salesEnabled?: boolean;
 } = {}) {
   const sessionDigest = await digestToken(SESSION_TOKEN);
   const userProfile = profile(options.status, options.permissionLevel);
@@ -62,7 +63,7 @@ async function setup(options: {
   const csrf = await issueCsrf(new Request(`${ORIGIN}/`), authConfig, 'session', identity, () => NOW);
   const app = new Hono();
   registerCommerceQuoteRoute(app, {
-    setup: () => ({ authConfig, authRepository, quoteDependencies, runtime }),
+    setup: () => ({ authConfig, authRepository, quoteDependencies, runtime, salesEnabled: options.salesEnabled }),
   });
   return { app, csrfToken: csrf.token, quoteRepository, authRepository };
 }
@@ -91,6 +92,19 @@ describe('commerce quote route', () => {
 
     expect(response.status).toBe(503);
     expect(body).not.toContain('private database');
+  });
+
+  it('rejects new quotes while sales are disabled before authenticating or reading commerce state', async () => {
+    const fixture = await setup({ salesEnabled: false });
+    const response = await postQuote(fixture.app, {
+      selection: [{ type: 'slot_add', quantity: 1, term_days: 30 }],
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(fixture.authRepository.readIdentity).not.toHaveBeenCalled();
+    expect(fixture.quoteRepository.readAccount).not.toHaveBeenCalled();
+    expect(fixture.quoteRepository.insertQuote).not.toHaveBeenCalled();
   });
 
   it('requires an active formal account', async () => {

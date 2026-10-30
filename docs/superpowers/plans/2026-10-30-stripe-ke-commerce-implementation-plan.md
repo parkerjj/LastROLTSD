@@ -234,14 +234,14 @@
 
 **Interfaces:**
 - `resolveCommerceConfig(env: AppEnv): CommerceConfig | null` validates mode/account pairing and required test/live secrets without falling back to donation `STRIPE_SECRET_KEY`.
-- Test/staging/live `stripe_account_id`, `livemode`, Product/Price mapping, payment configuration and webhook secret must be explicit and environment-scoped.
+- Test/staging/live `stripe_account_id`, `livemode`, Product mapping, payment configuration and webhook secret must be explicit and environment-scoped. The app creates dynamic one-time `price_data` for the immutable order amount, so persistent Price IDs are not part of runtime configuration.
 
-- [ ] **Step 1: 写失败配置测试**：commerce disabled 时不接受新报价/建单但 webhook/已存在 job 仍运行；缺失 key/价格版本/Alipay-capable payment configuration 在新建单前返回固定 unavailable；test/live ID 混用拒绝；Managed Payments 永远为 false。
-- [ ] **Step 2: 运行配置测试并确认失败**。
-- [ ] **Step 3: 实现环境解析和占位模板并将真实 processor 工厂接入每分钟 cron**；只从独立 `COMMERCE_STRIPE_SECRET_KEY` 取商务密钥，不输出密钥或完整 Stripe error body。关闭新销售时，已入队订单仍会对账/交付/同步退款。
-- [ ] **Step 4: 在隔离 test mode 完成 1/6 个额度、180/360 天、促销码胜出/不胜出、Alipay 能力、付款成功/失败/过期、重复 webhook、部分/全部退款闭环；在独立 MySQL 8 数据库执行 migration 与故障补偿测试。**
-- [ ] **Step 5: 跑 `rtk pnpm lint`、`rtk pnpm typecheck`、`rtk pnpm test`、`rtk pnpm test:docs`、`rtk pnpm test:migration`、`rtk pnpm --filter web build`、`rtk git diff --check`；检查 Wrangler dry-run 和工作区。**
-- [ ] **Step 6: 测试与审核通过后，在已指定的 LTSD.Ro 正式账号创建两个 Product 与常用 CNY 一次性 Price（实例额度 30/90/180/360 天分别 ¥50/¥150/¥240/¥420，standalone 分别 ¥30/¥90/¥144/¥252）；不启用 Managed Payments，不创建订阅，不进行正式扣款或部署。**
+- [x] **Step 1: 写失败配置测试**：commerce disabled 时不接受新报价/建单但 webhook/已存在 job 仍运行；缺失 key/价格版本/Alipay-capable payment configuration 在新建单前返回固定 unavailable；test/live ID 混用拒绝；Managed Payments 永远为 false。
+- [x] **Step 2: 运行配置测试并确认失败**：新增缺失配置下 Worker 商务路径固定不可用、错误 Product metadata、Stripe Account 缺少 livemode 字段和 cron 多余账户请求等回归测试，分别观察到失败后修复。
+- [x] **Step 3: 实现环境解析和占位模板并将真实 processor 工厂接入每分钟 cron**；只从独立 `COMMERCE_STRIPE_SECRET_KEY` 取商务密钥，不输出密钥或完整 Stripe error body。关闭新销售时，已入队订单仍会对账/交付/同步退款。
+- [ ] **Step 4: 在隔离 test mode 完成 1/6 个额度、180/360 天、促销码胜出/不胜出、Alipay 能力、付款成功/失败/过期、重复 webhook、部分/全部退款闭环；在独立 MySQL 8 数据库执行 migration 与故障补偿测试。** 暂未能执行：当前 Stripe connector 只有正式模式上下文，且本机无隔离 MySQL 8 服务。
+- [x] **Step 5: 跑 `rtk pnpm lint`、`rtk pnpm typecheck`、`rtk pnpm test`、`rtk pnpm test:docs`、`rtk pnpm test:migration`、`rtk pnpm --filter web build`、`rtk git diff --check`；检查 Wrangler dry-run 和工作区。** 全部通过；Vitest 1395 passed / 66 skipped，Wrangler production dry-run 成功。
+- [ ] **Step 6: 测试与审核通过后，在已指定的 LTSD.Ro 正式账号创建两个 Product，分别设置 metadata `ltsd_commerce_product_key=slots` / `module:standalone`；不启用 Managed Payments，不创建订阅，不进行正式扣款或部署。** 固定 Price 不需要预建；任意期限与按时长补差由 Checkout inline `price_data` 收取。
 
 ## Self-Review
 
