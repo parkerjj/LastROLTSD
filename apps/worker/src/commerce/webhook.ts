@@ -1,5 +1,5 @@
-import type { CommerceRepository } from './repository';
-import { assertCommerceId } from './repository';
+import { assertCommerceId, type CommerceRepository } from './repository';
+import { enqueueCommerceReconcile } from './commerce-job-repository';
 import type { MysqlRow } from '../db/mysql-client';
 
 const SIGNATURE_TOLERANCE_SECONDS = 300;
@@ -237,16 +237,7 @@ export async function receiveStripeEvent(request: Request, dependencies: Webhook
         [objectId, matchedOrderId],
       );
 
-      await tx.run(
-        'INSERT INTO commerce_jobs '
-          + '(job_key, job_type, order_id, state, dirty_generation, processed_generation, '
-          + 'next_run_at, created_at, updated_at) '
-          + 'VALUES (?, \'order_reconcile\', ?, \'queued\', 1, 0, ?, ?, ?) '
-          + 'ON DUPLICATE KEY UPDATE dirty_generation = dirty_generation + 1, '
-          + 'state = CASE WHEN state = \'leased\' THEN \'leased\' ELSE \'queued\' END, '
-          + 'next_run_at = LEAST(next_run_at, VALUES(next_run_at)), updated_at = VALUES(updated_at)',
-        ['order-reconcile:' + matchedOrderId, matchedOrderId, now, now, now],
-      );
+      await enqueueCommerceReconcile(tx, matchedOrderId, now);
     });
     return response(200);
   } catch (error) {

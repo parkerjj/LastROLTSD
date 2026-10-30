@@ -1,5 +1,7 @@
 import mysql from 'mysql2/promise';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const commerceCronTick = vi.hoisted(() => vi.fn());
+vi.mock('../src/commerce/jobs', () => ({ runCommerceCronTick: commerceCronTick }));
 import worker from '../src/index';
 import { resolveAppEnv } from '../src/env';
 
@@ -82,7 +84,10 @@ function trackAuthPools(options: { failIdentity?: boolean; dailyCount?: number }
 afterEach(() => vi.restoreAllMocks());
 
 describe('Worker account request lifecycle', () => {
-  beforeEach(() => vi.spyOn(console, 'error').mockImplementation(() => undefined));
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    commerceCronTick.mockReset().mockResolvedValue(undefined);
+  });
 
   it('passes raw optional auth settings without making public health or assets depend on them', async () => {
     const raw = resolveAppEnv({
@@ -205,6 +210,20 @@ describe('Worker account request lifecycle', () => {
     );
 
     expect(pools).toHaveLength(0);
+  });
+
+  it('continues snapshot cron work when the commerce cron tick fails', async () => {
+    const pools = trackAuthPools();
+    commerceCronTick.mockRejectedValueOnce(new Error('commerce database unavailable'));
+
+    await expect(worker.scheduled(
+      { cron: '* * * * *' } as ScheduledEvent,
+      authBindings({ AUTH_ENABLED: 'false' }),
+    )).resolves.toBeUndefined();
+
+    expect(commerceCronTick).toHaveBeenCalledTimes(1);
+    expect(pools).toHaveLength(1);
+    expect(pools[0]?.closeCalls).toBe(1);
   });
 
   it.each([false, true])('runs one cleanup category without Resend and closes its independent cron pool once (Hyperdrive: %s)', async (hyperdrive) => {

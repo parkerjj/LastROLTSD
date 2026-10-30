@@ -493,6 +493,13 @@ export async function reconcilePaidOrder(orderIdInput: string, dependencies: Ful
   const orderId = assertCommerceId(orderIdInput);
   const order = await readOrder(dependencies.repository, orderId);
   if (order.fulfillmentState === 'fulfilled' || order.fulfillmentState === 'settled') {
+    await syncOrderRefunds(orderId, {
+      repository: dependencies.repository,
+      stripe: dependencies.stripe,
+      stripeAccountId: dependencies.stripeAccountId,
+      livemode: dependencies.livemode,
+      now: dependencies.now,
+    });
     return fulfillmentResult(orderId, 'fulfilled');
   }
 

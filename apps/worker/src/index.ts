@@ -47,6 +47,7 @@ import { createAdminService } from './admin/service';
 import { createTransferRepository } from './admin/transfer-repository';
 import { createTransferService } from './admin/transfer-service';
 import { createActionService } from './auth/action-service';
+import { runCommerceCronTick } from './commerce/jobs';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -165,6 +166,11 @@ export default {
         await runAuthCronTick(env);
       } catch {
         // Already logged by runAuthCronTick; the snapshot wakeup below must still run.
+      }
+      try {
+        await runCommerceCronTick(env);
+      } catch {
+        // Commerce retries are isolated; snapshot work and auth remain independent.
       }
     }
     const database = createWorkerDatabase(env);

@@ -289,12 +289,16 @@ describe('paid commerce order fulfillment', () => {
     const deps = dependencies({ repository });
 
     await Promise.all([reconcilePaidOrder('701', deps), reconcilePaidOrder('701', deps)]);
-    const writesAfterFirstDelivery = repository.writes.length;
+    const entitlementWritesAfterFirstDelivery = repository.writes.filter(({ sql }) => sql.includes('INSERT INTO ke_entitlements')).length;
+    const purchaseEventsAfterFirstDelivery = repository.writes.filter(({ sql }) => sql.includes("'PURCHASE'")).length;
+    const expiryAfterFirstDelivery = repository.entitlementExpiry;
     const result = await reconcilePaidOrder('701', deps);
 
     expect(result).toMatchObject({ status: 'fulfilled', orderId: '701' });
-    expect(repository.writes).toHaveLength(writesAfterFirstDelivery);
+    expect(repository.writes.filter(({ sql }) => sql.includes('INSERT INTO ke_entitlements'))).toHaveLength(entitlementWritesAfterFirstDelivery);
+    expect(repository.writes.filter(({ sql }) => sql.includes("'PURCHASE'"))).toHaveLength(purchaseEventsAfterFirstDelivery);
     expect(repository.writes.filter(({ sql }) => sql.includes('INSERT INTO commerce_unit_events'))).toHaveLength(1);
+    expect(repository.entitlementExpiry).toBe(expiryAfterFirstDelivery);
   });
 
   it('extends an existing target by the complete purchased duration after the latest end', async () => {

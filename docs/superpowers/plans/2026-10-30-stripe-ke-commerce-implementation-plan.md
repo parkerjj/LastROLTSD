@@ -159,28 +159,28 @@
 **Files:** Create `apps/worker/src/commerce/refunds.ts`, `apps/worker/test/commerce-refunds.test.ts`; extend `projection.ts` tests.
 
 **Interfaces:**
-- `syncOrderRefunds(orderId: string, deps: RefundDependencies): Promise<RefundSyncResult>` fetches the authoritative paginated Stripe refund set, stores latest state by `refund_id`, and increments refund revision only when the set changes.
-- `replayCommerceUnit(unitId: string, events: readonly CommerceUnitEvent[], refundRevision: number): UnitProjection` computes the current paid/admin contributions without editing original events.
+- `syncOrderRefunds(orderId: string, deps: RefundDependencies, paymentIntentOverride?: string | null): Promise<RefundSyncResult>` fetches the authoritative paginated Stripe refund set, stores latest state by `refund_id`, and increments refund revision only when the set changes.
+- `replayCommerceUnit(baseline: CommerceUnitBaseline, events: readonly CommerceUnitEvent[]): UnitProjection` computes current paid/admin contributions without editing original events; refund reproject events store each PURCHASE's retained duration.
 
 - [x] **Step 1: 写失败测试**：实付 180 元、90/30 天，退款 36 元回收 18/6 天，再退 18 元再回收 9/3 天；同样累计 30% 的一次/分次结果一致；其他订单与 gift 不变；失败退款恢复本单贡献；0 实付不除零；部分 Stripe 分页完成前不提交半套退款状态。
 - [x] **Step 2: 运行目标测试并确认失败**。
 - [x] **Step 3: 实现累计成功退款比例、每项 floor 毫秒目标差额、revision 去重和受影响单元重放**；退款事件只更新 projection，不改原订单或 PURCHASE 事件。退款同步使用独立 generation fencing，旧请求晚返回时不能覆盖较新的完整快照；023 迁移补入退款快照哈希、generation、revision 和 applied revision，并保存 `requires_action` 状态。
 - [x] **Step 4: 测试退款先于交付、重复/乱序对账、退款失败恢复和分页失败不落半套状态；运行目标测试。**
-- [ ] **Step 5: 提交 `feat: reverse commerce entitlements for Stripe refunds`**。
+- [x] **Step 5: 提交 `feat: reverse commerce entitlements for Stripe refunds` (`c673b86`)**。
 
 ### Task 9: 持久 job、租约和周期补偿
 
-**Files:** Create `apps/worker/src/commerce/jobs.ts`, `commerce-job-repository.ts`, `apps/worker/test/commerce-jobs.test.ts`; modify `apps/worker/src/index.ts` and `wrangler.toml`.
+**Files:** Create `apps/worker/src/commerce/jobs.ts`, `commerce-job-repository.ts`, `apps/worker/test/commerce-jobs.test.ts`; modify `apps/worker/src/index.ts`. The existing `wrangler.toml` already has a per-minute trigger.
 
 **Interfaces:**
-- `runCommerceJobTick(env: AppEnv, options?: { now?: number; limit?: number }): Promise<CommerceTickResult>` claims bounded due jobs with lease owner, expiry and fencing token; opens/closes a DB connection scoped to its invocation.
-- `enqueueCommerceReconcile(orderId: string, now: number): Promise<void>` coalesces duplicate events by order and increments dirty generation.
+- `runCommerceJobTick(env: AppEnv, options?: { now?: number; limit?: number; createProcessor?: (database: MysqlDatabase) => (orderId: string, claim: CommerceJobClaim) => Promise<void> }): Promise<CommerceTickResult>` claims bounded due jobs with lease owner, expiry and fencing token; opens/closes a DB connection scoped to its invocation.
+- `enqueueCommerceReconcile(tx: Pick<CommerceTransaction, 'run'>, orderId: string, now: number): Promise<void>` coalesces duplicate events by order and increments dirty generation in the webhook's existing transaction.
 
-- [ ] **Step 1: 写失败测试**：过期 lease 可接管、旧 fencing token 不能提交、同订单多事件合并但 dirty generation 不丢、失败按 5s/30s/2m/10m/1h 退避、不超过每轮 20 单/20 秒、连接关闭。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现持久 job runner；接入现有每分钟 cron，商务处理失败单独记录，不能阻止 auth/mail/market job。Webhook waitUntil 仅用新建连接加速，不作为持久状态。**
-- [ ] **Step 4: 扩展 Worker lifecycle 测试，模拟 DB 暂断、worker 终止、重启后 cron 补偿；运行目标测试。**
-- [ ] **Step 5: 提交 `feat: reconcile commerce orders with durable jobs`**。
+- [x] **Step 1: 写失败测试**：过期 lease 可接管、旧 fencing token 或过期 owner 不能提交、同订单多事件合并但 dirty generation 不丢、失败按 5s/30s/2m/10m/1h 退避、不超过每轮 20 单/20 秒、连接关闭。
+- [x] **Step 2: 运行目标测试并确认失败**。
+- [x] **Step 3: 实现持久 job runner；接入已存在的每分钟 cron，商务处理失败单独记录，不能阻止 auth/mail/market job。Webhook 在现有 MySQL 事务内持久入队；Task 13 引入环境配置后向 cron 提供真实处理器工厂。无需改 `wrangler.toml`，其每分钟触发器已存在。**
+- [x] **Step 4: 扩展 Worker lifecycle 测试，模拟 DB 暂断、worker 终止、重启后 cron 补偿；运行目标测试。**
+- [x] **Step 5: 提交 `feat: reconcile commerce orders with durable jobs` (`53b3280`)**；目标测试 42 passed，全仓测试 1354 passed / 66 skipped；typecheck、lint、docs（58 assertions）、migration checks 和 diff check 通过。
 
 ### Task 10: `/ke/buy` 动态 HTML bootstrap
 
@@ -228,7 +228,7 @@
 
 ### Task 13: 配置、测试环境联调与发布前验证
 
-**Files:** Modify `apps/worker/src/env.ts`, `wrangler.toml`, `.dev.vars.example`, `docs/api.md`; create/extend `apps/worker/test/commerce-deployment-preflight.test.ts` and required migration/deployment checks.
+**Files:** Modify `apps/worker/src/env.ts`, `apps/worker/src/index.ts`, `apps/worker/src/commerce/jobs.ts`, `wrangler.toml`, `.dev.vars.example`, `docs/api.md`; create/extend `apps/worker/test/commerce-deployment-preflight.test.ts` and required migration/deployment checks.
 
 **Interfaces:**
 - `resolveCommerceConfig(env: AppEnv): CommerceConfig | null` validates mode/account pairing and required test/live secrets without falling back to donation `STRIPE_SECRET_KEY`.
@@ -236,7 +236,7 @@
 
 - [ ] **Step 1: 写失败配置测试**：commerce disabled 时不接受新报价/建单但 webhook/已存在 job 仍运行；缺失 key/价格版本/Alipay-capable payment configuration 在新建单前返回固定 unavailable；test/live ID 混用拒绝；Managed Payments 永远为 false。
 - [ ] **Step 2: 运行配置测试并确认失败**。
-- [ ] **Step 3: 实现环境解析和占位模板**；只从独立 `COMMERCE_STRIPE_SECRET_KEY` 取商务密钥，不输出密钥或完整 Stripe error body。
+- [ ] **Step 3: 实现环境解析和占位模板并将真实 processor 工厂接入每分钟 cron**；只从独立 `COMMERCE_STRIPE_SECRET_KEY` 取商务密钥，不输出密钥或完整 Stripe error body。关闭新销售时，已入队订单仍会对账/交付/同步退款。
 - [ ] **Step 4: 在隔离 test mode 完成 1/6 个额度、180/360 天、促销码胜出/不胜出、Alipay 能力、付款成功/失败/过期、重复 webhook、部分/全部退款闭环；在独立 MySQL 8 数据库执行 migration 与故障补偿测试。**
 - [ ] **Step 5: 跑 `rtk pnpm lint`、`rtk pnpm typecheck`、`rtk pnpm test`、`rtk pnpm test:docs`、`rtk pnpm test:migration`、`rtk pnpm --filter web build`、`rtk git diff --check`；检查 Wrangler dry-run 和工作区。**
 - [ ] **Step 6: 测试与审核通过后，在已指定的 LTSD.Ro 正式账号创建两个 Product 与常用 CNY 一次性 Price（实例额度 30/90/180/360 天分别 ¥50/¥150/¥240/¥420，standalone 分别 ¥30/¥90/¥144/¥252）；不启用 Managed Payments，不创建订阅，不进行正式扣款或部署。**
