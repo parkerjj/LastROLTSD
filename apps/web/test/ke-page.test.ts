@@ -164,6 +164,22 @@ describe("ke page", () => {
     vi.unstubAllGlobals();
   });
 
+  it("offers the commerce purchase page from the KE configuration workspace", () => {
+    const dom = new JSDOM('<main id="app"></main>', { url: "http://localhost/ke/my" });
+    vi.stubGlobal("document", dom.window.document);
+    vi.stubGlobal("window", dom.window);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      if (path === "/ke/options.json") return jsonResponse(PROFILE_OPTIONS);
+      if (path === "/api/v1/ke/characters") return jsonResponse({ characters: [] });
+      return jsonResponse({ profiles: [] });
+    }));
+    const root = dom.window.document.querySelector<HTMLElement>("#app")!;
+
+    mountKePage(root);
+
+    expect(root.querySelector('a[href="/ke/buy"]')?.textContent).toContain("购买额度与功能");
+  });
+
   it("角色切换卡片把 KE 自报的 char_name / map_name 当作纯文本，不解析为 HTML", async () => {
     const dom = new JSDOM('<main id="app"></main>', { url: "http://localhost/ke/my" });
     vi.stubGlobal("document", dom.window.document);

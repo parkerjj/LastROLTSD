@@ -199,17 +199,18 @@
 
 ### Task 11: 购买、续期与统一到期界面
 
-**Files:** Create `apps/web/src/commerce-api.ts`, `commerce-page.ts`, `commerce-page.css`; modify `apps/web/src/main.ts`, `apps/web/src/ke-page.ts`, `apps/web/test/commerce-page.test.ts`.
+**Files:** Create `apps/web/src/commerce-api.ts`, `commerce-page.ts`, `commerce-page.css`, `apps/web/test/commerce-page.test.ts`; modify `apps/web/src/main.ts`, `apps/web/src/ke-page.ts`, `apps/web/src/styles.css`, `apps/web/src/auth/api.ts`, `apps/web/test/auth-api.test.ts`.
 
 **Interfaces:**
 - `readCommerceBootstrap(doc: Document): CommerceBootstrap` validates embedded JSON version/schema and fails closed on malformed data.
-- `quoteCommerceSelection(selection: QuoteSelection, promotionCode?: string): Promise<CommerceQuote>` calls quote API only when user proceeds to final review.
+- `quoteCommerceSelection(selection: readonly QuoteSelection[], promotionCode?: string): Promise<CommerceQuote>` calls quote API only when user proceeds to final review; standard orders can combine one slot operation with the standalone feature.
 - `mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstrap, api: CommerceApi): void` renders purchase modes and owned-unit review.
+- `CommerceApi.createOrder(quoteId: string, idempotencyKey: string)` confirms the immutable quote before navigating to the returned Stripe Checkout URL; `AuthApi.sessionRequest` accepts optional extra headers so the order request can retain auth CSRF handling while sending `Idempotency-Key`.
 
-- [ ] **Step 1: 写失败 UI/API 测试**：逐个显示所有额度（包括同日）；赠送行不可选；期限分段常显 30/90/180/360 天及折扣；加购数量使用共享 BigInt 函数即时计算；功能独立于额度；统一模式按各自补足时长计价；差距 <24h 点击提示而不发 quote；全账户变化表列出购买前/后；本地时区；促销与期限整单择优不叠加。
-- [ ] **Step 2: 运行目标 web 测试并确认失败**。
-- [ ] **Step 3: 使用批准的 renewal prototype 布局实现 UI，并从 `/ke/my` 提供 `/ke/buy` 入口；不得复用假 VIP 静态支付链接。**
-- [ ] **Step 4: 验证 390px/320px 无横向溢出；测算 2 个额度×180 天显示 ¥480；15/20/3 天统一续期 30 天分别补 35/30/47 天，总价 ¥155.33；付款前赠送额度与未选择项目均保留在完整预览中。**
+- [x] **Step 1: 写失败 UI/API 测试**：逐个显示所有额度（包括同日）；赠送行不可选；期限分段常显 30/90/180/360 天及折扣；加购数量使用共享 BigInt 函数即时计算；功能独立于额度；统一模式按各自补足时长计价；差距 <24h 点击提示而不发 quote；全账户变化表列出购买前/后；本地时区；促销与期限整单择优不叠加。
+- [x] **Step 2: 运行目标 web 测试并确认失败**。
+- [x] **Step 3: 使用批准的 renewal prototype 布局实现 UI，并从 `/ke/my` 提供 `/ke/buy` 入口；不得复用假 VIP 静态支付链接。**
+- [x] **Step 4: 验证 390px/320px 无横向溢出；2 个额度×180 天显示 ¥480；15/20/3 天统一续期 30 天分别补 35/30/47 天，总价 ¥155.33；完整预览包含赠送与未选项目。**
 - [ ] **Step 5: 运行 web 测试和 build；提交 `feat: add KE commerce purchase page`**。
 
 ### Task 12: 支付返回与购买记录

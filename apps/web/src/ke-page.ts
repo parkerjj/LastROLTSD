@@ -485,6 +485,7 @@ export function mountKePage(root: HTMLElement): void {
       <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
       <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
       <p class="ke-hero-sub ke-hero-links">
+        <a class="ke-commerce-link" href="/ke/buy">购买额度与功能</a>
         <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
         ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
         <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>

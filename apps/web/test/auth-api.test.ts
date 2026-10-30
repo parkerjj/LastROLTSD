@@ -152,4 +152,26 @@ describe('AuthApi', () => {
     expect(csrf.headers.has('x-ltsd-device')).toBe(false);
     expect(csrf.headers.has('x-ltsd-fp')).toBe(false);
   });
+
+  it('preserves optional operation headers on a CSRF-protected session request', async () => {
+    let orderHeaders: Headers | null = null;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const path = String(input);
+      if (path === '/api/v1/auth/csrf') return jsonResponse({ csrf_token: 'anonymous-csrf' });
+      if (path === '/api/v1/auth/login') return jsonResponse(session);
+      if (path === '/api/v1/commerce/orders') {
+        orderHeaders = new Headers(init.headers);
+        return jsonResponse({ orderId: '901' });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const api = new AuthApi(fetcher as unknown as typeof fetch);
+    await api.login({ email: user.email, password: 'secret' });
+
+    await api.sessionRequest('/api/v1/commerce/orders', 'POST', { quote_id: '901' }, { 'Idempotency-Key': 'idem-1' });
+
+    expect(orderHeaders?.get('Idempotency-Key')).toBe('idem-1');
+    expect(orderHeaders?.get('X-CSRF-Token')).toBe('session-csrf-a');
+    expect(orderHeaders?.get('Content-Type')).toBe('application/json');
+  });
 });

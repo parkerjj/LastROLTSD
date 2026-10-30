@@ -1,0 +1,287 @@
+import { JSDOM } from 'jsdom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_DAY_MS, getCommerceCatalog } from '@lastroweb/commerce';
+import { createCommerceApi, type CommerceApi, type CommerceBootstrap, type CommerceQuote } from '../src/commerce-api';
+import { mountCommercePage, readCommerceBootstrap } from '../src/commerce-page';
+
+const NOW = Date.now();
+const DAY = Number(COMMERCE_DAY_MS);
+
+function entitlement(overrides: Record<string, unknown> = {}) {
+  const id = String(overrides.entitlementId ?? '10');
+  return {
+    id, entitlementId: id, unitId: '1', resource: 'slots', quantity: 1,
+    startsAt: String(NOW - DAY), expiresAt: String(NOW + 15 * DAY),
+    productKey: 'slots', source: 'commerce', sourceRef: null, isGift: false, ...overrides,
+  };
+}
+
+function bootstrap(overrides: Partial<CommerceBootstrap> = {}): CommerceBootstrap {
+  const slotUnits = [
+    { unitId: '900', entitlementId: '20', resource: 'slots', kind: 'legacy', quantity: 1, startsAt: String(NOW - DAY), expiresAt: String(NOW + 99 * 365 * DAY), source: 'signup', sourceRef: 'email-verified:slots', isGift: true },
+    { unitId: '901', entitlementId: '10', resource: 'slots', kind: 'commerce', quantity: 1, startsAt: String(NOW - DAY), expiresAt: String(NOW + 15 * DAY), source: 'commerce', sourceRef: null, isGift: false },
+    { unitId: '902', entitlementId: '11', resource: 'slots', kind: 'commerce', quantity: 1, startsAt: String(NOW - DAY), expiresAt: String(NOW + 20 * DAY), source: 'commerce', sourceRef: null, isGift: false },
+  ];
+  const entitlements = [
+    entitlement({ entitlementId: '20', unitId: '900', expiresAt: String(NOW + 99 * 365 * DAY), isGift: true }),
+    entitlement({ entitlementId: '10', unitId: '901', expiresAt: String(NOW + 15 * DAY) }),
+    entitlement({ entitlementId: '11', unitId: '902', expiresAt: String(NOW + 20 * DAY) }),
+    entitlement({ entitlementId: '12', unitId: null, resource: 'module:core', productKey: null, expiresAt: String(NOW + 99 * 365 * DAY), isGift: true }),
+    entitlement({ entitlementId: '13', unitId: null, resource: 'module:standalone', productKey: 'module:standalone', expiresAt: String(NOW + 3 * DAY) }),
+  ];
+  return {
+    version: 1,
+    catalog: getCommerceCatalog('ke-commerce-test-v1'),
+    session: {
+      user: { id: '42', email: 'player@example.test', display_name: '玩家', status: 'ACTIVE', permission_level: 1, email_verified_at: NOW, created_at: NOW, has_avatar: false, avatar_version: 0, avatar_url: '' },
+      expires_at: NOW + DAY, csrf_token: 'v1.s.session-csrf', mail_availability: null,
+    },
+    account: {
+      units: slotUnits,
+      entitlements,
+      effective: { slots: 3, modules: ['core', 'standalone'] },
+    },
+    ...overrides,
+  } as CommerceBootstrap;
+}
+
+function quote(overrides: Partial<CommerceQuote> = {}): CommerceQuote {
+  const before = [
+    entitlement({ entitlementId: '20', unitId: '900', expiresAt: String(NOW + 99 * 365 * DAY), isGift: true }),
+    entitlement({ entitlementId: '10', unitId: '901', expiresAt: String(NOW + 15 * DAY) }),
+    entitlement({ entitlementId: '11', unitId: '902', expiresAt: String(NOW + 20 * DAY) }),
+    entitlement({ entitlementId: '12', unitId: null, resource: 'module:core', productKey: null, expiresAt: String(NOW + 99 * 365 * DAY), isGift: true }),
+    entitlement({ entitlementId: '13', unitId: null, resource: 'module:standalone', productKey: 'module:standalone', expiresAt: String(NOW + 3 * DAY) }),
+  ];
+  return {
+    quoteId: '901', pricingVersion: 'ke-commerce-test-v1', currency: 'CNY', createdAt: String(NOW), expiresAt: String(NOW + 120_000),
+    items: [{ ordinal: 1, productKey: 'slots', operation: 'RENEW', targetUnitId: '901', targetEntitlementId: '10', durationMs: String(30 * DAY), expectedStartsAt: String(NOW + 15 * DAY), expectedExpiresAt: String(NOW + 45 * DAY), discountPercent: 100, rawCents: '5000', tierCents: '5000', paidCents: '5000' }],
+    accountPreview: {
+      before: { entitlements: before, effective: { slots: 3, modules: ['core', 'standalone'] } },
+      after: { entitlements: before.map((row) => row.entitlementId === '10' ? { ...row, expiresAt: String(NOW + 45 * DAY) } : row), effective: { slots: 3, modules: ['core', 'standalone'] } },
+    },
+    rawTotalCents: '5000', tierTotalCents: '5000', promoTotalCents: null, selectedTotalCents: '5000',
+    discountStrategy: 'term', promotion: null,
+    ...overrides,
+  } as CommerceQuote;
+}
+
+function mount(options: {
+  account?: CommerceBootstrap['account'];
+  quote?: CommerceQuote;
+} = {}) {
+  const dom = new JSDOM('<main id="app"></main>', { url: 'https://ltsd.ro/ke/buy' });
+  const root = dom.window.document.querySelector<HTMLElement>('#app')!;
+  const api: CommerceApi = {
+    quoteCommerceSelection: vi.fn(async () => options.quote ?? quote()),
+    createOrder: vi.fn(async () => ({ orderId: '902', checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test', expiresAt: String(NOW + 1_800_000), paymentStatus: 'unpaid' })),
+    navigateToCheckout: vi.fn(),
+  };
+  mountCommercePage(root, bootstrap(options.account ? { account: options.account } : {}), api);
+  return { dom, root, api };
+}
+
+function click(root: HTMLElement, selector: string): void {
+  const button = root.querySelector<HTMLButtonElement>(selector);
+  if (!button) throw new Error(`Missing button ${selector}`);
+  button.click();
+}
+
+function dispatch(root: HTMLElement, target: Element, type: string): void {
+  const EventConstructor = root.ownerDocument.defaultView!.Event;
+  target.dispatchEvent(new EventConstructor(type, { bubbles: true }));
+}
+
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe('commerce purchase page', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('validates the server-rendered bootstrap and rejects unsupported or incomplete data', () => {
+    const dom = new JSDOM('<script id="commerce-bootstrap" type="application/json"></script>');
+    dom.window.document.querySelector('#commerce-bootstrap')!.textContent = JSON.stringify(bootstrap());
+    expect(readCommerceBootstrap(dom.window.document).catalog.pricingVersion).toBe('ke-commerce-test-v1');
+
+    dom.window.document.querySelector('#commerce-bootstrap')!.textContent = JSON.stringify({ version: 2 });
+    expect(() => readCommerceBootstrap(dom.window.document)).toThrow();
+  });
+
+  it('lists same-day slots separately and prevents renewing the gift slot', () => {
+    const account = bootstrap().account;
+    account.units[2]!.expiresAt = account.units[1]!.expiresAt;
+    const { root } = mount({ account });
+    click(root, '[data-mode="renew"]');
+
+    const rows = root.querySelectorAll('[data-slot-unit]');
+    const gift = root.querySelector<HTMLInputElement>('[data-slot-unit="900"]');
+    expect(rows).toHaveLength(3);
+    expect(gift).not.toBeNull();
+    expect(gift!.disabled).toBe(true);
+    expect(root.querySelector('[data-slot-unit="901"]')).not.toBeNull();
+    expect(root.querySelector('[data-slot-unit="902"]')).not.toBeNull();
+
+    const paid = root.querySelector<HTMLInputElement>('[data-slot-unit="901"]')!;
+    paid.focus();
+    paid.checked = true;
+    dispatch(root, paid, 'change');
+    expect(root.ownerDocument.activeElement?.getAttribute('data-focus-key')).toBe('unit-901');
+  });
+
+  it('keeps discounted terms visible and recalculates multi-slot price exactly', () => {
+    const { root, api } = mount();
+    const terms = root.querySelector('[data-term-group="slots"]')!;
+    expect(terms.textContent).toContain('180 天');
+    expect(terms.textContent).toContain('8 折');
+    expect(terms.textContent).toContain('360 天');
+    expect(terms.textContent).toContain('7 折');
+
+    click(root, '[data-term-group="slots"] [data-term-days="180"]');
+    const quantity = root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!;
+    quantity.value = '2';
+    dispatch(root, quantity, 'input');
+    expect(root.textContent).toContain('¥480.00');
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+  });
+
+  it('combines a slot purchase and the independent offline feature only at final review', async () => {
+    const { root, api } = mount();
+    const feature = root.querySelector<HTMLInputElement>('[name="feature-selected"]')!;
+    feature.checked = true;
+    dispatch(root, feature, 'change');
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+
+    click(root, '[data-action="review"]');
+    await settle();
+    expect(api.quoteCommerceSelection).toHaveBeenCalledWith([
+      { type: 'slot_add', quantity: 1, termDays: 30 },
+      { type: 'standalone', termDays: 30 },
+    ], undefined);
+  });
+
+  it('quotes the fixed 15/20/3-day alignment as 35/30/47 days for ¥155.33', async () => {
+    const base = bootstrap();
+    const aligned = quote({
+      items: [
+        { ordinal: 1, productKey: 'slots', operation: 'RENEW', targetUnitId: '901', targetEntitlementId: '10', durationMs: String(35 * DAY), expectedStartsAt: String(NOW + 15 * DAY), expectedExpiresAt: String(NOW + 50 * DAY), discountPercent: 100, rawCents: '5833', tierCents: '5833', paidCents: '5833' },
+        { ordinal: 2, productKey: 'slots', operation: 'RENEW', targetUnitId: '902', targetEntitlementId: '11', durationMs: String(30 * DAY), expectedStartsAt: String(NOW + 20 * DAY), expectedExpiresAt: String(NOW + 50 * DAY), discountPercent: 100, rawCents: '5000', tierCents: '5000', paidCents: '5000' },
+        { ordinal: 3, productKey: 'module:standalone', operation: 'RENEW', targetUnitId: null, targetEntitlementId: '13', durationMs: String(47 * DAY), expectedStartsAt: String(NOW + 3 * DAY), expectedExpiresAt: String(NOW + 50 * DAY), discountPercent: 100, rawCents: '4700', tierCents: '4700', paidCents: '4700' },
+      ],
+      accountPreview: {
+        before: quote().accountPreview.before,
+        after: { ...quote().accountPreview.before, entitlements: quote().accountPreview.before.entitlements.map((row) => ['10', '11', '13'].includes(row.entitlementId ?? '') ? { ...row, expiresAt: String(NOW + 50 * DAY) } : row) },
+      },
+      rawTotalCents: '15533', tierTotalCents: '15533', selectedTotalCents: '15533',
+    });
+    const { root, api } = mount({ account: base.account, quote: aligned });
+    click(root, '[data-action="align"]');
+    await settle();
+
+    expect(api.quoteCommerceSelection).toHaveBeenCalledWith([{ type: 'align_all_paid', termDays: 30 }], undefined);
+    expect(root.textContent).toContain('35 天');
+    expect(root.textContent).toContain('30 天');
+    expect(root.textContent).toContain('47 天');
+    expect(root.textContent).toContain('¥155.33');
+  });
+
+  it('does not request an alignment quote when the paid expiry spread is under 24 hours', async () => {
+    const account = bootstrap().account;
+    account.units[2]!.expiresAt = String(Number(account.units[1]!.expiresAt) + 23 * 60 * 60 * 1000);
+    account.entitlements.find((row) => row.entitlementId === '11')!.expiresAt = account.units[2]!.expiresAt;
+    account.entitlements.find((row) => row.entitlementId === '13')!.expiresAt = String(Number(account.units[1]!.expiresAt) + 12 * 60 * 60 * 1000);
+    const { root, api } = mount({ account });
+    click(root, '[data-action="align"]');
+
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+    expect(root.querySelector('dialog[open]')?.textContent).toContain('无需统一到期');
+  });
+
+  it('shows every current entitlement before and after, including gifts and unchanged rows', async () => {
+    const { root } = mount();
+    click(root, '[data-mode="renew"]');
+    root.querySelector<HTMLInputElement>('[data-slot-unit="901"]')!.checked = true;
+    dispatch(root, root.querySelector<HTMLInputElement>('[data-slot-unit="901"]')!, 'change');
+    click(root, '[data-action="review"]');
+    await settle();
+
+    const preview = root.querySelector('[data-account-preview]')!;
+    expect(preview.querySelectorAll('[data-preview-row]')).toHaveLength(5);
+    expect(preview.textContent).toContain('赠送实例额度');
+    expect(preview.textContent).toContain('离线 KoreEngine');
+    expect(preview.textContent).toContain('购买前');
+    expect(preview.textContent).toContain('购买后');
+  });
+
+  it('uses and labels the browser local timezone for entitlement dates', () => {
+    const { root } = mount();
+    expect(root.textContent).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('passes a promotion code only on review and displays the single winning whole-order discount', async () => {
+    const discounted = quote({
+      rawTotalCents: '8000', tierTotalCents: '8000', promoTotalCents: '6000', selectedTotalCents: '6000',
+      discountStrategy: 'promotion_code',
+      promotion: { subtotalCents: 8000, totalCents: 6000, discountCents: 2000, currency: 'cny', applied: true },
+    });
+    const { root, api } = mount({ quote: discounted });
+    const code = root.querySelector<HTMLInputElement>('[name="promotion-code"]')!;
+    code.value = 'FESTIVAL';
+    dispatch(root, code, 'input');
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+    click(root, '[data-action="review"]');
+    await settle();
+
+    expect(api.quoteCommerceSelection).toHaveBeenCalledWith([{ type: 'slot_add', quantity: 1, termDays: 30 }], 'FESTIVAL');
+    expect(root.textContent).toContain('整单优惠码');
+    expect(root.textContent).toContain('不重复叠加');
+    expect(root.textContent).toContain('¥60.00');
+  });
+
+  it('invalidates a reviewed quote when the purchase selection changes', async () => {
+    const { root, api } = mount();
+    click(root, '[data-action="review"]');
+    await settle();
+    expect(root.querySelector('[data-account-preview]')).not.toBeNull();
+
+    const quantity = root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!;
+    quantity.value = '2';
+    dispatch(root, quantity, 'input');
+    expect(root.querySelector('[data-account-preview]')).toBeNull();
+    expect(api.quoteCommerceSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates the immutable order only after review and navigates to Stripe', async () => {
+    const { root, api } = mount();
+    click(root, '[data-action="review"]');
+    await settle();
+    expect(api.createOrder).not.toHaveBeenCalled();
+
+    click(root, '[data-action="pay"]');
+    await settle();
+    expect(api.createOrder).toHaveBeenCalledWith('901', expect.stringMatching(/^[0-9a-f-]{36}$/u));
+    expect(api.navigateToCheckout).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test');
+  });
+
+  it('serializes quote selections and sends checkout idempotency through sessionRequest headers', async () => {
+    const calls: Array<{ path: string; method: string; body: unknown; headers?: HeadersInit }> = [];
+    const authClient = {
+      sessionRequest: vi.fn(async (path: string, method: string, body?: unknown, headers?: HeadersInit) => {
+        calls.push({ path, method, body, headers });
+        return path.endsWith('/quotes') ? quote() : { orderId: '902', checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test', expiresAt: String(NOW + DAY), paymentStatus: 'unpaid' };
+      }),
+    };
+    const api = createCommerceApi(authClient as never);
+    await api.quoteCommerceSelection([
+      { type: 'slot_add', quantity: 2, termDays: 180 },
+      { type: 'standalone', termDays: 30 },
+    ], 'HOLIDAY');
+    await api.createOrder('901', 'idempotency-1');
+
+    expect(calls[0]).toMatchObject({ path: '/api/v1/commerce/quotes', method: 'POST', body: {
+      selection: [{ type: 'slot_add', quantity: 2, term_days: 180 }, { type: 'standalone', term_days: 30 }], promotion_code: 'HOLIDAY',
+    } });
+    expect(calls[1]?.path).toBe('/api/v1/commerce/orders');
+    expect(new Headers(calls[1]?.headers).get('Idempotency-Key')).toBe('idempotency-1');
+  });
+});

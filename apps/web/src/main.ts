@@ -1247,5 +1247,16 @@ else if (isVipPage) mountVipPage(root);
 else if (isTermsPage) mountTermsPage(root);
 else if (isPrivacyPage) mountPrivacyPage(root);
 else if (isRefundsPage) mountRefundsPage(root);
-else if (isCommercePage) root.replaceChildren();
+else if (isCommercePage) {
+  root.innerHTML = '<main class="page-width"><p role="status">正在加载购买页面…</p></main>';
+  void Promise.all([import("./commerce-api"), import("./commerce-page")]).then(([commerceApi, commercePage]) => {
+    try {
+      commercePage.mountCommercePage(root, commercePage.readCommerceBootstrap(document), commerceApi.createCommerceApi(authApi));
+    } catch {
+      root.innerHTML = '<main class="page-width"><p class="commerce-error" role="alert">购买页面数据暂不可用，请刷新页面。</p></main>';
+    }
+  }).catch(() => {
+    root.innerHTML = '<main class="page-width"><p class="commerce-error" role="alert">购买页面暂时不可用，请稍后重试。</p></main>';
+  });
+}
 else mountSearchPage();
