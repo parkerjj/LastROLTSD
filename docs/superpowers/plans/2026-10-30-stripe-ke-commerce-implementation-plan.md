@@ -60,7 +60,7 @@
 - [x] **Step 2: 运行 `rtk pnpm exec vitest run packages/commerce/test/money.test.ts packages/commerce/test/catalog.test.ts`**，确认缺少实现导致失败。
 - [x] **Step 3: 实现共享 `money.ts`、`pricing.ts`、`catalog.ts` 与公开类型**；前端和 Worker 共用计算，内部始终用 BigInt，JSON 边界金额/时长用十进制字符串。
 - [x] **Step 4: 将 `@lastroweb/commerce` 加入 web/worker workspace dependencies 并更新 lockfile；重跑上述测试、`rtk pnpm typecheck` 和两应用 build**。
-- [ ] **Step 5: 提交 `feat: add commerce catalog and exact pricing`**。
+- [x] **Step 5: 提交 `feat: add commerce catalog and exact pricing`**。
 
 ### Task 2: 商务表与 MySQL 仓储基础
 
@@ -72,11 +72,13 @@
 - transaction methods use decimal-string user/row IDs and lock `auth_users` before account-owned commerce rows.
 - Create the nine logical tables defined in the spec: `commerce_customers`, `commerce_quotes`, `commerce_orders`, `commerce_order_items`, `commerce_units`, `commerce_unit_events`, `commerce_refunds`, `commerce_provider_events`, `commerce_jobs`.
 
-- [ ] **Step 1: 写迁移与仓储失败测试**：每表的 owner/FK、幂等唯一键、订单快照、退款 revision、provider event 去重、job lease/fencing 字段及查询索引均存在；SQL 不含 SQLite-only 语法。仓储测试锁定用户并在异常时 rollback。
-- [ ] **Step 2: 运行 `rtk pnpm exec vitest run apps/worker/test/ke-commerce-schema.test.ts apps/worker/test/commerce-repository.test.ts`**，确认失败。
-- [ ] **Step 3: 编写 023 migration 和最小仓储接口/实现**；金额、时间及 duration 用无符号 BIGINT 或有符号 BIGINT 按字段语义区分，API 大整数全部用字符串传输。
+- [x] **Step 1: 写迁移与仓储失败测试**：每表的 owner/FK、幂等唯一键、订单快照、退款 revision、provider event 去重、job lease/fencing 字段及查询索引均存在；SQL 不含 SQLite-only 语法。仓储测试锁定用户并在异常时 rollback。
+- [x] **Step 2: 运行 `rtk pnpm exec vitest run apps/worker/test/ke-commerce-schema.test.ts apps/worker/test/commerce-repository.test.ts`**，确认失败。
+- [x] **Step 3: 编写 023 migration 和最小仓储接口/实现**；金额、时间及 duration 用无符号 BIGINT 或有符号 BIGINT 按字段语义区分，API 大整数全部用字符串传输。
 - [ ] **Step 4: 重跑目标测试、`rtk pnpm test:migration` 与 `rtk pnpm typecheck`**；在隔离 MySQL 8 数据库应用所有迁移并检查 `SHOW CREATE TABLE`、外键和索引，不连接正式库。
-- [ ] **Step 5: 提交 `feat: add commerce persistence schema`**。
+
+> 本机没有可用 MySQL 8 测试服务（`MYSQL_TEST_URL` 未设置、Docker daemon 未运行、`mysqld` 未运行）；SQL 应用验证待有隔离测试库时补跑。
+- [x] **Step 5: 提交 `feat: add commerce persistence schema`**。
 
 ### Task 3: 旧权益单元接管与投影写入
 
