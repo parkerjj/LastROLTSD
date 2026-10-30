@@ -8,9 +8,13 @@ import { AuthFailure, type AuthRepository, type AuthRuntime, type EnabledAuthCon
 import type { QuoteDependencies, CommerceQuote, CommerceQuoteErrorCode } from './quotes';
 import { CommerceQuoteError, createQuote } from './quotes';
 import { parseQuoteInput, QuoteInputError } from './quote-input';
+import type { OrderDependencies, CommerceOrderErrorCode } from './orders';
+import { CommerceOrderError, createOrderAndCheckout } from './orders';
 
 const QUOTE_JSON_LIMIT = 32 * 1024;
 const QUOTE_RATE_LIMIT = { scope: 'commerce_quote_session', limit: 10, windowMs: 60_000 } as const;
+const ORDER_JSON_LIMIT = 4 * 1024;
+const ORDER_RATE_LIMIT = { scope: 'commerce_order_session', limit: 5, windowMs: 60_000 } as const;
 
 export interface CommerceQuoteRouteContext {
   authConfig: EnabledAuthConfig;
@@ -21,6 +25,17 @@ export interface CommerceQuoteRouteContext {
 
 export interface CommerceQuoteRouteOptions {
   setup(): CommerceQuoteRouteContext | null;
+}
+
+export interface CommerceOrderRouteContext {
+  authConfig: EnabledAuthConfig;
+  authRepository: AuthRepository;
+  orderDependencies: OrderDependencies;
+  runtime: AuthRuntime;
+}
+
+export interface CommerceOrderRouteOptions {
+  setup(): CommerceOrderRouteContext | null;
 }
 
 const QUOTE_ERRORS: Record<CommerceQuoteErrorCode, { status: 400 | 404 | 503; message: string }> = {
@@ -34,7 +49,7 @@ const QUOTE_ERRORS: Record<CommerceQuoteErrorCode, { status: 400 | 404 | 503; me
   COMMERCE_PROMOTION_UNAVAILABLE: { status: 503, message: '优惠码暂时无法验证，请稍后重试' },
 };
 
-function fixedError(request: Request, code: string, message: string, status: 400 | 401 | 403 | 404 | 413 | 415 | 429 | 503): Response {
+function fixedError(request: Request, code: string, message: string, status: 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 503): Response {
   const response = jsonError(code, message, status, requestId(request));
   response.headers.set('cache-control', 'private, no-store');
   return response;
@@ -44,6 +59,22 @@ function rateLimited(request: Request, retryAfter: number): Response {
   const response = fixedError(request, 'COMMERCE_RATE_LIMITED', '报价请求过于频繁，请稍后重试', 429);
   response.headers.set('retry-after', String(Math.max(1, Math.ceil(retryAfter))));
   return response;
+}
+
+const ORDER_ERRORS: Record<CommerceOrderErrorCode, { status: 404 | 409 | 503; message: string }> = {
+  COMMERCE_QUOTE_UNAVAILABLE: { status: 404, message: '报价不存在或不可用' },
+  COMMERCE_QUOTE_EXPIRED: { status: 409, message: '报价已过期，请重新获取' },
+  COMMERCE_PRICING_CHANGED: { status: 409, message: '价格已更新，请重新获取报价' },
+  COMMERCE_IDEMPOTENCY_CONFLICT: { status: 409, message: '该确认请求已用于不同订单' },
+  COMMERCE_ORDER_EXPIRED: { status: 409, message: '订单付款时间已过，请重新获取报价' },
+  COMMERCE_ORDER_UNAVAILABLE: { status: 503, message: '订单暂不可用，请稍后重试' },
+};
+
+function parseOrderBody(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).length !== 1 || typeof input.quote_id !== 'string' || !/^[1-9]\d{0,19}$/u.test(input.quote_id)) return null;
+  return input.quote_id;
 }
 
 function publicQuote(quote: CommerceQuote): Omit<CommerceQuote, 'requestHash' | 'promotion'> & {
@@ -104,6 +135,52 @@ export function registerCommerceQuoteRoute(app: Hono<any>, options: CommerceQuot
       });
     } catch (error) {
       return quoteFailure(c.req.raw, error);
+    }
+  });
+}
+
+export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrderRouteOptions): void {
+  app.post('/api/v1/commerce/orders', async (c) => {
+    try {
+      const context = options.setup();
+      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
+      const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
+      const identity = await sessions.authenticate(c.req.raw);
+      await assertCsrf(c.req.raw, context.authConfig, 'session', identity, context.runtime.now);
+      const session = await sessions.me(identity);
+      if (session.user.status !== 'ACTIVE' || session.user.permission_level < 1) {
+        return fixedError(c.req.raw, 'COMMERCE_ACCOUNT_REQUIRED', '请使用已验证邮箱的正式账号购买', 403);
+      }
+
+      const keyDigest = await authRateLimitKey(context.authConfig.rateSecret, 'session', identity.sessionToken);
+      const rate = await consumeAuthRateLimit(context.authRepository, [{
+        kind: 'window', scope: ORDER_RATE_LIMIT.scope, keyDigest,
+        limit: ORDER_RATE_LIMIT.limit, windowMs: ORDER_RATE_LIMIT.windowMs,
+      }], context.runtime.now);
+      if (!rate.allowed) return rateLimited(c.req.raw, rate.retryAfter);
+
+      const quoteId = parseOrderBody(await readAuthJson(c.req.raw, ORDER_JSON_LIMIT));
+      const idempotencyKey = c.req.raw.headers.get('idempotency-key');
+      if (!quoteId || !idempotencyKey || idempotencyKey.length > 255 || !/^[\x21-\x7e]+$/u.test(idempotencyKey)) {
+        return fixedError(c.req.raw, 'COMMERCE_BAD_REQUEST', '订单确认请求无效', 400);
+      }
+      const result = await createOrderAndCheckout({ userId: session.user.id, quoteId, idempotencyKey }, context.orderDependencies);
+      return new Response(JSON.stringify({
+        orderId: result.orderId,
+        checkoutUrl: result.checkoutUrl,
+        expiresAt: String(result.expiresAt),
+        paymentStatus: result.paymentStatus,
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
+      });
+    } catch (error) {
+      if (error instanceof AuthFailure) return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      if (error instanceof CommerceOrderError) {
+        const publicError = ORDER_ERRORS[error.code];
+        return fixedError(c.req.raw, error.code, publicError.message, publicError.status);
+      }
+      return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单暂不可用，请稍后重试', 503);
     }
   });
 }

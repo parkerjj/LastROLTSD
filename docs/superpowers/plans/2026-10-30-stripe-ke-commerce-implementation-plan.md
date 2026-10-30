@@ -127,18 +127,18 @@
 
 ### Task 6: 固定订单与一次性 Checkout
 
-**Files:** Create `apps/worker/src/commerce/orders.ts`, `checkout.ts`, `apps/worker/test/commerce-orders.test.ts`; add route in `apps/worker/src/commerce/router.ts`.
+**Files:** Create `apps/worker/src/commerce/orders.ts`, `checkout.ts`, `line-items.ts`, `apps/worker/test/commerce-orders.test.ts`; modify `apps/worker/src/commerce/promotion-preview.ts` and `quotes.ts` to share provider line grouping; add route in `apps/worker/src/commerce/router.ts`.
 
 **Interfaces:**
 - `createOrderAndCheckout(input: { userId: string; quoteId: string; idempotencyKey: string }, deps: OrderDependencies): Promise<CheckoutOrderResult>`。
 - `POST /api/v1/commerce/orders` validates the stored quote and creates an immutable order before returning `{ orderId, checkoutUrl, expiresAt }`.
 - Stripe request is one-time CNY Checkout; `managed_payments.enabled=false`, adaptive pricing off, allow-promotion-codes off; pass native promotion only when promotion strategy won; use ordinary Alipay-capable merchant payment configuration.
 
-- [ ] **Step 1: 写失败测试**：quote 不属于当前用户/已过期/金额版本变化时不能下单；重复 confirmation key 且相同 hash 返回同单，hash 不同拒绝；Stripe 幂等重试返回同 Session；多个 pending order 并存且互不关闭；每单 Session 30 分钟，订单 line items 与 quote cents/currency/product 逐项一致。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现事务化固定订单和 Checkout 创建**；Session metadata 只关联 order ID/namespace，不把用户隐私放入 metadata；创建失败保留 checkout failed 事实，不能改写订单条款。
-- [ ] **Step 4: 在 test mode 验证 `payment_method_configuration` 保持普通商户 Alipay 能力，禁止只信用卡的硬编码方法；验证零金额促销与 `no_payment_required` 回应。**
-- [ ] **Step 5: 运行目标测试并提交 `feat: create immutable Stripe checkout orders`**。
+- [x] **Step 1: 写失败测试**：quote 不属于当前用户/已过期/金额版本变化时不能下单；重复 confirmation key 且相同 hash 返回同单，hash 不同拒绝；Stripe 幂等重试返回同 Session；多个 pending order 并存且互不关闭；每单名义 30 分钟 Session 预留 30 秒 Stripe 最短窗口余量并展示 provider 截止时间；同 Product、价格、期限和展示语义的行使用 quantity，Checkout 与 quote cents/currency/Product 总额一致；超过 Stripe 100 个 Checkout 行时，促销预览和 Checkout 使用相同的按 Product 汇总行。
+- [x] **Step 2: 运行目标测试并确认失败**：确认 Session ID 错配、不同期限错误合并、超过 100 行时预览/Checkout 分组不一致三项回归测试按预期失败。
+- [x] **Step 3: 实现事务化固定订单和 Checkout 创建**；Session metadata 只关联 order ID/namespace，不把用户隐私放入 metadata；创建失败保留 checkout failed 事实，不能改写订单条款。
+- [x] **Step 4: 通过 API 契约测试验证 `payment_method_configuration` 使用普通商户配置且未硬编码仅信用卡方法，覆盖零金额促销与 `no_payment_required` 回应。实际隔离 test-mode API 验证留在 Task 13：当前 Stripe connector 没有 test-mode 上下文；未调用 live API，也未修改正式 Stripe 对象。**
+- [x] **Step 5: 运行目标测试并提交 `feat: create immutable Stripe checkout orders`**。
 
 ### Task 7: Webhook 收件与支付交付
 

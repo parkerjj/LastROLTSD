@@ -1,7 +1,10 @@
 import type { StripeClient } from './stripe-client';
 import { StripeRequestError, type StripeForm } from './stripe-client';
+import { groupStripeCommerceLines, MAX_STRIPE_CHECKOUT_LINE_ITEMS } from './line-items';
+import type { CommerceProductKey } from '@lastroweb/commerce';
 
 export interface StripePreviewItem {
+  productKey: CommerceProductKey;
   productId: string;
   description: string;
   rawUnitAmountCents: number;
@@ -95,11 +98,11 @@ export async function previewPromotion(
   if (!/^cus_[A-Za-z0-9]+$/u.test(customer) || promotionCode.length < 1 || promotionCode.length > 100 || input.items.length < 1 || input.items.length > 1000) {
     throw new PromotionCodeError();
   }
-  const groupedItems = new Map<string, StripePreviewItem>();
   let expectedSubtotalCents = 0n;
   let selectedUnitCount = 0;
   for (const item of input.items) {
-    if (!/^prod_[A-Za-z0-9]+$/u.test(item.productId) || !item.description.trim() || item.description.length > 500
+    if ((item.productKey !== 'slots' && item.productKey !== 'module:standalone')
+      || !/^prod_[A-Za-z0-9]+$/u.test(item.productId) || !item.description.trim() || item.description.length > 500
       || !Number.isSafeInteger(item.rawUnitAmountCents) || item.rawUnitAmountCents <= 0
       || !Number.isSafeInteger(item.tierUnitAmountCents) || item.tierUnitAmountCents <= 0 || item.tierUnitAmountCents > item.rawUnitAmountCents
       || !/^[1-9]\d{0,15}$/u.test(item.durationMs) || !Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > 1000) {
@@ -108,15 +111,14 @@ export async function previewPromotion(
     selectedUnitCount += item.quantity;
     expectedSubtotalCents += BigInt(item.rawUnitAmountCents) * BigInt(item.quantity);
     if (selectedUnitCount > 1000 || expectedSubtotalCents > BigInt(Number.MAX_SAFE_INTEGER)) throw new PromotionCodeError();
-    const groupKey = JSON.stringify([item.productId, item.rawUnitAmountCents, item.tierUnitAmountCents, item.durationMs, item.description]);
-    const existing = groupedItems.get(groupKey);
-    const quantity = (existing?.quantity ?? 0) + item.quantity;
-    if (!Number.isSafeInteger(quantity) || quantity > 1000) throw new PromotionCodeError();
-    groupedItems.set(groupKey, { ...item, quantity });
   }
-  if (groupedItems.size > 250) {
+  let groupedItems: ReturnType<typeof groupStripeCommerceLines>;
+  try {
+    groupedItems = groupStripeCommerceLines(input.items);
+  } catch {
     throw new PromotionCodeError();
   }
+  if (groupedItems.length > MAX_STRIPE_CHECKOUT_LINE_ITEMS) throw new PromotionCodeError();
 
   const response = await stripe.get<{ data?: StripePromotionCode[] }>('/promotion_codes', {
     active: true,
@@ -125,7 +127,7 @@ export async function previewPromotion(
   });
   const promotion = selectPromotion(Array.isArray(response.data) ? response.data : [], promotionCode, customer);
   // Keep the exact grouping key that the eventual Checkout must use; this keeps Stripe's discount rounding identical.
-  const invoiceItems: StripeForm[] = [...groupedItems.values()].map((item) => ({
+  const invoiceItems: StripeForm[] = groupedItems.map((item) => ({
     description: item.description,
     discountable: true,
     price_data: {

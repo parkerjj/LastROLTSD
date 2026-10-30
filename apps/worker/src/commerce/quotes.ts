@@ -429,6 +429,7 @@ export async function createQuote(
       const productId = dependencies.productIds[item.productKey];
       if (!productId) throw new CommerceQuoteError('COMMERCE_PROMOTION_UNAVAILABLE');
       return {
+        productKey: item.productKey,
         productId,
         description: `${item.product.name}（${formatDuration(item.durationMs)}）`,
         rawUnitAmountCents: safeCents(item.rawCents),
