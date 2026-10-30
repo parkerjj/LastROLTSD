@@ -4,7 +4,10 @@ import { StripeRequestError, type StripeForm } from './stripe-client';
 export interface StripePreviewItem {
   productId: string;
   description: string;
-  amountCents: number;
+  rawUnitAmountCents: number;
+  tierUnitAmountCents: number;
+  durationMs: string;
+  quantity: number;
 }
 
 export interface PromotionPreview {
@@ -93,18 +96,23 @@ export async function previewPromotion(
     throw new PromotionCodeError();
   }
   const groupedItems = new Map<string, StripePreviewItem>();
-  let expectedSubtotalCents = 0;
+  let expectedSubtotalCents = 0n;
+  let selectedUnitCount = 0;
   for (const item of input.items) {
-    if (!/^prod_[A-Za-z0-9]+$/u.test(item.productId) || !item.description.trim() || item.description.length > 500 || !Number.isSafeInteger(item.amountCents) || item.amountCents <= 0) {
+    if (!/^prod_[A-Za-z0-9]+$/u.test(item.productId) || !item.description.trim() || item.description.length > 500
+      || !Number.isSafeInteger(item.rawUnitAmountCents) || item.rawUnitAmountCents <= 0
+      || !Number.isSafeInteger(item.tierUnitAmountCents) || item.tierUnitAmountCents <= 0 || item.tierUnitAmountCents > item.rawUnitAmountCents
+      || !/^[1-9]\d{0,15}$/u.test(item.durationMs) || !Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > 1000) {
       throw new PromotionCodeError();
     }
-    expectedSubtotalCents += item.amountCents;
-    if (!Number.isSafeInteger(expectedSubtotalCents)) throw new PromotionCodeError();
-    const groupKey = JSON.stringify([item.productId, item.description]);
+    selectedUnitCount += item.quantity;
+    expectedSubtotalCents += BigInt(item.rawUnitAmountCents) * BigInt(item.quantity);
+    if (selectedUnitCount > 1000 || expectedSubtotalCents > BigInt(Number.MAX_SAFE_INTEGER)) throw new PromotionCodeError();
+    const groupKey = JSON.stringify([item.productId, item.rawUnitAmountCents, item.tierUnitAmountCents, item.durationMs, item.description]);
     const existing = groupedItems.get(groupKey);
-    const amountCents = (existing?.amountCents ?? 0) + item.amountCents;
-    if (!Number.isSafeInteger(amountCents)) throw new PromotionCodeError();
-    groupedItems.set(groupKey, { productId: item.productId, description: item.description, amountCents });
+    const quantity = (existing?.quantity ?? 0) + item.quantity;
+    if (!Number.isSafeInteger(quantity) || quantity > 1000) throw new PromotionCodeError();
+    groupedItems.set(groupKey, { ...item, quantity });
   }
   if (groupedItems.size > 250) {
     throw new PromotionCodeError();
@@ -116,14 +124,16 @@ export async function previewPromotion(
     limit: 100,
   });
   const promotion = selectPromotion(Array.isArray(response.data) ? response.data : [], promotionCode, customer);
+  // Keep the exact grouping key that the eventual Checkout must use; this keeps Stripe's discount rounding identical.
   const invoiceItems: StripeForm[] = [...groupedItems.values()].map((item) => ({
     description: item.description,
     discountable: true,
     price_data: {
       currency: 'cny',
       product: item.productId,
-      unit_amount: item.amountCents,
+      unit_amount: item.rawUnitAmountCents,
     },
+    quantity: item.quantity,
   }));
 
   let preview: StripeInvoicePreview;
@@ -144,7 +154,7 @@ export async function previewPromotion(
 
   const subtotalCents = safeAmount(preview.subtotal);
   const totalCents = safeAmount(preview.total);
-  if (preview.currency !== 'cny' || subtotalCents === null || totalCents === null || subtotalCents !== expectedSubtotalCents || totalCents > subtotalCents || subtotalCents === 0 || totalCents === subtotalCents) {
+  if (preview.currency !== 'cny' || subtotalCents === null || totalCents === null || BigInt(subtotalCents) !== expectedSubtotalCents || totalCents > subtotalCents || subtotalCents === 0 || totalCents === subtotalCents) {
     throw new PromotionCodeError();
   }
 

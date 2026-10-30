@@ -21,8 +21,8 @@ describe('Stripe promotion preview', () => {
         currency: 'cny',
         automatic_tax: { enabled: false },
         invoice_items: [
-          { description: 'KE slots', discountable: true, price_data: { currency: 'cny', product: 'prod_slots', unit_amount: 5000 } },
-          { description: 'Offline KoreEngine', discountable: true, price_data: { currency: 'cny', product: 'prod_offline', unit_amount: 3000 } },
+          { description: 'KE slots', discountable: true, price_data: { currency: 'cny', product: 'prod_slots', unit_amount: 5000 }, quantity: 1 },
+          { description: 'Offline KoreEngine', discountable: true, price_data: { currency: 'cny', product: 'prod_offline', unit_amount: 3000 }, quantity: 1 },
         ],
         discounts: [{ promotion_code: 'promo_holiday' }],
       });
@@ -33,8 +33,8 @@ describe('Stripe promotion preview', () => {
     const result = await previewPromotion({
       customerId: 'cus_commerce',
       items: [
-        { productId: 'prod_slots', description: 'KE slots', amountCents: 5000 },
-        { productId: 'prod_offline', description: 'Offline KoreEngine', amountCents: 3000 },
+        { productId: 'prod_slots', description: 'KE slots', rawUnitAmountCents: 5000, tierUnitAmountCents: 4000, durationMs: '15552000000', quantity: 1 },
+        { productId: 'prod_offline', description: 'Offline KoreEngine', rawUnitAmountCents: 3000, tierUnitAmountCents: 3000, durationMs: '2592000000', quantity: 1 },
       ],
       promotionCode: '  Holiday20  ',
     }, stripe);
@@ -62,31 +62,56 @@ describe('Stripe promotion preview', () => {
     });
     const result = await previewPromotion({
       customerId: 'cus_current',
-      items: [{ productId: 'prod_slots', description: 'KE slot', amountCents: 1000 }],
+      items: [{ productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 1000, tierUnitAmountCents: 1000, durationMs: '2592000000', quantity: 1 }],
       promotionCode: 'gift',
     }, { get, post } as unknown as StripeClient);
 
     expect(result.promotionCodeId).toBe('promo_owner');
   });
 
-  it('aggregates up to 1000 selected units by Product before calling Stripe', async () => {
+  it('aggregates up to 1000 selected units only when the complete checkout line matches', async () => {
     const get = vi.fn(async () => ({ data: [{
       id: 'promo_volume', code: 'VOLUME', active: true, customer: null, coupon: { id: 'coupon_volume' },
     }] }));
     const post = vi.fn(async (_path: string, params: Record<string, unknown>) => {
       const invoiceItems = params.invoice_items as Array<Record<string, unknown>>;
       expect(invoiceItems).toHaveLength(1);
-      expect(invoiceItems[0]?.price_data).toEqual({ currency: 'cny', product: 'prod_slots', unit_amount: 500_000 });
+      expect(invoiceItems[0]?.price_data).toEqual({ currency: 'cny', product: 'prod_slots', unit_amount: 500 });
+      expect(invoiceItems[0]?.quantity).toBe(1000);
       return { currency: 'cny', subtotal: 500_000, total: 450_000 };
     });
     const result = await previewPromotion({
       customerId: 'cus_current',
-      items: Array.from({ length: 1000 }, () => ({ productId: 'prod_slots', description: 'KE slot', amountCents: 500 })),
+      items: Array.from({ length: 1000 }, () => ({ productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 500, tierUnitAmountCents: 500, durationMs: '2592000000', quantity: 1 })),
       promotionCode: 'VOLUME',
     }, { get, post } as unknown as StripeClient);
 
     expect(result.totalCents).toBe(450_000);
     expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps equal Product and prices separate when duration differs', async () => {
+    const stripe = {
+      get: vi.fn(async () => ({ data: [{
+        id: 'promo_term', code: 'TERM', active: true, customer: null, coupon: { id: 'coupon_term' },
+      }] })),
+      post: vi.fn(async (_path: string, params: Record<string, unknown>) => {
+        expect(params.invoice_items).toEqual([
+          { description: 'KE slot', discountable: true, price_data: { currency: 'cny', product: 'prod_slots', unit_amount: 5000 }, quantity: 1 },
+          { description: 'KE slot', discountable: true, price_data: { currency: 'cny', product: 'prod_slots', unit_amount: 5000 }, quantity: 1 },
+        ]);
+        return { currency: 'cny', subtotal: 10000, total: 9000 };
+      }),
+    } as unknown as StripeClient;
+
+    await previewPromotion({
+      customerId: 'cus_current',
+      items: [
+        { productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 5000, tierUnitAmountCents: 5000, durationMs: '2592000000', quantity: 1 },
+        { productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 5000, tierUnitAmountCents: 5000, durationMs: '2678400000', quantity: 1 },
+      ],
+      promotionCode: 'TERM',
+    }, stripe);
   });
 
   it('rejects a preview whose subtotal includes anything beyond the fixed order items', async () => {
@@ -99,7 +124,7 @@ describe('Stripe promotion preview', () => {
 
     await expect(previewPromotion({
       customerId: 'cus_current',
-      items: [{ productId: 'prod_slots', description: 'KE slot', amountCents: 5000 }],
+      items: [{ productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 5000, tierUnitAmountCents: 5000, durationMs: '2592000000', quantity: 1 }],
       promotionCode: 'HOLIDAY',
     }, stripe)).rejects.toBeInstanceOf(PromotionCodeError);
   });
@@ -112,12 +137,12 @@ describe('Stripe promotion preview', () => {
 
     await expect(previewPromotion({
       customerId: 'cus_current',
-      items: [{ productId: 'prod_slots', description: 'KE slot', amountCents: 1000 }],
+      items: [{ productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 1000, tierUnitAmountCents: 1000, durationMs: '2592000000', quantity: 1 }],
       promotionCode: 'HOLIDAY',
     }, { get, post } as unknown as StripeClient)).rejects.toBeInstanceOf(PromotionCodeError);
     await expect(previewPromotion({
       customerId: 'cus_current',
-      items: [{ productId: 'prod_slots', description: 'KE slot', amountCents: 1000 }],
+      items: [{ productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 1000, tierUnitAmountCents: 1000, durationMs: '2592000000', quantity: 1 }],
       promotionCode: 'HOLIDAY',
     }, { get, post } as unknown as StripeClient)).rejects.toThrow('优惠码无效或不适用于此订单');
     expect(post).not.toHaveBeenCalled();
