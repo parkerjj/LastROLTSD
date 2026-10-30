@@ -861,6 +861,15 @@ export function mountKePage(root: HTMLElement): void {
     );
   }
 
+  /** 新建方案统一进一键配置向导；编辑已有方案仍走下方编辑器。 */
+  function newProfileHref(): string {
+    const ch = selectedCharacter();
+    const demoSuffix = demo ? `${ch ? "&" : "?"}demo=1` : "";
+    return ch
+      ? `/ke/my/create/setup-guide?aid=${ch.aid}&cid=${ch.cid}&nid=${ch.nid}${demoSuffix}`
+      : `/ke/my/create/setup-guide${demoSuffix}`;
+  }
+
   /** char_name / map_name / job_id 由 KE 客户端自报或 RO 配置，必须纯文本写入。 */
   function renderCharacterStrip(): void {
     charStrip.replaceChildren();
@@ -2060,28 +2069,18 @@ export function mountKePage(root: HTMLElement): void {
         "<b>该角色还没有配置方案</b><span>新建一套方案，选好挂机地图和技能，就能开始自动挂机。</span>";
       const btnRow = document.createElement("div");
       btnRow.className = "ke-empty-actions";
-      const guideBtn = document.createElement("a");
-      guideBtn.className = "ke-btn-primary";
-      guideBtn.textContent = "萌新一键配置";
-      {
-        const ch = selectedCharacter();
-        const demoSuffix = demo ? `${ch ? "&" : "?"}demo=1` : "";
-        guideBtn.href = ch
-          ? `/ke/my/create/setup-guide?aid=${ch.aid}&cid=${ch.cid}&nid=${ch.nid}${demoSuffix}`
-          : `/ke/my/create/setup-guide${demoSuffix}`;
-      }
       const newBtn = document.createElement("button");
       newBtn.type = "button";
       newBtn.className = "ke-btn-primary";
       newBtn.textContent = "＋ 新建第一套方案";
       newBtn.addEventListener("click", () => {
-        if (confirmDiscard()) void openEditor(null);
+        if (confirmDiscard()) window.location.assign(newProfileHref());
       });
       const hallBtn = document.createElement("a");
       hallBtn.className = "ke-btn-ghost ke-empty-hall";
       hallBtn.href = "/ke/hall";
       hallBtn.textContent = "一键抄袭大佬们的方案";
-      btnRow.append(guideBtn, newBtn, hallBtn);
+      btnRow.append(newBtn, hallBtn);
       empty.appendChild(btnRow);
       profileList.appendChild(empty);
       return;
@@ -2163,7 +2162,7 @@ export function mountKePage(root: HTMLElement): void {
     newCard.className = "ke-profile-new";
     newCard.textContent = "＋ 新建配置方案";
     newCard.addEventListener("click", () => {
-      if (confirmDiscard()) void openEditor(null);
+      if (confirmDiscard()) window.location.assign(newProfileHref());
     });
     profileList.appendChild(newCard);
     const hallCard = document.createElement("a");

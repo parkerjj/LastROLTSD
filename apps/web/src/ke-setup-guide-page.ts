@@ -317,7 +317,7 @@ function pageMarkup(): string {
                 <div class="ksg-adv-row"><label>被围</label><input class="ksg-mini" id="ksgTpAggr" value="3" /><span class="ksg-unit">只即飞</span></div>
                 <div class="ksg-adv-row"><label>喝药 HP</label><input class="ksg-mini" id="ksgPotHp" value="60" /><span class="ksg-unit">%</span></div>
                 <div class="ksg-adv-row"><label>坐下 HP</label><input class="ksg-mini" id="ksgSitLo" value="40" /><span class="ksg-unit">% ~</span><input class="ksg-mini" id="ksgSitHi" value="90" /><span class="ksg-unit">%</span></div>
-                <div class="ksg-adv-row"><label>坐下 SP</label><input class="ksg-mini" id="ksgSitSpLo" value="0" /><span class="ksg-unit">% ~</span><input class="ksg-mini" id="ksgSitSpHi" value="0" /><span class="ksg-unit">%（0 = 不按 SP 坐下）</span></div>
+                <div class="ksg-adv-row"><label>坐下 SP</label><input class="ksg-mini" id="ksgSitSpLo" value="15" /><span class="ksg-unit">% ~</span><input class="ksg-mini" id="ksgSitSpHi" value="80" /><span class="ksg-unit">%（0 = 不按 SP 坐下）</span></div>
                 <div class="ksg-adv-row"><label>跟随队长</label><input type="checkbox" id="ksgFollow" /><input class="ksg-mini" id="ksgFollowTarget" placeholder="玩家名" style="width:120px" /></div>
               </div>
               <div class="ksg-adv-col">
@@ -369,7 +369,6 @@ function pageMarkup(): string {
           <small>config.txt · mon_control.txt · pickupitems.txt · items_control.txt · timeouts.txt</small>
         </div>
         <div class="ksg-dock-btns">
-          <button class="ksg-ghost" id="ksgDraftBtn" type="button">先存草稿</button>
           <button class="ksg-primary" id="ksgSaveBtn" type="button">保存并激活</button>
         </div>
       </div>
@@ -446,7 +445,7 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
     rules: new Map<string, ItemRule>(),
     adv: {
       sp: 20, dist: 1, potHp: 60, tpHp: 25, tpAggr: 3,
-      sitLo: 40, sitHi: 90, sitSpLo: 0, sitSpHi: 0, townWeight: 70,
+      sitLo: 40, sitHi: 90, sitSpLo: 15, sitSpHi: 80, townWeight: 70,
       sellNpc: "prontera 105 87", storeNpc: "prontera 146 89",
       follow: false, followTarget: "",
     } as AdvState,
@@ -632,8 +631,8 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
     state.adv.tpAggr = advNumber("#ksgTpAggr", 3);
     state.adv.sitLo = advNumber("#ksgSitLo", 40);
     state.adv.sitHi = advNumber("#ksgSitHi", 90);
-    state.adv.sitSpLo = advNumber("#ksgSitSpLo", 0);
-    state.adv.sitSpHi = advNumber("#ksgSitSpHi", 0);
+    state.adv.sitSpLo = advNumber("#ksgSitSpLo", 15);
+    state.adv.sitSpHi = advNumber("#ksgSitSpHi", 80);
     state.adv.townWeight = advNumber("#ksgTownWeight", 70);
     state.adv.sellNpc = inputVal("#ksgSellNpc") || "prontera 105 87";
     state.adv.storeNpc = inputVal("#ksgStoreNpc") || "prontera 146 89";
@@ -1260,7 +1259,7 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
     return `${jobData().name}挂机 · ${state.map || "未命名地图"} · ${stamp}`;
   }
 
-  async function save(draft: boolean): Promise<void> {
+  async function save(): Promise<void> {
     if (saving || !character) return;
     const { config, controls, errors } = validateAll();
     if (errors.length > 0) {
@@ -1270,13 +1269,13 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
     }
     const name = autoProfileName();
     if (demo) {
-      showNotice("ok", `方案「${esc(name)}」${draft ? "已生成草稿（演示模式，未写入云端）" : "已生成（演示模式，未写入云端）"}。`);
+      showNotice("ok", `方案「${esc(name)}」已生成并激活（演示模式，未写入云端）。`);
       return;
     }
     saving = true;
-    const buttons = [$<HTMLButtonElement>("#ksgSaveBtn"), $<HTMLButtonElement>("#ksgDraftBtn"), $<HTMLButtonElement>("#ksgModalSave")];
+    const buttons = [$<HTMLButtonElement>("#ksgSaveBtn"), $<HTMLButtonElement>("#ksgModalSave")];
     for (const b of buttons) if (b) b.disabled = true;
-    showNotice("ok", draft ? "正在保存草稿…" : "正在保存并激活…");
+    showNotice("ok", "正在保存并激活…");
     try {
       const payload = {
         aid: character.aid,
@@ -1294,12 +1293,12 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      // 服务端新建方案一律 is_active=0，需再调 activate 才完成「保存并激活」。
-      if (!draft) await keFetch<void>(`/api/v1/ke/profiles/${id}/activate`, { method: "POST" });
+      // 服务端新建方案一律 is_active=0，再调 activate 让新方案默认生效。
+      await keFetch<void>(`/api/v1/ke/profiles/${id}/activate`, { method: "POST" });
       const c = character;
       showNotice(
         "ok",
-        `方案「${esc(name)}」${draft ? "已保存为草稿" : "已保存并激活，进阶客户端下次同步即可生效"}。` +
+        `方案「${esc(name)}」已保存并激活，进阶客户端下次同步即可生效。` +
           `<a href="/ke/my?aid=${c.aid}&cid=${c.cid}&nid=${c.nid}">前往工作台查看 →</a>`,
       );
     } catch (error) {
@@ -1391,9 +1390,8 @@ export function mountKeSetupGuidePage(root: HTMLElement): void {
       renderCode();
     });
   }
-  $<HTMLButtonElement>("#ksgSaveBtn")?.addEventListener("click", () => void save(false));
-  $<HTMLButtonElement>("#ksgDraftBtn")?.addEventListener("click", () => void save(true));
-  $<HTMLButtonElement>("#ksgModalSave")?.addEventListener("click", () => void save(false));
+  $<HTMLButtonElement>("#ksgSaveBtn")?.addEventListener("click", () => void save());
+  $<HTMLButtonElement>("#ksgModalSave")?.addEventListener("click", () => void save());
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.hidden) closePreview();
   });

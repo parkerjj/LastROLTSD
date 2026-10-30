@@ -131,11 +131,11 @@ function controlTexts(doc: ControlDoc): Record<string, string> {
 }
 
 describe('KE 按职业生成的配置合法性（无需游戏账号）', () => {
-  it('默认配置：卡住瞬移开启，坐下 SP 默认关闭', () => {
+  it('默认配置：卡住瞬移开启，坐下 SP 默认 15%~80%', () => {
     const doc = defaultDoc();
     expect(doc.scalars.teleportAuto_unstuck).toBe('1');
-    expect(doc.scalars.sitAuto_sp_lower).toBe('0');
-    expect(doc.scalars.sitAuto_sp_upper).toBe('0');
+    expect(doc.scalars.sitAuto_sp_lower).toBe('15');
+    expect(doc.scalars.sitAuto_sp_upper).toBe('80');
   });
 
   it('每个职业生成的 config.txt 都能通过保存前校验', () => {
