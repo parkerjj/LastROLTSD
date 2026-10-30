@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAdminService } from '../src/admin/service';
+import type { AdminEntitlementChange } from '../src/commerce/projection';
 import type {
   AdminAuditEntry,
   AdminRepository,
@@ -23,6 +24,8 @@ interface FakeAdminRepository extends AdminRepository {
   entries: Map<number, GuestbookEntryRow>;
   replies: Map<number, GuestbookReplyRow>;
   audit: AdminAuditEntry[];
+  txCalls: string[];
+  commerceChanges: AdminEntitlementChange[];
 }
 
 function user(id: number, overrides: Partial<AdminUserRow> = {}): AdminUserRow {
@@ -38,17 +41,22 @@ function makeRepository(): FakeAdminRepository {
   const entries = new Map<number, GuestbookEntryRow>();
   const replies = new Map<number, GuestbookReplyRow>();
   const audit: AdminAuditEntry[] = [];
+  const txCalls: string[] = [];
+  const commerceChanges: AdminEntitlementChange[] = [];
   let nextEntitlementId = 1;
   const state: { aggregate: KeEntitlements | null } = { aggregate: null };
 
   const tx: AdminTx = {
-    async lockUser(id) { return users.get(id) ?? null; },
+    async lockUser(id) { txCalls.push('lock-user'); return users.get(id) ?? null; },
+    async readEntitlementOwner(id) { txCalls.push('read-entitlement-owner'); return entitlements.get(id)?.user_id ?? null; },
+    async lockCommerceUnitForEntitlement() { txCalls.push('lock-commerce-unit'); },
+    async recordCommerceEntitlementChange(change) { txCalls.push('record-commerce-change'); commerceChanges.push(change); },
     async insertEntitlement(row: NewEntitlement) {
       const id = nextEntitlementId++;
       entitlements.set(id, { id, ...row, revoked_at: null });
       return id;
     },
-    async findEntitlementForUpdate(id) { return entitlements.get(id) ?? null; },
+    async findEntitlementForUpdate(id) { txCalls.push('lock-entitlement'); return entitlements.get(id) ?? null; },
     async updateEntitlement(id, fields) {
       const row = entitlements.get(id)!;
       if (fields.expires_at !== undefined) row.expires_at = fields.expires_at;
@@ -66,7 +74,7 @@ function makeRepository(): FakeAdminRepository {
   };
 
   return {
-    users, entitlements, entries, replies, audit,
+    users, entitlements, entries, replies, audit, txCalls, commerceChanges,
     get aggregate() { return state.aggregate; },
     set aggregate(value) { state.aggregate = value; },
     async readEntitlements(userId, at) {
@@ -163,11 +171,19 @@ describe('admin service · 修改 / 撤销权益', () => {
 
   it('修改到期时间：原地修改并把前后值记入审计', async () => {
     const { repository, service } = await withEntitlement();
+    repository.txCalls.length = 0;
     await service.editEntitlement(1, 1, { expires_at: NOW + 20 * DAY_MS }, 'req-b');
     expect(repository.entitlements.get(1)!.expires_at).toBe(NOW + 20 * DAY_MS);
     expect(repository.audit).toEqual([expect.objectContaining({
       action: 'ENTITLEMENT_EDIT', target_user_id: 2, actor_user_id: 1,
       detail: expect.objectContaining({ entitlement_id: 1, before: { expires_at: NOW + 10 * DAY_MS, revoked_at: null }, after: { expires_at: NOW + 20 * DAY_MS, revoked_at: null } }),
+    })]);
+    expect(repository.txCalls).toEqual([
+      'read-entitlement-owner', 'lock-user', 'lock-commerce-unit', 'lock-entitlement', 'record-commerce-change',
+    ]);
+    expect(repository.commerceChanges).toEqual([expect.objectContaining({
+      userId: '2', entitlementId: '1', actorUserId: '1', requestId: 'req-b', occurredAt: BigInt(NOW),
+      beforeExpiresAt: BigInt(NOW + 10 * DAY_MS), afterExpiresAt: BigInt(NOW + 20 * DAY_MS),
     })]);
   });
 

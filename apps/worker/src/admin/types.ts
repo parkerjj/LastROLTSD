@@ -1,4 +1,5 @@
 import type { KeEntitlements } from '../ke/entitlements';
+import type { AdminEntitlementChange } from '../commerce/projection';
 
 export class AdminFailure extends Error {
   constructor(
@@ -78,6 +79,9 @@ export interface AdminAuditRecord extends AdminAuditEntry {
 /** 事务内的读写；一次管理操作的业务变更与审计必须在同一个事务里提交。 */
 export interface AdminTx {
   lockUser(userId: number): Promise<AdminUserRow | null>;
+  readEntitlementOwner(id: number): Promise<number | null>;
+  lockCommerceUnitForEntitlement(userId: number, entitlementId: number): Promise<void>;
+  recordCommerceEntitlementChange(change: AdminEntitlementChange): Promise<void>;
   insertEntitlement(row: NewEntitlement): Promise<number>;
   findEntitlementForUpdate(id: number): Promise<EntitlementRow | null>;
   updateEntitlement(id: number, fields: { expires_at?: number; revoked_at?: number | null }): Promise<void>;

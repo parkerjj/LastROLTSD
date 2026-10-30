@@ -106,6 +106,7 @@ CREATE TABLE commerce_units (
   legacy_origin_id BIGINT UNSIGNED NULL,
   legacy_ordinal INT UNSIGNED NULL,
   admin_revoked_at BIGINT UNSIGNED NULL,
+  refund_zeroed_at BIGINT UNSIGNED NULL,
   created_at BIGINT UNSIGNED NOT NULL,
   updated_at BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (id),
@@ -178,7 +179,7 @@ CREATE TABLE commerce_unit_events (
   INDEX idx_commerce_unit_events_refund (unit_id, refund_revision),
   CONSTRAINT fk_commerce_unit_events_unit FOREIGN KEY (unit_id) REFERENCES commerce_units (id) ON DELETE RESTRICT,
   CONSTRAINT fk_commerce_unit_events_item FOREIGN KEY (order_item_id) REFERENCES commerce_order_items (id) ON DELETE RESTRICT,
-  CONSTRAINT chk_commerce_unit_events_type CHECK (event_type IN ('BASELINE', 'PURCHASE', 'ADMIN_DELTA', 'ADMIN_CUTOFF', 'REFUND_REPROJECT')),
+  CONSTRAINT chk_commerce_unit_events_type CHECK (event_type IN ('BASELINE', 'PURCHASE', 'ADMIN_DELTA', 'ADMIN_CUTOFF', 'ADMIN_REVOKE', 'ADMIN_RESTORE', 'REFUND_REPROJECT')),
   CONSTRAINT chk_commerce_unit_events_refund_revision CHECK (event_type <> 'REFUND_REPROJECT' OR refund_revision IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

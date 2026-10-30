@@ -71,7 +71,7 @@ describe('MySQL migration 023 commerce schema', () => {
     const events = tableDefinition('commerce_unit_events');
 
     for (const column of ['ke_entitlement_id', 'baseline_quantity', 'baseline_starts_at', 'baseline_expires_at',
-      'legacy_origin_id', 'legacy_ordinal', 'admin_revoked_at']) {
+      'legacy_origin_id', 'legacy_ordinal', 'admin_revoked_at', 'refund_zeroed_at']) {
       expect(units).toContain(column);
     }
     expect(units).toMatch(/UNIQUE KEY [^(]+\(ke_entitlement_id\)/u);
@@ -82,6 +82,8 @@ describe('MySQL migration 023 commerce schema', () => {
     }
     expect(events).toMatch(/UNIQUE KEY [^(]+\(unit_id, unit_seq\)/u);
     expect(events).toMatch(/UNIQUE KEY [^(]+\(dedupe_key\)/u);
+    expect(events).toContain('ADMIN_REVOKE');
+    expect(events).toContain('ADMIN_RESTORE');
     expect(events).toMatch(/FOREIGN KEY \(unit_id\) REFERENCES commerce_units \(id\) ON DELETE RESTRICT/u);
   });
 

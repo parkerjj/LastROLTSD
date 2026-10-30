@@ -79,8 +79,13 @@ export function createAdminService(repository: AdminRepository, now: () => numbe
       const at = now();
       const input = parseEditInput(rawInput);
       await repository.transaction(async (tx) => {
+        const targetUserId = await tx.readEntitlementOwner(entitlementId);
+        if (targetUserId === null || !await tx.lockUser(targetUserId)) {
+          throw notFound('ADMIN_ENTITLEMENT_NOT_FOUND', '权益记录不存在');
+        }
+        await tx.lockCommerceUnitForEntitlement(targetUserId, entitlementId);
         const row = await tx.findEntitlementForUpdate(entitlementId);
-        if (!row) throw notFound('ADMIN_ENTITLEMENT_NOT_FOUND', '权益记录不存在');
+        if (!row || row.user_id !== targetUserId) throw notFound('ADMIN_ENTITLEMENT_NOT_FOUND', '权益记录不存在');
         const nextExpiresAt = input.expiresAt ?? row.expires_at;
         if (nextExpiresAt <= row.starts_at || nextExpiresAt > at + KE_PERMANENT_MS) {
           throw new AdminFailure('ADMIN_BAD_REQUEST', 400, '到期时间必须晚于开始时间，且不超过 99 年');
@@ -88,6 +93,12 @@ export function createAdminService(repository: AdminRepository, now: () => numbe
         const nextRevokedAt = input.revoked === undefined ? row.revoked_at : input.revoked ? (row.revoked_at ?? at) : null;
         const before = { expires_at: row.expires_at, revoked_at: row.revoked_at };
         await tx.updateEntitlement(entitlementId, { expires_at: nextExpiresAt, revoked_at: nextRevokedAt });
+        await tx.recordCommerceEntitlementChange({
+          userId: String(row.user_id), entitlementId: String(entitlementId), actorUserId: String(actorId), requestId,
+          occurredAt: BigInt(at), beforeExpiresAt: BigInt(before.expires_at), afterExpiresAt: BigInt(nextExpiresAt),
+          beforeRevokedAt: before.revoked_at === null ? null : BigInt(before.revoked_at),
+          afterRevokedAt: nextRevokedAt === null ? null : BigInt(nextRevokedAt),
+        });
         await tx.insertAudit({
           actor_user_id: actorId, action: 'ENTITLEMENT_EDIT', target_user_id: row.user_id, request_id: requestId, created_at: at,
           detail: {

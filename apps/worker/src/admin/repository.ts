@@ -1,5 +1,7 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
 import { queryEntitlements } from '../ke/entitlements';
+import { commerceTransactionView } from '../commerce/repository';
+import { recordAdminEntitlementChange } from '../commerce/projection';
 import { insertAdminAudit } from './audit';
 import type {
   AdminAuditRecord,
@@ -99,11 +101,25 @@ function likePattern(query: string): string {
 }
 
 function txFor(db: MysqlDatabase): AdminTx {
+  const commerceTx = commerceTransactionView(db);
   return {
     async lockUser(userId) {
       const row = await db.first<MysqlRow>(`SELECT ${USER_COLUMNS} FROM auth_users WHERE id = ? FOR UPDATE`, [userId]);
       return row ? readUser(row) : null;
     },
+
+    async readEntitlementOwner(id) {
+      const row = await db.first<MysqlRow>('SELECT user_id FROM ke_entitlements WHERE id = ?', [id]);
+      return row ? asNumber(row.user_id) : null;
+    },
+
+    async lockCommerceUnitForEntitlement(userId, entitlementId) {
+      await db.first<MysqlRow>(
+        'SELECT id FROM commerce_units WHERE user_id = ? AND ke_entitlement_id = ? FOR UPDATE', [userId, entitlementId],
+      );
+    },
+
+    recordCommerceEntitlementChange: (change) => recordAdminEntitlementChange(commerceTx, change),
 
     async insertEntitlement(row) {
       const result = await db.run(

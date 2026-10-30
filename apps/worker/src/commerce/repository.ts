@@ -15,27 +15,34 @@ export interface CommerceRepository {
 
 const MYSQL_UNSIGNED_BIGINT_MAX = 18_446_744_073_709_551_615n;
 
-function assertCommerceId(value: CommerceId): CommerceId {
+export function assertCommerceId(value: unknown): CommerceId {
   if (typeof value !== 'string' || !/^[1-9]\d{0,19}$/u.test(value) || BigInt(value) > MYSQL_UNSIGNED_BIGINT_MAX) {
     throw new RangeError('invalid commerce ID');
   }
   return value;
 }
 
+export async function readLastInsertId(tx: Pick<CommerceTransaction, 'first'>): Promise<CommerceId> {
+  const row = await tx.first('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id');
+  if (!row) throw new Error('commerce insert ID unavailable');
+  return assertCommerceId(row.id);
+}
+
+export function commerceTransactionView(database: MysqlDatabase): CommerceTransaction {
+  return {
+    all: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => database.all<T>(sql, values),
+    first: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => database.first<T>(sql, values),
+    run: (sql: string, values?: readonly unknown[]) => database.run(sql, values),
+    lockUser: async (userId) => {
+      const id = assertCommerceId(userId);
+      const row = await database.first('SELECT id FROM auth_users WHERE id = ? FOR UPDATE', [id]);
+      return row !== null;
+    },
+  };
+}
+
 export function createCommerceRepository(db: MysqlDatabase): CommerceRepository {
   return {
-    transaction: (work) => db.transaction(async (database) => {
-      const tx: CommerceTransaction = {
-        all: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => database.all<T>(sql, values),
-        first: <T extends MysqlRow = MysqlRow>(sql: string, values?: readonly unknown[]) => database.first<T>(sql, values),
-        run: (sql: string, values?: readonly unknown[]) => database.run(sql, values),
-        lockUser: async (userId) => {
-          const id = assertCommerceId(userId);
-          const row = await database.first('SELECT id FROM auth_users WHERE id = ? FOR UPDATE', [id]);
-          return row !== null;
-        },
-      };
-      return work(tx);
-    }),
+    transaction: (work) => db.transaction((database) => work(commerceTransactionView(database))),
   };
 }

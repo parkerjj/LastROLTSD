@@ -82,18 +82,18 @@
 
 ### Task 3: 旧权益单元接管与投影写入
 
-**Files:** Create `apps/worker/src/commerce/units.ts`, `unit-repository.ts`, `projection.ts`; modify `apps/worker/src/admin/service.ts` only to emit the commerce admin adjustment event while preserving its current audit transaction; create `apps/worker/test/commerce-units.test.ts`, `commerce-projection.test.ts`, `commerce-admin-projection.test.ts`.
+**Files:** Create `apps/worker/src/commerce/units.ts`, `unit-repository.ts`, `projection.ts`; modify `apps/worker/src/commerce/repository.ts`, `apps/worker/src/ke/entitlements.ts`, `apps/worker/src/admin/types.ts`, `apps/worker/src/admin/repository.ts`, `apps/worker/src/admin/service.ts`, and `migrations/mysql/023_ke_commerce.sql`; create `apps/worker/test/commerce-units.test.ts`, `commerce-projection.test.ts`, `commerce-admin-projection.test.ts`; extend `apps/worker/test/admin-service.test.ts` and `ke-commerce-schema.test.ts`.
 
 **Interfaces:**
 - `normalizeLegacySlotUnits(tx: CommerceTransaction, userId: string, now: bigint): Promise<CommerceUnit[]>` lazily converts only active positive paid slot rows; gift and negative adjustment rows remain untouched.
 - `applyUnitProjection(tx: CommerceTransaction, unitId: string, projection: UnitProjection): Promise<void>` updates the linked current `ke_entitlements` projection without changing auth read semantics.
 - `recordAdminEntitlementChange(tx, change: AdminEntitlementChange): Promise<void>` writes the effective contribution/cutoff using the admin operation timestamp and existing before/after audit facts.
 
-- [ ] **Step 1: 写失败测试**：quantity=6 的正向付费行拆为 6 个 unit 后 signed SUM 仍为 6；99 年 signup unit 与负数行不拆分、不收费；重复接管只生成一组 unit；并发接管不重复；同一 unit 续期更新当前投影而不插入重叠新行。
-- [ ] **Step 2: 运行目标 Vitest 文件并确认失败**。
-- [ ] **Step 3: 实现按账户锁定的惰性接管和投影更新**；保留既有授权查询的 resource 聚合契约；管理员的有效增减与 cutoff 作为不可变事件记录。
-- [ ] **Step 4: 实现/验证投影回放纯函数：第 0 天买 30 天、第 5 天管理员加到第 35 天、购买全退后仍保留管理员贡献；第 100 天管理员设到第 130 天，重放结果仍为第 130 天。**
-- [ ] **Step 5: 运行上述测试及 `rtk pnpm exec vitest run apps/worker/test/ke-entitlements.test.ts apps/worker/test/ke-routes.test.ts`，确认既有鉴权不变；提交 `feat: model commercial entitlement units`**。
+- [x] **Step 1: 写失败测试**：quantity=6 的正向付费行拆为 6 个 unit 后 signed SUM 仍为 6；99 年 signup unit 与负数行不拆分、不收费；重复/并发接管只生成一组 unit；同一 unit 续期更新当前投影而不插入重叠新行；管理员编辑锁序、有效期限差额、退款零权益与管理员撤销互不覆盖。
+- [x] **Step 2: 运行目标 Vitest 文件并确认失败**：首次运行因 `units.ts` / `projection.ts` 尚不存在而红；管理员锁序断言也确认旧流程直接锁权益行。
+- [x] **Step 3: 实现按账户锁定的惰性接管和投影更新**；保留既有授权查询的 resource 聚合契约；管理员的有效增减与 cutoff 作为不可变事件记录。
+- [x] **Step 4: 实现/验证投影回放纯函数：第 0 天买 30 天、第 5 天管理员加到第 35 天、购买全退后仍保留管理员贡献；第 100 天管理员设到第 130 天，重放结果仍为第 130 天；负向管理员调整不会形成后续购买欠额。**
+- [x] **Step 5: 运行上述测试及 `rtk pnpm exec vitest run apps/worker/test/ke-entitlements.test.ts apps/worker/test/ke-routes.test.ts`，确认既有鉴权不变；提交 `feat: model commercial entitlement units`**：全仓 Vitest 1247 passed / 66 skipped，TypeScript、lint、docs、migration 脚本检查均通过。
 
 ### Task 4: Stripe REST adapter、客户映射与促销预览
 
