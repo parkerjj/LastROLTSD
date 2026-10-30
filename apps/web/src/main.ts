@@ -48,6 +48,7 @@ import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi } from "./auth/api";
 import { authStore } from "./auth/store";
+import type { AuthSessionResponse } from "./auth/types";
 import { isAuthPage, mountAuthPage } from "./auth/pages";
 import { mountAdminPage } from "./admin-page";
 
@@ -57,6 +58,27 @@ if (!authPage) initAnalytics();
 
 const root = document.querySelector<HTMLElement>("#app")!;
 if (!root) throw new Error("Missing app root");
+
+function isAuthSessionResponse(value: unknown): value is AuthSessionResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const session = value as Record<string, unknown>;
+  const user = session.user;
+  return typeof session.expires_at === "number" && typeof session.csrf_token === "string"
+    && user !== null && typeof user === "object" && typeof (user as Record<string, unknown>).id === "string";
+}
+
+const commerceBootstrapElement = document.getElementById("commerce-bootstrap");
+if (commerceBootstrapElement?.type === "application/json") {
+  try {
+    const bootstrap = JSON.parse(commerceBootstrapElement.textContent ?? "") as { session?: unknown };
+    if (Object.prototype.hasOwnProperty.call(bootstrap, "session")
+      && (bootstrap.session === null || isAuthSessionResponse(bootstrap.session))) {
+      authStore.initializeFromBootstrap(bootstrap.session);
+    }
+  } catch {
+    // Malformed bootstrap falls back to the normal auth bootstrap request.
+  }
+}
 
 const isReleasePage = /^\/updates\/?$/u.test(pathname);
 const isGuestbookPage = /^\/guestbook\/?$/u.test(pathname);
@@ -76,6 +98,7 @@ const isVipPage = /^\/vip\/price\/?$/u.test(pathname);
 const isTermsPage = /^\/terms\/?$/u.test(pathname);
 const isPrivacyPage = /^\/privacy\/?$/u.test(pathname);
 const isRefundsPage = /^\/refunds\/?$/u.test(pathname);
+const isCommercePage = /^\/ke\/buy\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -1224,4 +1247,5 @@ else if (isVipPage) mountVipPage(root);
 else if (isTermsPage) mountTermsPage(root);
 else if (isPrivacyPage) mountPrivacyPage(root);
 else if (isRefundsPage) mountRefundsPage(root);
+else if (isCommercePage) root.replaceChildren();
 else mountSearchPage();

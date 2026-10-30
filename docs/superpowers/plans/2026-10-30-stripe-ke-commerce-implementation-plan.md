@@ -184,17 +184,17 @@
 
 ### Task 10: `/ke/buy` 动态 HTML bootstrap
 
-**Files:** Create `apps/worker/src/commerce/page.ts`, `apps/worker/test/commerce-page.test.ts`; modify `apps/worker/src/index.ts`, `apps/web/index.html`, `apps/web/vite.config.ts`, `apps/web/src/auth/store.ts`, `apps/web/src/auth/types.ts`, `wrangler.toml`.
+**Files:** Create `apps/worker/src/commerce/page.ts`, `apps/worker/test/commerce-page.test.ts`; modify `apps/worker/src/index.ts`, `apps/web/index.html`, `apps/web/vite.config.ts`, `apps/web/src/auth/store.ts`, `apps/web/src/main.ts`, `apps/web/test/auth-store.test.ts`, `wrangler.toml`. Reuse the existing `AuthSessionResponse` contract in `apps/web/src/auth/types.ts`.
 
 **Interfaces:**
 - `buildCommerceBootstrap(request: Request, env: AppEnv, db: MysqlDatabase | undefined): Promise<CommerceBootstrap>` returns public catalog/pricing version plus anonymous or authenticated session and effective detailed entitlements.
 - `renderCommerceHtml(request: Request, env: AppEnv, db: MysqlDatabase | undefined): Promise<Response>` fetches built `index.html`, injects `<script type="application/json" id="commerce-bootstrap">`, and sets `text/html; charset=UTF-8`, `Cache-Control: private, no-store`.
 - `AuthStore.initializeFromBootstrap(session: AuthSessionResponse | null): void` initializes `active`/`pending`/anonymous state so `mountAuthNav` does not issue duplicate bootstrap `GET /api/v1/auth/me`.
 
-- [ ] **Step 1: 写失败测试**：anonymous 页面仍有商品目录；登录态页面包含本人 profile/CSRF 和全部当前收费/赠送权益；`</script><script>` 作为数据不执行；缺 Asset/DB 按固定错误处理；响应 no-store；初始化后 auth store 不调用 `me()`。
-- [ ] **Step 2: 运行目标测试并确认失败**。
-- [ ] **Step 3: 实现 Worker HTML 注入和 AuthStore hydration**；注入只用安全 JSON serializer，不含 session token、Stripe ID/key；前端 bootstrap 仅用于即时交互展示。
-- [ ] **Step 4: 配置顶层、staging、production 的 Assets `run_worker_first` 包含 `/ke/buy`；配置 Vite 本地代理；测试无独立 catalog/entitlements/auth-me 首屏 JSON 请求。**
+- [x] **Step 1: 写失败测试**：anonymous 页面仍有商品目录；登录态页面包含本人 profile/CSRF 和全部当前收费/赠送权益；`</script><script>` 作为数据不执行；缺 Asset/DB 按固定错误处理；响应 no-store；初始化后 auth store 不调用 `me()`。
+- [x] **Step 2: 运行目标测试并确认失败**。
+- [x] **Step 3: 实现 Worker HTML 注入和 AuthStore hydration**；注入只用安全 JSON serializer，不含 session token、Stripe ID/key；前端 bootstrap 仅用于即时交互展示。
+- [x] **Step 4: 配置顶层、staging、production 的 Assets `run_worker_first` 包含 `/ke/buy`；配置 Vite 本地代理；测试无独立 catalog/entitlements/auth-me 首屏 JSON 请求。**
 - [ ] **Step 5: 运行 Worker/web bootstrap 测试、`rtk pnpm --filter web build`；提交 `feat: serve commerce bootstrap at ke buy route`**。
 
 ### Task 11: 购买、续期与统一到期界面

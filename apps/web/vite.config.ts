@@ -11,6 +11,10 @@ export default defineConfig({
         target: apiOrigin,
         changeOrigin: true,
       },
+      '/ke/buy': {
+        target: apiOrigin,
+        changeOrigin: true,
+      },
     },
   },
 });

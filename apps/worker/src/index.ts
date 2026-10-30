@@ -48,6 +48,7 @@ import { createTransferRepository } from './admin/transfer-repository';
 import { createTransferService } from './admin/transfer-service';
 import { createActionService } from './auth/action-service';
 import { runCommerceCronTick } from './commerce/jobs';
+import { renderCommerceHtml } from './commerce/page';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -71,6 +72,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   });
 
   app.get('/api/health', async (c) => c.json(await healthPayload(env, database), 200, { 'cache-control': 'no-store' }));
+  app.get('/ke/buy', async (c) => renderCommerceHtml(c.req.raw, env, database));
   registerAssetRoute(app);
   registerLastroAccountRoute(app);
   registerMakingCookieRoute(app);

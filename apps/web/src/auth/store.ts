@@ -114,6 +114,17 @@ export class AuthStore {
     this.adoptSession(response, true);
   }
 
+  initializeFromBootstrap(response: AuthSessionResponse | null): void {
+    this.generation += 1;
+    this.bootstrapComplete = true;
+    if (response) {
+      this.lastRefreshAt = this.now();
+      this.adoptSession(response, false);
+      return;
+    }
+    this.transitionToAnonymous(false);
+  }
+
   clear(): void {
     this.transitionToAnonymous(true);
   }
