@@ -185,6 +185,172 @@ function iconUrl(jobId: number | null): string | null {
   return base ? pticonMap[base] ?? null : null;
 }
 
+// RO 客户端把纯洋红 #ff00ff 当作透明色；网页里先抠成 alpha=0 再显示。
+const PTICON_CLEAN = new Map<string, string>();
+const PTICON_PENDING = new Map<string, Promise<string | null>>();
+
+function chromaKeyIcon(doc: Document, src: string): Promise<string | null> {
+  const win = doc.defaultView;
+  if (!win) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = 0;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      win.clearTimeout(timer);
+      resolve(value);
+    };
+    timer = win.setTimeout(() => finish(null), 3000);
+    const img = new win.Image();
+    img.onload = () => {
+      try {
+        const canvas = doc.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx || canvas.width === 0 || canvas.height === 0) {
+          finish(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = pixels.data;
+        // 图标是像素画，透明色为精确的 (255, 0, 255)，无需近似容差。
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] === 255 && data[i + 1] === 0 && data[i + 2] === 255) {
+            data[i + 3] = 0;
+          }
+        }
+        ctx.putImageData(pixels, 0, 0);
+        finish(canvas.toDataURL("image/png"));
+      } catch {
+        finish(null);
+      }
+    };
+    img.onerror = () => finish(null);
+    img.src = src;
+  });
+}
+
+/** 渲染角色列表前先抠色，之后 iconSrc 可以同步取到透明图标。 */
+async function prewarmPticons(doc: Document, jobIds: Array<number | null>): Promise<void> {
+  await loadPticonMap();
+  await Promise.all(
+    jobIds.map(async (jobId) => {
+      const src = iconUrl(jobId);
+      if (!src || PTICON_CLEAN.has(src)) return;
+      let pending = PTICON_PENDING.get(src);
+      if (!pending) {
+        pending = chromaKeyIcon(doc, src).then((clean) => {
+          if (clean) PTICON_CLEAN.set(src, clean);
+          return clean;
+        });
+        PTICON_PENDING.set(src, pending);
+      }
+      await pending;
+    }),
+  );
+}
+
+/** 已抠色的图标地址；处理失败时退回原图，避免图标空白。 */
+function iconSrc(jobId: number | null): string | null {
+  const src = iconUrl(jobId);
+  return src ? PTICON_CLEAN.get(src) ?? src : null;
+}
+
+/** demo 角色：模拟真实账号绑定 20-30 个角色的情况（仅第一个角色带方案）。 */
+const DEMO_CHARACTER_NAMES: ReadonlyArray<readonly [string, number, string]> = [
+  ["波利猎人", 11, "pay_fild08"],
+  ["初心者小明", 0, "prontera"],
+  ["剑士阿强", 1, "prt_fild05"],
+  ["魔法师露娜", 2, "gef_fild02"],
+  ["弓箭手小羽", 3, "pay_fild01"],
+  ["服侍小祈", 4, "prt_fild08"],
+  ["商人金币", 5, "moc_fild12"],
+  ["盗贼夜影", 6, "moc_fild17"],
+  ["骑士亚瑟", 7, "prt_fild05"],
+  ["牧师艾莉", 8, "pay_fild02"],
+  ["巫师墨言", 9, "gef_fild07"],
+  ["铁匠铁锤", 10, "gef_fild02"],
+  ["刺客暗刃", 12, "moc_fild17"],
+  ["骑乘骑士风驰", 13, "prt_fild05"],
+  ["十字军圣光", 14, "prt_fild08"],
+  ["武僧拳心", 15, "pay_fild01"],
+  ["贤者星尘", 16, "gef_fild07"],
+  ["流氓狡黠", 17, "moc_fild12"],
+  ["炼金术士瓶瓶", 18, "cmd_fild02"],
+  ["吟游诗人弦歌", 19, "pay_fild08"],
+  ["舞娘旋舞", 20, "pay_fild02"],
+  ["超级初心者小新", 23, "prontera"],
+  ["神枪手火铳", 24, "moc_fild17"],
+  ["忍者疾风", 25, "cmd_fild02"],
+  ["骑士领主苍岚", 4008, "prt_fild05"],
+  ["神射手鹰眼", 4012, "pay_fild08"],
+  ["武术宗师铁拳", 4016, "prt_fild08"],
+  ["符文骑士龙魂", 4054, "gef_fild07"],
+  ["游侠林风", 4056, "pay_fild01"],
+  ["大主教慈光", 4057, "pay_fild02"],
+];
+
+function buildDemoCharacters(): KeCharacter[] {
+  const now = Date.now();
+  return DEMO_CHARACTER_NAMES.map(([char_name, job_id, map_name], index) => ({
+    aid: 1000001,
+    cid: 2000001 + index,
+    nid: 3000001 + index,
+    char_name,
+    job_id,
+    map_name,
+    last_seen_at: now - (index === 0 ? 3 : index * 37 + 5) * 60_000,
+  }));
+}
+
+/** demo：给波利猎人准备 3 套已写好的方案，其余角色保持「没有方案」的空状态。 */
+function buildDemoProfiles(options: KeOptions | null): ProfileDetail[] {
+  const control = defaultControlDoc();
+  control["timeouts.txt"] = (options?.timeouts ?? []).map((timeout) => ({
+    name: timeout.key,
+    values: { value: TIMEOUT_DEFAULT_OVERRIDES[timeout.key] ?? timeout.value },
+  }));
+  const controlText = (file: string): string => {
+    const schema = CONTROL_SCHEMAS.find((s) => s.file === file)!;
+    return serializeControl(schema, control[file] ?? []).trim();
+  };
+  const files = {
+    mon_control: controlText("mon_control.txt"),
+    pickupitems: controlText("pickupitems.txt"),
+    items_control: controlText("items_control.txt"),
+    timeouts: controlText("timeouts.txt"),
+  };
+  const designs: Array<{
+    name: string;
+    lockMap: string;
+    saveMap: string;
+    active: boolean;
+  }> = [
+    { name: "斐扬打波利", lockMap: "pay_fild08", saveMap: "payon", active: true },
+    { name: "波利岛清怪", lockMap: "pay_fild01", saveMap: "payon", active: false },
+    { name: "北门蹲点捡卡", lockMap: "prt_fild08", saveMap: "prontera", active: false },
+  ];
+  return designs.map((design, index) => {
+    const doc = defaultDoc();
+    doc.scalars.lockMap = design.lockMap;
+    doc.scalars.saveMap = design.saveMap;
+    return {
+      id: index + 1,
+      aid: 1000001,
+      cid: 2000001,
+      nid: 3000001,
+      name: design.name,
+      is_active: design.active,
+      sharing: null,
+      config_text: serializeConfig(doc),
+      ...files,
+    };
+  });
+}
+
 const NAV: NavEntry[] = [
   {
     id: "route",
@@ -441,6 +607,8 @@ export function mountKePage(root: HTMLElement): void {
   let activeTab = "route";
   let dirty = false;
   let previewCollapsed = false;
+  let advancedEdit = false;
+  let previewTyping = false;
   let demoProfiles: ProfileDetail[] = [];
   const expandedBlocks = new WeakSet<BlockValue>();
 
@@ -519,8 +687,13 @@ export function mountKePage(root: HTMLElement): void {
               <div class="ke-side-status" id="ke-dirty-side" hidden><span class="dot"></span>有未保存的更改 · 保存前不会生效</div>
             </div>
             <div class="ke-side-card">
-              <button type="button" class="ke-preview-toggle" id="ke-preview-toggle"><span id="ke-preview-file">CONFIG.TXT</span> 预览 <span>收起 ▾</span></button>
+              <div class="ke-preview-head">
+                <button type="button" class="ke-preview-toggle" id="ke-preview-toggle"><span id="ke-preview-file">CONFIG.TXT</span> 预览 <span id="ke-preview-caret">收起 ▾</span></button>
+                <button type="button" class="ke-preview-adv" id="ke-preview-adv" aria-pressed="false">高级编辑</button>
+              </div>
               <pre id="ke-config-preview" class="ke-preview-pre" aria-live="polite"></pre>
+              <textarea id="ke-config-editor" class="ke-preview-edit" spellcheck="false" aria-label="手动编辑配置文本" hidden></textarea>
+              <p class="ke-preview-note" id="ke-preview-note" hidden>直接编辑当前文件内容，修改会立即同步到左侧表单；仅支持表单能识别的配置项。</p>
             </div>
             <div class="ke-side-save">
               <button type="button" class="ke-btn-primary" data-action="save">保存方案</button>
@@ -602,7 +775,7 @@ export function mountKePage(root: HTMLElement): void {
     .ke-badge-live { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; color: var(--buy); background: var(--buy-soft); border: 1px solid #b5d4c4; border-radius: 999px; font-size: .66rem; font-weight: 800; white-space: nowrap; }
     .ke-badge-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--buy); animation: ke-pulse 2.2s ease-in-out infinite; }
     @keyframes ke-pulse { 50% { opacity: .35; } }
-    .ke-profile-actions { display: flex; gap: 7px; margin-top: 2px; }
+    .ke-profile-actions { display: flex; flex-wrap: wrap; gap: 6px 7px; margin-top: 2px; }
 
     .ke-profile-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 128px; color: var(--muted); background: transparent; border: 1.5px dashed var(--line-light); border-radius: 10px; font-weight: 700; box-shadow: none; cursor: pointer; }
     .ke-profile-new:hover:not(:disabled) { color: var(--red-dark); border-color: var(--red); background: rgba(184,77,63,.04); }
@@ -760,10 +933,19 @@ export function mountKePage(root: HTMLElement): void {
     .ke-side-rows b { font-weight: 800; }
     .ke-side-status { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: var(--muted); font-size: .72rem; }
     .ke-side-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
-    .ke-preview-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 0; padding: 0; color: var(--muted); background: transparent; border: 0; font-size: .68rem; font-weight: 900; letter-spacing: .06em; box-shadow: none; cursor: pointer; }
+    .ke-preview-head { display: flex; align-items: center; gap: 8px; }
+    .ke-preview-toggle { display: flex; flex: 1; align-items: center; gap: 4px; min-height: 0; padding: 0; color: var(--muted); background: transparent; border: 0; font-size: .68rem; font-weight: 900; letter-spacing: .06em; box-shadow: none; cursor: pointer; }
     .ke-preview-toggle:hover:not(:disabled) { color: var(--forest); background: transparent; }
+    .ke-preview-adv { flex: none; min-height: 0; padding: 2px 8px; color: var(--muted); background: transparent; border: 1px solid var(--line-light); border-radius: 6px; font-size: .64rem; font-weight: 800; letter-spacing: 0; box-shadow: none; cursor: pointer; }
+    .ke-preview-adv:hover:not(:disabled) { color: var(--forest); background: rgba(255,253,248,.7); border-color: var(--line); }
+    .ke-preview-adv.is-on { color: var(--red-dark); background: #fffdf8; border-color: #cfa692; }
     .ke-preview-pre { margin: 9px 0 0; padding: 11px 12px; max-height: 300px; overflow: auto; color: #4c5a50; background: var(--forest-card); border: 1px solid var(--line); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .7rem; line-height: 1.65; white-space: pre-wrap; word-break: break-all; }
     .ke-preview-pre[hidden] { display: none; }
+    .ke-preview-edit { display: block; width: 100%; min-height: 260px; max-height: 420px; margin: 9px 0 0; padding: 11px 12px; color: #4c5a50; background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .7rem; line-height: 1.65; resize: vertical; }
+    .ke-preview-edit:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+    .ke-preview-edit[hidden] { display: none; }
+    .ke-preview-note { margin: 8px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.6; }
+    .ke-preview-note[hidden] { display: none; }
     .ke-side-save { display: grid; gap: 8px; margin-top: 12px; }
     .ke-side-save .ke-btn-primary, .ke-side-save .ke-btn-ghost { min-height: 40px; font-size: .82rem; }
 
@@ -822,6 +1004,26 @@ export function mountKePage(root: HTMLElement): void {
     .ke-preset-yes:hover:not(:disabled) { background: #2e4638; border-color: #2e4638; }
     .ke-preset-no { border: 1px solid var(--line-light); background: var(--cream); color: var(--muted); }
     .ke-preset-no:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
+
+    /* 复制方案到其他角色：轻量弹窗，列出当前账号的其它角色 */
+    .ke-copy-overlay { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
+    .ke-copy-overlay[hidden] { display: none; }
+    .ke-copy-dialog { display: grid; gap: 12px; width: min(460px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
+    .ke-copy-title { margin: 0; color: var(--forest); font-size: .95rem; font-weight: 800; text-align: center; }
+    .ke-copy-sub { margin: 0; color: #4c5a50; font-size: .78rem; line-height: 1.65; }
+    .ke-copy-list { display: grid; gap: 6px; max-height: 280px; overflow-y: auto; }
+    .ke-copy-char { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; font: inherit; text-align: left; box-shadow: none; cursor: pointer; }
+    .ke-copy-char:hover:not(:disabled) { border-color: var(--line-light); background: #fff6e6; }
+    .ke-copy-char.is-on { border-color: var(--buy); background: var(--cream); box-shadow: 0 0 0 2px var(--buy-soft); }
+    .ke-copy-char-icon { width: 22px; height: 22px; flex: none; object-fit: contain; image-rendering: pixelated; }
+    .ke-copy-char-icon-fallback { display: grid; place-items: center; width: 22px; height: 22px; flex: none; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 5px; font-size: .7rem; font-weight: 800; }
+    .ke-copy-char-text { display: grid; gap: 1px; min-width: 0; }
+    .ke-copy-char-name { overflow: hidden; color: var(--forest); font-size: .82rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-copy-char-job { color: var(--muted); font-size: .7rem; }
+    .ke-copy-empty { padding: 16px; color: var(--muted); background: #fffdf8; border: 1px dashed var(--line-light); border-radius: 8px; font-size: .8rem; text-align: center; }
+    .ke-copy-error { margin: 0; color: var(--red-dark); font-size: .76rem; font-weight: 700; }
+    .ke-copy-error[hidden] { display: none; }
+    .ke-copy-actions { display: flex; justify-content: flex-end; gap: 10px; }
   </style>
   `;
 
@@ -850,7 +1052,12 @@ export function mountKePage(root: HTMLElement): void {
   const previewToggle =
     root.querySelector<HTMLButtonElement>("#ke-preview-toggle")!;
   const previewFile = root.querySelector<HTMLElement>("#ke-preview-file")!;
+  const previewCaret = root.querySelector<HTMLElement>("#ke-preview-caret")!;
   const preview = root.querySelector<HTMLElement>("#ke-config-preview")!;
+  const previewEditor =
+    root.querySelector<HTMLTextAreaElement>("#ke-config-editor")!;
+  const previewAdv = root.querySelector<HTMLButtonElement>("#ke-preview-adv")!;
+  const previewNote = root.querySelector<HTMLElement>("#ke-preview-note")!;
   const sharingControls = createProfileSharing(root.ownerDocument, () => markDirty(), () => void withdrawSharing());
   editor.querySelector<HTMLElement>(".ke-editor-head")?.after(sharingControls.root);
 
@@ -858,6 +1065,15 @@ export function mountKePage(root: HTMLElement): void {
     return (
       characters.find((c) => `${c.aid}:${c.cid}:${c.nid}` === selectedKey) ??
       null
+    );
+  }
+
+  /** demo 多角色下，每名角色只看自己的方案。 */
+  function demoProfilesForSelected(): ProfileDetail[] {
+    const ch = selectedCharacter();
+    if (!ch) return [];
+    return demoProfiles.filter(
+      (p) => p.aid === ch.aid && p.cid === ch.cid && p.nid === ch.nid,
     );
   }
 
@@ -885,12 +1101,12 @@ export function mountKePage(root: HTMLElement): void {
       btn.className = `ke-char-card-chip${key === currentKey ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
       btn.dataset.key = key;
       // 职业图标（只有没图标时才 fallback 字首）
-      const iconSrc = iconUrl(c.job_id);
-      if (iconSrc) {
+      const src = iconSrc(c.job_id);
+      if (src) {
         const icon = document.createElement("img");
         icon.alt = "";
         icon.className = "ke-char-card-icon";
-        icon.src = iconSrc;
+        icon.src = src;
         btn.appendChild(icon);
       } else {
         const fallback = document.createElement("span");
@@ -966,17 +1182,65 @@ export function mountKePage(root: HTMLElement): void {
     return !dirty || window.confirm("有未保存的更改，确定放弃这些修改吗？");
   }
 
-  function updatePreview(): void {
+  /** 当前激活分区对应的预览文件（scalars/skills → CONFIG.TXT，其余为规则文件）。 */
+  function currentPreview(): { file: string; text: string; emptyText: string } {
     const entry = NAV.find((n) => n.id === activeTab) ?? NAV[0]!;
     if (entry.kind === "controls") {
       const schema = CONTROL_SCHEMAS.find((s) => s.file === entry.file)!;
-      previewFile.textContent = entry.file!.toUpperCase();
-      const text = serializeControl(schema, controlDoc[entry.file!] ?? []);
-      preview.textContent = text === "" ? "（空）" : text;
-    } else {
-      previewFile.textContent = "CONFIG.TXT";
-      preview.textContent = serializeConfig(configDoc);
+      return {
+        file: entry.file!.toUpperCase(),
+        text: serializeControl(schema, controlDoc[entry.file!] ?? []),
+        emptyText: "（空）",
+      };
     }
+    return {
+      file: "CONFIG.TXT",
+      text: serializeConfig(configDoc),
+      emptyText: "",
+    };
+  }
+
+  /** 预览区显示状态：折叠 / 只读预览 / 高级编辑三者互斥。 */
+  function syncPreviewVisibility(): void {
+    const expanded = !previewCollapsed;
+    preview.hidden = !(expanded && !advancedEdit);
+    previewEditor.hidden = !(expanded && advancedEdit);
+    previewNote.hidden = !advancedEdit;
+    previewCaret.textContent = previewCollapsed ? "展开 ▸" : "收起 ▾";
+    previewAdv.textContent = advancedEdit ? "退出高级" : "高级编辑";
+    previewAdv.classList.toggle("is-on", advancedEdit);
+    previewAdv.setAttribute("aria-pressed", advancedEdit ? "true" : "false");
+  }
+
+  function updatePreview(): void {
+    const content = currentPreview();
+    previewFile.textContent = content.file;
+    preview.textContent =
+      content.text === "" ? content.emptyText : content.text;
+    // 输入中（input 事件内）不能回写，否则光标会被重置。
+    if (!previewTyping && document.activeElement !== previewEditor) {
+      previewEditor.value = content.text;
+    }
+  }
+
+  /** 高级编辑：把 textarea 文本解析回表单模型，左侧 GUI 立即重建。 */
+  function applyPreviewEdit(): void {
+    const entry = NAV.find((n) => n.id === activeTab) ?? NAV[0]!;
+    previewTyping = true;
+    try {
+      if (entry.kind === "controls") {
+        const schema = CONTROL_SCHEMAS.find((s) => s.file === entry.file)!;
+        controlDoc[entry.file!] = parseControl(schema, previewEditor.value);
+      } else {
+        configDoc = parseConfig(previewEditor.value);
+      }
+    } finally {
+      previewTyping = false;
+    }
+    markDirty();
+    renderActivePanel();
+    updateNavCounts();
+    updateSideStats();
   }
 
   function updateNavCounts(): void {
@@ -2014,6 +2278,19 @@ export function mountKePage(root: HTMLElement): void {
 
   // —— 角色卡 ——
 
+  /** 图标映射就绪后异步抠掉洋红底再重绘角色卡；失败时保留原图/字首，不阻塞渲染。 */
+  function refreshCharacterIcons(): void {
+    if (characters.length === 0) return;
+    void prewarmPticons(
+      root.ownerDocument,
+      characters.map((c) => c.job_id),
+    ).then(() => {
+      if (characters.length === 0) return;
+      renderCharCard();
+      renderCharacterStrip();
+    });
+  }
+
   function renderCharCard(): void {
     const character = selectedCharacter();
     if (!character) {
@@ -2022,9 +2299,9 @@ export function mountKePage(root: HTMLElement): void {
     }
     charCard.hidden = false;
     // 职业图标
-    const iconSrc = iconUrl(character.job_id);
-    if (iconSrc) {
-      avatarImg.src = iconSrc;
+    const src = iconSrc(character.job_id);
+    if (src) {
+      avatarImg.src = src;
       avatarImg.hidden = false;
       avatarFallback.hidden = true;
     } else {
@@ -2148,12 +2425,19 @@ export function mountKePage(root: HTMLElement): void {
         "click",
         () => void activateProfile(profile.id),
       );
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "ke-btn-ghost";
+      copy.textContent = "复制";
+      copy.addEventListener("click", (event) => {
+        openCopyDialog(profile, event.currentTarget as HTMLElement);
+      });
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "ke-btn-danger";
       remove.textContent = "删除";
       remove.addEventListener("click", () => void deleteProfile(profile.id));
-      actions.append(edit, activate, remove);
+      actions.append(edit, copy, activate, remove);
       card.append(name, actions);
       profileList.appendChild(card);
     }
@@ -2172,6 +2456,226 @@ export function mountKePage(root: HTMLElement): void {
       "<span>🏛️ 去配置大厅</span><small>看看大佬们的方案</small>";
     profileList.appendChild(hallCard);
   }
+
+  // —— 复制方案到其他角色 ——
+
+  function uniqueProfileName(base: string, taken: readonly string[]): string {
+    const limit = 64;
+    const clean = base.trim().slice(0, limit) || "复制的方案";
+    if (!taken.includes(clean)) return clean;
+    for (let n = 1; n < 100; n += 1) {
+      const suffix = n === 1 ? "（副本）" : `（副本 ${n}）`;
+      const candidate = `${clean.slice(0, Math.max(1, limit - suffix.length))}${suffix}`;
+      if (!taken.includes(candidate)) return candidate;
+    }
+    return `${clean.slice(0, 50)}（副本 ${Date.now()}）`.slice(0, limit);
+  }
+
+  /** 把 sourceId 的方案完整复制到 target 角色名下（不会带走共享状态）。 */
+  async function duplicateProfile(
+    sourceId: number,
+    target: KeCharacter,
+  ): Promise<string> {
+    if (demo) {
+      const source = demoProfiles.find((profile) => profile.id === sourceId);
+      if (!source) throw new Error("找不到这套演示方案，请刷新后重试。");
+      const targetProfiles = demoProfiles.filter(
+        (profile) =>
+          profile.aid === target.aid &&
+          profile.cid === target.cid &&
+          profile.nid === target.nid,
+      );
+      const name = uniqueProfileName(
+        source.name,
+        targetProfiles.map((profile) => profile.name),
+      );
+      const id = Math.max(0, ...demoProfiles.map((profile) => profile.id)) + 1;
+      demoProfiles = [
+        ...demoProfiles,
+        {
+          ...source,
+          id,
+          aid: target.aid,
+          cid: target.cid,
+          nid: target.nid,
+          name,
+          is_active: false,
+          sharing: null,
+        },
+      ];
+      return name;
+    }
+    const [source, targetProfiles] = await Promise.all([
+      keFetch<ProfileDetail>(`/api/v1/ke/profiles/${sourceId}`),
+      keFetch<{ profiles: ProfileSummary[] }>(
+        `/api/v1/ke/profiles?aid=${target.aid}&cid=${target.cid}&nid=${target.nid}`,
+      ),
+    ]);
+    const name = uniqueProfileName(
+      source.name,
+      targetProfiles.profiles.map((profile) => profile.name),
+    );
+    await keFetch<{ id: number }>("/api/v1/ke/profiles", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        aid: target.aid,
+        cid: target.cid,
+        nid: target.nid,
+        name,
+        config_text: source.config_text,
+        mon_control: source.mon_control ?? "",
+        pickupitems: source.pickupitems ?? "",
+        items_control: source.items_control ?? "",
+        timeouts: source.timeouts,
+      }),
+    });
+    return name;
+  }
+
+  const copyOverlay = document.createElement("div");
+  copyOverlay.className = "ke-copy-overlay";
+  copyOverlay.hidden = true;
+  copyOverlay.innerHTML = `
+    <section class="ke-copy-dialog" role="dialog" aria-modal="true" aria-labelledby="ke-copy-title">
+      <h2 class="ke-copy-title" id="ke-copy-title">复制方案到其他角色</h2>
+      <p class="ke-copy-sub" id="ke-copy-sub"></p>
+      <div class="ke-copy-list" id="ke-copy-list" role="list"></div>
+      <p class="ke-copy-error" id="ke-copy-error" role="alert" hidden></p>
+      <div class="ke-copy-actions">
+        <button type="button" class="ke-btn-ghost" id="ke-copy-cancel">取消</button>
+        <button type="button" class="ke-btn-primary" id="ke-copy-confirm">确认复制</button>
+      </div>
+    </section>`;
+  root.appendChild(copyOverlay);
+  const copyList = copyOverlay.querySelector<HTMLElement>("#ke-copy-list")!;
+  const copySub = copyOverlay.querySelector<HTMLElement>("#ke-copy-sub")!;
+  const copyError = copyOverlay.querySelector<HTMLElement>("#ke-copy-error")!;
+  const copyCancel =
+    copyOverlay.querySelector<HTMLButtonElement>("#ke-copy-cancel")!;
+  const copyConfirm =
+    copyOverlay.querySelector<HTMLButtonElement>("#ke-copy-confirm")!;
+  let copySourceId: number | null = null;
+  let copyTargetKey: string | null = null;
+  let copyTrigger: HTMLElement | null = null;
+
+  function renderCopyTargets(): void {
+    const ch = selectedCharacter();
+    copyTargetKey = null;
+    copyConfirm.disabled = true;
+    copyList.replaceChildren();
+    const others = characters.filter(
+      (c) =>
+        !ch || `${c.aid}:${c.cid}:${c.nid}` !== `${ch.aid}:${ch.cid}:${ch.nid}`,
+    );
+    if (others.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ke-copy-empty";
+      empty.textContent = "当前账号没有其他已绑定角色，暂时无处可复制。";
+      copyList.appendChild(empty);
+      return;
+    }
+    for (const c of others) {
+      const key = `${c.aid}:${c.cid}:${c.nid}`;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "ke-copy-char";
+      row.setAttribute("role", "listitem");
+      row.dataset.key = key;
+      const src = iconSrc(c.job_id);
+      if (src) {
+        const icon = document.createElement("img");
+        icon.alt = "";
+        icon.className = "ke-copy-char-icon";
+        icon.src = src;
+        row.appendChild(icon);
+      } else {
+        const fallback = document.createElement("span");
+        fallback.className = "ke-copy-char-icon-fallback";
+        fallback.textContent = c.char_name.slice(0, 1) || "?";
+        row.appendChild(fallback);
+      }
+      const text = document.createElement("span");
+      text.className = "ke-copy-char-text";
+      const name = document.createElement("span");
+      name.className = "ke-copy-char-name";
+      name.textContent = c.char_name;
+      const job = document.createElement("span");
+      job.className = "ke-copy-char-job";
+      job.textContent =
+        options?.jobs_zh?.[String(c.job_id)] ??
+        options?.jobs[String(c.job_id)] ??
+        "未知职业";
+      text.append(name, job);
+      row.appendChild(text);
+      row.addEventListener("click", () => {
+        copyTargetKey = key;
+        copyConfirm.disabled = false;
+        for (const item of Array.from(
+          copyList.querySelectorAll<HTMLElement>(".ke-copy-char"),
+        )) {
+          item.classList.toggle("is-on", item.dataset.key === key);
+        }
+      });
+      copyList.appendChild(row);
+    }
+  }
+
+  function closeCopyDialog(): void {
+    copyOverlay.hidden = true;
+    copySourceId = null;
+    copyTargetKey = null;
+    copyTrigger?.focus();
+    copyTrigger = null;
+  }
+
+  function openCopyDialog(profile: ProfileSummary, trigger: HTMLElement): void {
+    copySourceId = profile.id;
+    copyTrigger = trigger;
+    copyError.hidden = true;
+    copySub.textContent = `把「${profile.name}」完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。`;
+    renderCopyTargets();
+    copyOverlay.hidden = false;
+    copyCancel.focus();
+  }
+
+  async function confirmCopy(): Promise<void> {
+    const target = characters.find(
+      (c) => `${c.aid}:${c.cid}:${c.nid}` === copyTargetKey,
+    );
+    if (copySourceId === null || !target) {
+      copyError.hidden = false;
+      copyError.textContent = "请先选择要复制到的角色。";
+      return;
+    }
+    copyError.hidden = true;
+    copyConfirm.disabled = true;
+    copyConfirm.textContent = "复制中…";
+    try {
+      const name = await duplicateProfile(copySourceId, target);
+      closeCopyDialog();
+      status.textContent = `已复制到「${target.char_name}」：${name}`;
+    } catch (error) {
+      copyError.hidden = false;
+      copyError.textContent =
+        error instanceof Error ? error.message : "复制失败";
+      copyConfirm.disabled = false;
+    } finally {
+      copyConfirm.textContent = "确认复制";
+    }
+  }
+
+  copyCancel.addEventListener("click", closeCopyDialog);
+  copyConfirm.addEventListener("click", () => void confirmCopy());
+  copyOverlay.addEventListener("mousedown", (event) => {
+    if (event.target === copyOverlay) closeCopyDialog();
+  });
+  copyOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      closeCopyDialog();
+    }
+  });
 
   // —— 编辑器导航 ——
 
@@ -3570,7 +4074,7 @@ export function mountKePage(root: HTMLElement): void {
       return;
     }
     if (demo) {
-      renderProfiles(demoProfiles);
+      renderProfiles(demoProfilesForSelected());
       return;
     }
     const query = `aid=${character.aid}&cid=${character.cid}&nid=${character.nid}`;
@@ -3591,7 +4095,7 @@ export function mountKePage(root: HTMLElement): void {
           profile.sharing = { ...profile.sharing, status: "WITHDRAWN", updated_at: Date.now() };
           sharingControls.markWithdrawn();
           sharingControls.message("演示中已撤回；实际账号和共享条目没有变化。");
-          renderProfiles(demoProfiles);
+          renderProfiles(demoProfilesForSelected());
         }
         return;
       }
@@ -3608,8 +4112,14 @@ export function mountKePage(root: HTMLElement): void {
 
   async function activateProfile(id: number): Promise<void> {
     if (demo) {
-      demoProfiles = demoProfiles.map((profile) => ({ ...profile, is_active: profile.id === id }));
-      renderProfiles(demoProfiles);
+      // 激活只影响当前角色，其他角色的激活状态保持不变。
+      const ch = selectedCharacter();
+      demoProfiles = demoProfiles.map((profile) =>
+        ch && profile.aid === ch.aid && profile.cid === ch.cid && profile.nid === ch.nid
+          ? { ...profile, is_active: profile.id === id }
+          : profile,
+      );
+      renderProfiles(demoProfilesForSelected());
       status.textContent = "已在演示中模拟激活；不会写入账号。";
       return;
     }
@@ -3628,7 +4138,7 @@ export function mountKePage(root: HTMLElement): void {
     if (demo) {
       demoProfiles = demoProfiles.filter((profile) => profile.id !== id);
       if (editingId === id) hideForm();
-      renderProfiles(demoProfiles);
+      renderProfiles(demoProfilesForSelected());
       status.textContent = "演示方案已从本次预览移除；刷新后会恢复。";
       return;
     }
@@ -3726,7 +4236,7 @@ export function mountKePage(root: HTMLElement): void {
         if (existingIndex === -1) demoProfiles = [...demoProfiles, demoProfile];
         else demoProfiles[existingIndex] = demoProfile;
         hideForm();
-        renderProfiles(demoProfiles);
+        renderProfiles(demoProfilesForSelected());
         status.textContent = "仅在演示中模拟保存；刷新后恢复，未写入账号。";
         return;
       }
@@ -3771,11 +4281,24 @@ export function mountKePage(root: HTMLElement): void {
   }
   previewToggle.addEventListener("click", () => {
     previewCollapsed = !previewCollapsed;
-    preview.hidden = previewCollapsed;
-    previewToggle.querySelector("span")!.textContent = previewCollapsed
-      ? "展开 ▸"
-      : "收起 ▾";
+    syncPreviewVisibility();
   });
+  previewAdv.addEventListener("click", () => {
+    advancedEdit = !advancedEdit;
+    previewCollapsed = false;
+    updatePreview();
+    syncPreviewVisibility();
+    if (advancedEdit) previewEditor.focus();
+  });
+  previewEditor.addEventListener("input", applyPreviewEdit);
+  previewEditor.addEventListener("blur", () => {
+    // 失焦时把文本规范化（去掉注释/无法识别的键），与表单模型保持一致。
+    const content = currentPreview();
+    preview.textContent =
+      content.text === "" ? content.emptyText : content.text;
+    previewEditor.value = content.text;
+  });
+  syncPreviewVisibility();
   nameInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -3790,13 +4313,6 @@ export function mountKePage(root: HTMLElement): void {
   // —— 初始化 ——
 
   async function init(): Promise<void> {
-    // 并行加载职业图标映射；加载完后重绘角色卡，让 fallback 字首替换成真图标
-    void loadPticonMap().then(() => {
-      if (characters.length > 0) {
-        renderCharCard();
-        renderCharacterStrip();
-      }
-    });
     options = await keFetch<KeOptions>("/ke/options.json").catch(() => null);
     // 中文地图名表：缺失时退化为直接显示地图代码，不影响手动填写。
     const mapNamesFile = await keFetch<MapNamesFile>("/ke/mapnames.json").catch(() => null);
@@ -3806,25 +4322,16 @@ export function mountKePage(root: HTMLElement): void {
     );
     if (demo) {
       root.querySelector<HTMLElement>("#ke-demo-chip")!.hidden = false;
-      characters = [
-        {
-          aid: 1000001,
-          cid: 2000002,
-          nid: 3000003,
-          char_name: "波利猎人",
-          job_id: 11,
-          map_name: "prt_fild08",
-          last_seen_at: Date.now() - 3 * 60000,
-        },
-      ];
-      const firstKey = `${characters[0]!.aid}:${characters[0]!.cid}:${characters[0]!.nid}`;
-      selectedKey = firstKey;
-      selectedJobId = characters[0]!.job_id ?? null;
+      characters = buildDemoCharacters();
+      demoProfiles = buildDemoProfiles(options);
+      const first = characters[0]!;
+      selectedKey = `${first.aid}:${first.cid}:${first.nid}`;
+      selectedJobId = first.job_id ?? null;
       renderCharacterStrip();
-      status.textContent = "演示模式：示例数据只在当前页面模拟，不会写入账号。";
       renderCharCard();
-      renderProfiles(demoProfiles);
-      void openEditor(null);
+      status.textContent = "演示模式：示例数据只在当前页面模拟，不会写入账号。";
+      renderProfiles(demoProfilesForSelected());
+      refreshCharacterIcons();
       return;
     }
     try {
@@ -3845,6 +4352,7 @@ export function mountKePage(root: HTMLElement): void {
       status.textContent = "";
       renderCharacterStrip();
       renderCharCard();
+      refreshCharacterIcons();
       await reloadProfiles();
       const requestedProfile = Number(query.get("profile"));
       if (Number.isSafeInteger(requestedProfile) && requestedProfile > 0) {
