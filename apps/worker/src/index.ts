@@ -29,6 +29,7 @@ import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
 import { registerKeBuildRoutes } from './ke/build-register-router';
+import { registerKeDownloadRoutes } from './routes/ke-download';
 import { createActivityRecorder, NOOP_ACTIVITY_RECORDER } from './activity/recorder';
 import { createActivityRepository } from './activity/repository';
 import { ACTIVITY_RETENTION_MS } from './activity/types';
@@ -80,6 +81,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);
   registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database, undefined, activity);
+  registerKeDownloadRoutes(app, env);
 
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);

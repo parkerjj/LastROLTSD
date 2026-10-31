@@ -229,7 +229,15 @@ const FAQ = [
   ],
   [
     "关掉客户端或浏览器，角色还会继续挂吗？",
-    "不会。KE 运行在进阶客户端里，客户端窗口关掉，AI 就停止。它不是服务器端的离线挂机，也不会在你退出后替你做任何事。",
+    "网页版不会：KE 运行在进阶客户端里，客户端窗口关掉，AI 就停止。脱机版可以：Windows 关窗后留在系统托盘，Android 切到后台或锁屏也能继续；电脑关机、手机被系统清理或手动停止后才会停。两者都不是服务器端的离线挂机。",
+  ],
+  [
+    "脱机版和网页里的 KE 有什么区别？",
+    "网页版在浏览器里的进阶客户端中运行；脱机版是一个独立的 App，装在你的电脑或手机上，关掉浏览器也能继续挂。两者用的是同一个 LTSD 账号和同一套配置，实例额度也共用。下载入口在脱机版下载页。",
+  ],
+  [
+    "macOS 和 iOS 现在能用吗？",
+    "还不能。macOS 在开发中；iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一份可用方案。确定后会在脱机版下载页和更新说明里公布。",
   ],
   [
     "一个账号能挂几个角色？",
@@ -307,6 +315,40 @@ function consensusMarkup(): string {
       <div class="page-width">
         <h2 id="kg-consensus-title">关于 KE 的能力范围与用途，作者已与 GM 进行了充分的沟通</h2>
         <blockquote>我们在努力给玩家带来更多新的游戏玩法和革新方向，将会一起研究如何合理使用、避免过度泛滥等问题。</blockquote>
+      </div>
+    </section>`;
+}
+
+function offlineMarkup(): string {
+  return `
+    <section class="kg-offline" aria-labelledby="kg-offline-title">
+      <div class="page-width">
+        <header class="kg-offline-head kg-reveal">
+          <p class="kg-offline-kicker">KOREENGINE / STANDALONE</p>
+          <h2 id="kg-offline-title">想关掉浏览器？把 KE 装进系统。</h2>
+          <p>脱机版是一个独立客户端：账号和配置还是 LTSD 那一套，但挂机跑在你自己的电脑或手机上。Windows 与 Android 已开放下载，macOS 与 iOS 仍在开发中。</p>
+        </header>
+        <div class="kg-offline-grid">
+          <div class="kg-offline-card kg-reveal">
+            <span class="kg-offline-code">WIN / PC</span>
+            <h3>Windows 桌面版</h3>
+            <p>关掉窗口后留在系统托盘，角色继续跑；直接覆盖安装，账号和配置都会保留。</p>
+            <a class="kg-btn kg-btn--primary" href="/ke/download?platform=windows">下载 Windows 版</a>
+          </div>
+          <div class="kg-offline-card kg-reveal">
+            <span class="kg-offline-code">AND / APK</span>
+            <h3>Android 手机版</h3>
+            <p>切到后台或锁屏也能继续跑；直接覆盖安装就行，不用先卸载。</p>
+            <a class="kg-btn kg-btn--primary" href="/ke/download?platform=android">下载 Android 版</a>
+          </div>
+          <div class="kg-offline-card kg-offline-card--dev kg-reveal">
+            <span class="kg-offline-code">DEV / LEDGER</span>
+            <h3>macOS 与 iOS</h3>
+            <p>macOS 正在开发；iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一份可用方案。</p>
+            <a class="kg-offline-more" href="/ke/download">查看平台列表 →</a>
+          </div>
+        </div>
+        <p class="kg-offline-note kg-reveal">下载按钮会直接给你当前稳定版，不经过网盘。脱机版与网页版共用同一套实例额度。</p>
       </div>
     </section>`;
 }
@@ -633,6 +675,7 @@ function ctaMarkup(): string {
       <div class="kg-cta-actions kg-reveal">
         <a class="kg-btn kg-btn--primary" href="/ke/my">去配置我的方案</a>
         <a class="kg-btn kg-btn--ghost" href="/ke/hall">看看别人怎么配</a>
+        <a class="kg-btn kg-btn--ghost" href="/ke/download">下载脱机版</a>
         <a class="kg-link" href="/client">安装进阶客户端</a>
       </div>
     </section>`;
@@ -640,7 +683,7 @@ function ctaMarkup(): string {
 
 function footerMarkup(): string {
   return `
-    <footer class="site-footer kg-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/ke/guide">KE指南</a><a href="/ke/my">配置工作台</a><a href="/ke/hall">配置大厅</a><a href="/client">进阶客户端</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>`;
+    <footer class="site-footer kg-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/ke/guide">KE指南</a><a href="/ke/download">脱机版下载</a><a href="/ke/my">配置工作台</a><a href="/ke/hall">配置大厅</a><a href="/client">进阶客户端</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>`;
 }
 
 /** 让没有 IntersectionObserver 的环境（含测试）也能看到全部内容。 */
@@ -821,6 +864,7 @@ export function mountKeGuidePage(root: HTMLElement): void {
       </section>
 
       ${consensusMarkup()}
+      ${offlineMarkup()}
       ${scopeMarkup()}
       ${audienceMarkup()}
       ${howToMarkup()}

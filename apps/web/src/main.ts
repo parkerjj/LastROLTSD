@@ -62,6 +62,7 @@ const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 // 配置工作台已迁移至 /ke/my；旧路径 /ke 继续命中本页，加载后归一地址栏。
 const isKePage = /^\/ke(?:\/my)?\/?$/u.test(pathname);
 const isKeGuidePage = /^\/ke\/guide\/?$/u.test(pathname);
+const isKeDownloadPage = /^\/ke\/download\/?$/u.test(pathname);
 const isKeSetupGuidePage = /^\/ke\/my\/create\/setup-guide\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
 const isProfileHallPage = /^\/ke\/hall\/?$/u.test(pathname);
@@ -1207,6 +1208,7 @@ else if (isReleasePage) mountLazy(() => import("./release-page").then((m) => m.m
 else if (isGuestbookPage) mountLazy(() => import("./guestbook-page").then((m) => m.mountGuestbookPage));
 else if (isAccountsPage) mountLazy(() => import("./accounts-page").then((m) => m.mountAccountsPage));
 else if (isKeGuidePage) mountLazy(() => import("./ke-guide-page").then((m) => m.mountKeGuidePage));
+else if (isKeDownloadPage) mountLazy(() => import("./ke-download-page").then((m) => m.mountKeDownloadPage));
 else if (isKeSetupGuidePage) mountLazy(() => import("./ke-setup-guide-page").then((m) => m.mountKeSetupGuidePage));
 else if (isKePage) {
   if (/^\/ke\/?$/u.test(pathname)) {

@@ -217,7 +217,7 @@ function pageMarkup(): string {
   <header class="site-header kg-header">
     <div class="topbar page-width">
       <a class="brand" href="/" aria-label="露天商店.Ro首页"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
-      ${siteNavMarkup("guide")}
+      ${siteNavMarkup("ke")}
     </div>
   </header>
   <div class="ksg">

@@ -307,6 +307,173 @@ a:focus-visible {
   box-shadow: 0 0 0 1px rgba(240, 205, 141, .55);
 }
 
+/* KoreEngine 下拉分组：桌面端悬停展开，触屏点击展开 */
+.nav-group {
+  position: relative;
+}
+
+.nav-group-trigger {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  line-height: normal;
+  cursor: pointer;
+}
+
+/* 覆盖全站 button 的红色悬停底色，让分组按钮和普通导航项一致 */
+.nav-group-trigger.nav-item:hover {
+  border-color: transparent;
+  background: #fffdf8;
+  color: var(--forest-deep);
+  box-shadow: 0 2px 7px rgba(74, 57, 35, .1);
+}
+
+.nav-group-trigger.nav-item.active,
+.nav-group-trigger.nav-item.active:hover {
+  border-color: transparent;
+  background: var(--forest);
+  color: #f3ead9;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 2px 8px rgba(23, 42, 35, .32);
+}
+
+.nav-group-caret {
+  font-size: .82rem !important;
+  opacity: .55;
+  transition: transform .18s ease;
+}
+
+.nav-group.is-open .nav-group-caret,
+.nav-group:hover .nav-group-caret {
+  transform: rotate(180deg);
+}
+
+.nav-group-menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 12;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 276px;
+  max-width: min(320px, calc(100vw - 32px));
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-light);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, .98);
+  box-shadow: 0 22px 40px rgba(72, 54, 32, .18);
+  transform: translateX(-50%);
+}
+
+/* 透明过渡带：鼠标从按钮移向菜单时不会经过空隙而收起 */
+.nav-group-menu::before {
+  position: absolute;
+  top: -8px;
+  right: 0;
+  left: 0;
+  height: 8px;
+  content: "";
+}
+
+.nav-subitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #3f4d45;
+  font-size: .8rem;
+  font-weight: 700;
+  transition: background .16s ease, color .16s ease;
+}
+
+.nav-subitem .ph {
+  flex: none;
+  color: #7b8a80;
+  font-size: 1.05rem;
+}
+
+.nav-subitem-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nav-subitem-copy small {
+  overflow: hidden;
+  color: #8a958d;
+  font-size: .64rem;
+  font-weight: 500;
+  letter-spacing: .01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-subitem:hover {
+  background: #fffdf8;
+  color: var(--forest-deep);
+}
+
+.nav-subitem:hover .ph {
+  color: var(--forest);
+}
+
+.nav-subitem[aria-current="page"] {
+  background: var(--forest);
+  color: #f3ead9;
+}
+
+.nav-subitem[aria-current="page"] .ph {
+  color: #f3ead9;
+}
+
+.nav-subitem[aria-current="page"] small {
+  color: rgba(243, 234, 217, .72);
+}
+
+/* 购买增量：菜单里唯一的高亮项 */
+.nav-subitem.is-hot {
+  border: 1px solid rgba(198, 148, 69, .5);
+  background: rgba(198, 148, 69, .15);
+  color: var(--red-dark);
+}
+
+.nav-subitem.is-hot .ph {
+  color: var(--gold);
+}
+
+.nav-subitem.is-hot small {
+  color: #8a6a33;
+}
+
+.nav-subitem.is-hot:hover {
+  background: rgba(198, 148, 69, .26);
+  color: var(--red-dark);
+}
+
+.nav-subitem-tag {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--gold);
+  color: #fff8ee;
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .07em;
+  line-height: 1.5;
+}
+
+@media (min-width: 901px) {
+  .nav-group:hover .nav-group-menu,
+  .nav-group:focus-within .nav-group-menu,
+  .nav-group.is-open .nav-group-menu {
+    display: flex;
+  }
+}
+
 .auth-nav-slot {
   display: flex;
   align-items: stretch;
@@ -5991,6 +6158,45 @@ body.drawer-open {
     width: auto;
     height: 1px;
     margin: 7px 12px;
+  }
+
+  /* 窄屏：KoreEngine 变成可点击展开的分组，子项纵向排列 */
+  .nav-group {
+    position: static;
+    width: 100%;
+  }
+
+  .nav-group-trigger {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .nav-group-menu {
+    position: static;
+    display: none;
+    min-width: 0;
+    max-width: none;
+    margin: 2px 0 6px;
+    padding: 4px 0 4px 10px;
+    border: 0;
+    border-left: 2px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .nav-group.is-open .nav-group-menu {
+    display: flex;
+  }
+
+  .nav-subitem {
+    padding: 9px 10px;
+    font-size: .82rem;
+  }
+
+  .nav-subitem-copy small {
+    white-space: normal;
   }
 }
 

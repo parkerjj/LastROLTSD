@@ -37,10 +37,19 @@ describe("KoreEngine guide page", () => {
         true,
       );
 
-      // 三个入口。
+      // 三个入口 + 脱机版下载入口。
       expect(root.querySelector('a[href="/ke/my"]')).not.toBeNull();
       expect(root.querySelector('a[href="/ke/hall"]')).not.toBeNull();
       expect(root.querySelector('a[href="/client"]')).not.toBeNull();
+      expect(root.querySelector('a[href="/ke/download"]')).not.toBeNull();
+
+      // 脱机版区块与新增 FAQ。
+      expect(root.querySelector(".kg-offline")).not.toBeNull();
+      expect(
+        faqs.some((item) =>
+          item.querySelector("summary")?.textContent?.includes("macOS 和 iOS 现在能用吗？"),
+        ),
+      ).toBe(true);
 
       // 导航高亮本页。
       expect(
