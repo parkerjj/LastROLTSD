@@ -76,6 +76,14 @@ describe('MySQL Worker deployment configuration', () => {
     expect(workflow).not.toMatch(/wrangler\s+d1\s+migrations|CLOUDFLARE_D1_DATABASE_ID|cf:config/iu);
   });
 
+  it('keeps GeoIP inactive unless GitHub production vars enable server-verified metadata', () => {
+    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
+    expect(workflow.split('LTSD_PROXY_GEO_ENABLED: ${{ vars.LTSD_PROXY_GEO_ENABLED || \'false\' }}')).toHaveLength(3);
+    expect(workflow.split('--var "LTSD_PROXY_GEO_ENABLED:${LTSD_PROXY_GEO_ENABLED:-false}"')).toHaveLength(3);
+    expect(config).not.toContain('LTSD_PROXY_GEO_ENABLED');
+  });
+
   it('installs the trusted VPS proxy secret from GitHub before production deployment', () => {
     const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
     const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
