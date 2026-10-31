@@ -163,7 +163,7 @@ describe('commerce purchase page', () => {
   it('keeps discounted terms visible and recalculates multi-slot price exactly', () => {
     const { root, api } = mount();
     const terms = root.querySelector('[data-term-group="slots"]')!;
-    expect(root.querySelector('.commerce-quantity-hint')?.textContent).toContain('单笔上限 10 个');
+    expect(root.querySelector('.commerce-quantity-hint')?.textContent).toContain('单笔上限 1000 个');
     expect(terms.textContent).toContain('180 天');
     expect(terms.textContent).toContain('8 折');
     expect(terms.textContent).toContain('360 天');
@@ -175,6 +175,22 @@ describe('commerce purchase page', () => {
     dispatch(root, quantity, 'input');
     expect(root.textContent).toContain('¥480.00');
     expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+  });
+
+  it('lets users buy only the offline feature by setting slot quantity to zero', () => {
+    const { root, api } = mount();
+    click(root, '[data-action="qty-only-feature"]');
+    const quantity = root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!;
+    const feature = root.querySelector<HTMLInputElement>('[name="feature-selected"]')!;
+
+    expect(quantity.value).toBe('0');
+    expect(feature.checked).toBe(true);
+    expect(root.querySelector('.commerce-quantity-zero')?.textContent).toContain('本次不买额度');
+    expect(root.textContent).toContain('脱机 KoreEngine');
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+
+    click(root, '[data-action="qty-reset"]');
+    expect(root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!.value).toBe('1');
   });
 
   it('combines a slot purchase and the independent offline feature only at final review', async () => {
@@ -332,13 +348,42 @@ describe('commerce purchase page', () => {
     expect(root.textContent).toContain('¥60.00');
   });
 
-  it('keeps a promotion-code input available outside the desktop-only summary', () => {
+  it('keeps a promotion-code input in the always-visible coupon card outside the summary', () => {
     const { root } = mount();
-    const mobilePromotion = root.querySelector('[data-mobile-promo]');
+    const coupon = root.querySelector('[data-coupon-card]');
 
-    expect(mobilePromotion).not.toBeNull();
-    expect(mobilePromotion!.closest('.commerce-summary')).toBeNull();
-    expect(mobilePromotion!.querySelector('[name="promotion-code"]')).not.toBeNull();
+    expect(coupon).not.toBeNull();
+    expect(coupon!.closest('.commerce-summary')).toBeNull();
+    expect(coupon!.querySelector('[name="promotion-code"]')).not.toBeNull();
+    expect(coupon!.textContent).toContain('ILOVEKE70');
+  });
+
+  it('estimates the welcome coupon as a non-stacking whole-order discount', async () => {
+    const { root, api } = mount();
+    expect(root.querySelector('.commerce-summary-amount')?.textContent).toBe('¥50.00');
+
+    click(root, '[data-action="fill-promo"]');
+    expect(root.querySelector<HTMLInputElement>('[name="promotion-code"]')?.value).toBe('ILOVEKE70');
+    expect(root.querySelector('[data-coupon-card]')?.textContent).toContain('已应用 7 折');
+    expect(root.querySelector('.commerce-summary-amount')?.textContent).toBe('¥35.00');
+    expect(root.textContent).toContain('已含新客 7 折（预计）');
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+
+    click(root, '[data-term-group="slots"] [data-term-days="360"]');
+    expect(root.querySelector('.commerce-summary-amount')?.textContent).toBe('¥420.00');
+    expect(root.textContent).toContain('已含时长优惠');
+    expect(root.querySelector('[data-coupon-card]')?.textContent).toContain('本次时长折扣更优');
+
+    click(root, '[data-term-group="slots"] [data-term-days="30"]');
+    expect(root.textContent).toContain('已含新客 7 折（预计）');
+
+    click(root, '[data-action="apply-promo"]');
+    expect(root.querySelector('.commerce-summary-amount')?.textContent).toBe('¥50.00');
+
+    click(root, '[data-action="fill-promo"]');
+    click(root, '[data-action="review"]');
+    await settle();
+    expect(api.quoteCommerceSelection).toHaveBeenCalledWith([{ type: 'slot_add', quantity: 1, termDays: 30 }], 'ILOVEKE70');
   });
 
   it('blocks selections exceeding the combined 1000-item quote limit before requesting a quote', () => {
