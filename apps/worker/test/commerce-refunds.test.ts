@@ -7,7 +7,7 @@ import type { StripeClient } from '../src/commerce/stripe-client';
 const DAY_MS = 86_400_000n;
 const NOW = 1_800_000_000_000;
 
-const REFUND_ORDER = {
+const REFUND_ORDER: MysqlRow = {
   id: '701',
   user_id: '42',
   stripe_account_id: 'acct_test',
@@ -49,7 +49,7 @@ class RefundRepository implements CommerceRepository {
         return [] as R[];
       },
       first: async <R extends MysqlRow = MysqlRow>(sql: string) => {
-        if (sql.includes('FROM commerce_orders')) return this.order as R;
+        if (sql.includes('FROM commerce_orders')) return this.order as unknown as R;
         return null;
       },
       run: async (sql, values = []) => {
@@ -77,17 +77,17 @@ class RefundRepository implements CommerceRepository {
         if (sql.includes('refund_sync_generation =')) {
           this.order = {
             ...this.order,
-            stripe_payment_intent_id: values[0],
+            stripe_payment_intent_id: values[0] as string,
             refund_sync_generation: String(values[1]),
           };
         }
         if (sql.includes('SET refund_snapshot_hash =')) {
           this.order = {
             ...this.order,
-            refund_snapshot_hash: values[0],
+            refund_snapshot_hash: values[0] as string,
             refund_revision: String(values[1]),
             applied_refund_revision: String(values[2]),
-            refund_state: values[3],
+            refund_state: values[3] as string,
           };
         }
         return { affectedRows: 1, insertId: 1 } as MysqlWriteResult;

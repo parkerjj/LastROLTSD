@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { resolveCommerceConfig } from '../src/env';
+import { resolveCommerceConfig, type AppEnv } from '../src/env';
 import { verifyStripeCommerceConfiguration } from '../src/commerce/preflight';
 import type { StripeClient } from '../src/commerce/stripe-client';
 
-function testBindings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function testBindings(overrides: Record<string, unknown> = {}): AppEnv {
   return {
     ENVIRONMENT: 'staging',
     COMMERCE_ENABLED: 'true',
@@ -17,7 +17,7 @@ function testBindings(overrides: Record<string, unknown> = {}): Record<string, u
     COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_alipaytest',
     COMMERCE_SITE_ORIGIN: 'https://staging.ltsd.example',
     ...overrides,
-  };
+  } as unknown as AppEnv;
 }
 
 function mockStripe(overrides: {

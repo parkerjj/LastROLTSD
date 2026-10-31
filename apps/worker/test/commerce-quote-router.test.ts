@@ -35,7 +35,7 @@ async function setup(options: {
     sessionDigest, expiresAt: NOW + 60_000,
   };
   const authConfig = {
-    enabled: true, authSiteUrl: ORIGIN, csrfSecret: new Uint8Array(32).fill(2), rateSecret: new Uint8Array(32).fill(3),
+    enabled: true, mysqlUrl: 'mysql://test', authSiteUrl: ORIGIN, csrfSecret: new Uint8Array(32).fill(2), rateSecret: new Uint8Array(32).fill(3),
     passwordKeys: new Map(), mailPayloadKeys: new Map(), currentPasswordKeyVersion: '1',
     currentMailPayloadKeyVersion: '1', mailDailyLimit: 100, mailMonthlyLimit: 1000, mailCloudflareMonthlyLimit: 1000,
   } as EnabledAuthConfig;
@@ -63,7 +63,7 @@ async function setup(options: {
   const csrf = await issueCsrf(new Request(`${ORIGIN}/`), authConfig, 'session', identity, () => NOW);
   const app = new Hono();
   registerCommerceQuoteRoute(app, {
-    setup: () => ({ authConfig, authRepository, quoteDependencies, runtime, salesEnabled: options.salesEnabled }),
+    setup: () => ({ authConfig, authRepository, quoteDependencies, runtime, ...(options.salesEnabled === undefined ? {} : { salesEnabled: options.salesEnabled }) }),
   });
   return { app, csrfToken: csrf.token, quoteRepository, authRepository };
 }

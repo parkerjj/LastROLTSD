@@ -54,7 +54,7 @@ class JobDatabase implements MysqlDatabase {
     if (this.failQueries) throw new Error('database unavailable');
     if (sql.includes('FROM commerce_provider_events')) {
       return this.providerEvents.filter((row) => row.order_id === String(values[0]) && row.state === 'queued'
-        && row.event_type === 'checkout.session.async_payment_failed').map((row) => ({ ...row }) as T);
+        && row.event_type === 'checkout.session.async_payment_failed').map((row) => ({ ...row }) as unknown as T);
     }
     if (!sql.includes('FROM commerce_jobs')) return [];
     const now = Number(values[0]);
@@ -64,7 +64,7 @@ class JobDatabase implements MysqlDatabase {
         || (row.state === 'leased' && (row.lease_until ?? Number.MAX_SAFE_INTEGER) <= now))
       .sort((left, right) => left.next_run_at - right.next_run_at || Number(left.id) - Number(right.id))
       .slice(0, limit)
-      .map((row) => ({ ...row }) as T);
+      .map((row) => ({ ...row }) as unknown as T);
   }
 
   async first<T extends MysqlRow>(sql: string, values: readonly unknown[] = []): Promise<T | null> {
@@ -72,11 +72,11 @@ class JobDatabase implements MysqlDatabase {
     if (sql.includes('FROM commerce_provider_events')) {
       const event = this.providerEvents.find((row) => row.order_id === String(values[0]) && row.state === 'queued'
         && row.event_type === 'checkout.session.async_payment_failed');
-      return event ? { ...event } as T : null;
+      return event ? { ...event } as unknown as T : null;
     }
     if (!sql.includes('FROM commerce_jobs')) return null;
     const row = this.jobs.get(String(values[0]));
-    return row ? { ...row } as T : null;
+    return row ? { ...row } as unknown as T : null;
   }
 
   async run(sql: string, values: readonly unknown[] = []): Promise<MysqlWriteResult> {

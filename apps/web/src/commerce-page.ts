@@ -258,7 +258,7 @@ function entitlementName(row: CommercePreviewEntitlement): string {
 function renderAccountPreview(
   preview: { before: { entitlements: CommercePreviewEntitlement[] }; after: { entitlements: CommercePreviewEntitlement[] } },
   options: { collapseUnchanged?: boolean } = {},
-): { html: string; changed: number; unchanged: number } {
+): { html: string; changed: number; unchanged: number; collapsible: number } {
   const before = preview.before.entitlements;
   const after = preview.after.entitlements;
   const beforeByKey = new Map<string, CommercePreviewEntitlement>();

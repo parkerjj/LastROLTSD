@@ -19,6 +19,7 @@ export interface CommerceCustomerDependencies {
 }
 
 interface CustomerRow {
+  [column: string]: unknown;
   user_id: string | number | bigint;
   stripe_account_id: string;
   stripe_livemode: number | boolean | string;

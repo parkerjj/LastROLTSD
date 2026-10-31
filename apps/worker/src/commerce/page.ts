@@ -72,7 +72,7 @@ function accountSnapshot(account: Awaited<ReturnType<ReturnType<typeof createQuo
         expiresAt: unit.currentExpiresAt.toString(),
         source,
         sourceRef,
-        isGift: isPermanentGift(unit.resource, source, sourceRef),
+        isGift: isPermanentGift(unit.resource, source ?? '', sourceRef),
       };
     }),
     entitlements: account.entitlements.map((entitlement) => ({
@@ -156,7 +156,7 @@ export async function renderCommerceHtml(
   if (!env.ASSETS) return unavailableResponse();
   try {
     const assetUrl = new URL('/index.html', request.url);
-    const assetResponse = await env.ASSETS.fetch(new Request(assetUrl));
+    const assetResponse = await env.ASSETS.fetch(assetUrl);
     if (!assetResponse.ok) return unavailableResponse();
     const html = await assetResponse.text();
     const markerAt = html.indexOf(COMMERCE_BOOTSTRAP_MARKER);

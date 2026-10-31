@@ -269,8 +269,10 @@ function readEvent(row: MysqlRow): CommerceUnitEvent {
       : readRevision(row.refund_revision, 'refund event revision'),
     occurredAt: readBigint(row.occurred_at, 'unit event timestamp'),
     deliveredAt: row.delivered_at === null || row.delivered_at === undefined ? null : readBigint(row.delivered_at, 'delivery timestamp'),
-    durationMs: row.duration_ms === null || row.duration_ms === undefined ? undefined : readSignedBigint(row.duration_ms, 'unit event duration'),
-    retainedDurationMs: retained,
+    ...(row.duration_ms !== null && row.duration_ms !== undefined
+      ? { durationMs: readSignedBigint(row.duration_ms, 'unit event duration') }
+      : {}),
+    ...(retained !== undefined ? { retainedDurationMs: retained } : {}),
   };
 }
 

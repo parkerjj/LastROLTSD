@@ -263,7 +263,12 @@ function response(status: number): Response {
 
 class OversizedStripeEvent extends Error {}
 
-async function readRequestBody(request: Request): Promise<Uint8Array> {
+interface StripeWebhookRequest {
+  headers: { get(name: string): string | null };
+  body: ReadableStream<Uint8Array> | null;
+}
+
+async function readRequestBody(request: StripeWebhookRequest): Promise<Uint8Array> {
   const reader = request.body?.getReader();
   if (!reader) throw new InvalidStripeEvent();
   const chunks: Uint8Array[] = [];
@@ -287,7 +292,7 @@ async function readRequestBody(request: Request): Promise<Uint8Array> {
   return body;
 }
 
-export async function receiveStripeEvent(request: Request, dependencies: WebhookDependencies): Promise<Response> {
+export async function receiveStripeEvent(request: StripeWebhookRequest, dependencies: WebhookDependencies): Promise<Response> {
   let body: Uint8Array;
   let event: StripeEvent;
   try {

@@ -5,6 +5,7 @@ import { createOrderRepository } from '../src/commerce/orders';
 import { createOrderAndCheckout, CommerceOrderError } from '../src/commerce/orders';
 import type { OrderDependencies, OrderRepository, StoredCommerceOrder } from '../src/commerce/orders';
 import type { StripeClient } from '../src/commerce/stripe-client';
+import type { StripeForm } from '../src/commerce/stripe-client';
 import type { CommerceQuote } from '../src/commerce/quotes';
 import { digestToken } from '../src/auth/crypto';
 import { issueCsrf } from '../src/auth/csrf';
@@ -18,6 +19,8 @@ const MONTH_MS = 30 * DAY_MS;
 const CHECKOUT_MINIMUM_TTL_MS = 30 * 60_000;
 const CHECKOUT_CREATION_MARGIN_MS = 30_000;
 const EXPIRY = Math.ceil(NOW / 1000) * 1000 + CHECKOUT_MINIMUM_TTL_MS + CHECKOUT_CREATION_MARGIN_MS;
+type StripePostMock = (path: string, params?: StripeForm, options?: { idempotencyKey?: string }) => Promise<unknown>;
+type StripeGetMock = (path: string, params?: StripeForm) => Promise<unknown>;
 const ITEM = {
   ordinal: 1,
   productKey: 'slots' as const,
@@ -65,8 +68,8 @@ function order(overrides: Partial<StoredCommerceOrder> = {}): StoredCommerceOrde
 function dependencies(options: {
   order?: StoredCommerceOrder;
   reserveOrder?: OrderRepository['reserveOrder'];
-  stripePost?: StripeClient['post'];
-  stripeGet?: StripeClient['get'];
+  stripePost?: StripePostMock;
+  stripeGet?: StripeGetMock;
 } = {}): OrderDependencies & { repository: OrderRepository; stripe: StripeClient } {
   let stored = options.order ?? order();
   const repository: OrderRepository = {
@@ -75,7 +78,7 @@ function dependencies(options: {
     listOrderHistory: vi.fn(async () => ({ items: [], nextCursor: null })),
     prepareCheckout: vi.fn(async (_orderId, proposedExpiry) => {
       stored = { ...stored, checkoutExpiresAt: stored.checkoutExpiresAt ?? proposedExpiry };
-      return stored.checkoutExpiresAt;
+      return stored.checkoutExpiresAt as number;
     }),
     markCheckoutReady: vi.fn(async (_orderId, session) => {
       stored = { ...stored, checkoutState: 'ready', stripeCheckoutSessionId: session.sessionId, checkoutExpiresAt: session.expiresAt };
@@ -310,7 +313,7 @@ describe('immutable commerce orders and Stripe Checkout', () => {
   it('retries an uncertain Session creation with the identical Stripe idempotency key and request', async () => {
     const pending = order({ checkoutExpiresAt: EXPIRY });
     const reserveOrder = vi.fn(async () => pending);
-    const post = vi.fn(async () => ({
+    const post = vi.fn(async (_path: string, _params?: StripeForm, _options?: { idempotencyKey?: string }) => ({
       id: 'cs_test_701', url: 'https://checkout.stripe.com/c/pay/cs_test_701',
       expires_at: EXPIRY / 1000, status: 'open', payment_status: 'unpaid', livemode: false,
     }));
@@ -548,7 +551,7 @@ describe('commerce order confirmation route', () => {
       enabled: true, authSiteUrl: ORIGIN, csrfSecret: new Uint8Array(32).fill(2), rateSecret: new Uint8Array(32).fill(3),
       passwordKeys: new Map(), mailPayloadKeys: new Map(), currentPasswordKeyVersion: '1',
       currentMailPayloadKeyVersion: '1', mailDailyLimit: 100, mailMonthlyLimit: 1000, mailCloudflareMonthlyLimit: 1000,
-    } as EnabledAuthConfig;
+    } as unknown as EnabledAuthConfig;
     const authRepository = {
       readIdentity: vi.fn(async () => identity),
       readProfile: vi.fn(async () => userProfile),

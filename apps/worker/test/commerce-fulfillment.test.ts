@@ -8,7 +8,7 @@ const DAY_MS = 86_400_000;
 const DURATION_MS = 30 * DAY_MS;
 const NOW = 1_800_000_000_000;
 
-const ORDER_ROW = {
+const ORDER_ROW: MysqlRow = {
   id: '701',
   user_id: '42',
   stripe_account_id: 'acct_test',
@@ -26,7 +26,7 @@ const ORDER_ROW = {
   stripe_charge_id: null as string | null,
 };
 
-const ADD_ITEM = {
+const ADD_ITEM: MysqlRow = {
   id: '801',
   order_id: '701',
   ordinal: 1,

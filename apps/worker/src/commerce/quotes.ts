@@ -174,7 +174,7 @@ function validateSelection(selection: readonly QuoteSelection[]): void {
       if (item.unitIds.length > MAX_QUOTE_ITEMS) throw new CommerceQuoteError('COMMERCE_ITEM_LIMIT');
       let ids: string[];
       try {
-        ids = item.unitIds.map((id) => assertCommerceId(id));
+        ids = item.unitIds.map((id: string) => assertCommerceId(id));
       } catch {
         invalidSelection();
       }

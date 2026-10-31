@@ -210,15 +210,15 @@ function readUnitEvent(row: MysqlRow): CommerceUnitEvent {
       : readSmallNumber(row.refund_revision, 'refund event revision'),
     occurredAt: readBigint(row.occurred_at, 'unit event timestamp'),
     deliveredAt: readNullableBigint(row.delivered_at, 'unit event delivery timestamp'),
-    durationMs: row.duration_ms === null || row.duration_ms === undefined
-      ? undefined
-      : readSignedBigint(row.duration_ms, 'unit event duration'),
-    requestedExpiresAt: eventType === 'ADMIN_CUTOFF' && detail?.afterExpiresAt !== null && detail?.afterExpiresAt !== undefined
-      ? readBigint(detail.afterExpiresAt, 'admin requested expiry')
-      : undefined,
-    retainedDurationMs: eventType === 'REFUND_REPROJECT' && detail?.retainedDurationMs !== null && detail?.retainedDurationMs !== undefined
-      ? readBigint(detail.retainedDurationMs, 'retained refund duration')
-      : undefined,
+    ...(row.duration_ms !== null && row.duration_ms !== undefined
+      ? { durationMs: readSignedBigint(row.duration_ms, 'unit event duration') }
+      : {}),
+    ...(eventType === 'ADMIN_CUTOFF' && detail?.afterExpiresAt !== null && detail?.afterExpiresAt !== undefined
+      ? { requestedExpiresAt: readBigint(detail.afterExpiresAt, 'admin requested expiry') }
+      : {}),
+    ...(eventType === 'REFUND_REPROJECT' && detail?.retainedDurationMs !== null && detail?.retainedDurationMs !== undefined
+      ? { retainedDurationMs: readBigint(detail.retainedDurationMs, 'retained refund duration') }
+      : {}),
   };
 }
 
@@ -270,7 +270,7 @@ async function fetchSessionPayment(
     return { status: 'complete', paymentStatus: 'no_payment_required', paymentIntentId: null, chargeId: null, confirmedPaid: true };
   }
   if (session.payment_status !== 'paid') {
-    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, confirmedPaid: false };
+    return { status: String(session.status), paymentStatus: String(session.payment_status), paymentIntentId, chargeId: null, confirmedPaid: false };
   }
   if (!paymentIntentId) {
     if (session.status === 'complete' && session.payment_status === 'paid' && order.paidTotalCents === 0n) {

@@ -282,7 +282,7 @@ describe('authoritative commerce quotes', () => {
     const tie = await createQuote({
       userId: '42', selection: [selection('slot_add', 180, { quantity: 2 })], promotionCode: 'SPRING',
     }, dependencies(makeState(), {
-      previewPromotion: vi.fn(async () => ({ promotionCodeId: 'promo_spring', couponId: 'coupon_spring', subtotalCents: 60_000, totalCents: 48_000, discountCents: 12_000, currency: 'cny' })),
+      previewPromotion: vi.fn(async () => ({ promotionCodeId: 'promo_spring', couponId: 'coupon_spring', subtotalCents: 60_000, totalCents: 48_000, discountCents: 12_000, currency: 'cny' as const })),
     }));
     expect(tie.discountStrategy).toBe('term');
     expect(tie.selectedTotalCents).toBe('48000');
@@ -298,7 +298,7 @@ describe('authoritative commerce quotes', () => {
     const deps = dependencies(makeState(), {
       previewPromotion: vi.fn(async () => ({
         promotionCodeId: 'promo_spring', couponId: 'coupon_spring', subtotalCents: 5000, totalCents: 4000,
-        discountCents: 999, currency: 'cny',
+        discountCents: 999, currency: 'cny' as const,
       })),
     });
 
