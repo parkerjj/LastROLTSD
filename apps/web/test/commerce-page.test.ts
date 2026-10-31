@@ -149,6 +149,7 @@ describe('commerce purchase page', () => {
     expect(rows).toHaveLength(3);
     expect(gift).not.toBeNull();
     expect(gift!.disabled).toBe(true);
+    expect(gift!.closest('label')?.textContent).toContain('到期');
     expect(root.querySelector('[data-slot-unit="901"]')).not.toBeNull();
     expect(root.querySelector('[data-slot-unit="902"]')).not.toBeNull();
 
@@ -162,6 +163,7 @@ describe('commerce purchase page', () => {
   it('keeps discounted terms visible and recalculates multi-slot price exactly', () => {
     const { root, api } = mount();
     const terms = root.querySelector('[data-term-group="slots"]')!;
+    expect(root.querySelector('.commerce-quantity-hint')?.textContent).toContain('单笔上限 10 个');
     expect(terms.textContent).toContain('180 天');
     expect(terms.textContent).toContain('8 折');
     expect(terms.textContent).toContain('360 天');
@@ -227,6 +229,66 @@ describe('commerce purchase page', () => {
     expect(root.querySelector('dialog[open]')?.textContent).toContain('无需统一到期');
   });
 
+  it('blocks alignment when paid slots and the standalone feature exceed the quote item limit', () => {
+    const account = bootstrap().account;
+    const unitTemplate = account.units[1]!;
+    account.units = Array.from({ length: 1000 }, (_, index) => ({
+      ...unitTemplate,
+      unitId: String(1000 + index),
+      entitlementId: String(2000 + index),
+      startsAt: String(NOW - DAY),
+      expiresAt: String(NOW + (index + 2) * DAY),
+      isGift: false,
+    }));
+    account.entitlements = account.units.map((unit) => entitlement({
+      entitlementId: unit.entitlementId,
+      unitId: unit.unitId,
+      startsAt: unit.startsAt,
+      expiresAt: unit.expiresAt,
+      isGift: false,
+    }));
+    account.entitlements.push(entitlement({
+      entitlementId: '5000', unitId: null, resource: 'module:standalone', productKey: 'module:standalone',
+      expiresAt: String(NOW + DAY), isGift: false,
+    }));
+    const { root, api } = mount({ account });
+
+    click(root, '[data-action="open-align"]');
+
+    const dialog = root.querySelector<HTMLDialogElement>('[data-align-dialog]')!;
+    expect(dialog.querySelector('[data-alignment-limit-error]')).not.toBeNull();
+    expect(dialog.querySelector<HTMLButtonElement>('[data-action="align"]')?.disabled).toBe(true);
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+  });
+
+  it('excludes standalone rows when the effective account state says the feature is inactive', () => {
+    const account = bootstrap().account;
+    account.effective.modules = ['core'];
+    const { root } = mount({ account });
+
+    expect(root.querySelector('.commerce-align-copy span')?.textContent).toContain('共 2 个付费项');
+    expect(root.textContent).toContain('当前未开通，本次购买将开通。');
+  });
+
+  it('shows gifted standalone access as active but excludes it from paid renewal and alignment', () => {
+    const account = bootstrap().account;
+    const standalone = account.entitlements.find((row) => row.resource === 'module:standalone')!;
+    Object.assign(standalone, {
+      source: 'signup', sourceRef: 'email-verified:module:standalone', isGift: true,
+      expiresAt: String(NOW + 99 * 365 * DAY),
+    });
+    const { root } = mount({ account });
+
+    const featureCard = root.querySelector('[data-product="feature"]')!;
+    expect(featureCard.textContent).toContain('当前通过赠送开通');
+    expect(featureCard.textContent).toContain('购买付费期');
+    expect(featureCard.textContent).not.toContain('当前未开通');
+    expect(root.querySelector('.commerce-align-copy span')?.textContent).toContain('共 2 个付费项');
+
+    click(root, '[data-action="open-align"]');
+    expect(root.querySelector('[data-align-dialog] .commerce-align-details')?.textContent).not.toContain('脱机 KoreEngine');
+  });
+
   it('shows every current entitlement before and after, including gifts and unchanged rows', async () => {
     const { root } = mount();
     click(root, '[data-mode="renew"]');
@@ -237,10 +299,12 @@ describe('commerce purchase page', () => {
 
     const preview = root.querySelector('[data-account-preview]')!;
     expect(preview.querySelectorAll('[data-preview-row]')).toHaveLength(5);
-    expect(preview.textContent).toContain('赠送实例额度');
-    expect(preview.textContent).toContain('离线 KoreEngine');
+    expect(preview.textContent).toContain('赠送挂机额度');
+    expect(preview.textContent).toContain('脱机 KoreEngine');
     expect(preview.textContent).toContain('购买前');
     expect(preview.textContent).toContain('购买后');
+    const giftRow = preview.querySelector('[data-preview-row="id:20"]')!;
+    expect(giftRow.className).not.toContain('is-collapsed-row');
   });
 
   it('uses and labels the browser local timezone for entitlement dates', () => {
@@ -268,6 +332,41 @@ describe('commerce purchase page', () => {
     expect(root.textContent).toContain('¥60.00');
   });
 
+  it('keeps a promotion-code input available outside the desktop-only summary', () => {
+    const { root } = mount();
+    const mobilePromotion = root.querySelector('[data-mobile-promo]');
+
+    expect(mobilePromotion).not.toBeNull();
+    expect(mobilePromotion!.closest('.commerce-summary')).toBeNull();
+    expect(mobilePromotion!.querySelector('[name="promotion-code"]')).not.toBeNull();
+  });
+
+  it('blocks selections exceeding the combined 1000-item quote limit before requesting a quote', () => {
+    const { root, api } = mount();
+    const quantity = root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!;
+    quantity.value = '1000';
+    dispatch(root, quantity, 'input');
+    const feature = root.querySelector<HTMLInputElement>('[name="feature-selected"]')!;
+    feature.checked = true;
+    dispatch(root, feature, 'change');
+
+    const limitError = root.querySelector('[data-selection-limit-error]');
+    expect(limitError).not.toBeNull();
+    expect(limitError!.textContent).toContain('单笔最多 1000 个权益项');
+    expect(root.querySelector<HTMLButtonElement>('[data-action="review"]')?.disabled).toBe(true);
+    expect(api.quoteCommerceSelection).not.toHaveBeenCalled();
+  });
+
+  it('shows the browser timezone on the order confirmation preview', async () => {
+    const { root } = mount();
+    click(root, '[data-action="review"]');
+    await settle();
+
+    const timezone = root.querySelector('[data-confirm-timezone]');
+    expect(timezone).not.toBeNull();
+    expect(timezone!.textContent).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
   it('invalidates a reviewed quote when the purchase selection changes', async () => {
     const { root, api } = mount();
     click(root, '[data-action="review"]');
@@ -279,6 +378,24 @@ describe('commerce purchase page', () => {
     dispatch(root, quantity, 'input');
     expect(root.querySelector('[data-account-preview]')).toBeNull();
     expect(api.quoteCommerceSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards a quote response when the selection changes while the request is pending', async () => {
+    let resolveQuote!: (value: CommerceQuote) => void;
+    const pendingQuote = new Promise<CommerceQuote>((resolve) => { resolveQuote = resolve; });
+    const { root, api } = mount();
+    vi.mocked(api.quoteCommerceSelection).mockReturnValueOnce(pendingQuote);
+
+    click(root, '[data-action="review"]');
+    const quantity = root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!;
+    quantity.value = '2';
+    dispatch(root, quantity, 'input');
+    resolveQuote(quote());
+    await settle();
+
+    expect(root.querySelector('[data-review-result]')).toBeNull();
+    expect(root.querySelector('[data-action="pay"]')).toBeNull();
+    expect(root.querySelector<HTMLButtonElement>('[data-action="review"]')?.disabled).toBe(false);
   });
 
   it('creates the immutable order only after review and navigates to Stripe', async () => {

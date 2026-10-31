@@ -28,6 +28,12 @@ interface StripePromotionCode {
   active?: unknown;
   customer?: unknown;
   coupon?: unknown;
+  promotion?: unknown;
+}
+
+interface StripePromotion {
+  type?: unknown;
+  coupon?: unknown;
 }
 
 interface StripeCoupon {
@@ -76,9 +82,11 @@ function selectPromotion(codes: readonly StripePromotionCode[], requestedCode: s
   candidates.sort((left, right) => Number(customerId(right.customer) === customerIdValue) - Number(customerId(left.customer) === customerIdValue));
   for (const candidate of candidates) {
     const promotionCodeId = objectId(candidate.id);
-    const couponId = objectId(candidate.coupon);
+    const promotion = candidate.promotion && typeof candidate.promotion === 'object' ? candidate.promotion as StripePromotion : null;
+    const coupon = promotion?.type === 'coupon' ? promotion.coupon : candidate.coupon;
+    const couponId = objectId(coupon);
     if (!promotionCodeId || !couponId) continue;
-    const expandedCoupon = candidate.coupon && typeof candidate.coupon === 'object' ? candidate.coupon as StripeCoupon : null;
+    const expandedCoupon = coupon && typeof coupon === 'object' ? coupon as StripeCoupon : null;
     if (expandedCoupon?.valid === false) continue;
     return { id: promotionCodeId, couponId };
   }

@@ -316,7 +316,7 @@ function readPromotion(value: unknown): PromotionPreview | null {
   if (value === null || value === undefined) return null;
   const snapshot = asRecord(readJson(value, 'promotion snapshot'));
   if (!snapshot || typeof snapshot.promotionCodeId !== 'string' || !/^promo_[A-Za-z0-9]+$/u.test(snapshot.promotionCodeId)
-    || typeof snapshot.couponId !== 'string' || !/^coupon_[A-Za-z0-9]+$/u.test(snapshot.couponId)
+    || typeof snapshot.couponId !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/u.test(snapshot.couponId)
     || !Number.isSafeInteger(snapshot.subtotalCents) || !Number.isSafeInteger(snapshot.totalCents)
     || !Number.isSafeInteger(snapshot.discountCents) || Number(snapshot.subtotalCents) < 0
     || Number(snapshot.totalCents) < 0 || Number(snapshot.discountCents) < 0 || snapshot.currency !== 'cny') {

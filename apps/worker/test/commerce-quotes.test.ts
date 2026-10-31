@@ -161,6 +161,22 @@ describe('authoritative commerce quotes', () => {
     expect(quote.accountPreview.after.effective.modules).toContain('standalone');
   });
 
+  it('keeps the standalone gift marker in both quote previews while starting a separate paid term', async () => {
+    const state = makeState({
+      entitlements: [
+        ...makeState().entitlements.filter((row) => row.resource !== 'module:standalone'),
+        { id: '205', unitId: null, resource: 'module:standalone', quantity: 1, startsAt: BigInt(NOW) - DAY_MS,
+          expiresAt: BigInt(NOW) + 99n * 365n * DAY_MS, source: 'signup', sourceRef: 'email-verified:module:standalone' },
+      ],
+    });
+    const quote = await createQuote({ userId: '42', selection: [selection('standalone', 30)] }, dependencies(state));
+
+    expect(quote.items[0]).toMatchObject({ operation: 'ADD', targetEntitlementId: null });
+    expect(quote.accountPreview.before.entitlements.find((row) => row.entitlementId === '205')?.isGift).toBe(true);
+    expect(quote.accountPreview.after.entitlements.find((row) => row.entitlementId === '205')?.isGift).toBe(true);
+    expect(quote.accountPreview.after.entitlements.find((row) => row.isNew)).toMatchObject({ isGift: false, isNew: true });
+  });
+
   it('excludes a standalone row when signed adjustments make the module ineffective during alignment', async () => {
     const state = makeState({
       entitlements: [

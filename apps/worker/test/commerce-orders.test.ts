@@ -144,7 +144,7 @@ describe('immutable commerce orders and Stripe Checkout', () => {
     const params = vi.mocked(deps.stripe.post).mock.calls[0]?.[1] as Record<string, unknown>;
     expect(params.line_items).toEqual([{ price_data: { currency: 'cny', product: 'prod_slots', unit_amount: 5000 }, quantity: 1 }]);
     expect(params.discounts).toEqual([{ promotion_code: 'promo_holiday' }]);
-    expect(params.allow_promotion_codes).toBe(false);
+    expect(params).not.toHaveProperty('allow_promotion_codes');
   });
 
   it('groups quote items with identical product and price into a Stripe quantity', async () => {
@@ -470,6 +470,31 @@ describe('commerce order repository', () => {
     expect(JSON.parse(String(orderInsert.values[13]))).toMatchObject({
       checkoutSiteOrigin: 'https://ltsd.ro', paymentMethodConfigurationId: 'pmc_ordinary',
     });
+  });
+
+  it('persists Stripe-generated coupon IDs without requiring a coupon_ prefix', async () => {
+    const database = new OrderDatabase();
+    database.quoteRow = validQuoteRow({
+      preview_snapshot: JSON.stringify({
+        items: [{ ...ITEM, paidCents: '3500' }], accountPreview: quote().accountPreview,
+      }),
+      promo_total_cents: '3500', selected_total_cents: '3500', discount_strategy: 'promotion_code',
+      promotion_snapshot: JSON.stringify({
+        promotionCodeId: 'promo_sandbox', couponId: 'TnKAhVjG',
+        subtotalCents: 5000, totalCents: 3500, discountCents: 1500, currency: 'cny',
+      }),
+    });
+    const repository = createOrderRepository(database);
+
+    await repository.reserveOrder({
+      userId: '42', quoteId: '501', confirmationKeyDigest: 'b'.repeat(64),
+      pricingVersion: 'ke-commerce-test-v1', stripeAccountId: 'acct_test', livemode: false,
+      paymentMethodConfigurationId: 'pmc_ordinary', productIds: { slots: 'prod_slots', 'module:standalone': 'prod_offline' },
+      siteOrigin: 'https://ltsd.ro', now: NOW,
+    });
+
+    const orderInsert = database.runCalls.find((call) => call.sql.includes('INSERT INTO commerce_orders'))!;
+    expect(JSON.parse(String(orderInsert.values[12]))).toMatchObject({ couponId: 'TnKAhVjG' });
   });
 
   it('reuses an existing order only when the same user key carries the same quote hash', async () => {

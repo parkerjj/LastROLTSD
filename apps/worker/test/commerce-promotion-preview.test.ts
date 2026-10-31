@@ -3,6 +3,31 @@ import { previewPromotion, PromotionCodeError } from '../src/commerce/promotion-
 import type { StripeClient } from '../src/commerce/stripe-client';
 
 describe('Stripe promotion preview', () => {
+  it('reads the coupon from the current Stripe promotion object shape', async () => {
+    const stripe = {
+      get: vi.fn(async () => ({ data: [{
+        id: 'promo_current', code: 'CURRENT', active: true, customer: null,
+        promotion: { type: 'coupon', coupon: 'coupon_current' },
+      }] })),
+      post: vi.fn(async () => ({ currency: 'cny', subtotal: 5000, total: 3500 })),
+    } as unknown as StripeClient;
+
+    const result = await previewPromotion({
+      customerId: 'cus_current',
+      items: [{ productKey: 'slots', productId: 'prod_slots', description: 'KE slot', rawUnitAmountCents: 5000, tierUnitAmountCents: 5000, durationMs: '2592000000', quantity: 1 }],
+      promotionCode: 'CURRENT',
+    }, stripe);
+
+    expect(result).toEqual({
+      promotionCodeId: 'promo_current',
+      couponId: 'coupon_current',
+      subtotalCents: 5000,
+      totalCents: 3500,
+      discountCents: 1500,
+      currency: 'cny',
+    });
+  });
+
   it('previews only the supplied one-time CNY order and uses invoice total, not balance-adjusted amount_due', async () => {
     const get = vi.fn(async (path: string, params?: Record<string, unknown>) => {
       expect(path).toBe('/promotion_codes');

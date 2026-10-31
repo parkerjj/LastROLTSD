@@ -25,6 +25,9 @@ import type {
 import "./commerce-page.css";
 
 const TERM_DAYS = [30, 90, 180, 360] as const;
+const MAX_SELECTION_ITEMS = 1000;
+const SLOTS_NAME = "KE 挂机额度";
+const FEATURE_NAME = "全平台脱机 KoreEngine";
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -131,10 +134,33 @@ function formatCents(cents: bigint | string): string {
   return `${sign}¥${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}`;
 }
 
-function formatDate(value: string): string {
+function formatShortCents(cents: bigint | string): string {
+  const value = typeof cents === "bigint" ? cents : BigInt(cents);
+  const sign = value < 0n ? "-" : "";
+  const absolute = value < 0n ? -value : value;
+  const fraction = absolute % 100n;
+  return fraction === 0n
+    ? `${sign}¥${absolute / 100n}`
+    : `${sign}¥${absolute / 100n}.${String(fraction).padStart(2, "0")}`;
+}
+
+function formatDate(value: string | number): string {
   const timestamp = Number(value);
   if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8_640_000_000_000_000) return "日期不可用";
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+}
+
+function formatDay(value: string | number): string {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8_640_000_000_000_000) return "日期不可用";
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium" }).format(timestamp);
+}
+
+function formatClock(value: string | number): string {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp)) return "--:--";
+  const date = new Date(timestamp);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function formatDuration(value: string | bigint): string {
@@ -151,6 +177,15 @@ function formatDuration(value: string | bigint): string {
     .filter(Boolean).join(" ") || "不足一分钟";
 }
 
+function remainingDays(value: string | number, now: number): number {
+  const diff = Number(value) - now;
+  return Math.max(0, Math.ceil(diff / Number(COMMERCE_DAY_MS)));
+}
+
+function termLabel(days: number): string {
+  return `${days / 30} 个月`;
+}
+
 function product(catalog: CommerceCatalog, key: "slots" | "module:standalone"): CommerceProduct {
   const value = catalog.products.find((entry) => entry.key === key);
   if (!value) throw new Error("购买目录缺少商品");
@@ -163,8 +198,14 @@ function activePaidSlots(account: CommerceBootstrap["account"], now: number): Co
 }
 
 function activeStandalone(account: CommerceBootstrap["account"], now: number): CommerceBootstrapEntitlement[] {
+  if (!account.effective.modules.includes("standalone")) return [];
   return account.entitlements.filter((row) => row.resource === "module:standalone" && row.quantity > 0 && !row.isGift
     && Number(row.startsAt) <= now && Number(row.expiresAt) > now);
+}
+
+function hasActiveStandaloneGift(account: CommerceBootstrap["account"], now: number): boolean {
+  return account.effective.modules.includes("standalone") && account.entitlements.some((row) => row.resource === "module:standalone"
+    && row.quantity > 0 && row.isGift && Number(row.startsAt) <= now && Number(row.expiresAt) > now);
 }
 
 function alignmentExpiries(account: CommerceBootstrap["account"], now: number): Array<{ key: "slots" | "module:standalone"; expiresAt: number }> {
@@ -187,42 +228,79 @@ function lineCents(catalog: CommerceCatalog, key: "slots" | "module:standalone",
   return priceLineCents(BigInt(item.monthlyUnitPriceCents), durationMs, tier);
 }
 
+function rawLineCents(catalog: CommerceCatalog, key: "slots" | "module:standalone", days: number): bigint {
+  const item = product(catalog, key);
+  return priceLineCents(BigInt(item.monthlyUnitPriceCents), BigInt(days) * COMMERCE_DAY_MS, 100);
+}
+
 function formatTerm(term: CommerceTerm, catalog: CommerceCatalog, key: "slots" | "module:standalone", group: string): string {
-  const note = group === "alignment"
-    ? `统一目标后再增加 ${term.days} 天`
-    : `${formatCents(lineCents(catalog, key, BigInt(term.days) * COMMERCE_DAY_MS))} / 项`;
+  const days = term.days;
   const discount = term.discountPercent === 100 ? "原价" : `${term.discountPercent / 10} 折`;
-  return `<button type="button" class="commerce-term" data-focus-key="term-${group}-${term.days}" data-term-days="${term.days}" aria-pressed="false"><strong>${term.days} 天</strong><span>${discount}</span><small>${note}</small></button>`;
+  const saveBadge = term.discountPercent === 100
+    ? ""
+    : `<span class="commerce-term-save">${discount} · 省 ${formatShortCents(rawLineCents(catalog, key, days) - lineCents(catalog, key, BigInt(days) * COMMERCE_DAY_MS))}</span>`;
+  if (group === "alignment") {
+    return `<button type="button" class="commerce-term" data-focus-key="term-${group}-${days}" data-term-days="${days}" aria-pressed="false"><span class="commerce-term-month">${termLabel(days)}</span><span class="commerce-term-days">目标再延 ${days} 天</span></button>`;
+  }
+  const price = term.discountPercent === 100
+    ? `<span class="commerce-term-price">${formatShortCents(lineCents(catalog, key, BigInt(days) * COMMERCE_DAY_MS))}</span>`
+    : `<span class="commerce-term-price"><s>${formatShortCents(rawLineCents(catalog, key, days))}</s>${formatShortCents(lineCents(catalog, key, BigInt(days) * COMMERCE_DAY_MS))}</span>`;
+  return `<button type="button" class="commerce-term" data-focus-key="term-${group}-${days}" data-term-days="${days}" aria-pressed="false"><span class="commerce-term-month">${termLabel(days)}</span><span class="commerce-term-days">${days} 天</span>${price}${saveBadge}</button>`;
 }
 
 function entitlementName(row: CommercePreviewEntitlement): string {
-  if (row.resource === "slots") return row.isGift ? "赠送实例额度" : "KE 实例额度";
-  if (row.resource === "module:standalone") return "全平台离线 KoreEngine";
+  if (row.resource === "slots") return row.isGift ? "赠送挂机额度" : SLOTS_NAME;
+  if (row.resource === "module:standalone") return FEATURE_NAME;
   if (row.resource === "module:core") return row.isGift ? "核心功能（赠送）" : "核心功能";
   return `额度调整 · ${row.resource}`;
 }
 
-function renderAccountPreview(preview: { before: { entitlements: CommercePreviewEntitlement[] }; after: { entitlements: CommercePreviewEntitlement[] } }): string {
+function renderAccountPreview(
+  preview: { before: { entitlements: CommercePreviewEntitlement[] }; after: { entitlements: CommercePreviewEntitlement[] } },
+  options: { collapseUnchanged?: boolean } = {},
+): { html: string; changed: number; unchanged: number } {
   const before = preview.before.entitlements;
   const after = preview.after.entitlements;
   const beforeByKey = new Map<string, CommercePreviewEntitlement>();
   before.forEach((row, index) => beforeByKey.set(row.entitlementId ? `id:${row.entitlementId}` : `row:${index}`, row));
   const used = new Set<string>();
-  const rows = after.map((row, index) => {
+  let changedCount = 0;
+  const changedRows: string[] = [];
+  const unchangedRows: Array<{ html: string; keepOpen: boolean }> = [];
+  after.forEach((row, index) => {
     const key = row.entitlementId ? `id:${row.entitlementId}` : `new:${index}`;
     used.add(key);
     const old = beforeByKey.get(row.entitlementId ? `id:${row.entitlementId}` : `row:${index}`);
     const label = entitlementName(row);
     const changed = old ? old.expiresAt !== row.expiresAt : row.isNew === true;
     const quantity = row.quantity < 0 ? `调整 ${row.quantity}` : `${row.quantity}`;
-    return `<tr data-preview-row="${escapeHtml(key)}"${changed ? ' class="is-changed"' : ""}><th scope="row">${escapeHtml(label)}${row.isGift ? '<span class="commerce-gift-tag">赠送</span>' : ""}</th><td>${quantity}</td><td>${old ? formatDate(old.expiresAt) : "新购"}</td><td>${formatDate(row.expiresAt)}</td></tr>`;
+    const rowHtml = `<tr data-preview-row="${escapeHtml(key)}"${changed ? ' class="is-changed"' : ""}><th scope="row"><span class="commerce-preview-name">${escapeHtml(label)}</span>${row.isGift ? '<span class="commerce-gift-tag">赠送</span>' : ""}</th><td>${quantity}</td><td>${old ? formatDate(old.expiresAt) : row.isNew ? "新购" : "—"}</td><td>${formatDate(row.expiresAt)}</td></tr>`;
+    if (changed) {
+      changedCount += 1;
+      changedRows.push(rowHtml);
+    } else {
+      unchangedRows.push({ html: rowHtml, keepOpen: row.isGift });
+    }
   });
   before.forEach((row, index) => {
     const key = row.entitlementId ? `id:${row.entitlementId}` : `row:${index}`;
     if (used.has(key)) return;
-    rows.push(`<tr data-preview-row="${escapeHtml(key)}"><th scope="row">${escapeHtml(entitlementName(row))}</th><td>${row.quantity}</td><td>${formatDate(row.expiresAt)}</td><td>本次不变</td></tr>`);
+    unchangedRows.push({
+      html: `<tr data-preview-row="${escapeHtml(key)}"><th scope="row"><span class="commerce-preview-name">${escapeHtml(entitlementName(row))}</span></th><td>${row.quantity}</td><td>${formatDate(row.expiresAt)}</td><td>本次不变</td></tr>`,
+      keepOpen: row.isGift,
+    });
   });
-  return `<div class="commerce-preview-table-wrap"><table class="commerce-preview-table"><thead><tr><th scope="col">账号权益</th><th scope="col">数量</th><th scope="col">购买前到期</th><th scope="col">购买后到期</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  const collapse = options.collapseUnchanged === true;
+  const collapsible = unchangedRows.filter((row) => !row.keepOpen);
+  const body = changedRows.join("") + unchangedRows.map((row) => collapse && !row.keepOpen
+    ? row.html.replace("<tr ", '<tr data-preview-unchanged class="is-collapsed-row" ')
+    : row.html).join("");
+  return {
+    html: `<div class="commerce-preview-wrap"><table class="commerce-preview-table"><thead><tr><th scope="col">账号权益</th><th scope="col">数量</th><th scope="col">购买前到期</th><th scope="col">购买后到期</th></tr></thead><tbody>${body}</tbody></table></div>`,
+    changed: changedCount,
+    unchanged: unchangedRows.length,
+    collapsible: collapsible.length,
+  };
 }
 
 function quoteMessage(error: unknown): string {
@@ -242,14 +320,27 @@ function buildNormalSelection(
   const selection: CommerceQuoteSelection[] = [];
   if (slotMode === "add") {
     const quantity = Number(slotQuantity);
-    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1000) return [];
-    selection.push({ type: "slot_add", quantity, termDays: slotTermDays as 30 | 90 | 180 | 360 });
+    if (!Number.isSafeInteger(quantity) || quantity < 0 || quantity > MAX_SELECTION_ITEMS) return [];
+    if (quantity > 0) selection.push({ type: "slot_add", quantity, termDays: slotTermDays as 30 | 90 | 180 | 360 });
   } else {
     const unitIds = activePaidSlots(account, Date.now()).filter((unit) => selectedUnitIds.has(unit.unitId)).map((unit) => unit.unitId);
     if (unitIds.length) selection.push({ type: "slot_renew", unitIds, termDays: slotTermDays as 30 | 90 | 180 | 360 });
   }
   if (featureSelected) selection.push({ type: "standalone", termDays: featureTermDays as 30 | 90 | 180 | 360 });
   return selection;
+}
+
+function selectionItemCount(selection: readonly CommerceQuoteSelection[]): number {
+  return selection.reduce((total, item) => total + (item.type === "slot_add" ? item.quantity
+    : item.type === "slot_renew" ? item.unitIds.length : item.type === "standalone" ? 1 : 0), 0);
+}
+
+function selectionLimitMessage(): string {
+  return `单笔最多 ${MAX_SELECTION_ITEMS} 个权益项；额度与脱机功能合计超限，请减少额度数量或取消部分续期。`;
+}
+
+function alignmentLimitMessage(itemCount: number): string {
+  return `统一到期会产生 ${itemCount} 个付费项目，超过单笔 ${MAX_SELECTION_ITEMS} 项上限；请关闭窗口后分批选择额度续期。`;
 }
 
 function selectionPrice(selection: readonly CommerceQuoteSelection[], catalog: CommerceCatalog): bigint {
@@ -259,6 +350,57 @@ function selectionPrice(selection: readonly CommerceQuoteSelection[], catalog: C
     const quantity = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
     return total + amount * BigInt(quantity);
   }, 0n);
+}
+
+function selectionRawPrice(selection: readonly CommerceQuoteSelection[], catalog: CommerceCatalog): bigint {
+  return selection.reduce((total, item) => {
+    const key = item.type === "standalone" ? "module:standalone" : "slots";
+    const amount = rawLineCents(catalog, key, item.termDays);
+    const quantity = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
+    return total + amount * BigInt(quantity);
+  }, 0n);
+}
+
+interface GroupedQuoteItem {
+  productKey: "slots" | "module:standalone";
+  operation: "ADD" | "RENEW";
+  durationMs: bigint;
+  expectedStartsAt: number;
+  expectedExpiresAt: number;
+  count: number;
+  paidCents: bigint;
+}
+
+function groupQuoteItems(items: readonly CommerceQuote["items"][number][]): GroupedQuoteItem[] {
+  const grouped = new Map<string, GroupedQuoteItem>();
+  for (const item of items) {
+    const key = `${item.productKey}|${item.operation}|${item.durationMs}|${item.expectedStartsAt}|${item.expectedExpiresAt}`;
+    const current = grouped.get(key);
+    if (current) {
+      current.count += 1;
+      current.paidCents += BigInt(item.paidCents);
+    } else {
+      grouped.set(key, {
+        productKey: item.productKey,
+        operation: item.operation,
+        durationMs: BigInt(item.durationMs),
+        expectedStartsAt: Number(item.expectedStartsAt),
+        expectedExpiresAt: Number(item.expectedExpiresAt),
+        count: 1,
+        paidCents: BigInt(item.paidCents),
+      });
+    }
+  }
+  return [...grouped.values()];
+}
+
+function quoteItemName(key: "slots" | "module:standalone"): string {
+  return key === "slots" ? SLOTS_NAME : FEATURE_NAME;
+}
+
+function quoteOperationLabel(key: "slots" | "module:standalone", operation: "ADD" | "RENEW"): string {
+  if (key === "module:standalone") return operation === "ADD" ? "开通" : "续期";
+  return operation === "ADD" ? "新买" : "续期";
 }
 
 export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstrap, api: CommerceApi): void {
@@ -272,12 +414,16 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   let promotionCode = "";
   let currentQuote: CommerceQuote | null = null;
   let quoteBusy = false;
+  let quoteRevision = 0;
   let orderBusy = false;
   let errorMessage = "";
   let alignmentNotice = false;
   let orderMessage = "";
   let idempotencyKey: string | null = null;
-  let historyOpen = false;
+  let view: "buy" | "orders" = "buy";
+  let alignOpen = false;
+  let promoOpen = false;
+  let previewExpanded = false;
   let historyLoading = false;
   let historyLoaded = false;
   let historyError = "";
@@ -302,7 +448,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   const featureProduct = product(bootstrap.catalog, "module:standalone");
 
   function renderTerms(group: string, key: "slots" | "module:standalone", days: number): string {
-    const ariaLabel = group === "alignment" ? "统一到期额外时长" : key === "slots" ? "实例额度期限" : "离线功能期限";
+    const ariaLabel = group === "alignment" ? "统一到期额外时长" : key === "slots" ? "挂机额度期限" : "脱机功能期限";
     return `<div class="commerce-terms" data-term-group="${group}" role="group" aria-label="${ariaLabel}">${bootstrap.catalog.terms.map((term) => formatTerm(term, bootstrap.catalog, key, group).replace('aria-pressed="false"', `aria-pressed="${term.days === days}"`)).join("")}</div>`;
   }
 
@@ -318,29 +464,208 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     return rows.reduce((total, row) => total + lineCents(bootstrap.catalog, row.key, BigInt(target - row.expiresAt)), 0n);
   }
 
-  function renderSlots(): string {
+  function alignmentTarget(now: number): number | null {
+    const rows = alignmentExpiries(bootstrap.account, now);
+    if (!rows.length) return null;
+    return Math.max(...rows.map((row) => row.expiresAt)) + alignTermDays * Number(COMMERCE_DAY_MS);
+  }
+
+  function alignmentDetails(now: number): Array<{ label: string; addedMs: bigint; cents: bigint }> {
+    const target = alignmentTarget(now);
+    if (target === null) return [];
+    const rows: Array<{ label: string; addedMs: bigint; cents: bigint }> = activePaidSlots(bootstrap.account, now)
+      .map((unit, index) => ({
+        label: `额度 #${index + 1}（剩 ${remainingDays(unit.expiresAt, now)} 天）`,
+        addedMs: BigInt(target - Number(unit.expiresAt)),
+        cents: lineCents(bootstrap.catalog, "slots", BigInt(target - Number(unit.expiresAt))),
+      }));
+    const features = activeStandalone(bootstrap.account, now);
+    if (features.length) {
+      const expiresAt = Math.max(...features.map((row) => Number(row.expiresAt)));
+      rows.push({
+        label: `脱机 KoreEngine（剩 ${remainingDays(expiresAt, now)} 天）`,
+        addedMs: BigInt(target - expiresAt),
+        cents: lineCents(bootstrap.catalog, "module:standalone", BigInt(target - expiresAt)),
+      });
+    }
+    return rows;
+  }
+
+  function renderSlots(now: number): string {
     const units = bootstrap.account.units;
-    if (!units.length) return '<p class="commerce-empty">目前没有生效中的实例额度。</p>';
-    const activeUnitIds = new Set(activePaidSlots(bootstrap.account, Date.now()).map((unit) => unit.unitId));
-    return `<div class="commerce-unit-list">${units.map((unit, index) => {
+    if (!units.length) return '<p class="commerce-empty">目前没有挂机额度。</p>';
+    const activeUnitIds = new Set(activePaidSlots(bootstrap.account, now).map((unit) => unit.unitId));
+    return `<div class="commerce-renew-list">${units.map((unit, index) => {
       const selectable = activeUnitIds.has(unit.unitId);
       const selected = selectedUnitIds.has(unit.unitId);
-      return `<div class="commerce-unit-row"><div class="commerce-unit-main"><span class="commerce-unit-number">额度 ${index + 1}</span><span class="commerce-unit-kind">${unit.isGift ? '<span class="commerce-gift-tag">永久赠送</span>' : unit.kind === "legacy" ? "既有额度" : "付费额度"}</span><span class="commerce-unit-expiry">到期 ${formatDate(unit.expiresAt)}</span></div>${slotMode === "renew" ? `<label class="commerce-check"><input data-focus-key="unit-${escapeHtml(unit.unitId)}" data-slot-unit="${escapeHtml(unit.unitId)}" type="checkbox" ${selected ? "checked" : ""} ${!selectable ? "disabled" : ""} aria-label="选择续期额度 ${index + 1}"><span>续期</span></label>` : ""}</div>`;
+      const expiry = Number(unit.expiresAt);
+      const after = selectable ? formatDay(expiry + slotTermDays * Number(COMMERCE_DAY_MS)) : "";
+      const meta = unit.isGift ? `赠送 · ${formatDay(expiry)}到期 · 不可续费` : selectable ? `剩 ${remainingDays(expiry, now)} 天 · 到期 ${formatDay(expiry)}` : "已到期";
+      return `<label class="commerce-renew-row${selected ? " is-selected" : ""}${!selectable ? " is-disabled" : ""}"><input data-focus-key="unit-${escapeHtml(unit.unitId)}" data-slot-unit="${escapeHtml(unit.unitId)}" type="checkbox" ${selected ? "checked" : ""} ${!selectable ? "disabled" : ""} aria-label="选择续期额度 ${index + 1}"><span class="commerce-renew-main"><span class="commerce-renew-name">额度 #${index + 1}${unit.isGift ? '<span class="commerce-gift-tag">赠送</span>' : ""}</span><span class="commerce-renew-meta">${meta}</span></span>${selectable ? `<span class="commerce-renew-after">续 ${slotTermDays} 天后<b>${after}</b></span>` : ""}</label>`;
     }).join("")}</div>`;
+  }
+
+  function renderQuantityRow(): string {
+    return `<div class="commerce-quantity-row">
+      <span class="commerce-quantity-label">数量</span>
+      <div class="commerce-stepper">
+        <button type="button" data-action="qty-step" data-step="-1" aria-label="减少数量" ${!canPurchase ? "disabled" : ""}>−</button>
+        <input data-focus-key="slot-quantity" name="slot-quantity" type="number" min="0" max="${MAX_SELECTION_ITEMS}" step="1" inputmode="numeric" value="${escapeHtml(slotQuantity)}" ${!canPurchase ? "disabled" : ""}>
+        <button type="button" data-action="qty-step" data-step="1" aria-label="增加数量" ${!canPurchase ? "disabled" : ""}>＋</button>
+        <span class="commerce-stepper-unit">个</span>
+      </div>
+      <span class="commerce-quantity-hint">单笔上限 10 个 · 设为 0 可只买脱机功能</span>
+    </div>`;
+  }
+
+  function renderSlotsCard(now: number): string {
+    const active = activePaidSlots(bootstrap.account, now);
+    return `<article class="commerce-card" data-product="slots">
+      <div class="commerce-card-head">
+        <div><h2>${SLOTS_NAME}</h2><p>买 1 个额度 = 多开 1 个实例，每个额度各自到期、各自续费。</p></div>
+        <div class="commerce-card-price"><b>${formatShortCents(slotsProduct.monthlyUnitPriceCents)}</b><span>/ 个 · 30 天</span></div>
+      </div>
+      <div class="commerce-seg" role="group" aria-label="挂机额度操作">
+        <button type="button" data-focus-key="slot-mode-add" data-mode="add" aria-pressed="${slotMode === "add"}">新买额度</button>
+        <button type="button" data-focus-key="slot-mode-renew" data-mode="renew" aria-pressed="${slotMode === "renew"}" ${active.length === 0 ? "disabled" : ""}>续费已有额度</button>
+      </div>
+      ${slotMode === "add" ? renderQuantityRow() : `<div class="commerce-renew-block"><div class="commerce-renew-head"><h3>选择要续期的额度</h3><span>已选 ${selectedUnitIds.size} 个</span></div>${renderSlots(now)}<p class="commerce-renew-note">赠送额度不能续期；同一天到期的额度也各自独立，不会合并。</p></div>`}
+      <div class="commerce-terms-block">
+        <div class="commerce-terms-head"><h3>选择时长</h3><p>折扣按本次新增时长逐项计算，不合并额度数量。</p></div>
+        ${renderTerms("slots", "slots", slotTermDays)}
+      </div>
+    </article>`;
+  }
+
+  function renderFeatureCard(now: number): string {
+    const active = activeStandalone(bootstrap.account, now);
+    const giftActive = hasActiveStandaloneGift(bootstrap.account, now);
+    const latest = active.length ? Math.max(...active.map((row) => Number(row.expiresAt))) : null;
+    const state = latest === null
+      ? giftActive ? "当前通过赠送开通，本次购买将新增独立的付费期限。" : "当前未开通，本次购买将开通。"
+      : `当前已开通，最晚到期 ${formatDay(latest)}，再次购买直接顺延。`;
+    const action = active.length ? "续期" : giftActive ? "购买付费期" : "开通";
+    return `<article class="commerce-card" data-product="feature">
+      <div class="commerce-card-head">
+        <div><h2>${FEATURE_NAME}</h2><p>账号级功能，开通后账号下所有实例都能用，不按实例数量另收费。</p></div>
+        <div class="commerce-card-price"><b>${formatShortCents(featureProduct.monthlyUnitPriceCents)}</b><span>/ 账号 · 30 天</span></div>
+      </div>
+      <div class="commerce-switch-row">
+        <div class="commerce-switch-info"><b>本次${action}脱机功能</b><span>${state}</span></div>
+        <label class="commerce-switch"><input data-focus-key="feature-selected" name="feature-selected" type="checkbox" ${featureSelected ? "checked" : ""} ${!canPurchase ? "disabled" : ""} aria-label="将脱机功能加入本次订单"><span class="commerce-switch-track" aria-hidden="true"></span></label>
+      </div>
+      <div class="commerce-terms-block">
+        <div class="commerce-terms-head"><h3>选择时长</h3><p>功能按账号计费，不按实例数量重复收费。</p></div>
+        ${renderTerms("feature", "module:standalone", featureTermDays)}
+      </div>
+    </article>`;
+  }
+
+  function renderAlignLine(now: number, amount: bigint | null): string {
+    const rows = alignmentExpiries(bootstrap.account, now);
+    return `<div class="commerce-align-line">
+      <span class="commerce-align-icon" aria-hidden="true">◷</span>
+      <div class="commerce-align-copy"><b>把所有到期日统一到同一天</b><span>${amount === null ? "当前没有可统一的付费项目" : `共 ${rows.length} 个付费项 · 当前需补 ${formatCents(amount)}`}</span></div>
+      <button type="button" class="commerce-align-button" data-focus-key="align-open" data-action="open-align" ${!canPurchase || amount === null ? "disabled" : ""}>调整</button>
+    </div>`;
+  }
+
+  function renderAlignDialog(now: number, amount: bigint | null): string {
+    const itemCount = alignmentExpiries(bootstrap.account, now).length;
+    const alignmentOverLimit = itemCount > MAX_SELECTION_ITEMS;
+    const details = alignmentOverLimit ? [] : alignmentDetails(now);
+    return `<dialog class="commerce-dialog commerce-align-dialog" data-align-dialog aria-labelledby="commerce-align-title">
+      <div class="commerce-dialog-head"><h2 id="commerce-align-title" data-focus-key="commerce-align-title">统一所有付费项目的到期日</h2><p>以「最晚到期的一项 + 所选时长」为目标，落后的项目自动补足差额。赠送额度与核心功能不参与。</p></div>
+      <div class="commerce-dialog-body">
+        ${details.length ? `<div class="commerce-align-details">${details.map((row) => `<div class="commerce-align-detail"><span>${escapeHtml(row.label)}</span><b>+${formatDuration(row.addedMs)} · ${formatCents(row.cents)}</b></div>`).join("")}</div>` : alignmentOverLimit ? "" : '<p class="commerce-empty">当前没有可统一的付费项目。</p>'}
+        ${alignmentOverLimit ? `<p class="commerce-selection-limit-error" data-alignment-limit-error role="alert">${alignmentLimitMessage(itemCount)}</p>` : ""}
+        ${renderTerms("alignment", "slots", alignTermDays)}
+        <div class="commerce-dialog-total"><span>本次需补</span><b>${amount === null ? "—" : formatCents(amount)}</b></div>
+        <p class="commerce-dialog-note">若收费项目到期相差不到 24 小时，会提示「无需统一」，不产生报价或订单。</p>
+      </div>
+      <div class="commerce-dialog-foot"><button type="button" class="commerce-button commerce-button--secondary" data-action="close-align">取消</button><button type="button" class="commerce-button commerce-button--primary" data-action="align" ${!canPurchase || amount === null || alignmentOverLimit || quoteBusy || orderBusy ? "disabled" : ""}>统一到期并去确认</button></div>
+    </dialog>`;
+  }
+
+  function renderPromotionControl(placement: "desktop" | "mobile"): string {
+    const mobileAttribute = placement === "mobile" ? " data-mobile-promo" : "";
+    return `<div class="commerce-promo commerce-promo--${placement}"${mobileAttribute}>
+      <button type="button" class="commerce-promo-toggle" data-focus-key="promotion-toggle-${placement}" data-action="toggle-promo" aria-expanded="${promoOpen}"><i aria-hidden="true">＋</i> ${promoOpen ? "收起优惠码" : "有优惠码？"}</button>
+      <div class="commerce-promo-body${promoOpen ? "" : " is-hidden"}">
+        <input data-focus-key="promotion-code-${placement}" name="promotion-code" type="text" maxlength="100" autocomplete="off" value="${escapeHtml(promotionCode)}" placeholder="输入 Stripe 优惠码" ${!canPurchase ? "disabled" : ""}>
+        <p>与时长优惠整单比较，只取更低的一种，不重复叠加。</p>
+      </div>
+    </div>`;
+  }
+
+  function renderSummary(selection: readonly CommerceQuoteSelection[], estimate: bigint, selectionOverLimit: boolean): string {
+    const lines: Array<{ title: string; note: string; cents: bigint }> = [];
+    for (const item of selection) {
+      const key = item.type === "standalone" ? "module:standalone" : "slots";
+      const amount = lineCents(bootstrap.catalog, key, BigInt(item.termDays) * COMMERCE_DAY_MS);
+      const count = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
+      const title = item.type === "standalone" ? "脱机 KoreEngine" : `${SLOTS_NAME} × ${count}`;
+      const action = item.type === "standalone"
+        ? `${activeStandalone(bootstrap.account, Date.now()).length ? "续费" : "开通"} · ${termLabel(item.termDays)}（${item.termDays} 天）`
+        : `${item.type === "slot_add" ? "新买" : "续费"} · ${termLabel(item.termDays)}（${item.termDays} 天）`;
+      lines.push({ title, note: action, cents: amount * BigInt(count) });
+    }
+    const saved = selectionRawPrice(selection, bootstrap.catalog) - estimate;
+    return `<aside class="commerce-summary" aria-label="本次订单摘要">
+      <div class="commerce-summary-head"><h3>本次订单</h3><span>${lines.length} 项</span></div>
+      <div class="commerce-summary-lines">${lines.length ? lines.map((line) => `<div class="commerce-summary-line"><div><b>${escapeHtml(line.title)}</b><span>${escapeHtml(line.note)}</span></div><em>${formatCents(line.cents)}</em></div>`).join("") : '<p class="commerce-summary-empty">还没有选择项目。<br>在上方选择额度或脱机功能。</p>'}</div>
+      ${renderPromotionControl("desktop")}
+      <div class="commerce-summary-total"><div class="commerce-summary-total-label">合计<span>${saved > 0n ? `已含时长优惠 −${formatCents(saved)}` : "最终金额以服务器报价为准"}</span></div><div class="commerce-summary-amount">${formatCents(estimate)}</div></div>
+      <button type="button" class="commerce-summary-cta" data-focus-key="commerce-review" data-action="review" ${!canPurchase || selection.length === 0 || selectionOverLimit || quoteBusy || orderBusy ? "disabled" : ""}>${quoteBusy ? "正在获取报价…" : "去确认订单"}</button>
+      <p class="commerce-summary-foot">确认后商品、时长与金额固定不可改<br>付款限时 30 分钟</p>
+    </aside>`;
   }
 
   function renderQuote(): string {
     if (!currentQuote) return "";
     const quote = currentQuote;
-    const tierTotal = formatCents(quote.tierTotalCents);
-    const promoTotal = quote.promoTotalCents === null ? null : formatCents(quote.promoTotalCents);
-    const strategy = quote.discountStrategy === "promotion_code" ? "整单优惠码胜出" : "期限优惠胜出";
-    const itemRows = quote.items.map((item) => {
-      const name = item.productKey === "slots" ? "KE 实例额度" : "全平台离线 KoreEngine";
-      const operation = item.operation === "ADD" ? "新增" : "续期";
-      return `<tr><th scope="row">${name} · ${operation}</th><td>${formatDuration(item.durationMs)}</td><td>${formatDate(item.expectedExpiresAt)}</td><td>${formatCents(item.paidCents)}</td></tr>`;
+    const selected = formatCents(quote.selectedTotalCents);
+    const raw = formatCents(quote.rawTotalCents);
+    const discount = BigInt(quote.rawTotalCents) - BigInt(quote.selectedTotalCents);
+    const strategy = quote.discountStrategy === "promotion_code" ? "整单优惠码 · 不重复叠加" : "期限优惠 · 不重复叠加";
+    const grouped = groupQuoteItems(quote.items);
+    const itemRows = grouped.map((item) => {
+      const name = quoteItemName(item.productKey);
+      const operation = quoteOperationLabel(item.productKey, item.operation);
+      const expiry = item.operation === "ADD"
+        ? `<span class="commerce-item-new">新购</span> → ${formatDate(item.expectedExpiresAt)}`
+        : `<span class="commerce-item-old">现 ${formatDay(item.expectedStartsAt)}</span> → ${formatDate(item.expectedExpiresAt)}`;
+      return `<tr><td class="commerce-item-name" data-label="项目"><b>${name}${item.count > 1 ? ` × ${item.count}` : ""}</b><span>${operation}</span></td><td class="commerce-item-duration" data-label="时长">${formatDuration(item.durationMs)}</td><td class="commerce-item-expiry" data-label="到期">${expiry}</td><td class="commerce-item-money" data-label="金额">${formatCents(item.paidCents)}</td></tr>`;
     }).join("");
-    return `<section class="commerce-review" data-review-result aria-labelledby="commerce-review-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">最终确认</p><h2 id="commerce-review-title" data-focus-key="commerce-review-title">本次订单</h2></div><p>报价有效至 ${formatDate(quote.expiresAt)}</p></div><div class="commerce-review-summary"><div><span>期限优惠合计</span><strong>${tierTotal}</strong></div>${promoTotal ? `<div><span>优惠码整单价</span><strong>${promoTotal}</strong></div>` : ""}<div class="commerce-review-total"><span>${strategy} · 不重复叠加</span><strong>${formatCents(quote.selectedTotalCents)}</strong></div></div><div class="commerce-preview-table-wrap"><table class="commerce-preview-table"><thead><tr><th scope="col">购买项目</th><th scope="col">新增时长</th><th scope="col">预计到期</th><th scope="col">金额</th></tr></thead><tbody>${itemRows}</tbody></table></div><div class="commerce-section-heading commerce-account-heading"><div><p class="commerce-kicker">完整账号预览</p><h3>购买前后所有权益</h3></div><p>赠送、未选择和只读调整项目也会保留显示</p></div><div data-account-preview>${renderAccountPreview(quote.accountPreview)}</div><div class="commerce-pay-row"><button class="commerce-button commerce-button--primary" type="button" data-focus-key="commerce-pay" data-action="pay" ${orderBusy ? "disabled" : ""}>${orderBusy ? "正在创建订单…" : `确认订单并前往付款 ${formatCents(quote.selectedTotalCents)}`}</button><span>确认后订单内容固定，付款时间为 30 分钟。</span></div>${orderMessage ? `<p class="commerce-success" role="status">${escapeHtml(orderMessage)}</p>` : ""}</section>`;
+    const preview = renderAccountPreview(quote.accountPreview, { collapseUnchanged: !previewExpanded });
+    return `<section class="commerce-confirm" data-review-result aria-labelledby="commerce-review-title">
+      <div class="commerce-confirm-bar">
+        <button type="button" class="commerce-confirm-back" data-action="close-review">← 返回修改</button>
+        <div class="commerce-confirm-title"><h2 id="commerce-review-title" data-focus-key="commerce-review-title">确认订单</h2><p>共 ${grouped.length} 项 · 实际支付 ${selected}</p></div>
+        <div class="commerce-confirm-timer"><span>报价有效至</span><b>${formatClock(quote.expiresAt)}</b></div>
+      </div>
+      <div class="commerce-panel">
+        <div class="commerce-panel-head"><h3>购买内容</h3><span>下单后固定不可修改</span></div>
+        <div class="commerce-item-table-wrap"><table class="commerce-item-table"><thead><tr><th scope="col">项目</th><th scope="col">时长</th><th scope="col">到期</th><th scope="col">金额</th></tr></thead><tbody>${itemRows}</tbody></table></div>
+        <div class="commerce-calc-bar">
+          <span>原价 <b>${raw}</b></span>
+          ${discount > 0n ? `<span class="is-discount">优惠 <b>−${formatCents(discount)}</b></span>` : ""}
+          <span class="commerce-calc-strategy">${strategy}</span>
+          <span class="commerce-calc-final">实际支付 <b>${selected}</b></span>
+        </div>
+      </div>
+      <div class="commerce-panel">
+        <div class="commerce-panel-head"><div><h3>账号权益变化</h3><p class="commerce-confirm-timezone" data-confirm-timezone>日期按浏览器本地时区显示：<strong>${escapeHtml(timezone)}</strong></p></div><span>${preview.changed} 项变化${preview.unchanged ? ` · ${preview.unchanged} 项不变` : ""}</span></div>
+        <div data-account-preview>${preview.html}</div>
+        ${preview.collapsible ? `<div class="commerce-preview-toggle-row"><button type="button" data-focus-key="commerce-preview-toggle" data-action="toggle-preview">${previewExpanded ? "收起未变化项" : `展开其余 ${preview.collapsible} 项`}</button></div>` : ""}
+      </div>
+      <div class="commerce-pay-strip">
+        <div class="commerce-pay-info"><b>付款限时 30 分钟</b><p>确认后订单内容固定不可修改；权益由服务器在收款后自动发放，无需联系客服。</p></div>
+        <button type="button" class="commerce-pay-button" data-focus-key="commerce-pay" data-action="pay" ${orderBusy || quoteBusy ? "disabled" : ""}>${orderBusy ? "正在创建订单…" : `去付款 · ${selected}`}</button>
+      </div>
+      ${errorMessage ? `<p class="commerce-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
+      ${orderMessage ? `<p class="commerce-success" role="status">${escapeHtml(orderMessage)}</p>` : ""}
+    </section>`;
   }
 
   function operationLabel(operation: CommerceOrderView["items"][number]["operation"]): string {
@@ -358,34 +683,116 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     return "购买已完成";
   }
 
+  function orderBadge(order: CommerceOrderView): string {
+    if (order.paymentState === "failed") return '<span class="commerce-pill is-bad">付款失败</span>';
+    if (order.paymentState === "processing") return '<span class="commerce-pill is-wait">付款确认中</span>';
+    if (order.paymentState === "unpaid") {
+      return order.checkoutState === "expired"
+        ? '<span class="commerce-pill is-gray">已超时</span>'
+        : '<span class="commerce-pill is-wait">待付款</span>';
+    }
+    if (order.fulfillmentState === "pending") return '<span class="commerce-pill is-wait">权益同步中</span>';
+    if (order.fulfillmentState === "settled") return '<span class="commerce-pill is-ok">已结算</span>';
+    return '<span class="commerce-pill is-ok">已完成</span>';
+  }
+
+  function refundBadge(order: CommerceOrderView): string {
+    if (order.refundState === "partial") return '<span class="commerce-pill is-bad">部分退款</span>';
+    if (order.refundState === "full") return '<span class="commerce-pill is-gray">全额退款</span>';
+    return "";
+  }
+
+  function summaryBadge(order: CommerceOrderSummary): string {
+    const refund = order.refundState === "partial"
+      ? '<span class="commerce-pill is-bad">部分退款</span>'
+      : order.refundState === "full"
+        ? '<span class="commerce-pill is-gray">全额退款</span>'
+        : "";
+    if (order.paymentState === "failed") return `<span class="commerce-pill is-bad">付款失败</span>${refund}`;
+    if (order.paymentState === "processing") return `<span class="commerce-pill is-wait">付款确认中</span>${refund}`;
+    if (order.paymentState === "unpaid") return `<span class="commerce-pill is-wait">待付款</span>${refund}`;
+    if (order.fulfillmentState === "pending") return `<span class="commerce-pill is-wait">权益同步中</span>${refund}`;
+    if (order.fulfillmentState === "settled") return `<span class="commerce-pill is-ok">已结算</span>${refund}`;
+    return `<span class="commerce-pill is-ok">已完成</span>${refund}`;
+  }
+
   function renderOrderDetail(): string {
-    if (!selectedOrderId) return "";
-    if (orderDetailLoading) return '<p class="commerce-history-message" role="status">正在读取订单…</p>';
-    if (orderDetailError) return `<p class="commerce-error" role="alert">${escapeHtml(orderDetailError)}</p>`;
+    if (!selectedOrderId) {
+      return '<aside class="commerce-order-detail is-empty"><p>选择左侧订单，查看付款状态、交付结果与退款记录。</p></aside>';
+    }
+    if (orderDetailLoading) return '<aside class="commerce-order-detail"><p class="commerce-order-message" role="status">正在读取订单…</p></aside>';
+    if (orderDetailError) return `<aside class="commerce-order-detail"><p class="commerce-error" role="alert">${escapeHtml(orderDetailError)}</p></aside>`;
     const order = selectedOrder;
     if (!order) return "";
     const itemRows = order.items.map((item) => {
-      const name = item.productKey === "slots" ? "KE 实例额度" : "全平台离线 KoreEngine";
+      const name = item.productKey === "slots" ? SLOTS_NAME : FEATURE_NAME;
       const actualBefore = item.fulfillmentBefore?.expiresAt ? formatDate(item.fulfillmentBefore.expiresAt) : "无既有付费期限";
       const actualAfter = item.fulfillmentAfter?.expiresAt ? formatDate(item.fulfillmentAfter.expiresAt) : "尚未交付";
       const adjustments = item.refundAdjustments.map((adjustment) => `<p class="commerce-refund-adjustment">退款重算 ${formatDate(adjustment.occurredAt)}：扣减 ${formatDuration(adjustment.deductedDurationMs)}，调整后到期 ${adjustment.afterExpiresAt ? formatDate(adjustment.afterExpiresAt) : "无有效期限"}</p>`).join("");
-      return `<article class="commerce-order-item"><div class="commerce-order-item-heading"><strong>${name} · ${operationLabel(item.operation)}</strong><span>${formatCents(item.paidCents)}</span></div><dl><div><dt>购买时长</dt><dd>${formatDuration(item.durationMs)}</dd></div><div><dt>订单预计到期</dt><dd>${formatDate(item.expectedExpiresAt)}</dd></div><div><dt>交付状态</dt><dd>${item.deliveryState === "delivered" ? "已交付" : item.deliveryState === "settled_no_entitlement" ? "已结算" : "等待交付"}</dd></div><div><dt>购买前期限</dt><dd>${actualBefore}</dd></div><div><dt>实际交付后</dt><dd>${actualAfter}</dd></div></dl>${adjustments}</article>`;
+      return `<article class="commerce-order-item"><div class="commerce-order-item-head"><b>${name}</b><span class="commerce-op">${operationLabel(item.operation)}</span><span class="commerce-order-item-paid">${formatCents(item.paidCents)}</span></div><dl class="commerce-order-facts"><div><dt>购买时长</dt><dd>${formatDuration(item.durationMs)}</dd></div><div><dt>订单预计到期</dt><dd>${formatDate(item.expectedExpiresAt)}</dd></div><div><dt>交付状态</dt><dd>${item.deliveryState === "delivered" ? "已交付" : item.deliveryState === "settled_no_entitlement" ? "已结算" : "等待交付"}</dd></div><div><dt>购买前期限</dt><dd>${actualBefore}</dd></div><div><dt>交付后到期</dt><dd>${actualAfter}</dd></div></dl>${adjustments}</article>`;
     }).join("");
     const refunds = order.refunds.length ? `<div class="commerce-order-refunds"><h4>退款记录</h4>${order.refunds.map((refund) => `<p>${formatDate(refund.createdAt)} · ${refund.status === "succeeded" ? "已退款" : refund.status === "pending" || refund.status === "requires_action" ? "退款处理中" : "退款未完成"} ${formatCents(refund.amountCents)} · 累计退款 ${Number(refund.cumulativeRatioBasisPoints / 100).toFixed(2)}%</p>`).join("")}</div>` : "";
-    const resume = order.checkoutUrl ? '<button class="commerce-button commerce-button--primary" type="button" data-action="resume-checkout">继续付款</button>' : order.paymentState === "failed" ? '<a class="commerce-button commerce-button--primary" href="/ke/buy">返回购买页重新下单</a>' : "";
-    return `<section class="commerce-order-detail" aria-labelledby="commerce-order-detail-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单详情</p><h3 id="commerce-order-detail-title">订单 ${escapeHtml(order.orderId)}</h3></div><button class="commerce-button commerce-button--secondary" type="button" data-action="close-order">返回购买记录</button></div><div class="commerce-order-status"><strong>${orderStatus(order)}</strong><span>创建于 ${formatDate(order.createdAt)} · ${timezone}</span><span>订单金额 ${formatCents(order.paidTotalCents)} · 已退款 ${formatCents(order.refundedTotalCents)}</span>${resume}</div><div class="commerce-order-items">${itemRows}</div>${refunds}<div class="commerce-order-account"><div class="commerce-section-heading"><div><p class="commerce-kicker">下单时记录的账号权益</p><h4>购买前后预览</h4></div></div>${renderAccountPreview(order.accountPreview)}</div></section>`;
+    const resume = order.checkoutUrl
+      ? '<button class="commerce-button commerce-button--primary" type="button" data-action="resume-checkout">继续付款</button>'
+      : order.paymentState === "failed"
+        ? '<a class="commerce-button commerce-button--primary" href="/ke/buy">返回购买页重新下单</a>'
+        : "";
+    return `<aside class="commerce-order-detail" aria-labelledby="commerce-order-detail-title">
+      <div class="commerce-order-detail-head">
+        <div class="commerce-order-detail-title"><p class="commerce-kicker">订单详情</p><h3 id="commerce-order-detail-title">订单 ${escapeHtml(order.orderId)}</h3><span>创建于 ${formatDate(order.createdAt)} · ${escapeHtml(timezone)}</span><div class="commerce-order-pills">${orderBadge(order)}${refundBadge(order)}</div></div>
+        <div class="commerce-order-detail-amount"><b>${formatCents(order.paidTotalCents)}</b><span>已退款 ${formatCents(order.refundedTotalCents)}</span></div>
+      </div>
+      <div class="commerce-order-status"><strong>${orderStatus(order)}</strong>${resume}</div>
+      <div class="commerce-order-items">${itemRows}</div>
+      ${refunds}
+      <div class="commerce-order-snapshot"><div class="commerce-panel-head"><h4>购买前后的账号权益</h4><span>下单时快照</span></div>${renderAccountPreview(order.accountPreview).html}</div>
+      <div class="commerce-order-detail-foot"><button class="commerce-button commerce-button--secondary" type="button" data-action="close-order">返回购买记录</button></div>
+    </aside>`;
   }
 
-  function renderHistory(): string {
-    const rows = historyPage.items.map((order: CommerceOrderSummary) => `<li><button type="button" class="commerce-history-row" data-action="open-order" data-order-id="${escapeHtml(order.orderId)}"><span><strong>订单 ${escapeHtml(order.orderId)}</strong><small>${formatDate(order.createdAt)} · ${order.itemCount} 项</small></span><span><strong>${formatCents(order.paidTotalCents)}</strong><small>${order.paymentState === "paid" ? order.fulfillmentState === "pending" ? "已付款，权益处理中" : "已付款" : order.paymentState === "failed" ? "付款失败" : order.paymentState === "processing" ? "付款确认中" : "待付款"}${order.refundState === "none" ? "" : ` · ${order.refundState === "partial" ? "部分退款" : "已全额退款"}`}</small></span></button></li>`).join("");
-    return `<section class="commerce-history" aria-labelledby="commerce-history-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单</p><h2 id="commerce-history-title">购买记录</h2></div><button class="commerce-button commerce-button--secondary" type="button" data-action="toggle-history">${historyOpen ? "收起记录" : "展开记录"}</button></div>${historyOpen ? `${historyLoading ? '<p class="commerce-history-message" role="status">正在读取购买记录…</p>' : ""}${historyError ? `<p class="commerce-error" role="alert">${escapeHtml(historyError)}</p>` : ""}<ul class="commerce-history-list">${rows || (!historyLoading && !historyError && !selectedOrderId ? '<li class="commerce-history-message">暂无购买记录</li>' : "")}</ul>${historyPage.nextCursor ? '<button class="commerce-button commerce-button--secondary" type="button" data-action="more-orders"' + (historyLoading ? " disabled" : "") + '>加载更多</button>' : ""}${renderOrderDetail()}` : ""}</section>`;
+  function renderOrdersPage(): string {
+    const rows = historyPage.items.map((order: CommerceOrderSummary) => `<button type="button" class="commerce-order-row${selectedOrderId === order.orderId ? " is-selected" : ""}" data-action="open-order" data-order-id="${escapeHtml(order.orderId)}"><span class="commerce-order-id"><b>订单 ${escapeHtml(order.orderId)}</b><span>${formatDate(order.createdAt)} · ${order.itemCount} 项</span></span><span class="commerce-order-row-status">${summaryBadge(order)}</span><span class="commerce-order-amount">${formatCents(order.paidTotalCents)}</span><span class="commerce-order-arrow" aria-hidden="true">›</span></button>`).join("");
+    return `<div class="commerce-top-row"><div class="commerce-page-title"><h1>我的订单</h1><p>查看付款状态、交付结果与退款记录。</p></div>${renderTabs()}</div>
+      ${renderBanner()}
+      ${errorMessage ? `<p class="commerce-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
+      <div class="commerce-orders-grid">
+        <section class="commerce-orders-panel" aria-labelledby="commerce-history-title">
+          <div class="commerce-panel-head"><h2 id="commerce-history-title" data-focus-key="commerce-history-title">购买记录</h2><span>${historyPage.items.length ? `已加载 ${historyPage.items.length} 笔` : ""}</span></div>
+          ${historyLoading ? '<p class="commerce-order-message" role="status">正在读取购买记录…</p>' : ""}
+          ${historyError ? `<p class="commerce-error" role="alert">${escapeHtml(historyError)}</p>` : ""}
+          ${rows ? `<div class="commerce-order-list">${rows}</div>` : ""}
+          ${!rows && !historyLoading && !historyError && historyLoaded ? '<p class="commerce-order-empty">暂无购买记录</p>' : ""}
+          ${historyPage.nextCursor ? `<button class="commerce-load-more" type="button" data-action="more-orders"${historyLoading ? " disabled" : ""}>加载更早的订单</button>` : ""}
+        </section>
+        ${renderOrderDetail()}
+      </div>
+      ${renderFoot()}`;
+  }
+
+  function renderTabs(): string {
+    return `<div class="commerce-tabs" role="group" aria-label="页面切换"><button type="button" data-action="view-buy" aria-pressed="${view === "buy"}">购买</button><button type="button" data-action="purchase-history" aria-pressed="${view === "orders"}">我的订单</button></div>`;
+  }
+
+  function renderBuyTop(): string {
+    return `<div class="commerce-top-row"><div class="commerce-page-title"><h1>购买与续费</h1><p>额度按「个数 × 时长」购买；脱机功能按账号开通，所有实例通用。</p></div>${renderTabs()}</div>`;
+  }
+
+  function renderBanner(): string {
+    if (!returnMessage) return "";
+    const tone = /失败|无法|未完成|仍在确认/u.test(returnMessage) ? " is-warn" : " is-ok";
+    const icon = tone === " is-warn" ? "!" : "✓";
+    return `<div class="commerce-banner${tone}" role="status"><span class="commerce-banner-icon" aria-hidden="true">${icon}</span><span class="commerce-banner-text">${escapeHtml(returnMessage)}</span>${isSuccessReturn && returnPollExhausted ? '<button type="button" class="commerce-banner-action" data-action="refresh-order-status">刷新订单状态</button>' : ""}</div>`;
+  }
+
+  function renderFoot(): string {
+    return `<div class="commerce-foot"><a href="/refunds">退款规则</a><span>期限折扣与优惠码整单比较，只取更低的一种</span><div class="commerce-foot-tz">所有日期按浏览器本地时区显示<br><b>${escapeHtml(timezone)}</b></div></div>`;
   }
 
   async function loadHistory(cursor?: string): Promise<void> {
     if (historyLoading) return;
     historyLoading = true;
     historyError = "";
-    historyOpen = true;
+    view = "orders";
     render("commerce-history-title");
     try {
       const page = await api.listOrders(cursor);
@@ -393,6 +800,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         items: [...historyPage.items, ...page.items], nextCursor: page.nextCursor,
       };
       historyLoaded = true;
+      if (!selectedOrderId && historyPage.items.length) void openOrder(historyPage.items[0]!.orderId);
     } catch (error) {
       historyError = quoteMessage(error);
     } finally {
@@ -402,11 +810,11 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   }
 
   async function openOrder(orderId: string, statusOnly = false): Promise<void> {
+    view = "orders";
     selectedOrderId = orderId;
     selectedOrder = null;
     orderDetailError = "";
     orderDetailLoading = true;
-    historyOpen = true;
     render("commerce-history-title");
     try {
       selectedOrder = await api.getOrder(orderId, statusOnly ? { statusOnly: true } : undefined);
@@ -443,7 +851,9 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   function startCheckoutReturn(): void {
     if (!isSuccessReturn && !isCancelledReturn) return;
     if (!checkoutOrderId || !decimal(checkoutOrderId)) {
+      view = "orders";
       returnMessage = "无法识别付款订单，请从购买记录中查看订单状态。";
+      render();
       return;
     }
     returnOrderId = checkoutOrderId;
@@ -462,41 +872,36 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const InputConstructor = root.ownerDocument.defaultView?.HTMLInputElement;
     const restoreCaret = caret === undefined && InputConstructor && active instanceof InputConstructor ? active.selectionStart : caret;
     const now = Date.now();
-    const freeUnits = activePaidSlots(bootstrap.account, now).length;
     const alignAmount = alignmentPrice(now);
     const selection = buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account);
+    const selectionOverLimit = selectionItemCount(selection) > MAX_SELECTION_ITEMS;
     const estimate = selectionPrice(selection, bootstrap.catalog);
     const loginNotice = bootstrap.session === null
-      ? '<p class="commerce-access-note" role="status">登录并完成邮箱验证后即可购买。请使用顶部账号入口登录。</p>'
+      ? '<p class="commerce-banner is-warn" role="status"><span class="commerce-banner-icon" aria-hidden="true">!</span><span class="commerce-banner-text">登录并完成邮箱验证后即可购买。请使用顶部账号入口登录。</span></p>'
       : bootstrap.session.user.status !== "ACTIVE" || bootstrap.session.user.permission_level < 1
-        ? '<p class="commerce-access-note" role="status">该账号尚未完成购买资格验证，请先完成邮箱验证。</p>'
+        ? '<p class="commerce-banner is-warn" role="status"><span class="commerce-banner-icon" aria-hidden="true">!</span><span class="commerce-banner-text">该账号尚未完成购买资格验证，请先完成邮箱验证。</span></p>'
         : "";
+    const buyShell = `<div class="commerce-buy-shell${currentQuote ? " is-hidden" : ""}">
+      ${renderBuyTop()}
+      ${loginNotice}
+      ${renderBanner()}
+      <div class="commerce-grid">
+        <div class="commerce-main-column">${renderSlotsCard(now)}${renderFeatureCard(now)}${renderAlignLine(now, alignAmount)}</div>
+        ${renderSummary(selection, estimate, selectionOverLimit)}
+      </div>
+      ${selectionOverLimit ? `<p class="commerce-selection-limit-error" data-selection-limit-error role="alert">${selectionLimitMessage()}</p>` : ""}
+      <div class="commerce-mobile-bar">${renderPromotionControl("mobile")}<div><b>${formatCents(estimate)}</b><span>${selection.length} 项${selectionRawPrice(selection, bootstrap.catalog) - estimate > 0n ? ` · 已省 ${formatCents(selectionRawPrice(selection, bootstrap.catalog) - estimate)}` : ""}</span></div><button type="button" data-action="review" ${!canPurchase || selection.length === 0 || selectionOverLimit || quoteBusy || orderBusy ? "disabled" : ""}>去确认</button></div>
+      ${!currentQuote && errorMessage ? `<p class="commerce-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
+      ${renderFoot()}
+      ${renderAlignDialog(now, alignAmount)}
+    </div>
+    ${currentQuote ? renderQuote() : ""}`;
 
     root.innerHTML = `
       <header class="site-header"><div class="topbar page-width"><a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46"></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>${siteNavMarkup(null)}</div></header>
       <main class="page-width commerce-page">
-        <section class="commerce-heading"><div><p class="commerce-kicker">KE 额度与功能</p><h1>购买与续期</h1><p>实例额度按个数和时长计价；离线 KoreEngine 是账号级功能，开通后该账号所有实例都可使用。</p></div><p class="commerce-timezone">日期按浏览器本地时区显示：<strong>${escapeHtml(timezone)}</strong></p></section>
-        ${loginNotice}
-        ${returnMessage ? `<p class="commerce-return-status" role="status">${escapeHtml(returnMessage)}${isSuccessReturn && returnPollExhausted ? '<button type="button" class="commerce-button commerce-button--secondary" data-action="refresh-order-status">刷新订单状态</button>' : ""}</p>` : ""}
-        <section class="commerce-products" aria-label="购买项目">
-          <article class="commerce-product commerce-product--slots" data-product="slots"><div class="commerce-product-head"><div><p class="commerce-kicker">按额度 × 时长</p><h2>${escapeHtml(slotsProduct.name)}</h2><p>${escapeHtml(slotsProduct.description)} 每个额度每 30 天 ¥50。</p></div><div class="commerce-product-price">¥50<span> / 个 / 30 天</span></div></div>
-            <div class="commerce-mode" role="group" aria-label="实例额度操作"><button type="button" data-focus-key="slot-mode-add" data-mode="add" aria-pressed="${slotMode === "add"}">加购额度</button><button type="button" data-focus-key="slot-mode-renew" data-mode="renew" aria-pressed="${slotMode === "renew"}" ${freeUnits === 0 ? "disabled" : ""}>续期额度</button></div>
-            <div class="commerce-subsection"><div class="commerce-section-heading"><div><h3>当前生效额度</h3><p>逐个显示；续期时可单独勾选付费额度。</p></div><strong>${bootstrap.account.units.length} 个</strong></div>${renderSlots()}</div>
-            ${slotMode === "add" ? `<label class="commerce-quantity">本次加购数量<input data-focus-key="slot-quantity" name="slot-quantity" type="number" min="1" max="1000" step="1" inputmode="numeric" value="${escapeHtml(slotQuantity)}" ${!canPurchase ? "disabled" : ""}></label>` : `<p class="commerce-selection-note">已选 ${selectedUnitIds.size} 个付费额度；赠送额度不能续期。只有赠送额度时不能提交额度续期。</p>`}
-            <div class="commerce-subsection"><div class="commerce-section-heading"><div><h3>本次增加时长</h3><p>每个额度单独判断折扣，不合并额度数量。</p></div></div>${renderTerms("slots", "slots", slotTermDays)}</div>
-          </article>
-          <article class="commerce-product commerce-product--feature" data-product="feature"><div class="commerce-product-head"><div><p class="commerce-kicker">账号级功能</p><h2>${escapeHtml(featureProduct.name)}</h2><p>${escapeHtml(featureProduct.description)} 不受实例额度数量影响。</p></div><div class="commerce-product-price commerce-product-price--feature">¥30<span> / 账号 / 30 天</span></div></div>
-            <div class="commerce-feature-state">${activeStandalone(bootstrap.account, now).length ? `当前已开通，最晚到期 ${formatDate(String(Math.max(...activeStandalone(bootstrap.account, now).map((row) => Number(row.expiresAt)))))}。` : "当前未开通。"}</div>
-            <label class="commerce-feature-toggle"><input data-focus-key="feature-selected" name="feature-selected" type="checkbox" ${featureSelected ? "checked" : ""} ${!canPurchase ? "disabled" : ""}><span>${activeStandalone(bootstrap.account, now).length ? "本次续期离线功能" : "本次开通离线功能"}</span></label>
-            <div class="commerce-subsection"><div class="commerce-section-heading"><div><h3>本次增加时长</h3><p>功能按账号计费，不按实例数量重复收费。</p></div></div>${renderTerms("feature", "module:standalone", featureTermDays)}</div>
-          </article>
-        </section>
-        <section class="commerce-alignment" aria-labelledby="commerce-align-title"><div class="commerce-section-heading"><div><p class="commerce-kicker">可选操作</p><h2 id="commerce-align-title">统一付费项目到期时间</h2><p>把所有当前生效的付费额度与离线功能延长至同一天；赠送额度、核心功能和调整记录不计入目标。</p></div><div class="commerce-align-estimate">${alignAmount === null ? "没有可统一的付费项目" : `当前预估 <strong>${formatCents(alignAmount)}</strong>`}</div></div><div class="commerce-alignment-controls"><div>${renderTerms("alignment", "slots", alignTermDays)}</div><button type="button" class="commerce-button commerce-button--secondary" data-focus-key="align-action" data-action="align" ${!canPurchase || !alignAmount || quoteBusy || orderBusy ? "disabled" : ""}>一键统一到期并购买所选时长</button></div><p class="commerce-fine-print">至少补足 30 天；若所有收费项目的到期时差不足 24 小时，会提示改用普通续期并且不会创建报价。</p></section>
-        <section class="commerce-order-controls" aria-label="报价设置"><div class="commerce-section-heading"><div><p class="commerce-kicker">订单优惠</p><h2>整笔订单择优</h2></div><p>期限折扣与 Stripe 优惠码比较整单金额，只采用更低的一种，不重复叠加。</p></div><label class="commerce-promo-field">Stripe 优惠码（可选）<input data-focus-key="promotion-code" name="promotion-code" type="text" maxlength="100" autocomplete="off" value="${escapeHtml(promotionCode)}" placeholder="输入优惠码" ${!canPurchase ? "disabled" : ""}></label><div class="commerce-review-trigger"><div><strong>当前选择预估 ${formatCents(estimate)}</strong><span>最终金额以服务器报价为准。</span></div><div class="commerce-order-actions"><button class="commerce-button commerce-button--secondary" type="button" data-action="purchase-history" aria-expanded="${historyOpen}">查看购买记录</button><button class="commerce-button commerce-button--primary" type="button" data-action="review" ${!canPurchase || selection.length === 0 || quoteBusy || orderBusy ? "disabled" : ""}>${quoteBusy ? "正在获取报价…" : "查看全部权益变化与金额"}</button></div></div></section>
-        ${errorMessage ? `<p class="commerce-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
-        ${currentQuote ? renderQuote() : ""}
-        ${renderHistory()}
-        <dialog class="commerce-dialog" data-alignment-notice ${alignmentNotice ? "open" : ""}><h2>到期时间已基本一致</h2><p>收费项目之间不到 24 小时，无需统一到期。请使用普通续期，不会生成报价或订单。</p><button class="commerce-button commerce-button--secondary" type="button" data-focus-key="alignment-notice-close" data-action="close-alignment-notice">知道了</button></dialog>
+        ${view === "orders" ? renderOrdersPage() : buyShell}
+        <dialog class="commerce-dialog commerce-notice-dialog" data-alignment-notice><h2>到期时间已基本一致</h2><p>收费项目之间不到 24 小时，无需统一到期。请使用普通续期，不会生成报价或订单。</p><div class="commerce-dialog-foot"><button class="commerce-button commerce-button--secondary" type="button" data-focus-key="alignment-notice-close" data-action="close-alignment-notice">知道了</button></div></dialog>
       </main>`;
     mountSiteNav(root, authStore, authApi);
     if (restoreKey) {
@@ -510,16 +915,29 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       const dialog = root.querySelector<HTMLDialogElement>("[data-alignment-notice]");
       try { dialog?.showModal(); } catch { dialog?.setAttribute("open", ""); }
     }
+    if (alignOpen) {
+      const dialog = root.querySelector<HTMLDialogElement>("[data-align-dialog]");
+      try { dialog?.showModal(); } catch { dialog?.setAttribute("open", ""); }
+    }
   }
 
   function invalidateQuote(): void {
+    quoteRevision += 1;
     currentQuote = null;
+    quoteBusy = false;
     idempotencyKey = null;
     orderMessage = "";
+    previewExpanded = false;
   }
 
   async function requestQuote(selection: CommerceQuoteSelection[]): Promise<void> {
     if (!canPurchase || quoteBusy || orderBusy || selection.length === 0) return;
+    if (selectionItemCount(selection) > MAX_SELECTION_ITEMS) {
+      errorMessage = selectionLimitMessage();
+      render();
+      return;
+    }
+    const requestRevision = ++quoteRevision;
     alignmentNotice = false;
     errorMessage = "";
     orderMessage = "";
@@ -527,12 +945,15 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     quoteBusy = true;
     render();
     try {
-      currentQuote = await api.quoteCommerceSelection(selection, promotionCode.trim() || undefined);
+      const quote = await api.quoteCommerceSelection(selection, promotionCode.trim() || undefined);
+      if (requestRevision === quoteRevision) currentQuote = quote;
     } catch (error) {
-      errorMessage = quoteMessage(error);
+      if (requestRevision === quoteRevision) errorMessage = quoteMessage(error);
     } finally {
-      quoteBusy = false;
-      render("commerce-review-title");
+      if (requestRevision === quoteRevision) {
+        quoteBusy = false;
+        render("commerce-review-title");
+      }
     }
   }
 
@@ -564,19 +985,69 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       render();
       return;
     }
-    if (target.dataset.action === "close-alignment-notice") {
-      alignmentNotice = false;
+    const action = target.dataset.action;
+    if (action === "view-buy") {
+      view = "buy";
       render();
       return;
     }
-    if (target.dataset.action === "align") {
+    if (action === "close-review") {
+      invalidateQuote();
+      errorMessage = "";
+      render("commerce-review");
+      return;
+    }
+    if (action === "open-align") {
+      if (!canPurchase) return;
+      alignOpen = true;
+      render("commerce-align-title");
+      return;
+    }
+    if (action === "close-align") {
+      alignOpen = false;
+      render("align-open");
+      return;
+    }
+    if (action === "toggle-promo") {
+      promoOpen = !promoOpen;
+      const placement = target.dataset.focusKey?.endsWith("-mobile") ? "mobile" : "desktop";
+      render(promoOpen ? `promotion-code-${placement}` : `promotion-toggle-${placement}`);
+      return;
+    }
+    if (action === "toggle-preview") {
+      previewExpanded = !previewExpanded;
+      render("commerce-preview-toggle");
+      return;
+    }
+    if (action === "qty-step") {
+      const step = Number(target.dataset.step);
+      const base = Number.parseInt(slotQuantity, 10);
+      const quantity = Math.min(MAX_SELECTION_ITEMS, Math.max(0, (Number.isSafeInteger(base) ? base : 0) + (Number.isFinite(step) ? step : 0)));
+      slotQuantity = String(quantity);
+      invalidateQuote();
+      errorMessage = "";
+      render("slot-quantity");
+      return;
+    }
+    if (action === "close-alignment-notice") {
+      alignmentNotice = false;
+      render("align-open");
+      return;
+    }
+    if (action === "align") {
       if (!canPurchase || quoteBusy || orderBusy) return;
       const rows = alignmentExpiries(bootstrap.account, Date.now());
       if (!rows.length) {
+        alignOpen = false;
         errorMessage = "当前没有可统一到期的付费项目。";
         render();
         return;
       }
+      if (rows.length > MAX_SELECTION_ITEMS) {
+        render();
+        return;
+      }
+      alignOpen = false;
       const expiries = rows.map((row) => row.expiresAt);
       if (Math.max(...expiries) - Math.min(...expiries) < Number(COMMERCE_DAY_MS)) {
         alignmentNotice = true;
@@ -588,12 +1059,12 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       void requestQuote([{ type: "align_all_paid", termDays: alignTermDays as 30 | 90 | 180 | 360 }]);
       return;
     }
-    if (target.dataset.action === "review") {
+    if (action === "review") {
       invalidateQuote();
       void requestQuote(selectedNormalItems());
       return;
     }
-    if (target.dataset.action === "pay") {
+    if (action === "pay") {
       if (!currentQuote || orderBusy || quoteBusy || Date.now() >= Number(currentQuote.expiresAt)) {
         if (currentQuote && Date.now() >= Number(currentQuote.expiresAt)) {
           invalidateQuote();
@@ -620,44 +1091,38 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         render("commerce-review-title");
       });
     }
-    if (target.dataset.action === "purchase-history") {
-      historyOpen = true;
+    if (action === "purchase-history") {
+      view = "orders";
       if (!historyLoaded) void loadHistory();
       else render("commerce-history-title");
       return;
     }
-    if (target.dataset.action === "toggle-history") {
-      historyOpen = !historyOpen;
-      render("commerce-history-title");
-      return;
-    }
-    if (target.dataset.action === "open-order" && target.dataset.orderId) {
+    if (action === "open-order" && target.dataset.orderId) {
       void openOrder(target.dataset.orderId);
       return;
     }
-    if (target.dataset.action === "close-order") {
+    if (action === "close-order") {
       selectedOrderId = null;
       selectedOrder = null;
       orderDetailError = "";
       render("commerce-history-title");
       return;
     }
-    if (target.dataset.action === "more-orders" && historyPage.nextCursor) {
+    if (action === "more-orders" && historyPage.nextCursor) {
       void loadHistory(historyPage.nextCursor);
       return;
     }
-    if (target.dataset.action === "resume-checkout" && selectedOrder?.checkoutUrl) {
+    if (action === "resume-checkout" && selectedOrder?.checkoutUrl) {
       api.navigateToCheckout(selectedOrder.checkoutUrl);
       return;
     }
-    if (target.dataset.action === "refresh-order-status" && returnOrderId) {
+    if (action === "refresh-order-status" && returnOrderId) {
       if (returnPollTimer !== null) root.ownerDocument.defaultView!.clearTimeout(returnPollTimer);
       returnPollTimer = null;
       returnPollAttempts = 0;
       returnPollExhausted = false;
       returnMessage = "正在确认付款";
       void pollReturnedOrder();
-      return;
     }
   });
 

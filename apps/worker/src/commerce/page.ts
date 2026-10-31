@@ -47,6 +47,12 @@ function emptyAccount(): CommerceBootstrap['account'] {
   return { units: [], entitlements: [], effective: { slots: 0, modules: [] } };
 }
 
+function isPermanentGift(resource: string, source: string, sourceRef: string | null): boolean {
+  return (resource === 'slots' && source === 'signup' && sourceRef === 'email-verified:slots')
+    || (resource === 'module:core' && source === 'signup' && sourceRef === 'email-verified:module:core')
+    || (resource === 'module:standalone' && source === 'signup' && sourceRef === 'email-verified:module:standalone');
+}
+
 function accountSnapshot(account: Awaited<ReturnType<ReturnType<typeof createQuoteRepository>['readAccount']>>): CommerceBootstrap['account'] {
   const entitlementByUnit = new Map(account.entitlements.flatMap((entitlement) => entitlement.unitId
     ? [[entitlement.unitId, entitlement] as const]
@@ -54,7 +60,8 @@ function accountSnapshot(account: Awaited<ReturnType<ReturnType<typeof createQuo
   return {
     units: account.slotUnits.map((unit) => {
       const entitlement = unit.keEntitlementId ? entitlementByUnit.get(unit.unitId) : undefined;
-      const source = entitlement?.source ?? unit.baselineSource;
+      const source = entitlement ? entitlement.source : unit.baselineSource;
+      const sourceRef = entitlement ? entitlement.sourceRef : unit.baselineSourceRef;
       return {
         unitId: unit.unitId,
         entitlementId: unit.keEntitlementId,
@@ -64,8 +71,8 @@ function accountSnapshot(account: Awaited<ReturnType<ReturnType<typeof createQuo
         startsAt: unit.currentStartsAt.toString(),
         expiresAt: unit.currentExpiresAt.toString(),
         source,
-        sourceRef: entitlement?.sourceRef ?? unit.baselineSourceRef,
-        isGift: source === 'signup',
+        sourceRef,
+        isGift: isPermanentGift(unit.resource, source, sourceRef),
       };
     }),
     entitlements: account.entitlements.map((entitlement) => ({
@@ -77,7 +84,7 @@ function accountSnapshot(account: Awaited<ReturnType<ReturnType<typeof createQuo
       expiresAt: entitlement.expiresAt.toString(),
       source: entitlement.source,
       sourceRef: entitlement.sourceRef,
-      isGift: entitlement.source === 'signup',
+      isGift: isPermanentGift(entitlement.resource, entitlement.source, entitlement.sourceRef),
     })),
     effective: { slots: account.effective.slots, modules: [...account.effective.modules].sort() },
   };

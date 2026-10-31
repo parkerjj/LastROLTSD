@@ -157,8 +157,9 @@ function requestParameters(input: CreateCheckoutSessionInput, dependencies: Chec
     payment_method_configuration: dependencies.paymentMethodConfigurationId,
     managed_payments: { enabled: false },
     adaptive_pricing: { enabled: false },
-    allow_promotion_codes: false,
-    ...(input.promotionCodeId ? { discounts: [{ promotion_code: input.promotionCodeId }] } : {}),
+    ...(input.promotionCodeId
+      ? { discounts: [{ promotion_code: input.promotionCodeId }] }
+      : { allow_promotion_codes: false }),
     metadata,
     payment_intent_data: { metadata },
     integration_identifier: integrationIdentifier(input.confirmationKeyDigest),

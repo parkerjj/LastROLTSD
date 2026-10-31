@@ -193,6 +193,12 @@ function productFor(products: readonly CommerceProduct[], key: CommerceProductKe
   return product;
 }
 
+function isPermanentGiftEntitlement(row: Pick<QuoteEntitlement, 'resource' | 'source' | 'sourceRef'>): boolean {
+  return (row.resource === 'slots' && row.source === 'signup' && row.sourceRef === 'email-verified:slots')
+    || (row.resource === 'module:core' && row.source === 'signup' && row.sourceRef === 'email-verified:module:core')
+    || (row.resource === 'module:standalone' && row.source === 'signup' && row.sourceRef === 'email-verified:module:standalone');
+}
+
 function currentEntitlementPreview(state: QuoteAccountState): QuotePreviewEntitlement[] {
   const unitsByEntitlement = new Map(state.slotUnits.map((unit) => [unit.keEntitlementId, unit.unitId]));
   return state.entitlements.map((row) => ({
@@ -203,8 +209,7 @@ function currentEntitlementPreview(state: QuoteAccountState): QuotePreviewEntitl
     startsAt: String(row.startsAt),
     expiresAt: String(row.expiresAt),
     productKey: row.resource === 'slots' || row.resource === 'module:standalone' ? row.resource : null,
-    isGift: (row.resource === 'slots' && row.source === 'signup' && row.sourceRef === 'email-verified:slots')
-      || (row.resource === 'module:core' && row.source === 'signup' && row.sourceRef === 'email-verified:module:core'),
+    isGift: isPermanentGiftEntitlement(row),
   }));
 }
 
@@ -348,8 +353,7 @@ function snapshotEntitlement(row: QuoteEntitlement): QuotePreviewEntitlement {
     startsAt: String(row.startsAt),
     expiresAt: String(row.expiresAt),
     productKey: row.resource === 'slots' || row.resource === 'module:standalone' ? row.resource : null,
-    isGift: (row.resource === 'slots' && row.source === 'signup' && row.sourceRef === 'email-verified:slots')
-      || (row.resource === 'module:core' && row.source === 'signup' && row.sourceRef === 'email-verified:module:core'),
+    isGift: isPermanentGiftEntitlement(row),
   };
 }
 

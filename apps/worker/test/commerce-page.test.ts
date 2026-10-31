@@ -23,12 +23,27 @@ function bindings(overrides: Record<string, unknown> = {}): never {
 class CommercePageDatabase implements MysqlDatabase {
   readonly calls: string[] = [];
 
+  constructor(private readonly sources: {
+    slotBaselineSourceRef?: string | null;
+    slotEntitlementSourceRef?: string | null;
+    standaloneSource?: string;
+    standaloneSourceRef?: string | null;
+  } = {}) {}
+
+  private get slotBaselineSourceRef(): string | null {
+    return this.sources.slotBaselineSourceRef === undefined ? 'email-verified:slots' : this.sources.slotBaselineSourceRef;
+  }
+
+  private get slotEntitlementSourceRef(): string | null {
+    return this.sources.slotEntitlementSourceRef === undefined ? this.slotBaselineSourceRef : this.sources.slotEntitlementSourceRef;
+  }
+
   async all<T extends MysqlRow>(sql: string): Promise<T[]> {
     this.calls.push(sql);
     if (sql.includes('NOT EXISTS (SELECT 1 FROM commerce_units')) return [];
     if (sql.includes('FROM commerce_units u')) return [{
       unit_id: '31', user_id: '42', resource: 'slots', unit_kind: 'legacy', ke_entitlement_id: '71',
-      baseline_source: 'signup', baseline_source_ref: 'email-verified:slots', baseline_quantity: 1,
+      baseline_source: 'signup', baseline_source_ref: this.slotBaselineSourceRef, baseline_quantity: 1,
       baseline_starts_at: String(NOW - 1_000), baseline_expires_at: String(NOW + 99_000), legacy_origin_id: '71',
       legacy_ordinal: 1, admin_revoked_at: null, refund_zeroed_at: null, current_quantity: 1,
       current_starts_at: String(NOW - 1_000), current_expires_at: String(NOW + 99_000),
@@ -38,9 +53,9 @@ class CommercePageDatabase implements MysqlDatabase {
       { resource: 'slots', total: 1 }, { resource: 'module:core', total: 1 }, { resource: 'module:standalone', total: 1 },
     ] as unknown as T[];
     if (sql.includes('SELECT id, resource, quantity, starts_at, expires_at, source, source_ref')) return [
-      { id: '71', resource: 'slots', quantity: 1, starts_at: NOW - 1_000, expires_at: NOW + 99_000, source: 'signup', source_ref: 'email-verified:slots' },
+      { id: '71', resource: 'slots', quantity: 1, starts_at: NOW - 1_000, expires_at: NOW + 99_000, source: 'signup', source_ref: this.slotEntitlementSourceRef },
       { id: '72', resource: 'module:core', quantity: 1, starts_at: NOW - 1_000, expires_at: NOW + 99_000, source: 'signup', source_ref: 'email-verified:module:core' },
-      { id: '73', resource: 'module:standalone', quantity: 1, starts_at: NOW - 1_000, expires_at: NOW + 75_000, source: 'commerce', source_ref: null },
+      { id: '73', resource: 'module:standalone', quantity: 1, starts_at: NOW - 1_000, expires_at: NOW + 75_000, source: this.sources.standaloneSource ?? 'commerce', source_ref: this.sources.standaloneSourceRef ?? null },
     ] as unknown as T[];
     return [];
   }
@@ -107,6 +122,53 @@ describe('commerce page bootstrap', () => {
     expect(html).not.toContain('sk_test_donation_only');
     expect(db.calls.some((sql) => sql.includes('FROM auth_sessions AS s'))).toBe(true);
     expect(db.calls.some((sql) => sql.includes('FROM commerce_units u'))).toBe(true);
+  });
+
+  it('does not classify signup slot rows without the permanent-gift marker as gifts', async () => {
+    const bootstrap = await buildCommerceBootstrap(
+      new Request('https://ltsd.ro/ke/buy', { headers: { cookie: SESSION_COOKIE } }),
+      bindings({
+        AUTH_ENABLED: 'true', MYSQL_URL: 'mysql://local:test@127.0.0.1/app', AUTH_SITE_URL: 'https://ltsd.ro',
+        AUTH_PASSWORD_SECRET: secret(1), AUTH_CSRF_SECRET: secret(2), AUTH_RATE_SECRET: secret(3),
+        AUTH_MAIL_PAYLOAD_SECRET: secret(4),
+      }),
+      new CommercePageDatabase({ slotBaselineSourceRef: null, slotEntitlementSourceRef: null }),
+    );
+
+    expect(bootstrap.account.units).toEqual([expect.objectContaining({ unitId: '31', source: 'signup', sourceRef: null, isGift: false })]);
+    expect(bootstrap.account.entitlements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: '71', resource: 'slots', source: 'signup', sourceRef: null, isGift: false }),
+    ]));
+  });
+
+  it('uses the linked entitlement marker instead of the baseline marker when classifying a slot unit', async () => {
+    const bootstrap = await buildCommerceBootstrap(
+      new Request('https://ltsd.ro/ke/buy', { headers: { cookie: SESSION_COOKIE } }),
+      bindings({
+        AUTH_ENABLED: 'true', MYSQL_URL: 'mysql://local:test@127.0.0.1/app', AUTH_SITE_URL: 'https://ltsd.ro',
+        AUTH_PASSWORD_SECRET: secret(1), AUTH_CSRF_SECRET: secret(2), AUTH_RATE_SECRET: secret(3),
+        AUTH_MAIL_PAYLOAD_SECRET: secret(4),
+      }),
+      new CommercePageDatabase({ slotBaselineSourceRef: 'email-verified:slots', slotEntitlementSourceRef: null }),
+    );
+
+    expect(bootstrap.account.units).toEqual([expect.objectContaining({ unitId: '31', sourceRef: null, isGift: false })]);
+  });
+
+  it('recognizes the permanent standalone gift marker in the account bootstrap', async () => {
+    const bootstrap = await buildCommerceBootstrap(
+      new Request('https://ltsd.ro/ke/buy', { headers: { cookie: SESSION_COOKIE } }),
+      bindings({
+        AUTH_ENABLED: 'true', MYSQL_URL: 'mysql://local:test@127.0.0.1/app', AUTH_SITE_URL: 'https://ltsd.ro',
+        AUTH_PASSWORD_SECRET: secret(1), AUTH_CSRF_SECRET: secret(2), AUTH_RATE_SECRET: secret(3),
+        AUTH_MAIL_PAYLOAD_SECRET: secret(4),
+      }),
+      new CommercePageDatabase({ standaloneSource: 'signup', standaloneSourceRef: 'email-verified:module:standalone' }),
+    );
+
+    expect(bootstrap.account.entitlements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: '73', resource: 'module:standalone', isGift: true }),
+    ]));
   });
 
   it('returns a fixed no-store error when required assets or an authenticated database are unavailable', async () => {
