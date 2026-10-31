@@ -142,16 +142,12 @@ function optionalString(value: unknown): string | undefined {
 }
 
 export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
+  if (commerceConfigIssueFields(env).length > 0) return null;
+
   const enabledValue = env.COMMERCE_ENABLED?.toLowerCase() ?? 'false';
   const livemodeValue = env.COMMERCE_STRIPE_LIVEMODE?.toLowerCase();
-  if ((enabledValue !== 'true' && enabledValue !== 'false')
-    || (livemodeValue !== 'true' && livemodeValue !== 'false')) return null;
-
   const livemode = livemodeValue === 'true';
-  if (livemode !== (env.ENVIRONMENT === 'production')) return null;
-
   const stripeSecretKey = env.COMMERCE_STRIPE_SECRET_KEY;
-  const keyMode = stripeSecretKey?.match(/^(?:sk|rk)_(live|test)_[A-Za-z0-9]+$/u)?.[1];
   const webhookSecret = env.COMMERCE_STRIPE_WEBHOOK_SECRET;
   const stripeAccountId = env.COMMERCE_STRIPE_ACCOUNT_ID;
   const pricingVersion = env.COMMERCE_PRICING_VERSION;
@@ -159,36 +155,69 @@ export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
   const standaloneProductId = env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID;
   const paymentMethodConfigurationId = env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
   const siteOrigin = env.COMMERCE_SITE_ORIGIN;
-  if (!stripeSecretKey || keyMode !== (livemode ? 'live' : 'test')
-    || !webhookSecret || !/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(webhookSecret)
-    || !stripeAccountId || !/^acct_[A-Za-z0-9]+$/u.test(stripeAccountId)
-    || !pricingVersion || !/^[A-Za-z0-9._-]{1,32}$/u.test(pricingVersion)
-    || !slotsProductId || !/^prod_[A-Za-z0-9]+$/u.test(slotsProductId)
-    || !standaloneProductId || !/^prod_[A-Za-z0-9]+$/u.test(standaloneProductId)
-    || !paymentMethodConfigurationId || !/^pmc_[A-Za-z0-9]+$/u.test(paymentMethodConfigurationId)
-    || !siteOrigin) return null;
-
-  let origin: URL;
-  try {
-    origin = new URL(siteOrigin);
-  } catch {
-    return null;
-  }
-  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) {
-    return null;
-  }
 
   return {
     salesEnabled: enabledValue === 'true',
-    stripeSecretKey,
-    webhookSecret,
-    stripeAccountId,
+    stripeSecretKey: stripeSecretKey!,
+    webhookSecret: webhookSecret!,
+    stripeAccountId: stripeAccountId!,
     livemode,
-    pricingVersion,
-    productIds: { slots: slotsProductId, 'module:standalone': standaloneProductId },
-    paymentMethodConfigurationId,
-    siteOrigin: origin.origin,
+    pricingVersion: pricingVersion!,
+    productIds: { slots: slotsProductId!, 'module:standalone': standaloneProductId! },
+    paymentMethodConfigurationId: paymentMethodConfigurationId!,
+    siteOrigin: new URL(siteOrigin!).origin,
   };
+}
+
+/** Returns invalid binding names only; never returns secret values. */
+export function commerceConfigIssueFields(env: AppEnv): string[] {
+  const issues: string[] = [];
+  const enabledValue = env.COMMERCE_ENABLED?.toLowerCase() ?? 'false';
+  const livemodeValue = env.COMMERCE_STRIPE_LIVEMODE?.toLowerCase();
+  if (enabledValue !== 'true' && enabledValue !== 'false') issues.push('COMMERCE_ENABLED');
+  if (livemodeValue !== 'true' && livemodeValue !== 'false') issues.push('COMMERCE_STRIPE_LIVEMODE');
+  if ((livemodeValue === 'true' || livemodeValue === 'false')
+    && (livemodeValue === 'true') !== (env.ENVIRONMENT === 'production')) {
+    issues.push('ENVIRONMENT/COMMERCE_STRIPE_LIVEMODE');
+  }
+
+  const livemode = livemodeValue === 'true';
+  const stripeSecretKey = env.COMMERCE_STRIPE_SECRET_KEY;
+  const keyMode = stripeSecretKey?.match(/^(?:sk|rk)_(live|test)_[A-Za-z0-9]+$/u)?.[1];
+  if (!stripeSecretKey || keyMode !== (livemode ? 'live' : 'test')) issues.push('COMMERCE_STRIPE_SECRET_KEY');
+
+  const webhookSecret = env.COMMERCE_STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret || !/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(webhookSecret)) {
+    issues.push('COMMERCE_STRIPE_WEBHOOK_SECRET');
+  }
+
+  if (!env.COMMERCE_STRIPE_ACCOUNT_ID || !/^acct_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_ACCOUNT_ID)) {
+    issues.push('COMMERCE_STRIPE_ACCOUNT_ID');
+  }
+  if (!env.COMMERCE_PRICING_VERSION || !/^[A-Za-z0-9._-]{1,32}$/u.test(env.COMMERCE_PRICING_VERSION)) {
+    issues.push('COMMERCE_PRICING_VERSION');
+  }
+  if (!env.COMMERCE_STRIPE_PRODUCT_SLOTS_ID || !/^prod_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PRODUCT_SLOTS_ID)) {
+    issues.push('COMMERCE_STRIPE_PRODUCT_SLOTS_ID');
+  }
+  if (!env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID || !/^prod_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID)) {
+    issues.push('COMMERCE_STRIPE_PRODUCT_STANDALONE_ID');
+  }
+  if (!env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID
+    || !/^pmc_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID)) {
+    issues.push('COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID');
+  }
+
+  let origin: URL | null = null;
+  try {
+    origin = new URL(env.COMMERCE_SITE_ORIGIN ?? '');
+  } catch {
+    issues.push('COMMERCE_SITE_ORIGIN');
+  }
+  if (origin && (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash)) {
+    issues.push('COMMERCE_SITE_ORIGIN');
+  }
+  return issues;
 }
 
 function nonnegativeInteger(value: unknown, fallback: number): number {

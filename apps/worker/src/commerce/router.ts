@@ -13,6 +13,7 @@ import type { OrderDependencies, CommerceOrderErrorCode } from './orders';
 import { CommerceOrderError, createOrderAndCheckout, getCommerceOrder, listCommerceOrders } from './orders';
 import type { WebhookDependencies } from './webhook';
 import { receiveStripeEvent } from './webhook';
+import { logCommerceRequestFailure, logCommerceSetupUnavailable, type CommerceSetupDiagnostic } from './diagnostics';
 
 const QUOTE_JSON_LIMIT = 32 * 1024;
 const QUOTE_RATE_LIMIT = { scope: 'commerce_quote_session', limit: 10, windowMs: 60_000 } as const;
@@ -30,6 +31,7 @@ export interface CommerceQuoteRouteContext {
 
 export interface CommerceQuoteRouteOptions {
   setup(): CommerceQuoteRouteContext | null;
+  setupUnavailable?: CommerceSetupDiagnostic;
 }
 
 export interface CommerceOrderRouteContext {
@@ -42,6 +44,7 @@ export interface CommerceOrderRouteContext {
 
 export interface CommerceOrderRouteOptions {
   setup(): CommerceOrderRouteContext | null;
+  setupUnavailable?: CommerceSetupDiagnostic;
 }
 
 export interface CommerceWebhookRouteOptions {
@@ -105,30 +108,43 @@ function publicQuote(quote: CommerceQuote): Omit<CommerceQuote, 'requestHash' | 
   };
 }
 
-function quoteFailure(request: Request, error: unknown): Response {
-  if (error instanceof AuthFailure) return fixedError(request, error.code, error.publicMessage, error.status);
+function quoteFailure(request: Request, error: unknown, stage: string): Response {
+  if (error instanceof AuthFailure) {
+    if (error.status >= 500) logCommerceRequestFailure(request, '/api/v1/commerce/quotes', stage, error);
+    return fixedError(request, error.code, error.publicMessage, error.status);
+  }
   if (error instanceof QuoteInputError) return fixedError(request, 'COMMERCE_BAD_REQUEST', error.message, 400);
   if (error instanceof CommerceQuoteError) {
     const publicError = QUOTE_ERRORS[error.code];
+    if (publicError.status >= 500) logCommerceRequestFailure(request, '/api/v1/commerce/quotes', stage, error);
     return fixedError(request, error.code, publicError.message, publicError.status);
   }
+  logCommerceRequestFailure(request, '/api/v1/commerce/quotes', stage, error);
   return fixedError(request, 'COMMERCE_UNAVAILABLE', '购买报价暂不可用，请稍后重试', 503);
 }
 
 export function registerCommerceQuoteRoute(app: Hono<any>, options: CommerceQuoteRouteOptions): void {
   app.post('/api/v1/commerce/quotes', async (c) => {
+    let failureStage = 'setup';
     try {
       const context = options.setup();
-      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买报价暂不可用，请稍后重试', 503);
+      if (!context) {
+        logCommerceSetupUnavailable(c.req.raw, '/api/v1/commerce/quotes', options.setupUnavailable);
+        return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买报价暂不可用，请稍后重试', 503);
+      }
       if (context.salesEnabled === false) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
       const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
+      failureStage = 'authentication';
       const identity = await sessions.authenticate(c.req.raw);
+      failureStage = 'csrf_validation';
       await assertCsrf(c.req.raw, context.authConfig, 'session', identity, context.runtime.now);
+      failureStage = 'account_profile';
       const session = await sessions.me(identity);
       if (session.user.status !== 'ACTIVE' || session.user.permission_level < 1) {
         return fixedError(c.req.raw, 'COMMERCE_ACCOUNT_REQUIRED', '请使用已验证邮箱的正式账号购买', 403);
       }
 
+      failureStage = 'rate_limit';
       const keyDigest = await authRateLimitKey(context.authConfig.rateSecret, 'session', identity.sessionToken);
       const rate = await consumeAuthRateLimit(context.authRepository, [{
         kind: 'window', scope: QUOTE_RATE_LIMIT.scope, keyDigest,
@@ -136,7 +152,9 @@ export function registerCommerceQuoteRoute(app: Hono<any>, options: CommerceQuot
       }], context.runtime.now);
       if (!rate.allowed) return rateLimited(c.req.raw, rate.retryAfter);
 
+      failureStage = 'request_parse';
       const parsed = parseQuoteInput(await readAuthJson(c.req.raw, QUOTE_JSON_LIMIT));
+      failureStage = 'quote_creation';
       const quote = await createQuote({
         userId: session.user.id,
         selection: parsed.selection,
@@ -147,22 +165,29 @@ export function registerCommerceQuoteRoute(app: Hono<any>, options: CommerceQuot
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
       });
     } catch (error) {
-      return quoteFailure(c.req.raw, error);
+      return quoteFailure(c.req.raw, error, failureStage);
     }
   });
 }
 
 export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrderRouteOptions): void {
   app.get('/api/v1/commerce/orders', async (c) => {
+    let failureStage = 'setup';
     try {
       const context = options.setup();
-      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买记录暂不可用，请稍后重试', 503);
+      if (!context) {
+        logCommerceSetupUnavailable(c.req.raw, '/api/v1/commerce/orders', options.setupUnavailable);
+        return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买记录暂不可用，请稍后重试', 503);
+      }
       const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
+      failureStage = 'authentication';
       const identity = await sessions.authenticate(c.req.raw);
+      failureStage = 'account_profile';
       const session = await sessions.me(identity);
       if (session.user.status !== 'ACTIVE' || session.user.permission_level < 1) {
         return fixedError(c.req.raw, 'COMMERCE_ACCOUNT_REQUIRED', '请使用已验证邮箱的正式账号查看购买记录', 403);
       }
+      failureStage = 'rate_limit';
       const keyDigest = await authRateLimitKey(context.authConfig.rateSecret, 'session', identity.sessionToken);
       const rate = await consumeAuthRateLimit(context.authRepository, [{
         kind: 'window', scope: ORDER_READ_RATE_LIMIT.scope, keyDigest,
@@ -173,17 +198,23 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
         response.headers.set('retry-after', String(Math.max(1, Math.ceil(rate.retryAfter))));
         return response;
       }
+      failureStage = 'order_history_query';
       const page = await listCommerceOrders(session.user.id, c.req.query('cursor'), context.orderDependencies);
       return new Response(JSON.stringify(page), {
         status: 200,
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
       });
     } catch (error) {
-      if (error instanceof AuthFailure) return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      if (error instanceof AuthFailure) {
+        if (error.status >= 500) logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders', failureStage, error);
+        return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      }
       if (error instanceof CommerceOrderError) {
         const publicError = ORDER_ERRORS[error.code];
+        if (publicError.status >= 500) logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders', failureStage, error);
         return fixedError(c.req.raw, error.code, publicError.message, publicError.status);
       }
+      logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders', failureStage, error);
       return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买记录暂不可用，请稍后重试', 503);
     }
   });
@@ -191,7 +222,10 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
   app.get('/api/v1/commerce/orders/:orderId', async (c) => {
     try {
       const context = options.setup();
-      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单状态暂不可用，请稍后重试', 503);
+      if (!context) {
+        logCommerceSetupUnavailable(c.req.raw, '/api/v1/commerce/orders/:orderId', options.setupUnavailable);
+        return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单状态暂不可用，请稍后重试', 503);
+      }
       const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
       const identity = await sessions.authenticate(c.req.raw);
       const session = await sessions.me(identity);
@@ -220,11 +254,16 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
       });
     } catch (error) {
-      if (error instanceof AuthFailure) return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      if (error instanceof AuthFailure) {
+        if (error.status >= 500) logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders/:orderId', 'order_status', error);
+        return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      }
       if (error instanceof CommerceOrderError) {
         const publicError = ORDER_ERRORS[error.code];
+        if (publicError.status >= 500) logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders/:orderId', 'order_status', error);
         return fixedError(c.req.raw, error.code, publicError.message, publicError.status);
       }
+      logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders/:orderId', 'order_status', error);
       return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单状态暂不可用，请稍后重试', 503);
     }
   });
@@ -232,7 +271,10 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
   app.post('/api/v1/commerce/orders', async (c) => {
     try {
       const context = options.setup();
-      if (!context) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
+      if (!context) {
+        logCommerceSetupUnavailable(c.req.raw, '/api/v1/commerce/orders', options.setupUnavailable);
+        return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
+      }
       if (context.salesEnabled === false) return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '购买服务暂不可用，请稍后重试', 503);
       const sessions = createSessionService(context.authRepository, context.authConfig, context.runtime);
       const identity = await sessions.authenticate(c.req.raw);
@@ -265,11 +307,16 @@ export function registerCommerceOrderRoute(app: Hono<any>, options: CommerceOrde
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store' },
       });
     } catch (error) {
-      if (error instanceof AuthFailure) return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      if (error instanceof AuthFailure) {
+        if (error.status >= 500) logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders', 'order_creation', error);
+        return fixedError(c.req.raw, error.code, error.publicMessage, error.status);
+      }
       if (error instanceof CommerceOrderError) {
         const publicError = ORDER_ERRORS[error.code];
+        if (publicError.status >= 500) logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders', 'order_creation', error);
         return fixedError(c.req.raw, error.code, publicError.message, publicError.status);
       }
+      logCommerceRequestFailure(c.req.raw, '/api/v1/commerce/orders', 'order_creation', error);
       return fixedError(c.req.raw, 'COMMERCE_UNAVAILABLE', '订单暂不可用，请稍后重试', 503);
     }
   });

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { COMMERCE_STRIPE_API_VERSION, resolveAppEnv, resolveCommerceConfig, type AppEnv } from './env';
+import { COMMERCE_STRIPE_API_VERSION, commerceConfigIssueFields, resolveAppEnv, resolveCommerceConfig, type AppEnv } from './env';
 import { healthPayload } from './routes/health';
 import type { MysqlDatabase } from './db/mysql-client';
 import { createWorkerDatabase, hasMysqlConnection } from './db/mysql-connection';
@@ -59,6 +59,7 @@ import { createCommerceRepository } from './commerce/repository';
 import { ensureCommerceCustomer } from './commerce/customers';
 import { previewPromotion } from './commerce/promotion-preview';
 import { verifyStripeCommerceConfiguration } from './commerce/preflight';
+import type { CommerceSetupDiagnostic } from './commerce/diagnostics';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -96,6 +97,8 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerKeDownloadRoutes(app, env);
 
   let commerceRoutesRegistered = false;
+  let commerceSetupDiagnostic: CommerceSetupDiagnostic | undefined;
+  if (!database) commerceSetupDiagnostic = { reason: 'database_unavailable' };
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
     const guestbookRepository = createGuestbookRepository(database, env.CURSOR_SECRET ?? '');
@@ -133,10 +136,13 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
         if (candidate.enabled) {
           commerceAuthConfig = candidate;
           commerceAuthRepository = createAuthRepository(database, mailRepositoryOptions(candidate));
+        } else {
+          commerceSetupDiagnostic = { reason: 'auth_disabled' };
         }
       } catch {
         commerceAuthConfig = null;
         commerceAuthRepository = null;
+        commerceSetupDiagnostic = { reason: 'auth_config_unavailable' };
       }
       let validation: Promise<void> | null = null;
       const validateStripeConfiguration = (): Promise<void> => {
@@ -178,6 +184,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       });
 
       registerCommerceQuoteRoute(app, {
+        setupUnavailable: commerceSetupDiagnostic,
         setup: () => {
           if (!commerceAuthConfig?.enabled || !commerceAuthRepository) return null;
           return {
@@ -208,6 +215,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       });
 
       registerCommerceOrderRoute(app, {
+        setupUnavailable: commerceSetupDiagnostic,
         setup: () => {
           if (!commerceAuthConfig?.enabled || !commerceAuthRepository) return null;
           return {
@@ -237,13 +245,17 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
         },
       });
       commerceRoutesRegistered = true;
+    } else {
+      commerceSetupDiagnostic = env.COMMERCE_ENABLED?.toLowerCase() === 'true'
+        ? { reason: 'commerce_config_invalid', invalidFields: commerceConfigIssueFields(env) }
+        : { reason: 'commerce_not_configured' };
     }
   }
 
   if (!commerceRoutesRegistered) {
     registerCommerceWebhookRoute(app, { setup: () => null });
-    registerCommerceQuoteRoute(app, { setup: () => null });
-    registerCommerceOrderRoute(app, { setup: () => null });
+    registerCommerceQuoteRoute(app, { setup: () => null, setupUnavailable: commerceSetupDiagnostic });
+    registerCommerceOrderRoute(app, { setup: () => null, setupUnavailable: commerceSetupDiagnostic });
   }
 
   (app as any).get('*', async (c: any) => {
