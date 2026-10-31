@@ -60,6 +60,7 @@ import { ensureCommerceCustomer } from './commerce/customers';
 import { previewPromotion } from './commerce/promotion-preview';
 import { verifyStripeCommerceConfiguration } from './commerce/preflight';
 import type { CommerceSetupDiagnostic } from './commerce/diagnostics';
+import { isAllowedProxyRequest } from './network/trusted-proxy';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -68,6 +69,13 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>();
   const database = injectedDatabase ?? createWorkerDatabase(env);
   const wakeMail = createMailWake(env.MAIL_QUEUE, context ? (promise) => context.waitUntil(promise) : undefined);
+  // Also protect calls entering through createApp() (including tests).
+  app.use('*', async (c, next) => {
+    if (!isAllowedProxyRequest(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET)) {
+      return c.newResponse('Forbidden', 403, { 'cache-control': 'no-store' });
+    }
+    await next();
+  });
   registerCorsMiddleware(app);
   app.use('*', async (c, next) => {
     const started = Date.now();
@@ -90,7 +98,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
-  const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT) : NOOP_ACTIVITY_RECORDER;
+  const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT, Date.now, env.LTSD_PROXY_SHARED_SECRET) : NOOP_ACTIVITY_RECORDER;
   registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);
   registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database, undefined, activity);
@@ -276,6 +284,10 @@ export default {
       const accountResponse = authEnvResolutionFailureResponse(request);
       if (accountResponse) return accountResponse;
       throw error;
+    }
+    // Search/upload hot paths bypass Hono; enforce the origin gate here too.
+    if (!isAllowedProxyRequest(request, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET)) {
+      return new Response('Forbidden', { status: 403, headers: { 'cache-control': 'no-store' } });
     }
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/api/v1/market/search' && hasMysqlConnection(env)) {

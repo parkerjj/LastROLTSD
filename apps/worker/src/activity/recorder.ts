@@ -20,9 +20,9 @@ export interface ActivityRecorder {
   recordHeartbeat(request: Request, entry: ActivityEntry & { ref: string }): Promise<void>;
 }
 
-function buildRow(request: Request, environment: string, entry: ActivityEntry, now: number): ActivityRow {
+function buildRow(request: Request, environment: string, entry: ActivityEntry, now: number, proxySecret?: string): ActivityRow {
   return {
-    ...readActivityNetwork(request, environment),
+    ...readActivityNetwork(request, environment, proxySecret),
     user_id: Number(entry.userId),
     event: entry.event,
     result: entry.result ?? 'SUCCESS',
@@ -40,12 +40,13 @@ export function createActivityRecorder(
   repository: ActivityRepository | null,
   environment: string,
   now: () => number = Date.now,
+  proxySecret?: string,
 ): ActivityRecorder {
   if (!repository) return NOOP_ACTIVITY_RECORDER;
   return {
     async record(request, entry) {
       try {
-        await repository.insert(buildRow(request, environment, entry, now()));
+        await repository.insert(buildRow(request, environment, entry, now(), proxySecret));
       } catch (error) {
         logError('lastroweb.activity_log_error', error, { event: entry.event });
       }
@@ -53,7 +54,7 @@ export function createActivityRecorder(
 
     async recordHeartbeat(request, entry) {
       try {
-        const row = buildRow(request, environment, entry, now());
+        const row = buildRow(request, environment, entry, now(), proxySecret);
         const latest = await repository.latestIpNetForRef(entry.ref);
         if (latest && latest.ip_net === row.ip_net) return;
         await repository.insert(row);

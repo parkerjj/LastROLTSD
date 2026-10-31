@@ -103,3 +103,46 @@ describe('isHostingOrg', () => {
     expect(isHostingOrg(null)).toBe(false);
   });
 });
+
+describe('activity network via trusted VPS proxy', () => {
+  const secret = 'b'.repeat(64);
+  function proxyRequest(headers: Record<string, string>, cf?: Record<string, unknown>): Request {
+    const req = new Request('https://origin.ltsd.ro/api/v1/ke/instances/bind', {
+      headers: { 'cf-connecting-ip': '206.237.9.56', 'x-ltsd-proxy-secret': secret, 'x-ltsd-client-ip': '113.87.1.2', ...headers },
+    });
+    if (cf) Object.defineProperty(req, 'cf', { value: cf });
+    return req;
+  }
+
+  it('uses real user IP and never treats the Los Angeles VPS cf fields as the visitor location', () => {
+    const req = proxyRequest({}, { country: 'US', city: 'Los Angeles', asn: 12345, asOrganization: 'VPS Hosting LLC' });
+    expect(readActivityNetwork(req, 'production', secret)).toMatchObject({
+      ip: '113.87.1.2', ip_net: '113.87.1.2', country: null,
+      city: null, asn: null, as_org: null, is_hosting: false,
+    });
+  });
+
+  it('accepts optional geo data only after full VPS authentication', () => {
+    const headers = {
+      'x-ltsd-client-country': 'CN', 'x-ltsd-client-region': 'Guangdong',
+      'x-ltsd-client-city': 'Shenzhen', 'x-ltsd-client-latitude': '22.54',
+      'x-ltsd-client-longitude': '114.05', 'x-ltsd-client-asn': '4134',
+      'x-ltsd-client-as-org': 'ChinaNet',
+    };
+    expect(readActivityNetwork(proxyRequest(headers), 'production', secret)).toMatchObject({
+      ip: '113.87.1.2', country: 'CN', region: 'Guangdong',
+      city: 'Shenzhen', latitude: 22.54, longitude: 114.05,
+      asn: 4134, as_org: 'ChinaNet', is_hosting: false,
+    });
+    const spoof = proxyRequest({ ...headers, 'x-ltsd-proxy-secret': 'z'.repeat(64) }, { country: 'US', city: 'Los Angeles' });
+    expect(readActivityNetwork(spoof, 'production', secret).country).toBe('US');
+    expect(readActivityNetwork(spoof, 'production', secret).ip).toBeNull();
+  });
+
+  it('discards invalid geo values rather than inventing country or coordinates', () => {
+    const req = proxyRequest({ 'x-ltsd-client-country': 'China', 'x-ltsd-client-latitude': '1000', 'x-ltsd-client-asn': '-1' });
+    expect(readActivityNetwork(req, 'production', secret)).toMatchObject({
+      ip: '113.87.1.2', country: null, latitude: null, asn: null,
+    });
+  });
+});

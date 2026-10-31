@@ -1,4 +1,5 @@
 import { trustedAuthClientIp } from '../auth/rate-limit';
+import { trustedProxyClient } from '../network/trusted-proxy';
 import { isHostingOrg } from './hosting';
 import type { ActivityNetwork } from './types';
 
@@ -68,21 +69,37 @@ function integerField(value: unknown): number | null {
   return parsed !== null && Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-export function readActivityNetwork(request: Request, environment: string): ActivityNetwork {
-  const cf = (request as Request & { cf?: Record<string, unknown> }).cf ?? {};
-  const clientIp = trustedAuthClientIp(request, environment);
+function optionalProxyNumber(request: Request, name: string, min: number, max: number): number | null {
+  const raw = request.headers.get(name)?.trim();
+  if (!raw || raw.length > 32) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= min && value <= max ? value : null;
+}
+
+function optionalProxyText(request: Request, name: string, maxLength: number): string | null {
+  const raw = request.headers.get(name)?.trim();
+  return raw && raw.length <= maxLength && !/[\r\n\x00-\x1f\x7f]/u.test(raw) ? raw : null;
+}
+
+export function readActivityNetwork(request: Request, environment: string, proxySecret?: string): ActivityNetwork {
+  const proxy = trustedProxyClient(request, environment, proxySecret);
+  // Cloudflare's cf metadata describes the VPS, NOT the proxied user.
+  const cf = proxy ? {} : (request as Request & { cf?: Record<string, unknown> }).cf ?? {};
+  const clientIp = trustedAuthClientIp(request, environment, proxySecret);
   const ip = clientIp === 'unknown' ? null : clientIp;
-  const country = typeof cf.country === 'string' && /^[A-Za-z]{2}$/u.test(cf.country) ? cf.country.toUpperCase() : null;
-  const asOrg = textField(cf.asOrganization, 128);
+  const forwardedCountry = proxy ? optionalProxyText(request, 'x-ltsd-client-country', 2) : null;
+  const countryValue = proxy ? forwardedCountry : cf.country;
+  const country = typeof countryValue === 'string' && /^[A-Za-z]{2}$/u.test(countryValue) ? countryValue.toUpperCase() : null;
+  const asOrg = proxy ? optionalProxyText(request, 'x-ltsd-client-as-org', 128) : textField(cf.asOrganization, 128);
   return {
     ip,
     ip_net: ip === null ? null : ipNetOf(ip),
     country,
-    region: textField(cf.region, 64),
-    city: textField(cf.city, 64),
-    latitude: numberField(cf.latitude),
-    longitude: numberField(cf.longitude),
-    asn: integerField(cf.asn),
+    region: proxy ? optionalProxyText(request, 'x-ltsd-client-region', 64) : textField(cf.region, 64),
+    city: proxy ? optionalProxyText(request, 'x-ltsd-client-city', 64) : textField(cf.city, 64),
+    latitude: proxy ? optionalProxyNumber(request, 'x-ltsd-client-latitude', -90, 90) : numberField(cf.latitude),
+    longitude: proxy ? optionalProxyNumber(request, 'x-ltsd-client-longitude', -180, 180) : numberField(cf.longitude),
+    asn: proxy ? optionalProxyNumber(request, 'x-ltsd-client-asn', 1, 4294967295) : integerField(cf.asn),
     as_org: asOrg,
     is_hosting: isHostingOrg(asOrg),
     device_id: parseDeviceId(request.headers.get('x-ltsd-device')),

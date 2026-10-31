@@ -1,3 +1,4 @@
+import { isProxyOriginRequest, trustedProxyClient } from '../network/trusted-proxy';
 import type { AuthRepository } from './repository';
 import type { AuthRateLimitRule } from './types';
 
@@ -26,7 +27,10 @@ export async function authRateLimitKey(secret: Uint8Array, kind: AuthRateLimitKe
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, toArrayBuffer(message)));
 }
 
-export function trustedAuthClientIp(request: Request, environment: string): string {
+export function trustedAuthClientIp(request: Request, environment: string, proxySecret?: string): string {
+  if (environment === 'production' && isProxyOriginRequest(request)) {
+    return trustedProxyClient(request, environment, proxySecret)?.ip ?? 'unknown';
+  }
   if (environment === 'production') {
     const cloudflareIp = request.headers.get('cf-connecting-ip')?.trim();
     if (cloudflareIp && cloudflareIp.length <= 64) return cloudflareIp;
