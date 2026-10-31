@@ -33,6 +33,19 @@
   --cream: #fff8ee;
 }
 
+.ke-hero-links .ke-commerce-link {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 12px;
+  padding: 8px 11px;
+  border: 1px solid #28705b;
+  border-radius: 4px;
+  background: #edf6f1;
+  color: #175842;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 * {
   box-sizing: border-box;
 }

@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 directory = "apps/web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/making-cookie", "/lastro/presence", "/ke/download", "/api/*"]
+run_worker_first = ["/making-cookie", "/lastro/presence", "/ke/download", "/ke/buy", "/api/*"]
 
 # Workers Cache is off by default; production enables it per-environment below.
 [cache]
@@ -27,6 +27,8 @@ AUTH_PASSWORD_KEY_VERSION = "1"
 AUTH_MAIL_PAYLOAD_KEY_VERSION = "1"
 AUTH_MAIL_DAILY_LIMIT = "100"
 AUTH_MAIL_MONTHLY_LIMIT = "3000"
+COMMERCE_ENABLED = "false"
+COMMERCE_STRIPE_LIVEMODE = "false"
 
 
 [triggers]
@@ -54,8 +56,8 @@ max_retries = 3
 
 [env.staging]
 name = "lastroweb-staging"
-vars = { ENVIRONMENT = "staging", MYSQL_CONNECTION_MODE = "hyperdrive", BUILD_VERSION = "staging", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000", AUTH_ENABLED = "false", AUTH_SITE_URL = "https://example.invalid", MAIL_FROM = "LTSD <no-reply@example.invalid>", AUTH_PASSWORD_KEY_VERSION = "1", AUTH_MAIL_PAYLOAD_KEY_VERSION = "1", AUTH_MAIL_DAILY_LIMIT = "100", AUTH_MAIL_MONTHLY_LIMIT = "3000" }
-assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence", "/ke/download", "/api/*"] }
+vars = { ENVIRONMENT = "staging", MYSQL_CONNECTION_MODE = "hyperdrive", BUILD_VERSION = "staging", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000", AUTH_ENABLED = "false", AUTH_SITE_URL = "https://example.invalid", MAIL_FROM = "LTSD <no-reply@example.invalid>", AUTH_PASSWORD_KEY_VERSION = "1", AUTH_MAIL_PAYLOAD_KEY_VERSION = "1", AUTH_MAIL_DAILY_LIMIT = "100", AUTH_MAIL_MONTHLY_LIMIT = "3000", COMMERCE_ENABLED = "false", COMMERCE_STRIPE_LIVEMODE = "false" }
+assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence", "/ke/download", "/ke/buy", "/api/*"] }
 
 # Set a cache-disabled Hyperdrive ID with scripts/configure-hyperdrive.mjs.
 [[env.staging.hyperdrive]]
@@ -85,7 +87,7 @@ max_retries = 3
 [env.production]
 name = "lastroweb-production"
 vars = { ENVIRONMENT = "production", MYSQL_CONNECTION_MODE = "hyperdrive", BUILD_VERSION = "production", MAX_BODY_BYTES = "524288", SNAPSHOT_RECONCILE_BATCH_SIZE = "200", SNAPSHOT_QUEUE_DAILY_BUDGET = "9000", IWA_UPDATES_MANIFEST_URL = "https://client.ltsd.ro/updates.json", KE_STANDALONE_MANIFEST_URL = "https://client.ltsd.ro/ke/standalone/releases.json", AUTH_ENABLED = "false", AUTH_SITE_URL = "https://example.invalid", MAIL_FROM = "LTSD <no-reply@example.invalid>", AUTH_PASSWORD_KEY_VERSION = "1", AUTH_MAIL_PAYLOAD_KEY_VERSION = "1", AUTH_MAIL_DAILY_LIMIT = "100", AUTH_MAIL_MONTHLY_LIMIT = "3000" }
-assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence", "/ke/download", "/api/*"] }
+assets = { directory = "apps/web/dist", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/making-cookie", "/lastro/presence", "/ke/download", "/ke/buy", "/api/*"] }
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE"

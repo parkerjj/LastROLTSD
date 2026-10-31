@@ -181,13 +181,44 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set Worker commerce Stripe secret key
+        run: node -e "process.stdout.write(process.env.COMMERCE_STRIPE_SECRET_KEY)" | pnpm exec wrangler secret put COMMERCE_STRIPE_SECRET_KEY --env production --config wrangler.toml
+        env:
+          COMMERCE_STRIPE_SECRET_KEY: ${{ secrets.COMMERCE_STRIPE_SECRET_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Set Worker commerce webhook signing secret
+        run: node -e "process.stdout.write(process.env.COMMERCE_STRIPE_WEBHOOK_SECRET)" | pnpm exec wrangler secret put COMMERCE_STRIPE_WEBHOOK_SECRET --env production --config wrangler.toml
+        env:
+          COMMERCE_STRIPE_WEBHOOK_SECRET: ${{ secrets.COMMERCE_STRIPE_WEBHOOK_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Publish auth-disabled rotation barrier
         if: steps.auth-preflight.outputs.enabled == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          pnpm exec wrangler deploy --env production --config wrangler.toml --var "AUTH_ENABLED:false"
+          pnpm exec wrangler deploy --env production --config wrangler.toml \
+            --var "AUTH_ENABLED:false" \
+            --var "MYSQL_CONNECTION_MODE:${MYSQL_CONNECTION_MODE}" \
+            --var "COMMERCE_ENABLED:${COMMERCE_ENABLED}" \
+            --var "COMMERCE_STRIPE_LIVEMODE:${COMMERCE_STRIPE_LIVEMODE}" \
+            --var "COMMERCE_STRIPE_ACCOUNT_ID:${COMMERCE_STRIPE_ACCOUNT_ID}" \
+            --var "COMMERCE_PRICING_VERSION:${COMMERCE_PRICING_VERSION}" \
+            --var "COMMERCE_STRIPE_PRODUCT_SLOTS_ID:${COMMERCE_STRIPE_PRODUCT_SLOTS_ID}" \
+            --var "COMMERCE_STRIPE_PRODUCT_STANDALONE_ID:${COMMERCE_STRIPE_PRODUCT_STANDALONE_ID}" \
+            --var "COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID:${COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID}" \
+            --var "COMMERCE_SITE_ORIGIN:${COMMERCE_SITE_ORIGIN}"
         env:
+          MYSQL_CONNECTION_MODE: ${{ vars.MYSQL_CONNECTION_MODE || 'hyperdrive' }}
+          COMMERCE_ENABLED: ${{ vars.COMMERCE_ENABLED }}
+          COMMERCE_STRIPE_LIVEMODE: ${{ vars.COMMERCE_STRIPE_LIVEMODE }}
+          COMMERCE_STRIPE_ACCOUNT_ID: ${{ vars.COMMERCE_STRIPE_ACCOUNT_ID }}
+          COMMERCE_PRICING_VERSION: ${{ vars.COMMERCE_PRICING_VERSION }}
+          COMMERCE_STRIPE_PRODUCT_SLOTS_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_SLOTS_ID }}
+          COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID }}
+          COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: ${{ vars.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID }}
+          COMMERCE_SITE_ORIGIN: ${{ vars.COMMERCE_SITE_ORIGIN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Set Worker account auth secrets
@@ -247,7 +278,18 @@ jobs:
         run: |
           set -euo pipefail
           auth_enabled="$AUTH_ENABLED"
-          deploy_args=(--var "AUTH_ENABLED:${auth_enabled}")
+          deploy_args=(
+            --var "AUTH_ENABLED:${auth_enabled}"
+            --var "MYSQL_CONNECTION_MODE:${MYSQL_CONNECTION_MODE}"
+            --var "COMMERCE_ENABLED:${COMMERCE_ENABLED}"
+            --var "COMMERCE_STRIPE_LIVEMODE:${COMMERCE_STRIPE_LIVEMODE}"
+            --var "COMMERCE_STRIPE_ACCOUNT_ID:${COMMERCE_STRIPE_ACCOUNT_ID}"
+            --var "COMMERCE_PRICING_VERSION:${COMMERCE_PRICING_VERSION}"
+            --var "COMMERCE_STRIPE_PRODUCT_SLOTS_ID:${COMMERCE_STRIPE_PRODUCT_SLOTS_ID}"
+            --var "COMMERCE_STRIPE_PRODUCT_STANDALONE_ID:${COMMERCE_STRIPE_PRODUCT_STANDALONE_ID}"
+            --var "COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID:${COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID}"
+            --var "COMMERCE_SITE_ORIGIN:${COMMERCE_SITE_ORIGIN}"
+          )
           if [[ "$auth_enabled" == 'true' ]]; then
             deploy_args+=(
               --var "AUTH_SITE_URL:${AUTH_SITE_URL}"
@@ -271,6 +313,15 @@ jobs:
           pnpm exec wrangler deploy --env production --config wrangler.toml "${deploy_args[@]}"
         env:
           AUTH_ENABLED: ${{ steps.auth-preflight.outputs.enabled }}
+          MYSQL_CONNECTION_MODE: ${{ vars.MYSQL_CONNECTION_MODE || 'hyperdrive' }}
+          COMMERCE_ENABLED: ${{ vars.COMMERCE_ENABLED }}
+          COMMERCE_STRIPE_LIVEMODE: ${{ vars.COMMERCE_STRIPE_LIVEMODE }}
+          COMMERCE_STRIPE_ACCOUNT_ID: ${{ vars.COMMERCE_STRIPE_ACCOUNT_ID }}
+          COMMERCE_PRICING_VERSION: ${{ vars.COMMERCE_PRICING_VERSION }}
+          COMMERCE_STRIPE_PRODUCT_SLOTS_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_SLOTS_ID }}
+          COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID }}
+          COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: ${{ vars.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID }}
+          COMMERCE_SITE_ORIGIN: ${{ vars.COMMERCE_SITE_ORIGIN }}
           AUTH_SITE_URL: ${{ vars.AUTH_SITE_URL }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
           MAIL_REPLY_TO: ${{ vars.MAIL_REPLY_TO }}

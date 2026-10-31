@@ -67,6 +67,22 @@ describe('AuthStore', () => {
     expect(store.getState()).toMatchObject({ status: 'active', user: { id: '10000' }, expiresAt: 60_000 });
   });
 
+  it('hydrates authenticated and anonymous HTML bootstrap states without calling me()', async () => {
+    const authenticatedApi = makeApi();
+    const authenticatedStore = new AuthStore(authenticatedApi, { broadcastChannel: null });
+    authenticatedStore.initializeFromBootstrap(session());
+    await authenticatedStore.bootstrap();
+    expect(authenticatedStore.getState()).toMatchObject({ status: 'active', user: { id: '10000' }, expiresAt: 30_000 });
+    expect(authenticatedApi.me).not.toHaveBeenCalled();
+
+    const anonymousApi = makeApi();
+    const anonymousStore = new AuthStore(anonymousApi, { broadcastChannel: null });
+    anonymousStore.initializeFromBootstrap(null);
+    await anonymousStore.bootstrap();
+    expect(anonymousStore.getState().status).toBe('anonymous');
+    expect(anonymousApi.me).not.toHaveBeenCalled();
+  });
+
   it('treats an expired me session as anonymous and confines a disabled service to account state', async () => {
     const unauthorized = makeApi({
       me: vi.fn(async () => { throw new AuthApiError(401, 'AUTH_UNAUTHENTICATED', '请先登录'); }),

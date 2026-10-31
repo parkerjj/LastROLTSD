@@ -59,7 +59,9 @@ export interface AuthApiClient {
   deleteAvatar(): Promise<AuthUserResponse>;
   getAvatar(userId: string, version: number): Promise<Blob>;
   /** 账号命名空间之外的登录写请求（如留言板）：自动附带会话 CSRF，401/CSRF 失效会广播会话失败 */
-  sessionRequest<T>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<T>;
+  sessionRequest<T>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown, headers?: HeadersInit): Promise<T>;
+  /** 账号命名空间之外的会话读取：不需要 CSRF，401 会广播会话失败 */
+  sessionRead<T>(path: string): Promise<T>;
   setSessionCsrf(token: string): void;
   clearSessionCsrf(): void;
   onSessionFailure(listener: AuthSessionFailureListener): () => void;
@@ -194,8 +196,26 @@ export class AuthApi implements AuthApiClient {
     return response.blob();
   }
 
-  async sessionRequest<T>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown): Promise<T> {
-    const response = await this.write(path, method, body, 'session');
+  async sessionRequest<T>(path: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body?: unknown, extraHeaders?: HeadersInit): Promise<T> {
+    const response = await this.write(path, method, body, 'session', true, extraHeaders);
+    return this.readJson<T>(response);
+  }
+
+  async sessionRead<T>(path: string): Promise<T> {
+    const revision = this.sessionRevisionValue;
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(await readDeviceHeaders())) headers.set(name, value);
+    const response = await this.fetcher(path, {
+      method: 'GET',
+      headers,
+      credentials: 'same-origin',
+      cache: ACCOUNT_CACHE,
+    });
+    if (!response.ok) {
+      const error = await this.readError(response);
+      if (error.status === 401) this.notifySessionFailure(error, revision);
+      throw error;
+    }
     return this.readJson<T>(response);
   }
 
@@ -258,8 +278,9 @@ export class AuthApi implements AuthApiClient {
     body: unknown | undefined,
     mode: 'anonymous' | 'session',
     reportSessionFailure = true,
+    extraHeaders?: HeadersInit,
   ): Promise<Response> {
-    const headers = new Headers();
+    const headers = new Headers(extraHeaders);
     if (body !== undefined) headers.set('content-type', 'application/json');
     for (const [name, value] of Object.entries(await readDeviceHeaders())) headers.set(name, value);
     const init: RequestInit = {

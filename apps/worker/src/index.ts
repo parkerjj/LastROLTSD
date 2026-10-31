@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { resolveAppEnv, type AppEnv } from './env';
+import { COMMERCE_STRIPE_API_VERSION, resolveAppEnv, resolveCommerceConfig, type AppEnv } from './env';
 import { healthPayload } from './routes/health';
 import type { MysqlDatabase } from './db/mysql-client';
 import { createWorkerDatabase, hasMysqlConnection } from './db/mysql-connection';
@@ -48,6 +48,17 @@ import { createAdminService } from './admin/service';
 import { createTransferRepository } from './admin/transfer-repository';
 import { createTransferService } from './admin/transfer-service';
 import { createActionService } from './auth/action-service';
+import { runCommerceCronTick } from './commerce/jobs';
+import { reconcilePaidOrder } from './commerce/fulfillment';
+import { renderCommerceHtml } from './commerce/page';
+import { registerCommerceOrderRoute, registerCommerceQuoteRoute, registerCommerceWebhookRoute } from './commerce/router';
+import { createStripeClient } from './commerce/stripe-client';
+import { createQuoteRepository } from './commerce/quote-repository';
+import { createOrderRepository } from './commerce/orders';
+import { createCommerceRepository } from './commerce/repository';
+import { ensureCommerceCustomer } from './commerce/customers';
+import { previewPromotion } from './commerce/promotion-preview';
+import { verifyStripeCommerceConfiguration } from './commerce/preflight';
 
 export type WorkerBindings = AppEnv;
 export type WorkerVariables = { requestId: string };
@@ -71,6 +82,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   });
 
   app.get('/api/health', async (c) => c.json(await healthPayload(env, database), 200, { 'cache-control': 'no-store' }));
+  app.get('/ke/buy', async (c) => renderCommerceHtml(c.req.raw, env, database));
   registerAssetRoute(app);
   registerLastroAccountRoute(app);
   registerMakingCookieRoute(app);
@@ -83,6 +95,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerKeRoutes(app, env, database, undefined, activity);
   registerKeDownloadRoutes(app, env);
 
+  let commerceRoutesRegistered = false;
   if (database) {
     const repository = createMysqlRepository(database, env.CURSOR_SECRET);
     const guestbookRepository = createGuestbookRepository(database, env.CURSOR_SECRET ?? '');
@@ -105,6 +118,132 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
     registerStatusRoute(app, repository);
     registerUploadRoute(app, env, repository, createListingStateService(repository), createUploadHandler(database, env));
     registerAdminRoutes(app, env, repository, createSnapshotRepository(database));
+
+    const commerceConfig = resolveCommerceConfig(env);
+    if (commerceConfig) {
+      const stripe = createStripeClient({
+        secretKey: commerceConfig.stripeSecretKey,
+        apiVersion: COMMERCE_STRIPE_API_VERSION,
+        fetch: globalThis.fetch,
+      });
+      let commerceAuthConfig: ReturnType<typeof resolveAuthConfig> | null = null;
+      let commerceAuthRepository: ReturnType<typeof createAuthRepository> | null = null;
+      try {
+        const candidate = resolveAuthConfig(env);
+        if (candidate.enabled) {
+          commerceAuthConfig = candidate;
+          commerceAuthRepository = createAuthRepository(database, mailRepositoryOptions(candidate));
+        }
+      } catch {
+        commerceAuthConfig = null;
+        commerceAuthRepository = null;
+      }
+      let validation: Promise<void> | null = null;
+      const validateStripeConfiguration = (): Promise<void> => {
+        if (!validation) {
+          validation = verifyStripeCommerceConfiguration(commerceConfig, stripe).catch((error: unknown) => {
+            validation = null;
+            throw error;
+          });
+        }
+        return validation;
+      };
+      const commerceRuntime = { now: () => Date.now(), fetch: globalThis.fetch };
+      const commerceRepository = createCommerceRepository(database);
+
+      registerCommerceWebhookRoute(app, {
+        setup: () => ({
+          repository: commerceRepository,
+          signingSecret: commerceConfig.webhookSecret,
+          stripeAccountId: commerceConfig.stripeAccountId,
+          livemode: commerceConfig.livemode,
+          now: () => Date.now(),
+          resolveRefundOrderIdFromPaymentIntent: async (paymentIntentId) => {
+            const value = await stripe.get<unknown>('/payment_intents/' + paymentIntentId);
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+            const intent = value as Record<string, unknown>;
+            if (intent.id !== paymentIntentId || intent.object !== 'payment_intent' || intent.livemode !== commerceConfig.livemode
+              || !intent.metadata || typeof intent.metadata !== 'object' || Array.isArray(intent.metadata)) return null;
+            const orderId = (intent.metadata as Record<string, unknown>).ltsd_commerce_order_id;
+            return typeof orderId === 'string' && /^\d{1,20}$/u.test(orderId) ? orderId : null;
+          },
+          reconcileOrder: (orderId, eventType) => reconcilePaidOrder(orderId, {
+            repository: commerceRepository,
+            stripe,
+            stripeAccountId: commerceConfig.stripeAccountId,
+            livemode: commerceConfig.livemode,
+            now: () => Date.now(),
+          }, eventType),
+        }),
+      });
+
+      registerCommerceQuoteRoute(app, {
+        setup: () => {
+          if (!commerceAuthConfig?.enabled || !commerceAuthRepository) return null;
+          return {
+            authConfig: commerceAuthConfig,
+            authRepository: commerceAuthRepository,
+            runtime: commerceRuntime,
+            salesEnabled: commerceConfig.salesEnabled,
+            quoteDependencies: {
+              repository: createQuoteRepository(database),
+              pricingVersion: commerceConfig.pricingVersion,
+              now: () => Date.now(),
+              productIds: commerceConfig.productIds,
+              validateStripeConfiguration,
+              previewPromotion: async (promotionCode, items, userId) => {
+                await validateStripeConfiguration();
+                const identity = await commerceAuthRepository!.readProfile(userId);
+                if (!identity) throw new Error('commerce customer is unavailable');
+                const customer = await ensureCommerceCustomer(userId, identity, {
+                  repository: createCommerceRepository(database), stripe,
+                  stripeAccountId: commerceConfig.stripeAccountId, livemode: commerceConfig.livemode,
+                  now: () => Date.now(),
+                });
+                return previewPromotion({ customerId: customer.stripeCustomerId, items, promotionCode }, stripe);
+              },
+            },
+          };
+        },
+      });
+
+      registerCommerceOrderRoute(app, {
+        setup: () => {
+          if (!commerceAuthConfig?.enabled || !commerceAuthRepository) return null;
+          return {
+            authConfig: commerceAuthConfig,
+            authRepository: commerceAuthRepository,
+            runtime: commerceRuntime,
+            salesEnabled: commerceConfig.salesEnabled,
+            orderDependencies: {
+              repository: createOrderRepository(database), stripe,
+              now: () => Date.now(), pricingVersion: commerceConfig.pricingVersion,
+              stripeAccountId: commerceConfig.stripeAccountId, livemode: commerceConfig.livemode,
+              paymentMethodConfigurationId: commerceConfig.paymentMethodConfigurationId,
+              productIds: commerceConfig.productIds, siteOrigin: commerceConfig.siteOrigin,
+              validateStripeConfiguration,
+              ensureCustomer: async (userId: string) => {
+                const identity = await commerceAuthRepository!.readProfile(userId);
+                if (!identity) throw new Error('commerce customer is unavailable');
+                const customer = await ensureCommerceCustomer(userId, identity, {
+                  repository: createCommerceRepository(database), stripe,
+                  stripeAccountId: commerceConfig.stripeAccountId, livemode: commerceConfig.livemode,
+                  now: () => Date.now(),
+                });
+                return customer.stripeCustomerId;
+              },
+            },
+          };
+        },
+      });
+      commerceRoutesRegistered = true;
+    }
+  }
+
+  if (!commerceRoutesRegistered) {
+    registerCommerceWebhookRoute(app, { setup: () => null });
+    registerCommerceQuoteRoute(app, { setup: () => null });
+    registerCommerceOrderRoute(app, { setup: () => null });
   }
 
   (app as any).get('*', async (c: any) => {
@@ -167,6 +306,11 @@ export default {
         await runAuthCronTick(env);
       } catch {
         // Already logged by runAuthCronTick; the snapshot wakeup below must still run.
+      }
+      try {
+        await runCommerceCronTick(env);
+      } catch {
+        // Commerce retries are isolated; snapshot work and auth remain independent.
       }
     }
     const database = createWorkerDatabase(env);
