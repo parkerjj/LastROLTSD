@@ -187,7 +187,7 @@ export function commerceConfigIssueFields(env: AppEnv): string[] {
   if (!stripeSecretKey || keyMode !== (livemode ? 'live' : 'test')) issues.push('COMMERCE_STRIPE_SECRET_KEY');
 
   const webhookSecret = env.COMMERCE_STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret || !/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(webhookSecret)) {
+  if (!webhookSecret || !/^whsec_[^\s]+$/u.test(webhookSecret)) {
     issues.push('COMMERCE_STRIPE_WEBHOOK_SECRET');
   }
 

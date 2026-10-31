@@ -83,6 +83,13 @@ describe('commerce deployment configuration preflight', () => {
       .toMatchObject({ webhookSecret: secret, salesEnabled: true, livemode: false });
   });
 
+  it('accepts a Stripe dashboard signing secret without imposing an encoded length', () => {
+    const secret = `whsec_${'n'.repeat(32)}`;
+
+    expect(resolveCommerceConfig(testBindings({ COMMERCE_STRIPE_WEBHOOK_SECRET: secret } as never)))
+      .toMatchObject({ webhookSecret: secret, salesEnabled: true, livemode: false });
+  });
+
   it('requires the Stripe key prefix and explicit livemode to match the deployment environment', () => {
     expect(resolveCommerceConfig(testBindings({ COMMERCE_STRIPE_LIVEMODE: 'true' } as never))).toBeNull();
     expect(resolveCommerceConfig(testBindings({ COMMERCE_STRIPE_SECRET_KEY: 'sk_live_commerce_key' } as never))).toBeNull();

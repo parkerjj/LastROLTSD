@@ -50,7 +50,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function signingSecretBytes(value: string): Uint8Array {
-  if (!/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(value)) throw new InvalidStripeEvent();
+  if (!/^whsec_[^\s]+$/u.test(value)) throw new InvalidStripeEvent();
   return new TextEncoder().encode(value);
 }
 

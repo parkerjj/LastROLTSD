@@ -203,6 +203,17 @@ describe('Stripe commerce webhook inbox', () => {
     expect(repository.eventIds.has('evt_test_cli_702')).toBe(true);
   });
 
+  it('verifies dashboard signing secrets without imposing an encoded length', async () => {
+    const repository = new WebhookRepository();
+    const secret = `whsec_${'a'.repeat(32)}`;
+    const request = await signedRequestWithSecret(event({ id: 'evt_test_dashboard_703' }), secret);
+
+    const response = await receiveStripeEvent(request, { ...dependencies(repository), signingSecret: secret });
+
+    expect(response.status).toBe(200);
+    expect(repository.eventIds.has('evt_test_dashboard_703')).toBe(true);
+  });
+
   it('rejects a signature that does not match the untouched request body', async () => {
     const repository = new WebhookRepository();
     const request = await signedRequest(event());

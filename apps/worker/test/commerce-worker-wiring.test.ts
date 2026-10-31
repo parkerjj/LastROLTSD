@@ -9,7 +9,7 @@ describe('commerce worker wiring', () => {
       COMMERCE_ENABLED: 'true',
       COMMERCE_STRIPE_LIVEMODE: 'true',
       COMMERCE_STRIPE_SECRET_KEY: 'rk_live_testkey123',
-      COMMERCE_STRIPE_WEBHOOK_SECRET: 'whsec_private-value',
+      COMMERCE_STRIPE_WEBHOOK_SECRET: 'stripe_test_not_a_webhook_secret',
       COMMERCE_STRIPE_ACCOUNT_ID: 'acct_123',
       COMMERCE_PRICING_VERSION: 'ke-commerce-v1',
       COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slots',
@@ -20,9 +20,9 @@ describe('commerce worker wiring', () => {
     const fields = commerceConfigIssueFields(env);
 
     expect(fields).toEqual(['COMMERCE_STRIPE_WEBHOOK_SECRET']);
-    expect(JSON.stringify(fields)).not.toContain('private-value');
+    expect(JSON.stringify(fields)).not.toContain('stripe_test_not_a_webhook_secret');
     expect(resolveCommerceConfig(env)).toBeNull();
-    expect(resolveCommerceConfig({ ...env, COMMERCE_STRIPE_WEBHOOK_SECRET: `whsec_${'A'.repeat(43)}=` })).not.toBeNull();
+    expect(resolveCommerceConfig({ ...env, COMMERCE_STRIPE_WEBHOOK_SECRET: `whsec_${'A'.repeat(32)}` })).not.toBeNull();
   });
 
   it('returns fixed unavailable responses for commerce routes when deployment configuration is missing', async () => {
