@@ -723,7 +723,7 @@ export const CONFIG_SCALARS: ScalarDef[] = [
     label: "空闲时坐下",
     help: "没怪打、空闲时是否坐下加速回血回蓝。",
     type: "enum",
-    default: "1",
+    default: "0",
     group: "坐下",
     options: ON_OFF,
   },
