@@ -78,7 +78,6 @@ function optionalProxyNumber(request: Request, name: string, min: number, max: n
 
 function optionalProxyText(request: Request, name: string, maxLength: number): string | null {
   const raw = request.headers.get(name)?.trim();
-  // eslint-disable-next-line no-control-regex
   if (!raw || raw.length > maxLength) return null;
   for (let i = 0; i < raw.length; i += 1) {
     const code = raw.charCodeAt(i);
