@@ -75,6 +75,24 @@ describe('MySQL Worker deployment configuration', () => {
     expect(workflow).toContain('process.stdout.write(process.env.MYSQL_URL)');
     expect(workflow).not.toMatch(/wrangler\s+d1\s+migrations|CLOUDFLARE_D1_DATABASE_ID|cf:config/iu);
   });
+
+  it('injects production commerce settings from the GitHub Environment, not Wrangler defaults', () => {
+    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
+    const production = config.split('[env.production]')[1]?.split('[[env.production.hyperdrive]]')[0] ?? '';
+
+    expect(production).not.toContain('MYSQL_CONNECTION_MODE');
+    expect(production).not.toContain('COMMERCE_');
+    expect(workflow).toContain('COMMERCE_ENABLED: ${{ vars.COMMERCE_ENABLED }}');
+    expect(workflow).toContain('COMMERCE_STRIPE_ACCOUNT_ID: ${{ vars.COMMERCE_STRIPE_ACCOUNT_ID }}');
+    expect(workflow).toContain('COMMERCE_STRIPE_PRODUCT_SLOTS_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_SLOTS_ID }}');
+    expect(workflow).toContain('COMMERCE_STRIPE_SECRET_KEY: ${{ secrets.COMMERCE_STRIPE_SECRET_KEY }}');
+    expect(workflow).toContain('wrangler secret put COMMERCE_STRIPE_SECRET_KEY');
+    expect(workflow).toContain('STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}');
+    expect(workflow).toContain('wrangler secret put STRIPE_SECRET_KEY');
+    expect(workflow).toContain('COMMERCE_STRIPE_WEBHOOK_SECRET: ${{ secrets.COMMERCE_STRIPE_WEBHOOK_SECRET }}');
+    expect(workflow).toContain('--var "MYSQL_CONNECTION_MODE:${MYSQL_CONNECTION_MODE}"');
+  });
 });
 
 describe('market source seed rendering', () => {

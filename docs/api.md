@@ -24,6 +24,24 @@ Unverified users can sign in as `PENDING_EMAIL`, read their own session, update 
 
 JSON bodies for ordinary account operations are limited to 8 KiB. Registration and avatar writes are limited to 64 KiB. Passwords are 5–256 Unicode code points and are not trimmed; display names are trimmed to 1–32 code points. An avatar is plain Base64 for one static 256×256 WebP image, at most 32 KiB (43,692 Base64 characters); do not send a data URL, animation, or original image. GET only renders an action form; email verification or password reset consumes its one-use token on POST.
 
+## KE commerce orders
+
+Commerce endpoints require a signed-in `ACTIVE` account with `permission_level >= 1`. Browser writes require the session CSRF token and trusted `Origin`; authenticated GETs do not require CSRF. Responses are private and `no-store`.
+
+| Method and path | Behavior |
+| --- | --- |
+| `POST /api/v1/commerce/quotes` | Price a selected set of instance credits, renewals, or the account-level offline KoreEngine feature. Quote results are previews and do not create an order. |
+| `POST /api/v1/commerce/orders` | Fix an immutable order from `{ "quote_id": "…" }`; requires `Idempotency-Key`. Returns the order ID, Checkout URL, expiry, and initial payment status. |
+| `GET /api/v1/commerce/orders?cursor=…` | Read up to 20 of the caller's orders, newest first. `nextCursor` is opaque; pass it unchanged to fetch the next page. |
+| `GET /api/v1/commerce/orders/:orderId` | Read the caller's saved order snapshot, actual delivered dates, payment and fulfillment state, and refund adjustments. An order owned by another account returns the same 404 as a missing order. |
+| `GET /api/v1/commerce/orders/:orderId?status_only=1` | Read the local payment and fulfillment state for Checkout-return polling without contacting Stripe or returning a Checkout URL. |
+
+The order detail retains the purchase-time amounts and terms even if catalog prices later change. It also reports each item's persisted delivery window and refund-projection deductions. Payment state is `unpaid`, `processing`, `paid`, or `failed`; a failed delayed payment leaves the immutable order in history and the buyer can return to `/ke/buy` to create a new order. Stripe Checkout returns to `/ke/buy` with `checkout=success` or `checkout=cancelled` and the fixed `order_id`; clients must use the authenticated order endpoint to inspect that order. A browser-supplied `session_id` is not used to identify or authorize an order. Canceling Checkout leaves the pending order unchanged and available until its stored expiry.
+
+Commerce purchases use the dedicated `COMMERCE_STRIPE_SECRET_KEY`; it is required and never falls back to `STRIPE_SECRET_KEY`, which remains for the `/sponsor` donation honor roll. Store both API keys and the webhook signing secret as Worker secrets; set account ID, Product IDs, pricing version, payment-method configuration ID, site origin, mode, and sales switch as environment-scoped variables. The production GitHub Actions workflow reads these values from the GitHub `production` Environment and passes non-secret values to Wrangler; do not duplicate them in `wrangler.toml`. `COMMERCE_STRIPE_LIVEMODE` must be `false` in local/staging and `true` in production. Buyer routes also require the existing account authentication configuration to be valid and enabled (`AUTH_ENABLED=true`). Set `COMMERCE_ENABLED=true` only after the production Environment contains all required commerce variables and the Commerce API key and `COMMERCE_STRIPE_WEBHOOK_SECRET` secrets. With sales disabled, new quote and order requests return a fixed unavailable response while configured webhooks and background reconciliation continue.
+
+The configured Stripe payment-method configuration must be active and expose Alipay. Each Product must carry `metadata.ltsd_commerce_product_key=slots` or `module:standalone`, matching its configured ID. Managed Payments, recurring prices, subscriptions, and automatic tax are not used. Checkout creates one-time dynamic `price_data` against the configured Products because renewals and align-to-date purchases can have different durations and amounts; the immutable LTSD order is the price source of truth.
+
 ## KE configuration profiles and hall
 
 The KE editor and profile hall use the signed-in web session. `PENDING_EMAIL` and `ACTIVE` accounts may use them regardless of `permission_level`; email verification and KE runtime entitlements are not required. Disabled accounts and expired or revoked sessions remain blocked. Responses use `Cache-Control: no-store`. Write requests require an `Origin` matching `AUTH_SITE_URL`.

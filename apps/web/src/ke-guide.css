@@ -619,6 +619,111 @@
   line-height: 1.32;
 }
 
+/* —— 脱机版 —— */
+
+.kg-offline {
+  padding: 84px 0 88px;
+  border-bottom: 1px solid var(--line);
+  background: var(--forest-card);
+}
+
+.kg-offline-kicker {
+  margin: 0;
+  color: var(--red);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .18em;
+}
+
+.kg-offline h2 {
+  margin: 16px 0 0;
+  color: var(--forest);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: clamp(28px, 3.4vw, 42px);
+  font-weight: 800;
+  letter-spacing: -.02em;
+  line-height: 1.16;
+}
+
+.kg-offline-head > p:last-child {
+  max-width: 40em;
+  margin: 20px 0 0;
+  color: var(--paper-soft);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.kg-offline-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 44px;
+}
+
+.kg-offline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 26px 24px;
+  border: 1px solid var(--line);
+  background: #fffdf8;
+}
+
+.kg-offline-card--dev {
+  background: #efe4cf;
+  border-style: dashed;
+}
+
+.kg-offline-code {
+  color: var(--gold);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .14em;
+}
+
+.kg-offline-card h3 {
+  margin: 0;
+  color: var(--forest);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.kg-offline-card p {
+  margin: 0;
+  color: var(--paper-soft);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.kg-offline-card .kg-btn {
+  margin-top: auto;
+  justify-content: center;
+}
+
+.kg-offline-more {
+  margin-top: auto;
+  color: var(--red);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.kg-offline-note {
+  max-width: 48em;
+  margin: 28px 0 0;
+  color: var(--paper-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+@media (max-width: 900px) {
+  .kg-offline-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .kg-fragment {
   background: #fffdf8;
   border: 1px solid var(--line); /* taste-skill-ignore outlined-box: data-ui 片段 */

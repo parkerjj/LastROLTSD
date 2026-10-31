@@ -61,7 +61,7 @@ export function mountProfileHall(root: HTMLElement, store: SessionStore = authSt
   const api = demo ? createProfileHallDemoApi() : profileHallApi;
   const editorHref = demo ? '/ke/my?demo=1' : '/ke/my';
   const editorLabel = demo ? '预览配置编辑器 →' : '我的配置 →';
-  root.innerHTML = `<header class="site-header"><div class="topbar page-width"><a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>${siteNavMarkup(null)}</div></header>
+  root.innerHTML = `<header class="site-header"><div class="topbar page-width"><a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>${siteNavMarkup("ke")}</div></header>
     <main class="page-width hall-page"><header class="hall-heading"><div><h1>配置大厅</h1><p class="hall-sub">找一套适合自己的配置，复制到角色后再按需要调整。</p></div><a href="${editorHref}" class="hall-editor-link">${editorLabel}</a></header>
     ${demo ? '<aside class="hall-demo-notice" role="note"><span><strong>演示模式</strong> · 示例数据只在当前页面模拟，刷新后恢复。</span><a href="/ke/hall">进入正式大厅</a></aside>' : ''}
     <section class="hall-tools" aria-label="查找配置"><select data-job aria-label="职业系"><option value="">全部职业系</option></select><select data-sort aria-label="排序"><option value="newest">最新分享</option><option value="uses">使用人数</option><option value="likes">点赞数</option></select><span class="hall-tools-gap"></span><input data-code-input class="hall-code-input" placeholder="分享码 ABC-1234" autocomplete="off" /><button type="button" class="hall-find" data-code-find>查找</button></section>

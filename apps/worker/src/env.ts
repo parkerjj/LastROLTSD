@@ -6,6 +6,21 @@ import type { AuthBindings } from './auth/types';
 import type { MailWakeQueue } from './auth/mail-wake';
 import type { KeBindings } from './ke/types';
 
+export const COMMERCE_STRIPE_API_VERSION = '2026-09-30.endive';
+export const DEFAULT_COMMERCE_PRICING_VERSION = 'ke-commerce-2026-10-v1';
+
+export interface CommerceConfig {
+  salesEnabled: boolean;
+  stripeSecretKey: string;
+  webhookSecret: string;
+  stripeAccountId: string;
+  livemode: boolean;
+  pricingVersion: string;
+  productIds: { slots: string; 'module:standalone': string };
+  paymentMethodConfigurationId: string;
+  siteOrigin: string;
+}
+
 export interface AppEnv extends AuthBindings, KeBindings {
   MYSQL_URL?: string | undefined;
   MYSQL_CONNECTION_MODE?: 'auto' | 'direct' | 'hyperdrive' | undefined;
@@ -25,6 +40,8 @@ export interface AppEnv extends AuthBindings, KeBindings {
   MAIL_QUEUE?: MailWakeQueue | undefined;
   /** Chrome IWA Update Manifest（updates.json）的公开 URL；用于解析最新 Release 安装包地址。 */
   IWA_UPDATES_MANIFEST_URL?: string | undefined;
+  /** KoreEngine 脱机版发行清单（releases.json）的公开 URL；缺省时使用 LTSD 的固定地址。 */
+  KE_STANDALONE_MANIFEST_URL?: string | undefined;
   /** 爱发电开放平台 API token（机密，仅经 wrangler secret / 本地 .dev.vars 注入，缺省时打赏接口返回 503）。 */
   AFDIAN_TOKEN?: string | undefined;
   /** 爱发电创作者 user_id（公开值，缺省时使用 LTSD_RO 内置的默认值）。 */
@@ -33,6 +50,17 @@ export interface AppEnv extends AuthBindings, KeBindings {
   STRIPE_SECRET_KEY?: string | undefined;
   /** Stripe Payment Link 公开 donate URL（缺省时使用 LTSD_RO 内置的常量值）。 */
   STRIPE_DONATE_URL?: string | undefined;
+  /** 商务销售开关。关闭时暂停报价/建单，但保留已建订单的 webhook 与 cron 对账。 */
+  COMMERCE_ENABLED?: string | undefined;
+  COMMERCE_STRIPE_SECRET_KEY?: string | undefined;
+  COMMERCE_STRIPE_WEBHOOK_SECRET?: string | undefined;
+  COMMERCE_STRIPE_ACCOUNT_ID?: string | undefined;
+  COMMERCE_STRIPE_LIVEMODE?: string | undefined;
+  COMMERCE_PRICING_VERSION?: string | undefined;
+  COMMERCE_STRIPE_PRODUCT_SLOTS_ID?: string | undefined;
+  COMMERCE_STRIPE_PRODUCT_STANDALONE_ID?: string | undefined;
+  COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID?: string | undefined;
+  COMMERCE_SITE_ORIGIN?: string | undefined;
 }
 
 export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
@@ -65,10 +93,21 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     SNAPSHOT_QUEUE_DAILY_BUDGET: nonnegativeInteger(bindings.SNAPSHOT_QUEUE_DAILY_BUDGET, 9000),
     SNAPSHOT_RECONCILE_BATCH_SIZE: positiveInteger(bindings.SNAPSHOT_RECONCILE_BATCH_SIZE, 200),
     IWA_UPDATES_MANIFEST_URL: typeof bindings.IWA_UPDATES_MANIFEST_URL === 'string' && bindings.IWA_UPDATES_MANIFEST_URL.trim() !== '' ? bindings.IWA_UPDATES_MANIFEST_URL.trim() : undefined,
+    KE_STANDALONE_MANIFEST_URL: typeof bindings.KE_STANDALONE_MANIFEST_URL === 'string' && bindings.KE_STANDALONE_MANIFEST_URL.trim() !== '' ? bindings.KE_STANDALONE_MANIFEST_URL.trim() : undefined,
     AFDIAN_TOKEN: typeof bindings.AFDIAN_TOKEN === 'string' && bindings.AFDIAN_TOKEN.trim() !== '' ? bindings.AFDIAN_TOKEN.trim() : undefined,
     AFDIAN_USER_ID: typeof bindings.AFDIAN_USER_ID === 'string' && bindings.AFDIAN_USER_ID.trim() !== '' ? bindings.AFDIAN_USER_ID.trim() : undefined,
     STRIPE_SECRET_KEY: typeof bindings.STRIPE_SECRET_KEY === 'string' && bindings.STRIPE_SECRET_KEY.trim() !== '' ? bindings.STRIPE_SECRET_KEY.trim() : undefined,
     STRIPE_DONATE_URL: typeof bindings.STRIPE_DONATE_URL === 'string' && bindings.STRIPE_DONATE_URL.trim() !== '' ? bindings.STRIPE_DONATE_URL.trim() : undefined,
+    COMMERCE_ENABLED: optionalString(bindings.COMMERCE_ENABLED),
+    COMMERCE_STRIPE_SECRET_KEY: optionalString(bindings.COMMERCE_STRIPE_SECRET_KEY),
+    COMMERCE_STRIPE_WEBHOOK_SECRET: optionalString(bindings.COMMERCE_STRIPE_WEBHOOK_SECRET),
+    COMMERCE_STRIPE_ACCOUNT_ID: optionalString(bindings.COMMERCE_STRIPE_ACCOUNT_ID),
+    COMMERCE_STRIPE_LIVEMODE: optionalString(bindings.COMMERCE_STRIPE_LIVEMODE),
+    COMMERCE_PRICING_VERSION: optionalString(bindings.COMMERCE_PRICING_VERSION),
+    COMMERCE_STRIPE_PRODUCT_SLOTS_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_SLOTS_ID),
+    COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID),
+    COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: optionalString(bindings.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID),
+    COMMERCE_SITE_ORIGIN: optionalString(bindings.COMMERCE_SITE_ORIGIN),
     AUTH_ENABLED: typeof bindings.AUTH_ENABLED === 'string' ? bindings.AUTH_ENABLED : undefined,
     AUTH_SITE_URL: typeof bindings.AUTH_SITE_URL === 'string' ? bindings.AUTH_SITE_URL : undefined,
     AUTH_PASSWORD_SECRET: typeof bindings.AUTH_PASSWORD_SECRET === 'string' ? bindings.AUTH_PASSWORD_SECRET : undefined,
@@ -95,6 +134,60 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     KE_NETWORK_KEY: typeof bindings.KE_NETWORK_KEY === 'string' ? bindings.KE_NETWORK_KEY : undefined,
     KE_NETWORK_KEY_VERSION: typeof bindings.KE_NETWORK_KEY_VERSION === 'string' ? bindings.KE_NETWORK_KEY_VERSION : undefined,
     KE_BUILD_MANIFEST: typeof bindings.KE_BUILD_MANIFEST === 'string' ? bindings.KE_BUILD_MANIFEST : undefined,
+  };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
+  const enabledValue = env.COMMERCE_ENABLED?.toLowerCase() ?? 'false';
+  const livemodeValue = env.COMMERCE_STRIPE_LIVEMODE?.toLowerCase();
+  if ((enabledValue !== 'true' && enabledValue !== 'false')
+    || (livemodeValue !== 'true' && livemodeValue !== 'false')) return null;
+
+  const livemode = livemodeValue === 'true';
+  if (livemode !== (env.ENVIRONMENT === 'production')) return null;
+
+  const stripeSecretKey = env.COMMERCE_STRIPE_SECRET_KEY;
+  const keyMode = stripeSecretKey?.match(/^(?:sk|rk)_(live|test)_[A-Za-z0-9]+$/u)?.[1];
+  const webhookSecret = env.COMMERCE_STRIPE_WEBHOOK_SECRET;
+  const stripeAccountId = env.COMMERCE_STRIPE_ACCOUNT_ID;
+  const pricingVersion = env.COMMERCE_PRICING_VERSION;
+  const slotsProductId = env.COMMERCE_STRIPE_PRODUCT_SLOTS_ID;
+  const standaloneProductId = env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID;
+  const paymentMethodConfigurationId = env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
+  const siteOrigin = env.COMMERCE_SITE_ORIGIN;
+  if (!stripeSecretKey || keyMode !== (livemode ? 'live' : 'test')
+    || !webhookSecret || !/^whsec_(?:[A-Za-z0-9+/]{43}=|[A-Fa-f0-9]{64})$/u.test(webhookSecret)
+    || !stripeAccountId || !/^acct_[A-Za-z0-9]+$/u.test(stripeAccountId)
+    || !pricingVersion || !/^[A-Za-z0-9._-]{1,32}$/u.test(pricingVersion)
+    || !slotsProductId || !/^prod_[A-Za-z0-9]+$/u.test(slotsProductId)
+    || !standaloneProductId || !/^prod_[A-Za-z0-9]+$/u.test(standaloneProductId)
+    || !paymentMethodConfigurationId || !/^pmc_[A-Za-z0-9]+$/u.test(paymentMethodConfigurationId)
+    || !siteOrigin) return null;
+
+  let origin: URL;
+  try {
+    origin = new URL(siteOrigin);
+  } catch {
+    return null;
+  }
+  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) {
+    return null;
+  }
+
+  return {
+    salesEnabled: enabledValue === 'true',
+    stripeSecretKey,
+    webhookSecret,
+    stripeAccountId,
+    livemode,
+    pricingVersion,
+    productIds: { slots: slotsProductId, 'module:standalone': standaloneProductId },
+    paymentMethodConfigurationId,
+    siteOrigin: origin.origin,
   };
 }
 

@@ -211,18 +211,26 @@ importers:
 
   apps/web:
     dependencies:
+      '@lastroweb/commerce':
+        specifier: workspace:*
+        version: link:../../packages/commerce
       '@phosphor-icons/web':
         specifier: ^2.1.2
         version: 2.1.2
 
   apps/worker:
     dependencies:
+      '@lastroweb/commerce':
+        specifier: workspace:*
+        version: link:../../packages/commerce
       hono:
         specifier: ^4.7.11
         version: 4.13.8
       mysql2:
         specifier: ^3.14.3
         version: 3.24.4(@types/node@24.13.5)
+
+  packages/commerce: {}
 
   packages/protocol:
     dependencies:

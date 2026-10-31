@@ -617,7 +617,7 @@ export function mountKePage(root: HTMLElement): void {
   <header class="site-header">
     <div class="topbar page-width">
       <a class="brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a>
-      ${siteNavMarkup(null)}
+      ${siteNavMarkup("ke")}
     </div>
   </header>
   <main class="page-width">
@@ -631,6 +631,7 @@ export function mountKePage(root: HTMLElement): void {
         <span id="ke-demo-chip" class="ke-demo-chip" hidden><i></i>演示模式 · 操作仅临时模拟</span>
         <p id="ke-status" class="ke-status" role="status" aria-live="polite">正在加载…</p>
         <p class="ke-hero-links">
+          <a class="ke-commerce-link" href="/ke/buy">购买额度与功能</a>
           <a href="/ke/device">管理已授权的 KoreEngine 设备 →</a>
           ${demo ? '<a class="ke-demo-hall-link" href="/ke/hall?demo=1">配置大厅 →</a>' : ''}
         </p>

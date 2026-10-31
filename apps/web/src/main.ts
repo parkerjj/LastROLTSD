@@ -34,6 +34,7 @@ import { launchIwaClient, launchLegacyClient } from "./game-launch";
 import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi } from "./auth/api";
 import { authStore } from "./auth/store";
+import type { AuthSessionResponse } from "./auth/types";
 import { isAuthPage, mountAuthPage } from "./auth/pages";
 
 const pathname = window.location.pathname;
@@ -42,6 +43,27 @@ if (!authPage) initAnalytics();
 
 const root = document.querySelector<HTMLElement>("#app")!;
 if (!root) throw new Error("Missing app root");
+
+function isAuthSessionResponse(value: unknown): value is AuthSessionResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const session = value as Record<string, unknown>;
+  const user = session.user;
+  return typeof session.expires_at === "number" && typeof session.csrf_token === "string"
+    && user !== null && typeof user === "object" && typeof (user as Record<string, unknown>).id === "string";
+}
+
+const commerceBootstrapElement = document.getElementById("commerce-bootstrap");
+if (commerceBootstrapElement?.tagName === "SCRIPT" && (commerceBootstrapElement as HTMLScriptElement).type === "application/json") {
+  try {
+    const bootstrap = JSON.parse(commerceBootstrapElement.textContent ?? "") as { session?: unknown };
+    if (Object.prototype.hasOwnProperty.call(bootstrap, "session")
+      && (bootstrap.session === null || isAuthSessionResponse(bootstrap.session))) {
+      authStore.initializeFromBootstrap(bootstrap.session);
+    }
+  } catch {
+    // Malformed bootstrap falls back to the normal auth bootstrap request.
+  }
+}
 
 /** 路由页面按需加载：非当前页面的 JS/CSS 不进首屏包，减少首包体积与解析耗时。 */
 function mountLazy(load: () => Promise<(container: HTMLElement) => void>): void {
@@ -62,6 +84,7 @@ const isSponsorPage = /^\/sponsor\/?$/u.test(pathname);
 // 配置工作台已迁移至 /ke/my；旧路径 /ke 继续命中本页，加载后归一地址栏。
 const isKePage = /^\/ke(?:\/my)?\/?$/u.test(pathname);
 const isKeGuidePage = /^\/ke\/guide\/?$/u.test(pathname);
+const isKeDownloadPage = /^\/ke\/download\/?$/u.test(pathname);
 const isKeSetupGuidePage = /^\/ke\/my\/create\/setup-guide\/?$/u.test(pathname);
 const isKeDevicePage = /^\/ke\/device\/?$/u.test(pathname);
 const isProfileHallPage = /^\/ke\/hall\/?$/u.test(pathname);
@@ -72,6 +95,7 @@ const isVipPage = /^\/vip\/price\/?$/u.test(pathname);
 const isTermsPage = /^\/terms\/?$/u.test(pathname);
 const isPrivacyPage = /^\/privacy\/?$/u.test(pathname);
 const isRefundsPage = /^\/refunds\/?$/u.test(pathname);
+const isCommercePage = /^\/ke\/buy\/?$/u.test(pathname);
 const mapFilterMarkup = mapFilterOptions()
   .map((map) => `<option value="${map.value}">${map.label}</option>`)
   .join("");
@@ -1207,6 +1231,7 @@ else if (isReleasePage) mountLazy(() => import("./release-page").then((m) => m.m
 else if (isGuestbookPage) mountLazy(() => import("./guestbook-page").then((m) => m.mountGuestbookPage));
 else if (isAccountsPage) mountLazy(() => import("./accounts-page").then((m) => m.mountAccountsPage));
 else if (isKeGuidePage) mountLazy(() => import("./ke-guide-page").then((m) => m.mountKeGuidePage));
+else if (isKeDownloadPage) mountLazy(() => import("./ke-download-page").then((m) => m.mountKeDownloadPage));
 else if (isKeSetupGuidePage) mountLazy(() => import("./ke-setup-guide-page").then((m) => m.mountKeSetupGuidePage));
 else if (isKePage) {
   if (/^\/ke\/?$/u.test(pathname)) {
@@ -1221,4 +1246,16 @@ else if (isVipPage) mountLazy(() => import("./vip-page").then((m) => m.mountVipP
 else if (isTermsPage) mountLazy(() => import("./terms-page").then((m) => m.mountTermsPage));
 else if (isPrivacyPage) mountLazy(() => import("./privacy-page").then((m) => m.mountPrivacyPage));
 else if (isRefundsPage) mountLazy(() => import("./refunds-page").then((m) => m.mountRefundsPage));
+else if (isCommercePage) {
+  root.innerHTML = '<main class="page-width"><p role="status">正在加载购买页面…</p></main>';
+  void Promise.all([import("./commerce-api"), import("./commerce-page")]).then(([commerceApi, commercePage]) => {
+    try {
+      commercePage.mountCommercePage(root, commercePage.readCommerceBootstrap(document), commerceApi.createCommerceApi(authApi));
+    } catch {
+      root.innerHTML = '<main class="page-width"><p class="commerce-error" role="alert">购买页面数据暂不可用，请刷新页面。</p></main>';
+    }
+  }).catch(() => {
+    root.innerHTML = '<main class="page-width"><p class="commerce-error" role="alert">购买页面暂时不可用，请稍后重试。</p></main>';
+  });
+}
 else mountSearchPage();

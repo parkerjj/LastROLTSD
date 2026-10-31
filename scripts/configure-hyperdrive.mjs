@@ -20,11 +20,7 @@ try {
   let source = readFileSync(config, 'utf8');
   const environmentSection = new RegExp(`(\\[env\\.${environment}\\]\\r?\\n)([\\s\\S]*?)(?=\\n\\[|$)`, 'u');
   const section = environmentSection.exec(source);
-  if (!section || !/MYSQL_CONNECTION_MODE = "(?:auto|direct|hyperdrive)"/u.test(section[2])) {
-    throw new Error('Target environment must declare MYSQL_CONNECTION_MODE');
-  }
-  source = source.replace(environmentSection, (_match, header, body) =>
-    header + body.replace(/MYSQL_CONNECTION_MODE = "(?:auto|direct|hyperdrive)"/u, `MYSQL_CONNECTION_MODE = "${mode}"`));
+  if (!section) throw new Error('Target environment must be declared');
   const bindingSection = new RegExp(`\\[\\[env\\.${environment}\\.hyperdrive\\]\\]\\r?\\nbinding = "HYPERDRIVE"\\r?\\nid = "[^"\\r\\n]+"\\r?\\n`, 'gu');
   if ([...source.matchAll(bindingSection)].length !== 1) throw new Error('Target environment must have exactly one HYPERDRIVE binding');
   source = source.replace(bindingSection, mode === 'direct' ? ''
