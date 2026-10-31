@@ -96,7 +96,11 @@ proxy_set_header X-LTSD-Client-AS-Org "";
 ```
 
 Additionally the Worker deliberately ignores these headers until the binding
-`LTSD_PROXY_GEO_ENABLED` is set to `true`. Leave it **unset** for the initial
+`LTSD_PROXY_GEO_ENABLED` is set to `true`. The GitHub production deployment workflow
+passes this setting from the production Environment variable
+`LTSD_PROXY_GEO_ENABLED` (default `false`) in both the rotation-barrier and
+final deploy stages. After configuring and testing GeoIP on the VPS, set the
+GitHub Environment variable to `true` and redeploy to activate it. Leave it **unset** for the initial
 proxy cutover. Enable it only after installing a maintained GeoIP database
 and configuring all Nginx GeoIP fields as server-derived values. Do not
 synthesize them from the VPS's own Cloudflare location or trust visitor headers.
