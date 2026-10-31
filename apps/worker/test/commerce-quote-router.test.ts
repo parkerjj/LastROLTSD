@@ -6,6 +6,7 @@ import type { AuthRepository } from '../src/auth/repository';
 import type { AuthIdentity, AuthSessionResponse, AuthRuntime, EnabledAuthConfig } from '../src/auth/types';
 import { registerCommerceQuoteRoute } from '../src/commerce/router';
 import type { QuoteAccountState, QuoteDependencies, QuoteRepository } from '../src/commerce/quotes';
+import { StripeRequestError } from '../src/commerce/stripe-client';
 
 const NOW = 1_800_000_000_000;
 const ORIGIN = 'https://ltsd.example';
@@ -26,6 +27,7 @@ async function setup(options: {
   readAccount?: () => Promise<QuoteAccountState>;
   rateAllowed?: boolean;
   previewPromotion?: QuoteDependencies['previewPromotion'];
+  validateStripeConfiguration?: QuoteDependencies['validateStripeConfiguration'];
   salesEnabled?: boolean;
 } = {}) {
   const sessionDigest = await digestToken(SESSION_TOKEN);
@@ -57,6 +59,7 @@ async function setup(options: {
     pricingVersion: 'ke-commerce-test-v1',
     now: () => NOW,
     productIds: { slots: 'prod_slots', 'module:standalone': 'prod_offline' },
+    ...(options.validateStripeConfiguration ? { validateStripeConfiguration: options.validateStripeConfiguration } : {}),
     ...(options.previewPromotion ? { previewPromotion: options.previewPromotion } : {}),
   };
   const runtime: AuthRuntime = { now: () => NOW, fetch: globalThis.fetch };
@@ -92,6 +95,47 @@ describe('commerce quote route', () => {
 
     expect(response.status).toBe(503);
     expect(body).not.toContain('private database');
+  });
+
+  it('logs the safe reason when Commerce route setup is unavailable', async () => {
+    const app = new Hono();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      registerCommerceQuoteRoute(app, {
+        setup: () => null,
+        setupUnavailable: { reason: 'commerce_config_invalid', invalidFields: ['COMMERCE_STRIPE_WEBHOOK_SECRET'] },
+      });
+      const response = await app.request(`${ORIGIN}/api/v1/commerce/quotes`, { method: 'POST' });
+
+      expect(response.status).toBe(503);
+      const event = errorLog.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .find((entry) => entry.metric === 'commerce.setup_unavailable');
+      expect(event).toMatchObject({ reason: 'commerce_config_invalid', invalid_fields: ['COMMERCE_STRIPE_WEBHOOK_SECRET'] });
+      expect(JSON.stringify(event)).not.toContain('whsec_');
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it('logs only safe Stripe preflight diagnostics when quote creation is unavailable', async () => {
+    const fixture = await setup({
+      validateStripeConfiguration: async () => { throw new StripeRequestError(403, 'permission_denied'); },
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const response = await postQuote(fixture.app, {
+        selection: [{ type: 'slot_add', quantity: 1, term_days: 30 }],
+      }, fixture.csrfToken);
+
+      expect(response.status).toBe(503);
+      const event = errorLog.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .find((entry) => entry.metric === 'commerce.request_failure');
+      expect(event).toMatchObject({ failure_stage: 'quote_creation', stripe_status: 403, stripe_error_code: 'permission_denied' });
+      expect(JSON.stringify(event)).not.toContain('rk_live');
+      expect(JSON.stringify(event)).not.toContain('Authorization');
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('rejects new quotes while sales are disabled before authenticating or reading commerce state', async () => {
