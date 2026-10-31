@@ -81,8 +81,25 @@ GeoIP-derived metadata through these optional headers:
 - `X-LTSD-Client-ASN`, `X-LTSD-Client-AS-Org`
 
 Nginx does **not** emit these by default. They require a maintained, trusted
-GeoIP database (e.g. MaxMind GeoLite2) installed on the VPS. Do not synthesize
-them from the VPS's own Cloudflare location or trust arbitrary visitor headers.
+GeoIP database (e.g. MaxMind GeoLite2) installed on the VPS. Until that
+database is configured, make sure Nginx overwrites (does not forward) all of
+the above headers, **even if the browser sends them**:
+
+```nginx
+proxy_set_header X-LTSD-Client-Country "";
+proxy_set_header X-LTSD-Client-Region "";
+proxy_set_header X-LTSD-Client-City "";
+proxy_set_header X-LTSD-Client-Latitude "";
+proxy_set_header X-LTSD-Client-Longitude "";
+proxy_set_header X-LTSD-Client-ASN "";
+proxy_set_header X-LTSD-Client-AS-Org "";
+```
+
+Additionally the Worker deliberately ignores these headers until the binding
+`LTSD_PROXY_GEO_ENABLED` is set to `true`. Leave it **unset** for the initial
+proxy cutover. Enable it only after installing a maintained GeoIP database
+and configuring all Nginx GeoIP fields as server-derived values. Do not
+synthesize them from the VPS's own Cloudflare location or trust visitor headers.
 
 ## Before DNS cutover
 

@@ -122,26 +122,27 @@ describe('activity network via trusted VPS proxy', () => {
     });
   });
 
-  it('accepts optional geo data only after full VPS authentication', () => {
+  it('accepts optional geo data only after full VPS authentication AND an explicit opt-in', () => {
     const headers = {
       'x-ltsd-client-country': 'CN', 'x-ltsd-client-region': 'Guangdong',
       'x-ltsd-client-city': 'Shenzhen', 'x-ltsd-client-latitude': '22.54',
       'x-ltsd-client-longitude': '114.05', 'x-ltsd-client-asn': '4134',
       'x-ltsd-client-as-org': 'ChinaNet',
     };
-    expect(readActivityNetwork(proxyRequest(headers), 'production', secret)).toMatchObject({
+    expect(readActivityNetwork(proxyRequest(headers), 'production', secret)).toMatchObject({ country: null, city: null, asn: null });
+    expect(readActivityNetwork(proxyRequest(headers), 'production', secret, true)).toMatchObject({
       ip: '113.87.1.2', country: 'CN', region: 'Guangdong',
       city: 'Shenzhen', latitude: 22.54, longitude: 114.05,
       asn: 4134, as_org: 'ChinaNet', is_hosting: false,
     });
     const spoof = proxyRequest({ ...headers, 'x-ltsd-proxy-secret': 'z'.repeat(64) }, { country: 'US', city: 'Los Angeles' });
-    expect(readActivityNetwork(spoof, 'production', secret).country).toBe('US');
+    expect(readActivityNetwork(spoof, 'production', secret, true).country).toBe('US');
     expect(readActivityNetwork(spoof, 'production', secret).ip).toBeNull();
   });
 
   it('discards invalid geo values rather than inventing country or coordinates', () => {
     const req = proxyRequest({ 'x-ltsd-client-country': 'China', 'x-ltsd-client-latitude': '1000', 'x-ltsd-client-asn': '-1' });
-    expect(readActivityNetwork(req, 'production', secret)).toMatchObject({
+    expect(readActivityNetwork(req, 'production', secret, true)).toMatchObject({
       ip: '113.87.1.2', country: null, latitude: null, asn: null,
     });
   });

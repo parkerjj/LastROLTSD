@@ -98,7 +98,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
   registerSponsorRoutes(app, env);
-  const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT, Date.now, env.LTSD_PROXY_SHARED_SECRET) : NOOP_ACTIVITY_RECORDER;
+  const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT, Date.now, env.LTSD_PROXY_SHARED_SECRET, env.LTSD_PROXY_GEO_ENABLED === 'true') : NOOP_ACTIVITY_RECORDER;
   registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);
   registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database, undefined, activity);

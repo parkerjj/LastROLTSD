@@ -73,7 +73,7 @@ function optionalProxyNumber(request: Request, name: string, min: number, max: n
   const raw = request.headers.get(name)?.trim();
   if (!raw || raw.length > 32) return null;
   const value = Number(raw);
-  return Number.isFinite(value) && value >= min && value <= max ? value : null;
+  return Number.isFinite(value) && value >= min && value <= max && (name !== 'x-ltsd-client-asn' || Number.isInteger(value)) ? value : null;
 }
 
 function optionalProxyText(request: Request, name: string, maxLength: number): string | null {
@@ -81,25 +81,28 @@ function optionalProxyText(request: Request, name: string, maxLength: number): s
   return raw && raw.length <= maxLength && !/[\r\n\x00-\x1f\x7f]/u.test(raw) ? raw : null;
 }
 
-export function readActivityNetwork(request: Request, environment: string, proxySecret?: string): ActivityNetwork {
+export function readActivityNetwork(request: Request, environment: string, proxySecret?: string, proxyGeoEnabled = false): ActivityNetwork {
   const proxy = trustedProxyClient(request, environment, proxySecret);
+  // GeoIP headers can otherwise be injected by browsers through Nginx.
+  // Never trust them until the server is explicitly configured to overwrite every field.
+  const useProxyGeo = proxy !== null && proxyGeoEnabled;
   // Cloudflare's cf metadata describes the VPS, NOT the proxied user.
-  const cf = proxy ? {} : (request as Request & { cf?: Record<string, unknown> }).cf ?? {};
+  const cf: Record<string, unknown> = proxy ? {} : ((request as Request & { cf?: Record<string, unknown> }).cf ?? {});
   const clientIp = trustedAuthClientIp(request, environment, proxySecret);
   const ip = clientIp === 'unknown' ? null : clientIp;
-  const forwardedCountry = proxy ? optionalProxyText(request, 'x-ltsd-client-country', 2) : null;
+  const forwardedCountry = useProxyGeo ? optionalProxyText(request, 'x-ltsd-client-country', 2) : null;
   const countryValue = proxy ? forwardedCountry : cf.country;
   const country = typeof countryValue === 'string' && /^[A-Za-z]{2}$/u.test(countryValue) ? countryValue.toUpperCase() : null;
-  const asOrg = proxy ? optionalProxyText(request, 'x-ltsd-client-as-org', 128) : textField(cf.asOrganization, 128);
+  const asOrg = proxy ? (useProxyGeo ? optionalProxyText(request, 'x-ltsd-client-as-org', 128) : null) : textField(cf.asOrganization, 128);
   return {
     ip,
     ip_net: ip === null ? null : ipNetOf(ip),
     country,
-    region: proxy ? optionalProxyText(request, 'x-ltsd-client-region', 64) : textField(cf.region, 64),
-    city: proxy ? optionalProxyText(request, 'x-ltsd-client-city', 64) : textField(cf.city, 64),
-    latitude: proxy ? optionalProxyNumber(request, 'x-ltsd-client-latitude', -90, 90) : numberField(cf.latitude),
-    longitude: proxy ? optionalProxyNumber(request, 'x-ltsd-client-longitude', -180, 180) : numberField(cf.longitude),
-    asn: proxy ? optionalProxyNumber(request, 'x-ltsd-client-asn', 1, 4294967295) : integerField(cf.asn),
+    region: proxy ? (useProxyGeo ? optionalProxyText(request, 'x-ltsd-client-region', 64) : null) : textField(cf.region, 64),
+    city: proxy ? (useProxyGeo ? optionalProxyText(request, 'x-ltsd-client-city', 64) : null) : textField(cf.city, 64),
+    latitude: proxy ? (useProxyGeo ? optionalProxyNumber(request, 'x-ltsd-client-latitude', -90, 90) : null) : numberField(cf.latitude),
+    longitude: proxy ? (useProxyGeo ? optionalProxyNumber(request, 'x-ltsd-client-longitude', -180, 180) : null) : numberField(cf.longitude),
+    asn: proxy ? (useProxyGeo ? optionalProxyNumber(request, 'x-ltsd-client-asn', 1, 4294967295) : null) : integerField(cf.asn),
     as_org: asOrg,
     is_hosting: isHostingOrg(asOrg),
     device_id: parseDeviceId(request.headers.get('x-ltsd-device')),
