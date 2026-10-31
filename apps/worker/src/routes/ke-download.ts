@@ -204,6 +204,11 @@ export function registerKeDownloadRoutes(app: Hono<any>, env: AppEnv): void {
   });
 
   const download = async (c: any) => {
+    const status = c.req.query('status');
+    if (status === 'invalid' || status === 'unavailable' || status === 'error') {
+      return serveDownloadPage(c, env);
+    }
+
     const platform = c.req.query('platform');
     if (!platform) return serveDownloadPage(c, env);
     if (!isSupportedPlatform(platform)) return pageRedirect(c, 'invalid', platform);

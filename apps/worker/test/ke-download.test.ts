@@ -87,11 +87,18 @@ describe('KoreEngine standalone download routes', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       manifestResponse({ schemaVersion: 1, platforms: { android: ANDROID_ENTRY } }),
     );
+    const assetsFetch = vi.fn(async () => new Response('<html>download</html>', { status: 200 }));
     try {
-      const response = await setupApp().request('/ke/download?platform=windows');
+      const app = setupApp(makeEnv({ ASSETS: { fetch: assetsFetch } as unknown as AppEnv['ASSETS'] }));
+      const response = await app.request('/ke/download?platform=windows');
       expect(response.status).toBe(302);
       expect(response.headers.get('location')).toBe('/ke/download?status=unavailable&platform=windows');
       expect(response.headers.get('cache-control')).toBe('no-store');
+
+      const fallback = await app.request(response.headers.get('location') ?? '');
+      expect(fallback.status).toBe(200);
+      expect(await fallback.text()).toContain('download');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       fetchMock.mockRestore();
     }
@@ -100,10 +107,16 @@ describe('KoreEngine standalone download routes', () => {
   it('rejects unsupported platforms without fetching the manifest', async () => {
     resetKeDownloadCacheForTesting();
     const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const assetsFetch = vi.fn(async () => new Response('<html>download</html>', { status: 200 }));
     try {
-      const response = await setupApp().request('/ke/download?platform=macos');
+      const app = setupApp(makeEnv({ ASSETS: { fetch: assetsFetch } as unknown as AppEnv['ASSETS'] }));
+      const response = await app.request('/ke/download?platform=macos');
       expect(response.status).toBe(302);
       expect(response.headers.get('location')).toBe('/ke/download?status=invalid&platform=macos');
+
+      const fallback = await app.request(response.headers.get('location') ?? '');
+      expect(fallback.status).toBe(200);
+      expect(await fallback.text()).toContain('download');
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       fetchMock.mockRestore();
@@ -162,14 +175,21 @@ describe('KoreEngine standalone download routes', () => {
   it('returns 502 from the API and status=error from downloads when the manifest is unavailable', async () => {
     resetKeDownloadCacheForTesting();
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
+    const assetsFetch = vi.fn(async () => new Response('<html>download</html>', { status: 200 }));
     try {
-      const api = await setupApp().request('/api/v1/ke/downloads');
+      const app = setupApp(makeEnv({ ASSETS: { fetch: assetsFetch } as unknown as AppEnv['ASSETS'] }));
+      const api = await app.request('/api/v1/ke/downloads');
       expect(api.status).toBe(502);
       expect(api.headers.get('cache-control')).toBe('no-store');
 
-      const redirect = await setupApp().request('/ke/download?platform=android');
+      const redirect = await app.request('/ke/download?platform=android');
       expect(redirect.status).toBe(302);
       expect(redirect.headers.get('location')).toBe('/ke/download?status=error&platform=android');
+
+      const fallback = await app.request(redirect.headers.get('location') ?? '');
+      expect(fallback.status).toBe(200);
+      expect(await fallback.text()).toContain('download');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
       fetchMock.mockRestore();
     }
