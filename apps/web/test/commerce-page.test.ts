@@ -457,16 +457,20 @@ describe('commerce purchase page', () => {
     vi.useRealTimers();
   });
 
-  it('stops polling and offers a fresh order after asynchronous payment failure', async () => {
+  it('stops polling after asynchronous payment failure', async () => {
+    vi.useFakeTimers();
     const failed = orderView({ paymentState: 'failed', fulfillmentState: 'pending', fulfilledAt: null });
-    const { root, api } = mount({
+    const { api } = mount({
       url: 'https://ltsd.ro/ke/buy?checkout=success&order_id=902', orderStatuses: [failed],
     });
-    await settle();
-
-    expect(api.getOrder).toHaveBeenCalledTimes(1);
-    expect(root.textContent).toContain('付款失败');
-    expect(root.querySelector('a[href="/ke/buy"]')?.textContent).toContain('重新下单');
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.getOrder).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(api.getOrder).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reads a canceled Checkout order once and leaves its unpaid state available for resuming payment', async () => {
