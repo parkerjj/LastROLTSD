@@ -98,6 +98,19 @@ jobs:
           KE_LICENSE_KEY_VERSION: ${{ vars.KE_LICENSE_KEY_VERSION }}
           KE_CORE_KEY_VERSION: ${{ vars.KE_CORE_KEY_VERSION }}
           KE_NETWORK_KEY_VERSION: ${{ vars.KE_NETWORK_KEY_VERSION }}
+      - name: Set Worker trusted VPS proxy secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$LTSD_PROXY_SHARED_SECRET" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Production LTSD_PROXY_SHARED_SECRET must be a 64-character lowercase hex secret."
+            exit 1
+          fi
+          printf '%s' "$LTSD_PROXY_SHARED_SECRET" | pnpm exec wrangler secret put LTSD_PROXY_SHARED_SECRET --env production --config wrangler.toml
+        env:
+          LTSD_PROXY_SHARED_SECRET: ${{ secrets.LTSD_PROXY_SHARED_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Configure production database connection
         run: node scripts/configure-hyperdrive.mjs --environment production
         env:

@@ -215,7 +215,7 @@ function parseRowId(value: string): number {
 }
 
 async function clientHashes(request: Request, env: AppEnv): Promise<{ ipHash: Uint8Array; uaHash: Uint8Array }> {
-  const ip = trustedAuthClientIp(request, env.ENVIRONMENT);
+  const ip = trustedAuthClientIp(request, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET);
   const ua = request.headers.get('user-agent') ?? '';
   const [ipHash, uaHash] = await Promise.all([sha256(encoder.encode(ip)), sha256(encoder.encode(ua))]);
   return { ipHash, uaHash };
@@ -492,7 +492,7 @@ export function registerKeRoutes(
     if (!handlers) return unavailable(c);
     try {
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
-      await assertKeRateLimit(handlers, { kind: 'ip', value: trustedAuthClientIp(c.req.raw, env.ENVIRONMENT) }, KE_RATE_LIMITS.deviceCodePerIp, authRuntime.now);
+      await assertKeRateLimit(handlers, { kind: 'ip', value: trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET) }, KE_RATE_LIMITS.deviceCodePerIp, authRuntime.now);
       const result = await tokenService(handlers).createDeviceCode({ label: body.label, ...(await clientHashes(c.req.raw, env)) });
       return c.json(result, 200, { 'cache-control': 'no-store' });
     } catch (error) {

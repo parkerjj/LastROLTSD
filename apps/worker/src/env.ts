@@ -27,6 +27,10 @@ export interface AppEnv extends AuthBindings, KeBindings {
   HYPERDRIVE?: Pick<Hyperdrive, 'host' | 'port' | 'user' | 'password' | 'database'> | undefined;
   ASSETS?: Fetcher | undefined;
   ENVIRONMENT: string;
+  /** VPS -> Worker shared secret; set only via Wrangler secret, never vars or git. */
+  LTSD_PROXY_SHARED_SECRET?: string | undefined;
+  /** Explicit opt-in once Nginx GeoIP database overwrites all client-supplied geo headers. */
+  LTSD_PROXY_GEO_ENABLED?: string | undefined;
   BUILD_VERSION: string;
   MAX_BODY_BYTES: number;
   CURSOR_SECRET?: string | undefined;
@@ -82,6 +86,8 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     ...mysqlBindings,
     ASSETS: bindings.ASSETS as Fetcher | undefined,
     ENVIRONMENT: environment,
+    LTSD_PROXY_SHARED_SECRET: optionalString(bindings.LTSD_PROXY_SHARED_SECRET),
+    LTSD_PROXY_GEO_ENABLED: optionalString(bindings.LTSD_PROXY_GEO_ENABLED),
     BUILD_VERSION: String(bindings.BUILD_VERSION ?? 'dev'),
     MAX_BODY_BYTES: Number.isFinite(maxBody) && maxBody > 0 ? maxBody : 512 * 1024,
     CURSOR_SECRET: configuredCursorSecret.length >= 16 ? configuredCursorSecret : DEFAULT_CURSOR_SECRET,

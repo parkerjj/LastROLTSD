@@ -284,7 +284,7 @@ export function registerAuthRoutes(
       const displayName = parseDisplayName(displayNameInput);
       await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
 
-      const clientIp = trustedAuthClientIp(c.req.raw, env.ENVIRONMENT);
+      const clientIp = trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET);
       const [emailDigest, ipDigest] = await Promise.all([
         authRateLimitKey(config.rateSecret, 'email', emailNormalized),
         authRateLimitKey(config.rateSecret, 'ip', clientIp),
@@ -352,7 +352,7 @@ export function registerAuthRoutes(
       const emailNormalized = normalizeEmail(body.email).normalized;
       const [emailDigest, ipDigest] = await Promise.all([
         authRateLimitKey(config.rateSecret, 'email', emailNormalized),
-        authRateLimitKey(config.rateSecret, 'ip', trustedAuthClientIp(c.req.raw, env.ENVIRONMENT)),
+        authRateLimitKey(config.rateSecret, 'ip', trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET)),
       ]);
       const emailLimit = AUTH_RATE_LIMITS.loginPerEmail;
       const ipLimit = AUTH_RATE_LIMITS.loginPerIp;
@@ -449,7 +449,7 @@ export function registerAuthRoutes(
 
       const profile = await repository.readProfile(identity.userId);
       if (!profile) throw new AuthFailure('AUTH_UNAUTHENTICATED', 401, '请先登录');
-      const clientIp = trustedAuthClientIp(c.req.raw, env.ENVIRONMENT);
+      const clientIp = trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET);
       const rules = await sensitiveRateRules(config, clientIp, [{ kind: 'session', value: identity.sessionToken }]);
       if (profile.status === 'PENDING_EMAIL') {
         rules.push(...await mailRequestRateRules(config, normalizeEmail(profile.email).normalized, clientIp));
@@ -476,7 +476,7 @@ export function registerAuthRoutes(
       const identity = await sessions.authenticate(c.req.raw);
       await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
 
-      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT), [
+      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET), [
         { kind: 'session', value: identity.sessionToken },
         { kind: 'action', value: token },
       ]);
@@ -505,7 +505,7 @@ export function registerAuthRoutes(
       const sessions = createSessionService(repository, config, authRuntime);
       const identity = await sessions.authenticate(c.req.raw);
       await assertCsrf(c.req.raw, config, 'session', identity, () => authRuntime.now());
-      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT), [
+      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET), [
         { kind: 'session', value: identity.sessionToken },
       ]);
       const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
@@ -537,7 +537,7 @@ export function registerAuthRoutes(
       const rules = await mailRequestRateRules(
         config,
         email.normalized,
-        trustedAuthClientIp(c.req.raw, env.ENVIRONMENT),
+        trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET),
       );
       const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());
       if (!rateLimit.allowed) return tooManyRequests(c, rateLimit.retryAfter);
@@ -566,7 +566,7 @@ export function registerAuthRoutes(
       }
       await assertCsrf(c.req.raw, config, 'anonymous', undefined, () => authRuntime.now());
 
-      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT), [
+      const rules = await sensitiveRateRules(config, trustedAuthClientIp(c.req.raw, env.ENVIRONMENT, env.LTSD_PROXY_SHARED_SECRET), [
         { kind: 'action', value: token },
       ]);
       const rateLimit = await consumeAuthRateLimit(repository, rules, () => authRuntime.now());

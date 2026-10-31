@@ -76,6 +76,16 @@ describe('MySQL Worker deployment configuration', () => {
     expect(workflow).not.toMatch(/wrangler\s+d1\s+migrations|CLOUDFLARE_D1_DATABASE_ID|cf:config/iu);
   });
 
+  it('installs the trusted VPS proxy secret from GitHub before production deployment', () => {
+    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
+    expect(workflow).toContain("LTSD_PROXY_SHARED_SECRET: ${{ secrets.LTSD_PROXY_SHARED_SECRET }}");
+    expect(workflow).toContain('wrangler secret put LTSD_PROXY_SHARED_SECRET --env production');
+    expect(workflow).toContain('^[0-9a-f]{64}$');
+    expect(workflow.indexOf('Set Worker trusted VPS proxy secret')).toBeLessThan(workflow.indexOf('Deploy production Worker and web assets'));
+    expect(config).not.toContain('LTSD_PROXY_SHARED_SECRET');
+  });
+
   it('injects production commerce settings from the GitHub Environment, not Wrangler defaults', () => {
     const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
     const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
