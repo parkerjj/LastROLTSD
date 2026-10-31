@@ -325,7 +325,7 @@ function offlineMarkup(): string {
       <div class="page-width">
         <header class="kg-offline-head kg-reveal">
           <p class="kg-offline-kicker">KOREENGINE / STANDALONE</p>
-          <h2 id="kg-offline-title">想关掉浏览器？把 KE 装进系统。</h2>
+          <h2 id="kg-offline-title">想关掉浏览器？把 KE 装进口袋。</h2>
           <p>脱机版是一个独立客户端：账号和配置还是 LTSD 那一套，但挂机跑在你自己的电脑或手机上。Windows 与 Android 已开放下载，macOS 与 iOS 仍在开发中。</p>
         </header>
         <div class="kg-offline-grid">

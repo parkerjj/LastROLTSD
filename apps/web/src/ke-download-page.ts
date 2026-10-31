@@ -263,7 +263,7 @@ function pageMarkup(): string {
       <div class="kd-hero-grid page-width">
         <div class="kd-hero-copy">
           <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>KoreEngine / Standalone</p>
-          <h1><span><span class="line-in">脱机版，</span></span><span><span class="line-in">把 <em>KE</em> 装进系统。</span></span></h1>
+          <h1><span><span class="line-in">脱机版，</span></span><span><span class="line-in">把 <em>KE</em> 装进口袋。</span></span></h1>
           <p class="kd-hero-lead">不用一直开着浏览器。Windows 和 Android 都有独立客户端：装在自己的电脑或手机上，账号和配置还是 LTSD 那一套，角色照常跑。</p>
           <div class="kd-hero-actions" data-hero-actions></div>
           <div class="kd-hero-meta">
