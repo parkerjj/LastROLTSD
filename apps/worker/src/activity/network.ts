@@ -79,7 +79,12 @@ function optionalProxyNumber(request: Request, name: string, min: number, max: n
 function optionalProxyText(request: Request, name: string, maxLength: number): string | null {
   const raw = request.headers.get(name)?.trim();
   // eslint-disable-next-line no-control-regex
-  return raw && raw.length <= maxLength && !/[\r\n\x00-\x1f\x7f]/u.test(raw) ? raw : null;
+  if (!raw || raw.length > maxLength) return null;
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i);
+    if (code < 32 || code === 127) return null;
+  }
+  return raw;
 }
 
 export function readActivityNetwork(request: Request, environment: string, proxySecret?: string, proxyGeoEnabled = false): ActivityNetwork {
