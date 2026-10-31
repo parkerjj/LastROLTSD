@@ -583,6 +583,8 @@ describe('fetchStripeDonors', () => {
   });
 
   it('paginates checkout sessions with starting_after cursor', async () => {
+    const nowMs = Date.UTC(2026, 9, 15, 12, 0, 0);
+    const window = currentMonthWindow(nowMs);
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('/payment_links')) {
@@ -592,7 +594,7 @@ describe('fetchStripeDonors', () => {
         // 第一页返回 100 条 + has_more=true，第二页返回 1 条收尾。
         const isSecondPage = url.includes('starting_after=cs_test_99');
         if (isSecondPage) {
-          return jsonResponse({ data: [{ id: 'cs_test_100', status: 'complete', payment_status: 'paid', amount_total: 700, currency: 'cny', created: currentMonthWindow().startSec + 1, payment_intent: { latest_charge: { created: currentMonthWindow().startSec + 1, balance_transaction: { created: currentMonthWindow().startSec + 1 } } }, customer_details: { email: 'last@x.com', name: 'Last' } }], has_more: false });
+          return jsonResponse({ data: [{ id: 'cs_test_100', status: 'complete', payment_status: 'paid', amount_total: 700, currency: 'cny', created: window.startSec + 1, payment_intent: { latest_charge: { created: window.startSec + 1, balance_transaction: { created: window.startSec + 1 } } }, customer_details: { email: 'last@x.com', name: 'Last' } }], has_more: false });
         }
         const firstPage = Array.from({ length: 100 }, (_, i) => ({
           id: `cs_test_${i}`,
@@ -600,8 +602,8 @@ describe('fetchStripeDonors', () => {
           payment_status: 'paid',
           amount_total: 100,
           currency: 'cny',
-          created: currentMonthWindow().startSec + i,
-          payment_intent: { latest_charge: { created: currentMonthWindow().startSec + i, balance_transaction: { created: currentMonthWindow().startSec + i } } },
+          created: window.startSec + i,
+          payment_intent: { latest_charge: { created: window.startSec + i, balance_transaction: { created: window.startSec + i } } },
           customer_details: { email: `u${i}@x.com`, name: `User${i}` },
         }));
         return jsonResponse({ data: firstPage, has_more: true });
@@ -610,7 +612,7 @@ describe('fetchStripeDonors', () => {
     });
 
     try {
-      const data = await fetchStripeDonors({ secretKey: STRIPE_KEY, nowMs: Date.UTC(2026, 9, 15, 12, 0, 0) });
+      const data = await fetchStripeDonors({ secretKey: STRIPE_KEY, nowMs });
       // 100 + 1 = 101 位赞助者，每人 ¥1，除最后一位 ¥7。
       expect(data.supporters).toHaveLength(101);
       expect(data.monthOrderCount).toBe(101);
