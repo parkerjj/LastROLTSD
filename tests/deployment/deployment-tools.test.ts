@@ -84,6 +84,18 @@ describe('MySQL Worker deployment configuration', () => {
     expect(config).not.toContain('LTSD_PROXY_GEO_ENABLED');
   });
 
+  it('keeps the GeoIP variable inside the auth-disabled rotation-barrier deploy command', () => {
+    const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    const barrier = workflow.split('      - name: Publish auth-disabled rotation barrier')[1]
+      ?.split('      - name: Set Worker account auth secrets')[0] ?? '';
+    const lines = barrier.split(/\r?\n/u);
+    const commerceIndex = lines.findIndex((line) => line.includes('--var "COMMERCE_SITE_ORIGIN:${COMMERCE_SITE_ORIGIN}"'));
+    const geoIndex = lines.findIndex((line) => line.includes('--var "LTSD_PROXY_GEO_ENABLED:${LTSD_PROXY_GEO_ENABLED:-false}"'));
+    expect(commerceIndex).toBeGreaterThan(-1);
+    expect(geoIndex).toBe(commerceIndex + 1);
+    expect(lines[commerceIndex]?.trimEnd().endsWith('\\')).toBe(true);
+  });
+
   it('installs the trusted VPS proxy secret from GitHub before production deployment', () => {
     const workflow = readFileSync(resolve(repoRoot, '.github/workflows/ci.yml'), 'utf8');
     const config = readFileSync(resolve(repoRoot, 'wrangler.toml'), 'utf8');
