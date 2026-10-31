@@ -184,7 +184,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       });
 
       registerCommerceQuoteRoute(app, {
-        setupUnavailable: commerceSetupDiagnostic,
+        ...(commerceSetupDiagnostic ? { setupUnavailable: commerceSetupDiagnostic } : {}),
         setup: () => {
           if (!commerceAuthConfig?.enabled || !commerceAuthRepository) return null;
           return {
@@ -215,7 +215,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       });
 
       registerCommerceOrderRoute(app, {
-        setupUnavailable: commerceSetupDiagnostic,
+        ...(commerceSetupDiagnostic ? { setupUnavailable: commerceSetupDiagnostic } : {}),
         setup: () => {
           if (!commerceAuthConfig?.enabled || !commerceAuthRepository) return null;
           return {
@@ -254,8 +254,9 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
 
   if (!commerceRoutesRegistered) {
     registerCommerceWebhookRoute(app, { setup: () => null });
-    registerCommerceQuoteRoute(app, { setup: () => null, setupUnavailable: commerceSetupDiagnostic });
-    registerCommerceOrderRoute(app, { setup: () => null, setupUnavailable: commerceSetupDiagnostic });
+    const setupUnavailable = commerceSetupDiagnostic ? { setupUnavailable: commerceSetupDiagnostic } : {};
+    registerCommerceQuoteRoute(app, { setup: () => null, ...setupUnavailable });
+    registerCommerceOrderRoute(app, { setup: () => null, ...setupUnavailable });
   }
 
   (app as any).get('*', async (c: any) => {
