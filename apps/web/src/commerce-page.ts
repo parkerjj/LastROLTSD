@@ -28,6 +28,8 @@ const TERM_DAYS = [30, 90, 180, 360] as const;
 const MAX_SELECTION_ITEMS = 1000;
 const SLOTS_NAME = "KE 挂机额度";
 const FEATURE_NAME = "全平台脱机 KoreEngine";
+const WELCOME_PROMOTION_CODE = "ILOVEKE70";
+const WELCOME_PROMOTION_PERCENT = 30n;
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -422,7 +424,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   let idempotencyKey: string | null = null;
   let view: "buy" | "orders" = "buy";
   let alignOpen = false;
-  let promoOpen = false;
+  let promotionApplied = false;
   let previewExpanded = false;
   let historyLoading = false;
   let historyLoaded = false;
@@ -454,6 +456,30 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
 
   function normalPrice(): bigint {
     return selectionPrice(buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account), bootstrap.catalog);
+  }
+
+  function isWelcomePromotion(code: string): boolean {
+    return code.trim().toUpperCase() === WELCOME_PROMOTION_CODE;
+  }
+
+  function welcomeCouponSaving(selection: readonly CommerceQuoteSelection[]): bigint {
+    return selectionRawPrice(selection, bootstrap.catalog) * WELCOME_PROMOTION_PERCENT / 100n;
+  }
+
+  interface EstimateTotals {
+    total: bigint;
+    couponApplied: boolean;
+    saved: bigint;
+  }
+
+  function estimateTotals(selection: readonly CommerceQuoteSelection[], tierEstimate: bigint): EstimateTotals {
+    const raw = selectionRawPrice(selection, bootstrap.catalog);
+    if (promotionApplied && isWelcomePromotion(promotionCode)) {
+      const saving = raw * WELCOME_PROMOTION_PERCENT / 100n;
+      const couponTotal = raw - saving;
+      if (couponTotal < tierEstimate) return { total: couponTotal, couponApplied: true, saved: saving };
+    }
+    return { total: tierEstimate, couponApplied: false, saved: raw - tierEstimate };
   }
 
   function alignmentPrice(now: number): bigint | null {
@@ -506,15 +532,25 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   }
 
   function renderQuantityRow(): string {
-    return `<div class="commerce-quantity-row">
-      <span class="commerce-quantity-label">数量</span>
-      <div class="commerce-stepper">
-        <button type="button" data-action="qty-step" data-step="-1" aria-label="减少数量" ${!canPurchase ? "disabled" : ""}>−</button>
-        <input data-focus-key="slot-quantity" name="slot-quantity" type="number" min="0" max="${MAX_SELECTION_ITEMS}" step="1" inputmode="numeric" value="${escapeHtml(slotQuantity)}" ${!canPurchase ? "disabled" : ""}>
-        <button type="button" data-action="qty-step" data-step="1" aria-label="增加数量" ${!canPurchase ? "disabled" : ""}>＋</button>
-        <span class="commerce-stepper-unit">个</span>
+    const quantity = Number(slotQuantity);
+    const zeroQuantity = Number.isFinite(quantity) && quantity === 0;
+    return `<div class="commerce-quantity-block">
+      <div class="commerce-quantity-head">
+        <span class="commerce-quantity-label">额度数量<em>买 1 个 = 多开 1 个实例</em></span>
+        <button type="button" class="commerce-quantity-shortcut" data-focus-key="qty-only-feature" data-action="qty-only-feature" ${!canPurchase ? "disabled" : ""}>只买脱机功能，数量设为 0</button>
       </div>
-      <span class="commerce-quantity-hint">单笔上限 10 个 · 设为 0 可只买脱机功能</span>
+      <div class="commerce-quantity-row">
+        <div class="commerce-stepper">
+          <button type="button" data-action="qty-step" data-step="-1" aria-label="减少数量" ${!canPurchase ? "disabled" : ""}>−</button>
+          <input data-focus-key="slot-quantity" name="slot-quantity" type="number" min="0" max="${MAX_SELECTION_ITEMS}" step="1" inputmode="numeric" value="${escapeHtml(slotQuantity)}" ${!canPurchase ? "disabled" : ""}>
+          <span class="commerce-stepper-unit">个</span>
+          <button type="button" data-action="qty-step" data-step="1" aria-label="增加数量" ${!canPurchase ? "disabled" : ""}>＋</button>
+        </div>
+        <span class="commerce-quantity-hint">单笔上限 ${MAX_SELECTION_ITEMS} 个</span>
+      </div>
+      ${zeroQuantity
+        ? `<div class="commerce-quantity-zero${featureSelected ? "" : " is-warn"}" role="status"><span><b>已设为 0：本次不买额度。</b>${featureSelected ? "已同时加入脱机功能，可直接下单。" : "请在下方开启「脱机功能」后下单。"}</span><button type="button" data-focus-key="qty-reset" data-action="qty-reset">改回 1 个</button></div>`
+        : '<p class="commerce-quantity-tip">只想用脱机版？点右上角「只买脱机功能」，或把数量直接填 0。</p>'}
     </div>`;
   }
 
@@ -587,22 +623,52 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     </dialog>`;
   }
 
-  function renderPromotionControl(placement: "desktop" | "mobile"): string {
-    const mobileAttribute = placement === "mobile" ? " data-mobile-promo" : "";
-    return `<div class="commerce-promo commerce-promo--${placement}"${mobileAttribute}>
-      <button type="button" class="commerce-promo-toggle" data-focus-key="promotion-toggle-${placement}" data-action="toggle-promo" aria-expanded="${promoOpen}"><i aria-hidden="true">＋</i> ${promoOpen ? "收起优惠码" : "有优惠码？"}</button>
-      <div class="commerce-promo-body${promoOpen ? "" : " is-hidden"}">
-        <input data-focus-key="promotion-code-${placement}" name="promotion-code" type="text" maxlength="100" autocomplete="off" value="${escapeHtml(promotionCode)}" placeholder="输入 Stripe 优惠码" ${!canPurchase ? "disabled" : ""}>
-        <p>与时长优惠整单比较，只取更低的一种，不重复叠加。</p>
+  function renderCouponCard(): string {
+    const selection = selectedNormalItems();
+    const applied = promotionApplied && promotionCode.trim() !== "";
+    const welcomeCode = isWelcomePromotion(promotionCode);
+    const couponWins = applied && selection.length > 0 && estimateTotals(selection, normalPrice()).couponApplied;
+    const saving = couponWins ? welcomeCouponSaving(selection) : 0n;
+    const appliedNote = !applied ? "" : couponWins
+      ? `<div class="commerce-coupon-applied" role="status"><i aria-hidden="true">✓</i><span>已应用 7 折 · 本单预计省 <b>${formatCents(saving)}</b></span></div>`
+      : welcomeCode && selection.length > 0
+        ? '<div class="commerce-coupon-applied is-pending" role="status"><i aria-hidden="true">✓</i><span>优惠码已填写 · 本次时长折扣更优，将按更优方案结算</span></div>'
+        : '<div class="commerce-coupon-applied is-pending" role="status"><i aria-hidden="true">✓</i><span>优惠码已填写 · 确认订单时由服务器核验</span></div>';
+    return `<section class="commerce-coupon" data-coupon-card aria-labelledby="commerce-coupon-title">
+      <div class="commerce-coupon-ribbon"><span>新客首单礼</span><span>每位新客限用一次</span></div>
+      <div class="commerce-coupon-body">
+        <div class="commerce-coupon-hero">
+          <div class="commerce-coupon-value"><b>7</b><span>折</span></div>
+          <div class="commerce-coupon-copy">
+            <h3 id="commerce-coupon-title">整单立减 30%</h3>
+            <p>额度、脱机功能都参加，<b>买得越多省得越多</b>。<br>建议一次买够所需额度，把优惠一次用满。</p>
+          </div>
+        </div>
+        <div class="commerce-coupon-perf" aria-hidden="true"></div>
+        <div class="commerce-coupon-code-label">
+          <span>优惠码 <b>${WELCOME_PROMOTION_CODE}</b></span>
+          <button type="button" data-action="copy-promo">复制</button>
+          <button type="button" data-action="fill-promo">填入</button>
+        </div>
+        <div class="commerce-coupon-form">
+          <input data-focus-key="promo-code" name="promotion-code" type="text" maxlength="100" autocomplete="off" value="${escapeHtml(promotionCode)}" placeholder="输入优惠码，或点上方「填入」" ${!canPurchase ? "disabled" : ""}>
+          <button type="button" class="commerce-coupon-apply${applied ? " is-cancel" : ""}" data-focus-key="promo-apply" data-action="apply-promo" aria-pressed="${applied}" ${!canPurchase ? "disabled" : ""}>${applied ? "取消" : "应用"}</button>
+        </div>
+        <p class="commerce-coupon-fine">与时长折扣整单比较，<b>只取更优的一种</b>，不重复叠加。优惠码由服务器在确认订单时核验。</p>
+        ${appliedNote}
       </div>
-    </div>`;
+    </section>`;
   }
 
   function renderSummary(selection: readonly CommerceQuoteSelection[], estimate: bigint, selectionOverLimit: boolean): string {
+    const totals = estimateTotals(selection, estimate);
+    const couponApplied = totals.couponApplied;
     const lines: Array<{ title: string; note: string; cents: bigint }> = [];
     for (const item of selection) {
       const key = item.type === "standalone" ? "module:standalone" : "slots";
-      const amount = lineCents(bootstrap.catalog, key, BigInt(item.termDays) * COMMERCE_DAY_MS);
+      const amount = couponApplied
+        ? rawLineCents(bootstrap.catalog, key, item.termDays)
+        : lineCents(bootstrap.catalog, key, BigInt(item.termDays) * COMMERCE_DAY_MS);
       const count = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
       const title = item.type === "standalone" ? "脱机 KoreEngine" : `${SLOTS_NAME} × ${count}`;
       const action = item.type === "standalone"
@@ -610,12 +676,11 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         : `${item.type === "slot_add" ? "新买" : "续费"} · ${termLabel(item.termDays)}（${item.termDays} 天）`;
       lines.push({ title, note: action, cents: amount * BigInt(count) });
     }
-    const saved = selectionRawPrice(selection, bootstrap.catalog) - estimate;
+    const saved = totals.saved;
     return `<aside class="commerce-summary" aria-label="本次订单摘要">
       <div class="commerce-summary-head"><h3>本次订单</h3><span>${lines.length} 项</span></div>
-      <div class="commerce-summary-lines">${lines.length ? lines.map((line) => `<div class="commerce-summary-line"><div><b>${escapeHtml(line.title)}</b><span>${escapeHtml(line.note)}</span></div><em>${formatCents(line.cents)}</em></div>`).join("") : '<p class="commerce-summary-empty">还没有选择项目。<br>在上方选择额度或脱机功能。</p>'}</div>
-      ${renderPromotionControl("desktop")}
-      <div class="commerce-summary-total"><div class="commerce-summary-total-label">合计<span>${saved > 0n ? `已含时长优惠 −${formatCents(saved)}` : "最终金额以服务器报价为准"}</span></div><div class="commerce-summary-amount">${formatCents(estimate)}</div></div>
+      <div class="commerce-summary-lines">${lines.length ? lines.map((line) => `<div class="commerce-summary-line"><div><b>${escapeHtml(line.title)}</b><span>${escapeHtml(line.note)}</span></div><em>${formatCents(line.cents)}</em></div>`).join("") : '<p class="commerce-summary-empty">还没有选择项目。<br>只买脱机功能？把额度数量设为 0，并开启下方脱机功能。</p>'}</div>
+      <div class="commerce-summary-total"><div class="commerce-summary-total-label">合计<span class="${saved > 0n ? "is-save" : ""}">${saved > 0n ? couponApplied ? `已含新客 7 折（预计）−${formatCents(saved)}` : `已含时长优惠 −${formatCents(saved)}` : "最终金额以服务器报价为准"}</span></div><div class="commerce-summary-amount">${formatCents(totals.total)}</div></div>
       <button type="button" class="commerce-summary-cta" data-focus-key="commerce-review" data-action="review" ${!canPurchase || selection.length === 0 || selectionOverLimit || quoteBusy || orderBusy ? "disabled" : ""}>${quoteBusy ? "正在获取报价…" : "去确认订单"}</button>
       <p class="commerce-summary-foot">确认后商品、时长与金额固定不可改<br>付款限时 30 分钟</p>
     </aside>`;
@@ -774,7 +839,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   }
 
   function renderBuyTop(): string {
-    return `<div class="commerce-top-row"><div class="commerce-page-title"><h1>购买与续费</h1><p>额度按「个数 × 时长」购买；脱机功能按账号开通，所有实例通用。</p></div>${renderTabs()}</div>`;
+    return `<div class="commerce-top-row"><div class="commerce-page-title"><h1>购买与续费</h1><p>额度按「个数 × 时长」购买；脱机功能按账号开通，所有实例通用。只想用脱机版？把额度数量设为 0 即可。</p></div>${renderTabs()}</div>`;
   }
 
   function renderBanner(): string {
@@ -876,6 +941,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const selection = buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account);
     const selectionOverLimit = selectionItemCount(selection) > MAX_SELECTION_ITEMS;
     const estimate = selectionPrice(selection, bootstrap.catalog);
+    const totals = estimateTotals(selection, estimate);
     const loginNotice = bootstrap.session === null
       ? '<p class="commerce-banner is-warn" role="status"><span class="commerce-banner-icon" aria-hidden="true">!</span><span class="commerce-banner-text">登录并完成邮箱验证后即可购买。请使用顶部账号入口登录。</span></p>'
       : bootstrap.session.user.status !== "ACTIVE" || bootstrap.session.user.permission_level < 1
@@ -887,10 +953,13 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       ${renderBanner()}
       <div class="commerce-grid">
         <div class="commerce-main-column">${renderSlotsCard(now)}${renderFeatureCard(now)}${renderAlignLine(now, alignAmount)}</div>
-        ${renderSummary(selection, estimate, selectionOverLimit)}
+        <aside class="commerce-sidebar" aria-label="结算侧栏">
+          ${renderCouponCard()}
+          ${renderSummary(selection, estimate, selectionOverLimit)}
+        </aside>
       </div>
       ${selectionOverLimit ? `<p class="commerce-selection-limit-error" data-selection-limit-error role="alert">${selectionLimitMessage()}</p>` : ""}
-      <div class="commerce-mobile-bar">${renderPromotionControl("mobile")}<div><b>${formatCents(estimate)}</b><span>${selection.length} 项${selectionRawPrice(selection, bootstrap.catalog) - estimate > 0n ? ` · 已省 ${formatCents(selectionRawPrice(selection, bootstrap.catalog) - estimate)}` : ""}</span></div><button type="button" data-action="review" ${!canPurchase || selection.length === 0 || selectionOverLimit || quoteBusy || orderBusy ? "disabled" : ""}>去确认</button></div>
+      <div class="commerce-mobile-bar"><div><b>${formatCents(totals.total)}</b><span>${selection.length} 项${totals.saved > 0n ? ` · 已省 ${formatCents(totals.saved)}` : ""}</span></div><button type="button" data-action="review" ${!canPurchase || selection.length === 0 || selectionOverLimit || quoteBusy || orderBusy ? "disabled" : ""}>去确认</button></div>
       ${!currentQuote && errorMessage ? `<p class="commerce-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
       ${renderFoot()}
       ${renderAlignDialog(now, alignAmount)}
@@ -1008,10 +1077,38 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       render("align-open");
       return;
     }
-    if (action === "toggle-promo") {
-      promoOpen = !promoOpen;
-      const placement = target.dataset.focusKey?.endsWith("-mobile") ? "mobile" : "desktop";
-      render(promoOpen ? `promotion-code-${placement}` : `promotion-toggle-${placement}`);
+    if (action === "qty-only-feature") {
+      slotQuantity = "0";
+      featureSelected = true;
+      invalidateQuote();
+      errorMessage = "";
+      render("feature-selected");
+      return;
+    }
+    if (action === "qty-reset") {
+      slotQuantity = "1";
+      invalidateQuote();
+      errorMessage = "";
+      render("slot-quantity");
+      return;
+    }
+    if (action === "apply-promo") {
+      promotionApplied = promotionCode.trim() !== "" && !promotionApplied;
+      render("promo-apply");
+      return;
+    }
+    if (action === "fill-promo") {
+      promotionCode = WELCOME_PROMOTION_CODE;
+      promotionApplied = true;
+      errorMessage = "";
+      render("promo-apply");
+      return;
+    }
+    if (action === "copy-promo") {
+      const clipboard = root.ownerDocument.defaultView?.navigator?.clipboard;
+      if (clipboard) void clipboard.writeText(WELCOME_PROMOTION_CODE);
+      target.textContent = "已复制";
+      root.ownerDocument.defaultView?.setTimeout(() => { if (target.isConnected) target.textContent = "复制"; }, 1600);
       return;
     }
     if (action === "toggle-preview") {
@@ -1131,8 +1228,10 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const target = event.target;
     if (!InputConstructor || !(target instanceof InputConstructor)) return;
     if (target.name === "slot-quantity") slotQuantity = target.value;
-    else if (target.name === "promotion-code") promotionCode = target.value;
-    else return;
+    else if (target.name === "promotion-code") {
+      promotionCode = target.value;
+      promotionApplied = false;
+    } else return;
     invalidateQuote();
     errorMessage = "";
     render(target.dataset.focusKey, target.selectionStart);
