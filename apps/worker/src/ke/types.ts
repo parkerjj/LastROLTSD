@@ -86,6 +86,8 @@ export interface ActiveInstanceInfo {
   char_name: string | null;
   map_name: string | null;
   last_heartbeat_at: number | null;
+  /** 离线挂机（托管）实例：踢人对话框里要标出来并二次确认；char_name 已带“[托管] ”前缀，旧客户端也能看到。 */
+  hosted: boolean;
 }
 
 /** 托管 token 携带的身份：只能操作自己的托管实例，epoch 随归属变化而变化（旧 epoch 的进程会被拒绝）。 */

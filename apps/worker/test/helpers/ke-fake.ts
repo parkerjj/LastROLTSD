@@ -111,10 +111,11 @@ export function makeFakeRepository(): FakeRepository {
       return count;
     },
     async listActive(userId, threshold) {
-      const active: { instance_id: string; char_name: string | null; map_name: string | null; last_heartbeat_at: number | null }[] = [];
+      const active: { instance_id: string; char_name: string | null; map_name: string | null; last_heartbeat_at: number | null; hosted: boolean }[] = [];
       for (const instance of instances.values()) {
         if (instance.user_id === userId && instance.state === 'ACTIVE' && instance.mode === 'auto' && (instance.last_heartbeat_at ?? 0) > threshold) {
-          active.push({ instance_id: instance.instance_id, char_name: instance.char_name, map_name: instance.map_name, last_heartbeat_at: instance.last_heartbeat_at });
+          const hosted = hostedIds.has(instance.instance_id);
+          active.push({ instance_id: instance.instance_id, char_name: hosted ? `[托管] ${instance.char_name ?? ''}` : instance.char_name, map_name: instance.map_name, last_heartbeat_at: instance.last_heartbeat_at, hosted });
         }
       }
       return active;

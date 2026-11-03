@@ -3,6 +3,8 @@ import { queryEntitlements, queryHostingEntitlement, type HostingEntitlementView
 import type { ActiveInstanceInfo, CharacterReport, KeLicenseMode } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** 踢人列表里托管实例的名字前缀（旧版客户端没有 hosted 字段，也能从名字上认出来）。 */
+export const HOSTED_LABEL = '[托管] ';
 
 export interface CharacterRow {
   aid: number;
@@ -265,15 +267,23 @@ export function txFor(db: MysqlDatabase): KeTx {
 
     async listActive(userId, threshold) {
       const rows = await db.all<MysqlRow>(
-        'SELECT instance_id, char_name, map_name, last_heartbeat_at FROM ke_instances WHERE user_id = ? AND state = ? AND mode = ? AND last_heartbeat_at > ?',
+        `SELECT i.instance_id, i.char_name, i.map_name, i.last_heartbeat_at, (h.instance_id IS NOT NULL) AS hosted
+         FROM ke_instances AS i
+         LEFT JOIN ke_hosted_instances AS h ON h.instance_id = i.instance_id
+         WHERE i.user_id = ? AND i.state = ? AND i.mode = ? AND i.last_heartbeat_at > ?`,
         [userId, 'ACTIVE', 'auto', threshold],
       );
-      return rows.map((row) => ({
-        instance_id: String(row.instance_id),
-        char_name: asNullableString(row.char_name),
-        map_name: asNullableString(row.map_name),
-        last_heartbeat_at: asNullableNumber(row.last_heartbeat_at),
-      }));
+      return rows.map((row) => {
+        const hosted = asNumber(row.hosted) === 1;
+        const name = asNullableString(row.char_name);
+        return {
+          instance_id: String(row.instance_id),
+          char_name: hosted ? `${HOSTED_LABEL}${name ?? ''}` : name,
+          map_name: asNullableString(row.map_name),
+          last_heartbeat_at: asNullableNumber(row.last_heartbeat_at),
+          hosted,
+        };
+      });
     },
 
     readHostingEntitlement: (userId, now) => queryHostingEntitlement(db, userId, now),

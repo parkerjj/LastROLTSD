@@ -686,6 +686,20 @@ describe('ke service', () => {
       expect(repository.hostedRows.get(INST_H2)?.desired).toBe('stopped');
     });
 
+    it('额度满的踢人列表里，托管实例带“[托管]”前缀和 hosted 标志（旧客户端也能认出来）', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository, { slots: 1 });
+      await service.bind('10000', hostedBind());
+      repository.entitlements.set(10000, { slots: 2, modules: new Set(['core']) });
+      await service.start('10000', hostedStart());
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
+      await service.bind('10000', bindInput(INST_A, { aid: 1000009, char_name: 'Other' }));
+      const error = await service.start('10000', { ...bindInput(INST_A, { aid: 1000009, char_name: 'Other' }), kickInstanceId: null }).catch((e: unknown) => e) as KeFailure;
+      expect(error.code).toBe('KE_QUOTA_EXCEEDED');
+      expect((error.details as { active_instances: { hosted: boolean; char_name: string }[] }).active_instances)
+        .toEqual([expect.objectContaining({ hosted: true, char_name: expect.stringMatching(/^\[托管\] /u) })]);
+    });
+
     it('托管 token 不能操作别的实例', async () => {
       const { repository, service } = serviceAndClock();
       setupHosted(repository);
