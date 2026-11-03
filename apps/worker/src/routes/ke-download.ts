@@ -7,7 +7,7 @@ import type { AppEnv } from '../env';
  * 发行清单由 KoreEngine main 的发布流程原子写入 R2：
  *   https://client.ltsd.ro/ke/standalone/releases.json
  *
- * - GET /ke/download?platform=windows|android
+ * - GET /ke/download?platform=windows|android|macos
  *     读取清单并 302 到对应安装包；缺条目 / 上游失败时回到下载页并带提示参数。
  * - GET /ke/download（不带 platform）
  *     交给 ASSETS 渲染前端下载页。
@@ -16,7 +16,7 @@ import type { AppEnv } from '../env';
  */
 
 const DEFAULT_MANIFEST_URL = 'https://client.ltsd.ro/ke/standalone/releases.json';
-const DOWNLOAD_PLATFORMS = ['windows', 'android'] as const;
+const DOWNLOAD_PLATFORMS = ['windows', 'android', 'macos'] as const;
 const SUPPORTED_PLATFORMS = ['windows', 'android', 'macos', 'ios'] as const;
 type DownloadPlatform = (typeof SUPPORTED_PLATFORMS)[number];
 

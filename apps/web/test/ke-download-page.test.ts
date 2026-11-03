@@ -23,6 +23,15 @@ const WINDOWS_ENTRY = {
   abi: 'x64',
 };
 
+const MACOS_ENTRY = {
+  version: '1.383.261103',
+  url: 'https://client.ltsd.ro/ke/standalone/releases/1.383.261103/KoreEngine-1.383.261103-macos.dmg',
+  fileName: 'KoreEngine-1.383.261103-macos.dmg',
+  sha256: '240f079bf489463a6470ee1f91795169bbce42b5d9eb986ddba97841a51349a2',
+  size: 18765641,
+  minOs: '14',
+};
+
 async function renderPage(
   search = '',
   payload: unknown = { schemaVersion: 1, channel: 'stable', platforms: { android: ANDROID_ENTRY } },
@@ -68,8 +77,8 @@ describe('KoreEngine standalone download page', () => {
     try {
       expect(root.querySelector('h1')?.textContent).toContain('脱机版');
       expect(root.querySelectorAll('.board-row')).toHaveLength(4);
-      expect(root.querySelectorAll('.dl-card')).toHaveLength(2);
-      expect(root.querySelectorAll('.kd-faq-list details')).toHaveLength(7);
+      expect(root.querySelectorAll('.dl-card')).toHaveLength(3);
+      expect(root.querySelectorAll('.kd-faq-list details')).toHaveLength(8);
 
       const navLink = root.querySelector('.site-nav a[href="/ke/download"]');
       expect(navLink).not.toBeNull();
@@ -125,6 +134,29 @@ describe('KoreEngine standalone download page', () => {
     }
   });
 
+  it('lists macOS as released with a DMG download link', async () => {
+    const { root, restore } = await renderPage('', {
+      schemaVersion: 1,
+      channel: 'stable',
+      platforms: { windows: WINDOWS_ENTRY, android: ANDROID_ENTRY, macos: MACOS_ENTRY },
+    });
+    try {
+      const macCard = root.querySelector('.dl-card--macos');
+      expect(macCard?.textContent).toContain('1.383.261103');
+      expect(macCard?.textContent).toContain('17.9 MB');
+      expect(macCard?.textContent).toContain('KoreEngine-1.383.261103-macos.dmg');
+      expect(macCard?.textContent).toContain('macOS 14 及以上');
+      expect(macCard?.querySelector('a.dl-button')?.getAttribute('href')).toBe('/ke/download?platform=macos');
+
+      expect(root.querySelectorAll('.board-row.is-ready')).toHaveLength(3);
+      expect(root.querySelector('.board-row.is-ready[href="/ke/download?platform=macos"]')).not.toBeNull();
+      expect(root.querySelectorAll('.kd-hero-actions a.kd-btn')).toHaveLength(3);
+      expect(root.querySelector('.ledger-grid')?.textContent).not.toContain('macOS');
+    } finally {
+      restore();
+    }
+  });
+
   it('shows a status alert for invalid platform parameters', async () => {
     const { root, restore } = await renderPage('?status=invalid&platform=linux');
     try {
@@ -153,8 +185,8 @@ describe('KoreEngine standalone download page', () => {
       await mountKeDownloadPage(root);
 
       expect(root.querySelector('.kd-manifest-state.is-error')).not.toBeNull();
-      expect(root.querySelectorAll('.dl-button.is-disabled')).toHaveLength(2);
-      expect(root.querySelectorAll('.kd-hero-actions .kd-btn.is-disabled')).toHaveLength(2);
+      expect(root.querySelectorAll('.dl-button.is-disabled')).toHaveLength(3);
+      expect(root.querySelectorAll('.kd-hero-actions .kd-btn.is-disabled')).toHaveLength(3);
 
       Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
       Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow });

@@ -24,6 +24,14 @@ const WINDOWS_ENTRY = {
   abi: 'x64',
 };
 
+const MACOS_ENTRY = {
+  version: '1.383.261103',
+  url: 'releases/1.383.261103/KoreEngine-1.383.261103-macos.dmg',
+  sha256: '240f079bf489463a6470ee1f91795169bbce42b5d9eb986ddba97841a51349a2',
+  size: 18765641,
+  minOs: '14',
+};
+
 function makeEnv(overrides: Partial<AppEnv> = {}): AppEnv {
   return {
     ENVIRONMENT: 'local',
@@ -82,6 +90,22 @@ describe('KoreEngine standalone download routes', () => {
     }
   });
 
+  it('redirects macOS to the DMG when the manifest has a macos entry', async () => {
+    resetKeDownloadCacheForTesting();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(manifestResponse({ schemaVersion: 1, platforms: { macos: MACOS_ENTRY } }));
+    try {
+      const response = await setupApp().request('/ke/download?platform=macos');
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe(
+        'https://client.ltsd.ro/ke/standalone/releases/1.383.261103/KoreEngine-1.383.261103-macos.dmg',
+      );
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('falls back to the page with status=unavailable when the platform is missing', async () => {
     resetKeDownloadCacheForTesting();
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -110,9 +134,9 @@ describe('KoreEngine standalone download routes', () => {
     const assetsFetch = vi.fn(async () => new Response('<html>download</html>', { status: 200 }));
     try {
       const app = setupApp(makeEnv({ ASSETS: { fetch: assetsFetch } as unknown as AppEnv['ASSETS'] }));
-      const response = await app.request('/ke/download?platform=macos');
+      const response = await app.request('/ke/download?platform=linux');
       expect(response.status).toBe(302);
-      expect(response.headers.get('location')).toBe('/ke/download?status=invalid&platform=macos');
+      expect(response.headers.get('location')).toBe('/ke/download?status=invalid');
 
       const fallback = await app.request(response.headers.get('location') ?? '');
       expect(fallback.status).toBe(200);

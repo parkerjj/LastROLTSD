@@ -7,7 +7,9 @@ import { injectLegalLinksIntoFooters } from "./footer-links";
 import { mountSiteNav, siteNavMarkup } from "./nav";
 import "./ke-download.css";
 
-type PlatformKey = "windows" | "android";
+type PlatformKey = "windows" | "android" | "macos";
+
+const PLATFORM_ORDER: readonly PlatformKey[] = ["windows", "android", "macos"];
 
 interface DownloadEntry {
   version: string;
@@ -55,6 +57,36 @@ const PLATFORM_META: Record<
     title: "Android 手机版",
     tag: "APK",
     ext: ".apk",
+  },
+  macos: {
+    board: "macOS",
+    boardSub: "桌面版 · macOS 14+",
+    card: "macOS 桌面版",
+    code: "MACOS",
+    title: "macOS 桌面版",
+    tag: "DMG",
+    ext: ".dmg",
+  },
+};
+
+const PLATFORM_COPY: Record<PlatformKey, { ghost: string; stub: string; action: string; note: string }> = {
+  windows: {
+    ghost: "WIN",
+    stub: "WIN",
+    action: "安装包",
+    note: "直接覆盖安装就行：原有账号、配置和已下载的模块都会保留，不需要先卸载旧版本。",
+  },
+  android: {
+    ghost: "APK",
+    stub: "AND",
+    action: " APK",
+    note: "可以直接覆盖安装，账号和配置都会保留，不用先卸载。",
+  },
+  macos: {
+    ghost: "MAC",
+    stub: "MAC",
+    action: " DMG",
+    note: "已通过 Apple 公证：打开 DMG，把 KoreEngine 拖进「应用程序」即可；之后的新版本由 App 自己检查并更新。",
   },
 };
 
@@ -105,6 +137,13 @@ function versionText(entry: DownloadEntry | undefined, phase: SyncState["phase"]
 
 function specRows(platform: PlatformKey, entry: DownloadEntry | undefined, phase: SyncState["phase"]): string {
   const dash = phase === "loading" ? "…" : "—";
+  if (platform === "macos") {
+    return `
+    <div><dt>支持系统</dt><dd>${entry ? `macOS ${esc(entry.minOs ?? "14")} 及以上` : dash}</dd></div>
+    <div><dt>安装包</dt><dd class="filename">${entry ? esc(entry.fileName) : dash}</dd></div>
+    <div><dt>大小</dt><dd>${entry ? formatSize(entry.size) : dash}</dd></div>
+  `;
+  }
   if (platform === "windows") {
     return `
       <div><dt>支持系统</dt><dd>${entry ? `Windows ${esc(entry.minOs ?? "10 / 11")}` : dash}</dd></div>
@@ -129,12 +168,12 @@ function cardMarkup(platform: PlatformKey, entry: DownloadEntry | undefined, pha
       : phase === "error"
         ? '<span class="dl-button is-disabled" aria-disabled="true"><span>暂时无法下载</span></span>'
         : available
-          ? `<a class="dl-button" href="${platformHref(platform)}"><span>下载${platform === "windows" ? "安装包" : " APK"} <span class="file-tag">.${meta.tag}</span></span><span class="icon" aria-hidden="true">↓</span></a>`
+          ? `<a class="dl-button" href="${platformHref(platform)}"><span>下载${PLATFORM_COPY[platform].action} <span class="file-tag">.${meta.tag}</span></span><span class="icon" aria-hidden="true">↓</span></a>`
           : `<span class="dl-button is-disabled" aria-disabled="true"><span>暂未发布 <span class="file-tag">.${meta.tag}</span></span></span>`;
   const stubVersion = available && entry ? entry.version : "—";
   return `
-    <article class="dl-card dl-card--${platform} ${platform === "android" ? "kd-reveal kd-reveal-d1" : "kd-reveal"}">
-      <span class="dl-ghost" aria-hidden="true">${platform === "windows" ? "WIN" : "APK"}</span>
+    <article class="dl-card dl-card--${platform} ${platform === "android" ? "kd-reveal kd-reveal-d1" : platform === "macos" ? "kd-reveal kd-reveal-d2" : "kd-reveal"}">
+      <span class="dl-ghost" aria-hidden="true">${PLATFORM_COPY[platform].ghost}</span>
       <div class="dl-head">
         <span class="dl-icon"><img src="/brand/koreengine-app.jpg" alt="" width="52" height="52" /></span>
         <span class="dl-head-copy"><span class="dl-code">${meta.code}</span><h3>${meta.title}</h3></span>
@@ -145,23 +184,19 @@ function cardMarkup(platform: PlatformKey, entry: DownloadEntry | undefined, pha
         ${specRows(platform, entry, phase)}
       </dl>
       ${button}
-      <p class="dl-note">${platform === "windows" ? "直接覆盖安装就行：原有账号、配置和已下载的模块都会保留，不需要先卸载旧版本。" : "可以直接覆盖安装，账号和配置都会保留，不用先卸载。"}</p>
-      <div class="dl-stub"><span class="barcode" aria-hidden="true"></span><span class="stub-code">DL / ${platform === "windows" ? "WIN" : "AND"} / ${esc(stubVersion)}<br>官方下载 · 自动更新</span></div>
+      <p class="dl-note">${PLATFORM_COPY[platform].note}</p>
+      <div class="dl-stub"><span class="barcode" aria-hidden="true"></span><span class="stub-code">DL / ${PLATFORM_COPY[platform].stub} / ${esc(stubVersion)}<br>官方下载 · 自动更新</span></div>
     </article>`;
 }
 
 function cardsMarkup(state: SyncState): string {
-  if (state.phase === "loading") {
-    return cardMarkup("windows", undefined, "loading") + cardMarkup("android", undefined, "loading");
-  }
-  if (state.phase === "error") {
-    return cardMarkup("windows", undefined, "error") + cardMarkup("android", undefined, "error");
-  }
-  return cardMarkup("windows", entryOf(state.payload, "windows"), "ready") + cardMarkup("android", entryOf(state.payload, "android"), "ready");
+  return PLATFORM_ORDER.map((platform) =>
+    cardMarkup(platform, state.phase === "ready" ? entryOf(state.payload, platform) : undefined, state.phase),
+  ).join("");
 }
 
 function boardRowsMarkup(state: SyncState): string {
-  const rows = (["windows", "android"] as const).map((platform) => {
+  const rows = PLATFORM_ORDER.map((platform) => {
     const meta = PLATFORM_META[platform];
     const entry = state.phase === "ready" ? entryOf(state.payload, platform) : undefined;
     if (state.phase === "loading") {
@@ -194,13 +229,6 @@ function boardRowsMarkup(state: SyncState): string {
       </a>`;
   });
   return `${rows.join("")}
-    <div class="board-row is-dev">
-      <span class="lamp" aria-hidden="true"></span>
-      <span class="board-platform"><b>macOS</b><small>桌面 · Apple</small></span>
-      <span class="board-version">—</span>
-      <span class="board-file">开发中</span>
-      <span class="board-action">待发布</span>
-    </div>
     <div class="board-row is-review">
       <span class="lamp" aria-hidden="true"></span>
       <span class="board-platform"><b>iOS</b><small>移动 · iPhone</small></span>
@@ -224,22 +252,22 @@ function actionMarkup(platform: PlatformKey, entry: DownloadEntry | undefined, p
   return `<a class="kd-btn ${style}" href="${platformHref(platform)}"><span class="icon" aria-hidden="true">↓</span>下载 ${meta.board} 版</a>`;
 }
 
+function actionsMarkup(state: SyncState, styles: Record<PlatformKey, string>): string {
+  return PLATFORM_ORDER.map((platform) =>
+    actionMarkup(platform, state.phase === "ready" ? entryOf(state.payload, platform) : undefined, state.phase, styles[platform]),
+  ).join("");
+}
+
 function heroActionsMarkup(state: SyncState): string {
-  const windows = state.phase === "ready" ? entryOf(state.payload, "windows") : undefined;
-  const android = state.phase === "ready" ? entryOf(state.payload, "android") : undefined;
-  return actionMarkup("windows", windows, state.phase, "kd-btn--red") + actionMarkup("android", android, state.phase, "kd-btn--light");
+  return actionsMarkup(state, { windows: "kd-btn--red", android: "kd-btn--light", macos: "kd-btn--light" });
 }
 
 function startActionsMarkup(state: SyncState): string {
-  const windows = state.phase === "ready" ? entryOf(state.payload, "windows") : undefined;
-  const android = state.phase === "ready" ? entryOf(state.payload, "android") : undefined;
-  return `${actionMarkup("windows", windows, state.phase, "kd-btn--red")}${actionMarkup("android", android, state.phase, "kd-btn--dark")}<a class="text-link" href="/ke/guide">第一次用 KE？读一遍指南 <span class="icon" aria-hidden="true">→</span></a>`;
+  return `${actionsMarkup(state, { windows: "kd-btn--red", android: "kd-btn--dark", macos: "kd-btn--dark" })}<a class="text-link" href="/ke/guide">第一次用 KE？读一遍指南 <span class="icon" aria-hidden="true">→</span></a>`;
 }
 
 function ctaActionsMarkup(state: SyncState): string {
-  const windows = state.phase === "ready" ? entryOf(state.payload, "windows") : undefined;
-  const android = state.phase === "ready" ? entryOf(state.payload, "android") : undefined;
-  return `${actionMarkup("windows", windows, state.phase, "kd-btn--red")}${actionMarkup("android", android, state.phase, "kd-btn--cream")}<p class="kd-cta-note">遇到问题？<a href="/guestbook">去留言板</a> · <a href="/ke/guide">读 KE 指南</a></p>`;
+  return `${actionsMarkup(state, { windows: "kd-btn--red", android: "kd-btn--cream", macos: "kd-btn--cream" })}<p class="kd-cta-note">遇到问题？<a href="/guestbook">去留言板</a> · <a href="/ke/guide">读 KE 指南</a></p>`;
 }
 
 function manifestStateMarkup(state: SyncState): string {
@@ -264,14 +292,15 @@ function pageMarkup(): string {
         <div class="kd-hero-copy">
           <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span>KoreEngine / Standalone</p>
           <h1><span><span class="line-in">脱机版，</span></span><span><span class="line-in">把 <em>KE</em> 装进口袋。</span></span></h1>
-          <p class="kd-hero-lead">不用一直开着浏览器。Windows 和 Android 都有独立客户端：装在自己的电脑或手机上，账号和配置还是 LTSD 那一套，角色照常跑。</p>
+          <p class="kd-hero-lead">不用一直开着浏览器。Windows、macOS 和 Android 都有独立客户端：装在自己的电脑或手机上，账号和配置还是 LTSD 那一套，角色照常跑。</p>
           <div class="kd-hero-actions" data-hero-actions></div>
           <div class="kd-hero-meta">
             <span><i aria-hidden="true"></i>Windows 10 / 11</span>
+            <span><i aria-hidden="true"></i>macOS 14 及以上</span>
             <span><i aria-hidden="true"></i>Android 8.0 及以上</span>
             <span><i aria-hidden="true"></i>官方直链 · 自动更新</span>
           </div>
-          <p class="kd-hero-foot">macOS 与 iOS 仍在开发中 · 进展见下方平台列表</p>
+          <p class="kd-hero-foot">iOS 版仍在评估中 · 进展见下方平台列表</p>
         </div>
         <div class="kd-hero-stage">
           <div class="board">
@@ -293,7 +322,7 @@ function pageMarkup(): string {
       <div class="kd-section-head kd-reveal">
         <div>
           <div class="kd-section-index"><span class="no">01</span><span class="bar" aria-hidden="true"></span><span>平台列表</span></div>
-          <h2>两个平台已经发车，<br>两个还在路上。</h2>
+          <h2>三个平台已经发车，<br>iOS 还在路上。</h2>
         </div>
         <p>点按钮就能下载当前稳定版，装好后用 LTSD 账号登录即可，不用装浏览器插件，也不用经过网盘。</p>
       </div>
@@ -301,13 +330,8 @@ function pageMarkup(): string {
       <div class="download-grid" data-platform-cards></div>
 
       <div class="dev-ledger kd-reveal">
-        <div class="ledger-head"><b>还没做完的平台</b><span>不写预计日期 · 能发布才发布</span></div>
-        <div class="ledger-grid">
-          <div class="ledger-item">
-            <div class="ledger-title"><h3>macOS 桌面版</h3><span class="stamp-sm">开发中</span></div>
-            <p class="ledger-target">目标 · macOS 13 及以上</p>
-            <p>正在做适配，完成后会先小范围试用，确认稳定再开放下载。</p>
-          </div>
+        <div class="ledger-head"><b>还没发布的平台</b><span>不写预计日期 · 能发布才发布</span></div>
+        <div class="ledger-grid ledger-grid--single">
           <div class="ledger-item">
             <div class="ledger-title"><h3>iOS 移动版</h3><span class="stamp-sm stamp-sm--red">受限评估</span></div>
             <p class="ledger-target">目标 · iOS 16 及以上</p>
@@ -324,7 +348,7 @@ function pageMarkup(): string {
           <div class="kd-section-index"><span class="no">02</span><span class="bar" aria-hidden="true"></span><span>界面与能力</span></div>
           <h2>不用一直开着浏览器，<br>关掉网页也能继续挂。</h2>
         </div>
-        <p>Windows 和 Android 都是完整的客户端：界面和角色状态都在你的电脑或手机上；关掉窗口，角色还会按你的配置继续跑。</p>
+        <p>Windows、macOS 和 Android 都是完整的客户端：界面和角色状态都在你的电脑或手机上；关掉窗口，角色还会按你的配置继续跑。</p>
       </div>
       <div class="cap-split">
         <div class="cap-copy kd-reveal">
@@ -358,7 +382,7 @@ function pageMarkup(): string {
       <div class="feature-grid">
         ${featureMarkup("01 / 多开", "多角色并行", "一个窗口管理多个账号与角色，独立启动、停止，互不打断。", "多账号 · 多角色", "")}
         ${featureMarkup("02 / 掉线", "断线自动重连", "掉线后自动重试，回到地图后继续按原来的设置挂机。", "掉线自动恢复", "kd-reveal-d1")}
-        ${featureMarkup("03 / 后台", "后台继续挂机", "Android 切到后台或锁屏也能继续跑；Windows 关掉窗口后会留在托盘。", "托盘 · 后台运行", "kd-reveal-d2")}
+        ${featureMarkup("03 / 后台", "后台继续挂机", "Android 切到后台或锁屏也能继续跑；Windows 关掉窗口后会留在托盘，macOS 会留在菜单栏。", "托盘 · 后台运行", "kd-reveal-d2")}
         ${featureMarkup("04 / 配置", "配置在网页里改", "在配置工作台保存方案，客户端启动时会自动读取最新配置。", "网页改 · 客户端跑", "")}
         ${featureMarkup("05 / 状态", "看得见的状态", "日志、背包和经验统计都能在客户端里看到，不用切回网页。", "日志 · 背包 · 统计", "kd-reveal-d1")}
         ${featureMarkup("06 / 更新", "自动更新", "有新版本时客户端会提示并完成更新，不用手动重新下载。", "自动更新", "kd-reveal-d2")}
@@ -375,7 +399,7 @@ function pageMarkup(): string {
           <p>不用折腾环境，也不用装浏览器插件。装好之后，用 LTSD 账号登录就能用。</p>
         </div>
         <div class="steps kd-steps">
-          ${stepMarkup("01", "下载对应安装包", "Windows 选 .exe，Android 选 .apk。点按钮就会下载当前稳定版。", "STEP 01 / INSTALL", "")}
+          ${stepMarkup("01", "下载对应安装包", "Windows 选 .exe，macOS 选 .dmg，Android 选 .apk。点按钮就会下载当前稳定版。", "STEP 01 / INSTALL", "")}
           ${stepMarkup("02", "用 LTSD 账号登录", "打开 App，按提示在网页里确认设备授权；客户端不会保存你的游戏密码。", "STEP 02 / AUTH", "kd-reveal-d1")}
           ${stepMarkup("03", "保存配置，回客户端启动", "先在网页配置工作台保存当前角色的方案，再添加游戏账号、读取角色并启动实例。", "STEP 03 / RUN", "kd-reveal-d2")}
         </div>
@@ -401,11 +425,12 @@ function pageMarkup(): string {
         </div>
         <div class="kd-faq-list kd-reveal kd-reveal-d1">
           ${faqMarkup("脱机版和网页里的 KE 有什么区别？", "网页版在浏览器里的进阶客户端中运行；脱机版是一个独立的 App，界面和挂机都在你自己的电脑或手机上。两者用的是同一个 LTSD 账号和同一套配置，实例额度也共用。", true)}
-          ${faqMarkup("真的可以关掉浏览器吗？", "可以。脱机版不依赖浏览器。Windows 关掉窗口后留在系统托盘，Android 切后台或锁屏也能继续；电脑关机、手机被系统清理或手动停止后，角色才会停。")}
+          ${faqMarkup("真的可以关掉浏览器吗？", "可以。脱机版不依赖浏览器。Windows 关掉窗口后留在系统托盘，macOS 关窗后留在菜单栏，Android 切后台或锁屏也能继续；电脑关机、手机被系统清理或手动停止后，角色才会停。")}
           ${faqMarkup("更新会丢账号或配置吗？", "不会。直接覆盖安装就行，账号、配置和已下载的模块都会保留，不需要先卸载。更新时客户端会先停掉正在运行的角色，停不下来就不会开始安装。")}
           ${faqMarkup("我的旧手机能装吗？", "目前只提供 64 位安卓安装包，近几年主流机型都能用；32 位老手机和模拟器暂时装不了。")}
           ${faqMarkup("脱机版会多送实例额度吗？", "不会。额度和网页版共用：注册并验证邮箱后默认有 1 个全自动实例；")}
-          ${faqMarkup("macOS 和 iOS 现在能用吗？", "还不能。macOS 在开发中；iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一个能用的方案。确定后会在本页和更新说明里公布。")}
+          ${faqMarkup("macOS 怎么安装？", "下载 .dmg，双击打开后把 KoreEngine 拖进「应用程序」文件夹即可。安装包已通过 Apple 公证，需要 macOS 14 及以上；之后有新版本时 App 会自己提示并完成更新。")}
+          ${faqMarkup("iOS 现在能用吗？", "还不能。iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一个能用的方案。确定后会在本页和更新说明里公布。")}
           ${faqMarkup("下载会不会有病毒？", "安装包只从我们自己的服务器下载，页面上的按钮不会跳到网盘或第三方站点。如果杀毒软件提示风险，先别安装，到留言板告诉我们。")}
         </div>
       </div>
@@ -416,7 +441,7 @@ function pageMarkup(): string {
         <div class="kd-cta-copy">
           <p class="kd-cta-kicker">STATION OPEN / 现在可以发车</p>
           <h2>选一个平台，<br>先把角色跑起来。</h2>
-          <p>Windows 和 Android 都已开放下载；macOS 与 iOS 有进展时，会在这里更新。</p>
+          <p>Windows、macOS 和 Android 都已开放下载；iOS 有进展时，会在这里更新。</p>
         </div>
         <div class="kd-cta-actions" data-cta-actions></div>
         <span class="kd-cta-app" aria-hidden="true"><img src="/brand/koreengine-app.jpg" alt="" width="120" height="120" /></span>
@@ -456,9 +481,9 @@ function showStatusAlert(root: HTMLElement): void {
   const status = params.get("status");
   if (!status) return;
   const platform = params.get("platform");
-  const label = platform === "windows" ? "Windows" : platform === "android" ? "Android" : "该平台";
+  const label = platform === "windows" ? "Windows" : platform === "android" ? "Android" : platform === "macos" ? "macOS" : "该平台";
   const messages: Record<string, string> = {
-    invalid: `不支持的平台参数${platform ? `（${esc(platform)}）` : ""}，请从下方选择 Windows 或 Android。`,
+    invalid: `不支持的平台参数${platform ? `（${esc(platform)}）` : ""}，请从下方选择 Windows、macOS 或 Android。`,
     unavailable: `${label} 的安装包暂未发布，可以先查看下方平台列表。`,
     error: "版本信息暂时获取失败，下载按钮已先禁用，请稍后刷新重试。",
   };

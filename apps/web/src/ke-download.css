@@ -326,7 +326,7 @@ line-height:1.7;
 /* ===== 平台清单 ===== */
 .download-grid{
 display:grid;
-grid-template-columns:1fr 1fr;
+grid-template-columns:repeat(3,minmax(0,1fr));
 gap:24px;
 align-items:stretch;
 margin-top:46px;
@@ -518,6 +518,7 @@ letter-spacing:.18em;
 }
 .ledger-head b{color:var(--forest);font-family:var(--kd-display);font-size:15px;letter-spacing:.04em}
 .ledger-grid{display:grid;grid-template-columns:1fr 1fr}
+.ledger-grid--single{grid-template-columns:1fr}
 .ledger-item{padding:0 30px;border-left:1px solid var(--line)}
 .ledger-item:first-child{padding-left:0;border-left:0}
 .ledger-item:last-child{padding-right:0}
@@ -950,6 +951,14 @@ pointer-events:none;
 /* ===== 响应式 ===== */
 
 @media (max-width: 1120px) {
+  .download-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dl-card--macos {
+    grid-column: 1 / -1;
+  }
+
   .kd-hero-grid {
     grid-template-columns: 1fr;
     gap: 52px;

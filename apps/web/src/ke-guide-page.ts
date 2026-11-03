@@ -237,7 +237,7 @@ const FAQ = [
   ],
   [
     "macOS 和 iOS 现在能用吗？",
-    "还不能。macOS 在开发中；iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一份可用方案。确定后会在脱机版下载页和更新说明里公布。",
+    "macOS 已经可以用：在脱机版下载页下载 .dmg 即可（需要 macOS 14 及以上，已通过 Apple 公证）。iOS 还不能：受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一份可用方案，确定后会在脱机版下载页和更新说明里公布。",
   ],
   [
     "一个账号能挂几个角色？",
@@ -326,7 +326,7 @@ function offlineMarkup(): string {
         <header class="kg-offline-head kg-reveal">
           <p class="kg-offline-kicker">KOREENGINE / STANDALONE</p>
           <h2 id="kg-offline-title">想关掉浏览器？把 KE 装进口袋。</h2>
-          <p>脱机版是一个独立客户端：账号和配置还是 LTSD 那一套，但挂机跑在你自己的电脑或手机上。Windows 与 Android 已开放下载，macOS 与 iOS 仍在开发中。</p>
+          <p>脱机版是一个独立客户端：账号和配置还是 LTSD 那一套，但挂机跑在你自己的电脑或手机上。Windows、macOS 与 Android 已开放下载，iOS 仍在评估中。</p>
         </header>
         <div class="kg-offline-grid">
           <div class="kg-offline-card kg-reveal">
@@ -341,10 +341,16 @@ function offlineMarkup(): string {
             <p>切到后台或锁屏也能继续跑；直接覆盖安装就行，不用先卸载。</p>
             <a class="kg-btn kg-btn--primary" href="/ke/download?platform=android">下载 Android 版</a>
           </div>
+          <div class="kg-offline-card kg-reveal">
+            <span class="kg-offline-code">MAC / DMG</span>
+            <h3>macOS 桌面版</h3>
+            <p>关掉窗口后留在菜单栏，角色继续跑；已通过 Apple 公证，App 会自己检查并完成更新。</p>
+            <a class="kg-btn kg-btn--primary" href="/ke/download?platform=macos">下载 macOS 版</a>
+          </div>
           <div class="kg-offline-card kg-offline-card--dev kg-reveal">
             <span class="kg-offline-code">DEV / LEDGER</span>
-            <h3>macOS 与 iOS</h3>
-            <p>macOS 正在开发；iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一份可用方案。</p>
+            <h3>iOS</h3>
+            <p>iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一份可用方案。</p>
             <a class="kg-offline-more" href="/ke/download">查看平台列表 →</a>
           </div>
         </div>
