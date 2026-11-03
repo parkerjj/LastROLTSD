@@ -28,6 +28,9 @@ import { registerIwaRoutes } from './routes/iwa';
 import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
+import { registerAppConfigRoutes } from './app-config/router';
+import { readAppFlag, writeAppFlag } from './app-config/repository';
+import { queryEntitlements } from './ke/entitlements';
 import { registerKeBuildRoutes } from './ke/build-register-router';
 import { registerKeDownloadRoutes } from './routes/ke-download';
 import { createActivityRecorder, NOOP_ACTIVITY_RECORDER } from './activity/recorder';
@@ -103,6 +106,15 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerKeBuildRoutes(app, env, database);
   registerKeRoutes(app, env, database, undefined, activity);
   registerKeDownloadRoutes(app, env);
+  if (database) {
+    registerAppConfigRoutes(app, env, {
+      readFlag: (key) => readAppFlag(database, key),
+      writeFlag: (key, enabled, at) => writeAppFlag(database, key, enabled, at),
+      auth: guestbookAuthServices(database, env),
+      entitlements: (userId, at) => queryEntitlements(database, userId, at),
+      now: () => Date.now(),
+    });
+  }
 
   let commerceRoutesRegistered = false;
   let commerceSetupDiagnostic: CommerceSetupDiagnostic | undefined;

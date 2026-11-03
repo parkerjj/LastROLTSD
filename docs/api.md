@@ -277,6 +277,32 @@ The server-owned catalog is authoritative and keyed by `item_id`. Existing listi
 
 The item catalog endpoint reads the versioned static catalog asset. It does not query D1 or MySQL, and matching does not build an unbounded application-side item-ID `IN` list.
 
+## App client config
+
+`GET /api/v1/app/config` is the one endpoint the iOS client calls at launch. It is anonymous at the transport level but reads the account session cookie when present. The response is `Cache-Control: no-store` because it varies per account.
+
+```json
+{ "iosEngine": false, "standalone": false }
+```
+
+- `iosEngine` is the site-wide switch `ios_engine` (table `app_flags`, default `false`). When it is `false` the endpoint returns immediately and does not look at the session.
+- `standalone` is `true` only when `iosEngine` is `true` and the request carries a valid session cookie of an `ACTIVE` account whose currently effective KE entitlements include the `standalone` module (same query as `queryEntitlements`). A missing, expired or invalid cookie, a `PENDING_EMAIL` account, or a disabled account all yield `false`. The endpoint does not return `401`.
+- Failures that are not authentication failures (for example a database error) return `503` with the usual error envelope instead of being reported as "no permission".
+- If the database or the account system is unavailable the route is either not registered (`404`) or `standalone` is `false`; clients must treat any non-200 response as "hide the KoreEngine UI".
+
+The switch is changed with the admin secret, like other `/api/admin/*` routes. Wrong, missing or unconfigured secrets and unknown flag names return `404`:
+
+```http
+GET /api/admin/app-flags/ios_engine
+PUT /api/admin/app-flags/ios_engine
+x-admin-secret: <ADMIN_SECRET>
+Content-Type: application/json
+
+{ "enabled": true }
+```
+
+The body must be exactly `{"enabled": <boolean>}`; the response is `{ "key": "ios_engine", "enabled": true }`. Migration `027_app_flags.sql` creates the table and seeds `ios_engine = 0`.
+
 ## Guestbook
 
 The public guestbook allows anonymous visitors to post a `buy`, `sell`, or `suggestion` entry. `GET /api/v1/guestbook` accepts optional `category`, `item_id`, `q`, `limit` (default 20, maximum 50), and opaque `cursor` filters. Text searches match the entry body and trade contact as literal text. Pages are ordered newest first by `(createdAt,id)` and cursors are signed and bound to the active filters.
