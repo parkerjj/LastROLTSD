@@ -44,6 +44,8 @@ export interface HostedRouterDeps {
   unavailable(c: unknown): Response;
   /** 即时推送：通知这些 agent 立刻对账（失败不影响主流程；DO 未启用时为空实现）。 */
   notify?(agentIds: readonly string[]): Promise<void>;
+  /** 把已验签的 WebSocket 升级请求交给该 agent 的 DO；未启用时为 undefined（路由返回 501）。 */
+  connectPush?(agentId: string, request: Request): Promise<Response>;
   log?(event: string, detail: Record<string, unknown>): void;
 }
 
@@ -246,6 +248,27 @@ export function registerHostedRoutes(app: Hono<any>, deps: HostedRouterDeps): vo
       }
     });
   };
+
+  // WebSocket 推送（Hibernation DO）：握手同样要签名（GET，空 body）。未启用 DO 时返回 501，agent 自动退回轮询。
+  app.get('/api/v1/ke/agent/ws', async (c: any) => {
+    const ctx = await serviceFor();
+    if (!ctx) return deps.unavailable(c);
+    try {
+      const url = new URL(c.req.url);
+      const agent = await ctx.service.authenticateAgent({
+        headers: c.req.raw.headers,
+        method: 'GET',
+        pathAndQuery: `${url.pathname}${url.search}`,
+        body: new Uint8Array(0),
+      });
+      if (agent.status === 'down') throw new KeFailure('KE_AGENT_FENCED', 409, 'agent 已被围栏，请清场后重新注册');
+      if (!deps.connectPush) return c.json({ error: { code: 'KE_PUSH_DISABLED', message: '未启用推送' } }, 501);
+      if (c.req.header('upgrade')?.toLowerCase() !== 'websocket') throw badRequest();
+      return await deps.connectPush(agent.agentId, c.req.raw);
+    } catch (error) {
+      return deps.failure(c, error);
+    }
+  });
 
   agentRoute('post', '/api/v1/ke/agent/lease', async (service, agent, c, body) =>
     c.json(await service.lease(agent, parseLeaseInput(body)), 200, { 'cache-control': 'no-store' }));

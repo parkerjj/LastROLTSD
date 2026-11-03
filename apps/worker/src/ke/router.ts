@@ -28,6 +28,7 @@ import { createTokenService, type BearerIdentity } from './token-service';
 import { KeFailure, type CharacterReport, type KeLicenseMode } from './types';
 import { createBuildRegistry } from './build-registry';
 import { createHostedRepository, type HostedRepository } from './hosted/repository';
+import { notifyAgents, connectAgent } from './hosted/agent-hub';
 import { registerHostedRoutes } from './hosted/router';
 import type { HostedPrincipal } from './types';
 
@@ -333,6 +334,12 @@ export function registerKeRoutes(
     failure: routeFailure,
     unavailable,
     log: (event, detail) => console.log(JSON.stringify({ event, ...detail })),
+    ...(env.AGENT_HUB
+      ? {
+        notify: (agentIds) => notifyAgents(env.AGENT_HUB, agentIds),
+        connectPush: (agentId, request) => connectAgent(env.AGENT_HUB!, agentId, request),
+      }
+      : {}),
   });
 
   const tokenService = (handlers: NonNullable<ReturnType<typeof setup>>) =>

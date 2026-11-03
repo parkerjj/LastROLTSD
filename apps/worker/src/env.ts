@@ -38,6 +38,8 @@ export interface AppEnv extends AuthBindings, KeBindings {
   UPLOAD_LIMITER?: Fetcher | undefined;
   ADMIN_SECRET?: string | undefined;
   SNAPSHOT_QUEUE?: { send(message: SnapshotMessage): Promise<void> } | undefined;
+  /** 托管 agent 的即时推送（Durable Object，可选；未绑定时推送为 no-op，agent 退回 60 秒租约）。 */
+  AGENT_HUB?: { idFromName(name: string): unknown; get(id: unknown): { fetch(url: string, init?: RequestInit): Promise<Response> } } | undefined;
   SNAPSHOT_QUEUE_DAILY_BUDGET?: number | undefined;
   SNAPSHOT_RECONCILE_BATCH_SIZE?: number | undefined;
   /** 账号邮件唤醒队列；缺省时只靠 Cron 兜底发送。 */
@@ -95,6 +97,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     UPLOAD_LIMITER: bindings.UPLOAD_LIMITER as Fetcher | undefined,
     ADMIN_SECRET: bindings.ADMIN_SECRET as string | undefined,
     SNAPSHOT_QUEUE: bindings.SNAPSHOT_QUEUE as AppEnv['SNAPSHOT_QUEUE'],
+    AGENT_HUB: bindings.AGENT_HUB as AppEnv['AGENT_HUB'],
     MAIL_QUEUE: bindings.MAIL_QUEUE as AppEnv['MAIL_QUEUE'],
     SNAPSHOT_QUEUE_DAILY_BUDGET: nonnegativeInteger(bindings.SNAPSHOT_QUEUE_DAILY_BUDGET, 9000),
     SNAPSHOT_RECONCILE_BATCH_SIZE: positiveInteger(bindings.SNAPSHOT_RECONCILE_BATCH_SIZE, 200),

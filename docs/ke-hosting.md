@@ -52,6 +52,26 @@ agent（请求签名，直连 `origin.ltsd.ro`）：头 `x-ke-agent` / `x-ke-ts`
 新增错误码：`KE_HOSTING_ENTITLEMENT_REQUIRED`、`KE_EPOCH_STALE`、`KE_CHARACTER_IN_USE`、`KE_CHARACTER_MISMATCH`、`KE_AGENT_FENCED`、
 `KE_HOSTED_CAP_REACHED`、`KE_HOSTED_CHARACTER_BUSY`、`KE_HOSTED_EXISTS`、`KE_HOSTED_LIMIT`、`KE_HOSTED_NOT_STOPPED`、`KE_HOSTED_CHARACTER_UNAVAILABLE`。
 
+## 即时推送（可选，默认关闭）
+
+面板点“启动/停止”后，最坏要等一个租约周期（60 秒）agent 才会对账。要做到秒级，启用 Durable Object `AgentHub`
+（Hibernation WebSocket，每个 agent 一个 DO）。代码已就绪（`apps/worker/src/ke/hosted/agent-hub.ts`，入口已导出），
+**但没有改 `wrangler.toml`**：生产配置需要你在能验证部署的环境里自己加（bindings 与 migrations 不会被 `[env.*]` 继承，每个环境都要写）：
+
+```toml
+[[durable_objects.bindings]]
+name = "AGENT_HUB"
+class_name = "AgentHub"
+
+[[migrations]]
+tag = "v1-agent-hub"
+new_sqlite_classes = ["AgentHub"]
+```
+
+启用后：`GET /api/v1/ke/agent/ws`（同样需要请求签名，空 body）升级为 WebSocket；面板启停与 agent 回执会向对应 DO 发
+`{"t":"rev"}` 信号，agent 收到后立刻对账。未绑定时该路由返回 501，agent 自动退回 60 秒租约，功能不受影响。
+DO 内不使用任何定时器/alarm，保活用 `setWebSocketAutoResponse`（ping→pong 不唤醒 DO，不计费）。
+
 ## Cron（`*/5 * * * *`）
 
 `runHostedTick`：agent 故障转移（租约 30 分钟 + 3 分钟余量，带熔断：无健康证据或严格过半 agent 过期时冻结）、

@@ -39,6 +39,9 @@ import { createActivityRepository } from './activity/repository';
 import { ACTIVITY_RETENTION_MS } from './activity/types';
 import { createKeRepository } from './ke/repository';
 import { runHostedTick } from './ke/hosted/cron';
+
+// Durable Object 类必须从入口模块导出，Wrangler 才能找到（绑定未启用时它不会被实例化）。
+export { AgentHub } from './ke/hosted/agent-hub';
 import { mailRepositoryOptions, resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
 import { createSessionService } from './auth/session-service';
