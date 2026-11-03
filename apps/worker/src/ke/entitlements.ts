@@ -1,4 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
+import type { HostingEntitlement } from './hosted/policy';
 
 /** KE 权益：实例额度与可用模块，均由 ke_entitlements 流水按「当前时刻」实时求和得出。 */
 
@@ -58,4 +59,53 @@ export async function grantSignupEntitlements(db: MysqlDatabase, userId: string,
      ON DUPLICATE KEY UPDATE id = id`,
     [userId, KE_RESOURCE_SLOTS, at, expiresAt, at, userId, `${KE_MODULE_PREFIX}${KE_CORE_MODULE}`, at, expiresAt, at],
   );
+}
+
+/** 托管资格用的权益视图：在 slots 总额之外，单独统计“非 signup 来源”的额外额度及其最晚到期时间。 */
+export interface HostingEntitlementView extends HostingEntitlement {
+  /** 有效的额外额度中最晚的到期时间（毫秒）；用于托管 license 封顶。 */
+  extraExpiresAt: number | null;
+}
+
+export interface HostingEntitlementRow {
+  resource: string;
+  isSignup: boolean;
+  total: number;
+  maxExpiresAt: number;
+}
+
+/** 纯函数：把按 (resource, 是否 signup) 分组求和的结果折算成托管资格视图。 */
+export function foldHostingEntitlement(rows: readonly HostingEntitlementRow[]): HostingEntitlementView {
+  let slots = 0;
+  let extraSlots = 0;
+  let extraExpiresAt: number | null = null;
+  let hasCore = false;
+  for (const row of rows) {
+    if (row.resource === KE_RESOURCE_SLOTS) {
+      slots += row.total;
+      if (!row.isSignup) {
+        extraSlots += row.total;
+        if (row.total > 0) extraExpiresAt = Math.max(extraExpiresAt ?? 0, row.maxExpiresAt);
+      }
+    } else if (row.resource === `${KE_MODULE_PREFIX}${KE_CORE_MODULE}` && row.total > 0) {
+      hasCore = true;
+    }
+  }
+  return { slots: Math.max(0, slots), extraSlots: Math.max(0, extraSlots), hasCore, extraExpiresAt };
+}
+
+export async function queryHostingEntitlement(db: Pick<MysqlDatabase, 'all'>, userId: number | string, now: number): Promise<HostingEntitlementView> {
+  const rows = await db.all<MysqlRow>(
+    `SELECT resource, (source = 'signup') AS is_signup, SUM(quantity) AS total, MAX(expires_at) AS max_expires
+     FROM ke_entitlements
+     WHERE user_id = ? AND starts_at <= ? AND expires_at > ? AND revoked_at IS NULL
+     GROUP BY resource, is_signup`,
+    [userId, now, now],
+  );
+  return foldHostingEntitlement(rows.map((row) => ({
+    resource: String(row.resource),
+    isSignup: Number(row.is_signup) === 1,
+    total: Number(row.total),
+    maxExpiresAt: Number(row.max_expires),
+  })));
 }

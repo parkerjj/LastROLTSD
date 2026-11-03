@@ -1,6 +1,9 @@
 export type UserId = string;
 export type KeInstanceState = 'IDLE' | 'ACTIVE' | 'KICKED' | 'STOPPED';
-/** 授权模式：auto 占实例额度；manual（半自动）需要授权但不占额度。 */
+/**
+ * 授权模式。2026-11 起 manual（半自动）与 auto 一样占额度：服务端无论请求里写什么都按 auto 处理并持久化，
+ * 类型里保留 'manual' 只为兼容仍会发送它的旧客户端（见 docs/ke-hosting.md 的 I14）。
+ */
 export type KeLicenseMode = 'auto' | 'manual';
 
 export const KE_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
@@ -80,6 +83,13 @@ export interface ActiveInstanceInfo {
   char_name: string | null;
   map_name: string | null;
   last_heartbeat_at: number | null;
+}
+
+/** 托管 token 携带的身份：只能操作自己的托管实例，epoch 随归属变化而变化（旧 epoch 的进程会被拒绝）。 */
+export interface HostedPrincipal {
+  instanceId: string;
+  epoch: number;
+  launchSeq: number;
 }
 
 export class KeFailure extends Error {
