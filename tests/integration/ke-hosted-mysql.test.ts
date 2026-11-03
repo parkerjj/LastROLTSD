@@ -40,7 +40,7 @@ async function insertUser(database: MysqlDatabase, name: string, extraSlots: num
     );
   await grant('slots', 1, 'signup', 'email-verified:slots');
   await grant('module:core', 1, 'signup', 'email-verified:module:core');
-  if (extraSlots > 0) await grant('slots', extraSlots, 'admin', 'test-extra', 1_700_000_000_000 + 40 * 24 * 3600 * 1000);
+  if (extraSlots > 0) await grant('slots', extraSlots, 'admin', 'test-extra', Date.now() + 40 * 24 * 3600 * 1000);
   return result.insertId;
 }
 
@@ -69,7 +69,7 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
       );
       expect(Number(column!.n)).toBe(1);
     });
-  });
+  }, 120_000);
 
   it('创建→启动→调度→launch→租约→停止→回执：每条 SQL 在真实 MySQL 上都通', async () => {
     await withAuthTestDatabase(async ({ database }) => {
@@ -123,7 +123,7 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
       await service.remove(String(alice), id);
       expect(Number((await database.first<{ n: number | string }>('SELECT COUNT(*) AS n FROM ke_hosted_credentials'))!.n)).toBe(0);
     });
-  });
+  }, 120_000);
 
   it('同一角色同时只有一个运行中的托管记录（唯一索引）；agent 名额计数器不会超卖', async () => {
     await withAuthTestDatabase(async ({ database }) => {
@@ -143,7 +143,7 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
       const rows = await database.all<{ phase: string; assigned_agent: string | null }>('SELECT phase, assigned_agent FROM ke_hosted_instances WHERE instance_id = ?', [second.id]);
       expect(rows[0]).toMatchObject({ phase: 'queued', assigned_agent: null });
     });
-  });
+  }, 120_000);
 
   it('资格到期后租约对账与 Cron 都会停止所有托管实例', async () => {
     await withAuthTestDatabase(async ({ database }) => {
@@ -168,7 +168,7 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
         { desired: 'stopped', stop_reason: 'no-hosting-entitlement', active_char_key: null },
       ]);
     });
-  });
+  }, 120_000);
 
   it('故障转移：agent 过期（且另一台健康）后实例改派，epoch+1，旧 token 被吊销；Cron 重复执行是幂等的', async () => {
     await withAuthTestDatabase(async ({ database }) => {
@@ -197,7 +197,7 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
       const second = await service.tick();
       expect(second.failedOver).toEqual([]);
     });
-  });
+  }, 120_000);
 
   it('半自动同样占额度、同角色续连接管、托管实例出现在踢人列表里（真实 SQL）', async () => {
     await withAuthTestDatabase(async ({ database }) => {
@@ -229,5 +229,5 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
       await later.start(String(alice), { ...base(C, 1), kickInstanceId: null });
       expect(Number((await database.first<{ started_at: number | string }>('SELECT started_at FROM ke_instances WHERE instance_id = ?', [C]))!.started_at)).toBe(first);
     });
-  });
+  }, 120_000);
 });
