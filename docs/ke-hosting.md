@@ -79,5 +79,6 @@ DO 内不使用任何定时器/alarm，保活用 `setWebSocketAutoResponse`（pi
 
 ## 已知局限
 
-- MySQL 集成测试（`tests/integration/*-mysql.test.ts`）需要 `MYSQL_TEST_URL`；托管的 SQL 目前只有内存假仓库的单元测试覆盖，上线前必须在真实 MySQL 上跑一遍。
+- 迁移 028 与托管全部 SQL 已在真实 MySQL 8.4 上验证（`tests/integration/ke-hosted-mysql.test.ts`，需要 `MYSQL_TEST_URL` 指向以 `_test` 结尾的库并设置 `AUTH_TEST_DB_ALLOW_RESET=1`）。生产库上线前仍应先在 staging 跑一遍迁移。
+- 既有的 `auth-account-flow` / `mysql-upload-*` 集成测试把 MySQL 版本钉死在 8.4.5，换版本会失败，与托管无关。
 - 30 天独占不续期、占槽窗口 10 分钟 < license 30 分钟：产品决定保持现状（见 KoreEngine 设计稿 6A.1）。
