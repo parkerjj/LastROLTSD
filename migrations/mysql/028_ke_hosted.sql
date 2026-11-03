@@ -113,7 +113,7 @@ CREATE TABLE ke_hosted_tokens (
 -- 监控台展示用的最新状态快照（core 随 heartbeat 上报，覆盖写，不留历史）。
 CREATE TABLE ke_instance_status (
   instance_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  status_json TEXT NOT NULL                                    -- 应用层限制 ≤ 16KB,
+  status_json TEXT NOT NULL,                                   -- 应用层限制 ≤ 16KB
   status_at BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (instance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
