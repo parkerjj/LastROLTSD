@@ -19,6 +19,7 @@ export function generateKeSecrets() {
   const pkcs8 = privateKey.export({ type: 'pkcs8', format: 'der' });
   const rawPublic = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32);
   const coreKey = randomBytes(32);
+  const hostedCredKey = randomBytes(32);
 
   // 自检：长度、「落盘用的 DER 私钥」导出的公钥与公布的公钥一致、签名/验签闭环。
   if (pkcs8.byteLength !== 48 || rawPublic.byteLength !== 32) throw new Error('unexpected Ed25519 key length');
@@ -33,6 +34,7 @@ export function generateKeSecrets() {
     licensePublicKeyBase64: rawPublic.toString('base64'),
     licensePublicKeyHex: rawPublic.toString('hex'),
     coreKey: coreKey.toString('base64'),
+    hostedCredKey: hostedCredKey.toString('base64'),
   };
 }
 
@@ -45,6 +47,9 @@ export function renderSecretsEnv(secrets) {
     'KE_LICENSE_KEY_VERSION=1',
     `KE_CORE_KEY=${secrets.coreKey}`,
     'KE_CORE_KEY_VERSION=1',
+    '# KE_HOSTED_CRED_KEY: 托管游戏密码的可逆加密密钥（AES-256-GCM）。泄露 = 所有托管游戏密码可被解密；轮换需 bump 版本并让用户重新登记。',
+    `KE_HOSTED_CRED_KEY=${secrets.hostedCredKey}`,
+    'KE_HOSTED_CRED_KEY_VERSION=1',
     '',
   ].join('\n');
 }

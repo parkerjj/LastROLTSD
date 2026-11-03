@@ -139,6 +139,8 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     KE_CORE_KEY_VERSION: typeof bindings.KE_CORE_KEY_VERSION === 'string' ? bindings.KE_CORE_KEY_VERSION : undefined,
     KE_NETWORK_KEY: typeof bindings.KE_NETWORK_KEY === 'string' ? bindings.KE_NETWORK_KEY : undefined,
     KE_NETWORK_KEY_VERSION: typeof bindings.KE_NETWORK_KEY_VERSION === 'string' ? bindings.KE_NETWORK_KEY_VERSION : undefined,
+    KE_HOSTED_CRED_KEY: typeof bindings.KE_HOSTED_CRED_KEY === 'string' ? bindings.KE_HOSTED_CRED_KEY : undefined,
+    KE_HOSTED_CRED_KEY_VERSION: typeof bindings.KE_HOSTED_CRED_KEY_VERSION === 'string' ? bindings.KE_HOSTED_CRED_KEY_VERSION : undefined,
     KE_BUILD_MANIFEST: typeof bindings.KE_BUILD_MANIFEST === 'string' ? bindings.KE_BUILD_MANIFEST : undefined,
   };
 }

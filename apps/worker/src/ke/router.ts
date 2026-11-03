@@ -13,6 +13,7 @@ import { assertTrustedWriteOrigin } from '../auth/csrf';
 import { trustedAuthClientIp, authRateLimitKey, consumeAuthRateLimit } from '../auth/rate-limit';
 import { AuthFailure, type AuthRuntime, type EnabledAuthConfig } from '../auth/types';
 import { resolveKeConfig, type KeConfig } from './config';
+import { digestToken } from '../auth/crypto';
 import { base64UrlDecode, sha256 } from './crypto';
 import { createKeRepository, type KeRepository } from './repository';
 import { createKeService, type Attestation, type BindInput, type StartInput } from './service';
@@ -26,6 +27,9 @@ import { createTokenRepository, type TokenRepository } from './token-repository'
 import { createTokenService, type BearerIdentity } from './token-service';
 import { KeFailure, type CharacterReport, type KeLicenseMode } from './types';
 import { createBuildRegistry } from './build-registry';
+import { createHostedRepository, type HostedRepository } from './hosted/repository';
+import { registerHostedRoutes } from './hosted/router';
+import type { HostedPrincipal } from './types';
 
 const GENERAL_JSON_LIMIT = 8 * 1024;
 const HOUR_MS = 60 * 60 * 1000;
@@ -263,6 +267,7 @@ export function registerKeRoutes(
   let keRepository: KeRepository | null = null;
   let profileRepository: ProfileRepository | null = null;
   let tokenRepository: TokenRepository | null = null;
+  let hostedRepository: HostedRepository | null = null;
   let sharedProfileService: SharedProfileService | null = null;
   let authConfig: EnabledAuthConfig | null | undefined;
 
@@ -315,11 +320,50 @@ export function registerKeRoutes(
     }
   };
 
+  registerHostedRoutes(app, {
+    setup,
+    licenseSetup,
+    repository: () => {
+      if (database === undefined) return null;
+      hostedRepository ??= createHostedRepository(database);
+      return hostedRepository;
+    },
+    runtime: authRuntime,
+    rateLimit: assertKeRateLimit,
+    failure: routeFailure,
+    unavailable,
+    log: (event, detail) => console.log(JSON.stringify({ event, ...detail })),
+  });
+
   const tokenService = (handlers: NonNullable<ReturnType<typeof setup>>) =>
     createTokenService(handlers.tokenRepository, { siteUrl: handlers.authConfig.authSiteUrl }, authRuntime.now);
   const bearerIdentity = (handlers: NonNullable<ReturnType<typeof setup>>, request: Request) =>
     tokenService(handlers).authenticate(request.headers.get('authorization'));
-  const tokenSubject = (identity: { tokenId: number }): RateSubject => ({ kind: 'action', value: `ke-token:${identity.tokenId}` });
+  /**
+   * 实例端点（bind / start / heartbeat / stop）的 Bearer 身份：先按用户设备 token 认证，找不到再按托管 token 认证。
+   * 托管 token 只在这四个端点和 profiles/active（限本实例角色）有效，其余端点一律只认用户设备 token。
+   */
+  const instanceIdentity = async (handlers: NonNullable<ReturnType<typeof setup>>, request: Request): Promise<BearerIdentity & { hosted?: HostedPrincipal }> => {
+    try {
+      return await bearerIdentity(handlers, request);
+    } catch (error) {
+      if (!(error instanceof KeFailure) || error.status !== 401 || database === undefined) throw error;
+      hostedRepository ??= createHostedRepository(database);
+      const header = request.headers.get('authorization')?.trim() ?? '';
+      const match = /^Bearer\s+ke1_([A-Za-z0-9_-]{43})$/iu.exec(header);
+      if (!match) throw error;
+      let digest: Uint8Array;
+      try {
+        digest = await digestToken(match[1]!);
+      } catch {
+        throw error;
+      }
+      const record = await hostedRepository.readHostedBearer(digest, authRuntime.now());
+      if (record === null) throw error;
+      return { tokenId: record.tokenId, userId: String(record.userId), hosted: { instanceId: record.instanceId, epoch: record.epoch, launchSeq: record.launchSeq } };
+    }
+  };
+  const tokenSubject = (identity: { tokenId: number; hosted?: HostedPrincipal }): RateSubject => ({ kind: 'action', value: `${identity.hosted ? 'ke-hosted' : 'ke-token'}:${identity.tokenId}` });
 
   /** 设备码兑换成功：用刚签发的令牌反查批准者；查询或写入出错都不能影响原响应。 */
   const recordDeviceToken = async (request: Request, handlers: NonNullable<ReturnType<typeof setup>>, accessToken: string): Promise<void> => {
@@ -341,14 +385,15 @@ export function registerKeRoutes(
   app.post('/api/v1/ke/instances/bind', async (c: any) => {
     const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
-    let identity: BearerIdentity | undefined;
+    let identity: (BearerIdentity & { hosted?: HostedPrincipal }) | undefined;
     let input: BindInput | undefined;
     try {
-      identity = await bearerIdentity(handlers, c.req.raw);
+      identity = await instanceIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       await assertKeRateLimit(handlers, tokenSubject(identity), KE_RATE_LIMITS.bindPerSession, authRuntime.now);
       input = {
         instanceId: parseInstanceId(body.instance_id),
+        hosted: identity.hosted,
         report: parseCharacterReport(body),
         needWasmKey: body.need_wasm_key === true,
         needModules: parseNeedModules(body.need_modules),
@@ -392,14 +437,15 @@ export function registerKeRoutes(
   app.post('/api/v1/ke/instances/:id/start', async (c: any) => {
     const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
-    let identity: BearerIdentity | undefined;
+    let identity: (BearerIdentity & { hosted?: HostedPrincipal }) | undefined;
     let input: StartInput | undefined;
     try {
-      identity = await bearerIdentity(handlers, c.req.raw);
+      identity = await instanceIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       await assertKeRateLimit(handlers, tokenSubject(identity), KE_RATE_LIMITS.startPerSession, authRuntime.now);
       input = {
         instanceId: parseInstanceId(c.req.param('id')),
+        hosted: identity.hosted,
         kickInstanceId: typeof body.kick_instance_id === 'string' && body.kick_instance_id.length > 0 && body.kick_instance_id.length <= 36 ? body.kick_instance_id : null,
         mode: parseLicenseMode(body.mode),
         report: parseCharacterReport(body),
@@ -427,7 +473,7 @@ export function registerKeRoutes(
     const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
     try {
-      const identity = await bearerIdentity(handlers, c.req.raw);
+      const identity = await instanceIdentity(handlers, c.req.raw);
       const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
       const ts = typeof body.ts === 'number' && Number.isSafeInteger(body.ts) ? body.ts : 0;
       const instanceId = parseInstanceId(c.req.param('id'));
@@ -438,6 +484,7 @@ export function registerKeRoutes(
         report,
         ts,
         await attestation(c.req.raw, env, body),
+        { hosted: identity.hosted, status: body.status },
       );
       await recorder.recordHeartbeat(c.req.raw, {
         userId: identity.userId, event: 'KE_HEARTBEAT', character: characterOf(report), ref: instanceId, requestId: requestId(c.req.raw),
@@ -452,8 +499,8 @@ export function registerKeRoutes(
     const handlers = await licenseSetup();
     if (!handlers) return unavailable(c);
     try {
-      const identity = await bearerIdentity(handlers, c.req.raw);
-      await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now).stop(identity.userId, parseInstanceId(c.req.param('id')));
+      const identity = await instanceIdentity(handlers, c.req.raw);
+      await createKeService(handlers.keRepository, handlers.keConfig, authRuntime.now).stop(identity.userId, parseInstanceId(c.req.param('id')), identity.hosted);
       return c.newResponse(null, 204, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
@@ -600,8 +647,16 @@ export function registerKeRoutes(
     const handlers = setup();
     if (!handlers) return unavailable(c);
     try {
-      const identity = await bearerIdentity(handlers, c.req.raw);
+      const identity = await instanceIdentity(handlers, c.req.raw);
       const { aid, cid, nid } = parseCharacterQuery(c);
+      if (identity.hosted) {
+        // 托管 token 只能读本实例所属角色的配置（不能借它读用户其他角色的配置）。
+        hostedRepository ??= createHostedRepository(database!);
+        const hostedRow = await hostedRepository.transaction((tx) => tx.findHosted(identity.hosted!.instanceId));
+        if (!hostedRow || hostedRow.aid !== aid || hostedRow.cid !== cid || hostedRow.nid !== nid) {
+          throw new KeFailure('KE_AUTH_FORBIDDEN', 403, '实例不属于当前授权');
+        }
+      }
       const active = await createProfileService(handlers.profileRepository, authRuntime.now).fetchActive(identity.userId, aid, cid, nid);
       return c.json(active, 200, { 'cache-control': 'no-store' });
     } catch (error) {

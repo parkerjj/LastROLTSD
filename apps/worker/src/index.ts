@@ -38,6 +38,7 @@ import { createActivityRecorder, NOOP_ACTIVITY_RECORDER } from './activity/recor
 import { createActivityRepository } from './activity/repository';
 import { ACTIVITY_RETENTION_MS } from './activity/types';
 import { createKeRepository } from './ke/repository';
+import { runHostedTick } from './ke/hosted/cron';
 import { mailRepositoryOptions, resolveAuthConfig } from './auth/config';
 import { createAuthRepository } from './auth/repository';
 import { createSessionService } from './auth/session-service';
@@ -362,6 +363,8 @@ export default {
           await createSnapshotRepository(database).cleanup(now);
           await createKeRepository(database).cleanup(now);
         } finally {
+          // 托管的故障转移/资格扫描/队列兜底独立执行并自己吞掉错误，不影响其余清理。
+          await runHostedTick(env, database, () => now);
           // 操作日志的 180 天清理独立执行：前面的清理失败不能让它永远跑不到；它自身失败只记录，不影响任务结果。
           try {
             await createActivityRepository(database).cleanup(now - ACTIVITY_RETENTION_MS, 1000);
