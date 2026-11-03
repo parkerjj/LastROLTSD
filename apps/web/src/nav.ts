@@ -50,7 +50,7 @@ const KE_MENU_ENTRIES: readonly KeMenuEntry[] = [
   {
     href: "/ke/download",
     label: "脱机版下载",
-    note: "Windows / Android 客户端",
+    note: "全平台客户端",
     icon: "ph-download-simple",
     isNew: true,
   },
