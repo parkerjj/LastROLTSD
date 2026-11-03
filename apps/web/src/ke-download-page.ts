@@ -139,7 +139,7 @@ function specRows(platform: PlatformKey, entry: DownloadEntry | undefined, phase
   const dash = phase === "loading" ? "…" : "—";
   if (platform === "macos") {
     return `
-    <div><dt>支持系统</dt><dd>${entry ? `macOS ${esc(entry.minOs ?? "14")} 及以上` : dash}</dd></div>
+    <div><dt>支持系统</dt><dd>${entry ? `macOS ${esc(entry.minOs ?? "14")} 及以上 · Intel / M 系列` : dash}</dd></div>
     <div><dt>安装包</dt><dd class="filename">${entry ? esc(entry.fileName) : dash}</dd></div>
     <div><dt>大小</dt><dd>${entry ? formatSize(entry.size) : dash}</dd></div>
   `;
@@ -296,7 +296,7 @@ function pageMarkup(): string {
           <div class="kd-hero-actions" data-hero-actions></div>
           <div class="kd-hero-meta">
             <span><i aria-hidden="true"></i>Windows 10 / 11</span>
-            <span><i aria-hidden="true"></i>macOS 14 及以上</span>
+            <span><i aria-hidden="true"></i>macOS 14 及以上 · Intel / M 系列</span>
             <span><i aria-hidden="true"></i>Android 8.0 及以上</span>
             <span><i aria-hidden="true"></i>官方直链 · 自动更新</span>
           </div>
@@ -429,7 +429,7 @@ function pageMarkup(): string {
           ${faqMarkup("更新会丢账号或配置吗？", "不会。直接覆盖安装就行，账号、配置和已下载的模块都会保留，不需要先卸载。更新时客户端会先停掉正在运行的角色，停不下来就不会开始安装。")}
           ${faqMarkup("我的旧手机能装吗？", "目前只提供 64 位安卓安装包，近几年主流机型都能用；32 位老手机和模拟器暂时装不了。")}
           ${faqMarkup("脱机版会多送实例额度吗？", "不会。额度和网页版共用：注册并验证邮箱后默认有 1 个全自动实例；")}
-          ${faqMarkup("macOS 怎么安装？", "下载 .dmg，双击打开后把 KoreEngine 拖进「应用程序」文件夹即可。安装包已通过 Apple 公证，需要 macOS 14 及以上；之后有新版本时 App 会自己提示并完成更新。")}
+          ${faqMarkup("macOS 怎么安装？", "下载 .dmg，双击打开后把 KoreEngine 拖进「应用程序」文件夹即可。安装包已通过 Apple 公证，需要 macOS 14 及以上，Intel 和 M 系列芯片的 Mac 都能用；之后有新版本时 App 会自己提示并完成更新。")}
           ${faqMarkup("iOS 现在能用吗？", "还不能。iOS 受 Apple 分发政策限制，不保证上架，但会尽最大努力提供一个能用的方案。确定后会在本页和更新说明里公布。")}
           ${faqMarkup("下载会不会有病毒？", "安装包只从我们自己的服务器下载，页面上的按钮不会跳到网盘或第三方站点。如果杀毒软件提示风险，先别安装，到留言板告诉我们。")}
         </div>
