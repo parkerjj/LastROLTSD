@@ -5,6 +5,7 @@ import { jsonError, requestId } from '../middleware/errors';
 import { logError } from '../observability';
 import type { AdminService } from './service';
 import type { TransferRequest, TransferService } from './transfer-service';
+import type { AppFlagsAdmin } from '../app-config/admin-service';
 import { AdminFailure } from './types';
 
 const BODY_LIMIT_BYTES = 16 * 1024;
@@ -55,7 +56,7 @@ function accountText(value: unknown): string {
  * 管理员后台接口（/api/v1/admin/*）。顺序固定：先确认登录，再确认是管理员（不是 → 404，不暴露后台的存在），
  * 最后才对写操作校验 CSRF——这样普通用户永远只会看到 404。
  */
-export function registerAdminAccountRoutes(app: Hono<any>, service: AdminService, auth: AdminAuthServices | null, transfer: TransferService | null = null): void {
+export function registerAdminAccountRoutes(app: Hono<any>, service: AdminService, auth: AdminAuthServices | null, transfer: TransferService | null = null, appFlags: AppFlagsAdmin | null = null): void {
   async function guarded(request: Request, write: boolean, work: (actor: Actor, id: string) => Promise<Response>): Promise<Response> {
     const id = requestId(request);
     if (!auth) return jsonError('auth_unavailable', '账号服务暂不可用', 503, id);
@@ -117,6 +118,18 @@ export function registerAdminAccountRoutes(app: Hono<any>, service: AdminService
 
   // 角色转移：路由始终注册；服务缺失时在确认是管理员之后才返回 503。
   const unavailable = (id: string): Response => jsonError('auth_unavailable', '账号服务暂不可用', 503, id);
+
+  app.get('/api/v1/admin/app-flags', (c) => guarded(c.req.raw, false, async (_actor, id) => {
+    if (!appFlags) return unavailable(id);
+    return reply({ flags: await appFlags.list() });
+  }));
+
+  app.put('/api/v1/admin/app-flags/:key', (c) => guarded(c.req.raw, true, async (actor, id) => {
+    if (!appFlags) return unavailable(id);
+    const body = await readAuthJson(c.req.raw, BODY_LIMIT_BYTES);
+    if (Object.keys(body).some((field) => field !== 'enabled') || typeof body.enabled !== 'boolean') throw badRequest();
+    return reply(await appFlags.set(actor.id, c.req.param('key'), body.enabled, id));
+  }));
 
   app.get('/api/v1/admin/transfer/characters', (c) => guarded(c.req.raw, false, async (_actor, id) => {
     if (!transfer) return unavailable(id);

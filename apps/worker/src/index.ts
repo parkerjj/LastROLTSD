@@ -30,6 +30,7 @@ import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/rou
 import { registerKeRoutes } from './ke/router';
 import { registerAppConfigRoutes } from './app-config/router';
 import { readAppFlag, writeAppFlag } from './app-config/repository';
+import { createAppFlagsAdmin } from './app-config/admin-service';
 import { queryEntitlements } from './ke/entitlements';
 import { registerKeBuildRoutes } from './ke/build-register-router';
 import { registerKeDownloadRoutes } from './routes/ke-download';
@@ -134,6 +135,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       createAdminService(createAdminRepository(database)),
       adminAuthServices(database, env, wakeMail),
       createTransferService(createTransferRepository(database), createActivityRepository(database)),
+      createAppFlagsAdmin(database),
     );
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);

@@ -132,6 +132,10 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
     </section>
     <section id="adm-gate" class="adm-card"></section>
     <div id="adm-main" hidden>
+      <section class="adm-card" aria-labelledby="adm-flags-title">
+        <h2 id="adm-flags-title">App 开关</h2>
+        <ul id="adm-flags-list" class="adm-list"></ul>
+      </section>
       <section class="adm-card" aria-labelledby="adm-search-title">
         <h2 id="adm-search-title">查找账号</h2>
         <form id="adm-search-form" class="adm-row">
@@ -272,6 +276,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
   const untilField = q<HTMLElement>("#adm-adjust-until-field");
   const passwordForm = q<HTMLFormElement>("#adm-password-form");
   const passwordInput = q<HTMLInputElement>("#adm-password");
+  const flagsList = q<HTMLElement>("#adm-flags-list");
   const auditList = q<HTMLElement>("#adm-audit-list");
   const auditLoad = q<HTMLButtonElement>("#adm-audit-load");
   const auditMore = q<HTMLButtonElement>("#adm-audit-more");
@@ -486,6 +491,44 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
   auditLoad.addEventListener("click", () => void loadAudit(false));
   auditMore.addEventListener("click", () => void loadAudit(true));
 
+  /* ---- App 开关（供客户端读取的站点级开关） ---- */
+
+  const FLAG_LABELS: Record<string, string> = { ios_engine: "iOS 客户端显示 KoreEngine 挂机界面" };
+
+  function renderFlags(flags: Array<{ key: string; enabled: boolean }>): void {
+    flagsList.replaceChildren();
+    for (const flag of flags) {
+      const item = el("li");
+      item.setAttribute("data-flag", flag.key);
+      item.append(el("span", undefined, `${FLAG_LABELS[flag.key] ?? flag.key} · ${flag.enabled ? "已开启" : "已关闭"}`));
+      const toggle = el("button", flag.enabled ? "adm-btn adm-btn-danger" : "adm-btn adm-btn-primary", flag.enabled ? "关闭" : "开启");
+      toggle.type = "button";
+      toggle.addEventListener("click", () => void setFlag(flag.key, !flag.enabled, flags));
+      item.append(toggle);
+      flagsList.append(item);
+    }
+  }
+
+  async function loadFlags(): Promise<void> {
+    try {
+      renderFlags((await adminGet<{ flags: Array<{ key: string; enabled: boolean }> }>("/api/v1/admin/app-flags")).flags);
+    } catch (error) {
+      say(error instanceof Error ? error.message : "加载 App 开关失败", true);
+    }
+  }
+
+  async function setFlag(key: string, enabled: boolean, current: Array<{ key: string; enabled: boolean }>): Promise<void> {
+    const label = FLAG_LABELS[key] ?? key;
+    if (!window.confirm(`确定${enabled ? "开启" : "关闭"}「${label}」吗？该开关对所有客户端立即生效。`)) return;
+    try {
+      const result = await auth.sessionRequest<{ key: string; enabled: boolean }>(`/api/v1/admin/app-flags/${key}`, "PUT", { enabled });
+      renderFlags(current.map((flag) => (flag.key === result.key ? { ...flag, enabled: result.enabled } : flag)));
+      say(`已${result.enabled ? "开启" : "关闭"}：${label}`);
+    } catch (error) {
+      say(error instanceof Error ? error.message : "修改失败", true);
+    }
+  }
+
   /* ---- 登录态 ---- */
 
   searchForm.addEventListener("submit", (event) => {
@@ -503,6 +546,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
       if (loadedFor !== state.user.id) {
         loadedFor = state.user.id;
         void search("");
+        void loadFlags();
       }
       return;
     }

@@ -303,6 +303,15 @@ Content-Type: application/json
 
 The body must be exactly `{"enabled": <boolean>}`; the response is `{ "key": "ios_engine", "enabled": true }`. Migration `027_app_flags.sql` creates the table and seeds `ios_engine = 0`.
 
+Administrators (`permission_level >= 100`) can also toggle the same flag from the admin page ("App 开关") through session-authenticated routes. Non-admin accounts get `404`; writes require the session CSRF token and trusted `Origin`:
+
+```http
+GET /api/v1/admin/app-flags        -> { "flags": [{ "key": "ios_engine", "enabled": false }] }
+PUT /api/v1/admin/app-flags/ios_engine   body { "enabled": true }  -> { "key": "ios_engine", "enabled": true }
+```
+
+Each session-route write records an `app_flag_set` row in `admin_audit_log` (`detail`: `key`, `from`, `to`) in the same transaction as the flag update.
+
 ## Guestbook
 
 The public guestbook allows anonymous visitors to post a `buy`, `sell`, or `suggestion` entry. `GET /api/v1/guestbook` accepts optional `category`, `item_id`, `q`, `limit` (default 20, maximum 50), and opaque `cursor` filters. Text searches match the entry body and trade contact as literal text. Pages are ordered newest first by `(createdAt,id)` and cursors are signed and bound to the active filters.

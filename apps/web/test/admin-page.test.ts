@@ -189,6 +189,39 @@ describe("admin page", () => {
     expect(m.root.querySelector("#adm-status")!.textContent).not.toBe("");
   });
 
+  it("App 开关：管理员看到 ios_engine 当前状态，二次确认后用 PUT 切换，并更新显示", async () => {
+    let enabled = false;
+    const get = (path: string) => (path === "/api/v1/admin/app-flags" ? json({ flags: [{ key: "ios_engine", enabled }] }) : routes(path));
+    const m = mount({ user: profile(100), get, write: (call) => { enabled = (call.body as { enabled: boolean }).enabled; return { key: "ios_engine", enabled }; } });
+    await wait();
+    const row = () => m.root.querySelector<HTMLElement>("#adm-flags-list [data-flag='ios_engine']")!;
+    expect(row().textContent).toContain("已关闭");
+    row().querySelector<HTMLButtonElement>("button")!.click();
+    await wait();
+    expect(m.writes[0]).toEqual({ method: "PUT", path: "/api/v1/admin/app-flags/ios_engine", body: { enabled: true } });
+    expect(row().textContent).toContain("已开启");
+    row().querySelector<HTMLButtonElement>("button")!.click();
+    await wait();
+    expect(m.writes[1]).toEqual({ method: "PUT", path: "/api/v1/admin/app-flags/ios_engine", body: { enabled: false } });
+    expect(row().textContent).toContain("已关闭");
+  });
+
+  it("App 开关：取消确认不发请求；写入失败时提示错误并保持原状态", async () => {
+    const get = (path: string) => (path === "/api/v1/admin/app-flags" ? json({ flags: [{ key: "ios_engine", enabled: false }] }) : routes(path));
+    const cancelled = mount({ user: profile(100), get, confirm: false });
+    await wait();
+    cancelled.root.querySelector<HTMLButtonElement>("#adm-flags-list button")!.click();
+    await wait();
+    expect(cancelled.writes).toHaveLength(0);
+
+    const failing = mount({ user: profile(100), get, write: () => { throw new Error("请求来源校验失败"); } });
+    await wait();
+    failing.root.querySelector<HTMLButtonElement>("#adm-flags-list button")!.click();
+    await wait();
+    expect(failing.root.querySelector("#adm-status")!.textContent).toContain("请求来源校验失败");
+    expect(failing.root.querySelector("#adm-flags-list")!.textContent).toContain("已关闭");
+  });
+
   it("撤销与恢复权益行；修改到期时间", async () => {
     const m = mount({ user: profile(100), get: routes, prompt: "2030-01-01 00:00" });
     await openUser(m);
