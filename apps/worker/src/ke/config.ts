@@ -20,6 +20,9 @@ export interface KeConfig {
   networkKey: Uint8Array | null;
   networkKeyVersion: string;
   buildManifest: ReadonlyMap<string, BuildEntry> | null;
+  /** 托管游戏密码加密密钥；null 表示未配置（托管创建/启动一律 503）。 */
+  hostedCredentialKey: Uint8Array | null;
+  hostedCredentialKeyVersion: number;
 }
 
 function disabled(): KeConfig {
@@ -32,6 +35,8 @@ function disabled(): KeConfig {
     networkKey: null,
     networkKeyVersion: '1',
     buildManifest: null,
+    hostedCredentialKey: null,
+    hostedCredentialKeyVersion: 1,
   };
 }
 
@@ -121,5 +126,7 @@ export function resolveKeConfig(env: AppEnv & KeBindings, authConfig: AuthConfig
     // 未配置 network 密钥时不校验其版本，避免影响只使用 core 的旧客户端。
     networkKeyVersion: networkKey === null ? '1' : keyVersion(env.KE_NETWORK_KEY_VERSION, '1'),
     buildManifest: buildPolicy === 'bootstrap' ? buildManifest(env.KE_BUILD_MANIFEST) : null,
+    hostedCredentialKey: decodeOptionalSecret(env.KE_HOSTED_CRED_KEY, 32),
+    hostedCredentialKeyVersion: Number(keyVersion(env.KE_HOSTED_CRED_KEY_VERSION, '1')),
   };
 }

@@ -134,7 +134,7 @@ export interface FailoverDecision {
 
 /**
  * I11/6A：Cron 判 agent 故障，带熔断。LTSD 整体故障或坏发布会让所有 agent 同时过期；
- * 此时不能全量改派，需满足：Worker 近期成功处理过“其他”agent 的租约或任一实例心跳，且过期占比小于 50%。
+ * 此时不能全量改派，需满足：Worker 近期成功处理过“其他”agent 的租约或任一实例心跳，且过期的 agent 不超过半数。
  */
 export function decideFailover(
   agents: readonly FailoverAgent[],
@@ -151,7 +151,8 @@ export function decideFailover(
   const aliveRecently = alive.some((agent) => agent.lastSeen !== null && now - agent.lastSeen <= FLEET_HEALTH_WINDOW_MS);
   const heartbeatRecently = lastHealthEvidenceAt !== null && now - lastHealthEvidenceAt <= FLEET_HEALTH_WINDOW_MS;
   if (!aliveRecently && !heartbeatRecently) return { expired: [], frozen: 'no_health_evidence' };
-  if (online.length >= 2 && expired.length * 2 >= online.length) return { expired: [], frozen: 'majority_expired' };
+  // 严格过半才熔断：只有 2 台 VPS 时，其中 1 台故障（恰好一半）必须能正常转移。
+  if (online.length >= 2 && expired.length * 2 > online.length) return { expired: [], frozen: 'majority_expired' };
   return { expired: expired.map((agent) => agent.agentId), frozen: 'none' };
 }
 

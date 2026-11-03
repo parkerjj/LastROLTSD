@@ -165,6 +165,12 @@ describe('故障转移判定与熔断', () => {
     ], now, null);
     expect(decision).toEqual({ expired: [], frozen: 'no_health_evidence' });
   });
+  it('两台 VPS 其中一台故障（恰好一半）：正常判定；严格过半才冻结', () => {
+    expect(decideFailover([
+      { agentId: 'a', status: 'online', lastSeen: old },
+      { agentId: 'b', status: 'online', lastSeen: fresh },
+    ], now, null)).toEqual({ expired: ['a'], frozen: 'none' });
+  });
   it('有实例心跳作为健康证据，但过半 agent 过期：仍冻结', () => {
     const decision = decideFailover([
       { agentId: 'a', status: 'online', lastSeen: old },

@@ -40,6 +40,9 @@ export interface KeBindings {
   KE_NETWORK_KEY_VERSION?: string | undefined;
   /** 构建清单（JSON：{ "<build_id>": { "chunk": "core", "sha256": "<hex>" } }），可选；缺省时跳过 A 指纹校验。 */
   KE_BUILD_MANIFEST?: string | undefined;
+  /** 托管游戏密码的可逆加密密钥（AES-256-GCM，base64，32 字节）；未配置时托管功能整体不可用（fail closed）。 */
+  KE_HOSTED_CRED_KEY?: string | undefined;
+  KE_HOSTED_CRED_KEY_VERSION?: string | undefined;
 }
 
 /** KE 上报的角色基础信息。 */
