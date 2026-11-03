@@ -432,8 +432,8 @@ function hostedTxFor(db: MysqlDatabase): HostedTx {
     },
 
     async lastHealthEvidence() {
-      const row = await db.first<MysqlRow>('SELECT MAX(last_heartbeat_at) AS at FROM ke_instances WHERE last_heartbeat_at IS NOT NULL', []);
-      return asNullableNumber(row?.at);
+      const row = await db.first<MysqlRow>('SELECT MAX(last_heartbeat_at) AS latest FROM ke_instances WHERE last_heartbeat_at IS NOT NULL', []);
+      return asNullableNumber(row?.latest);
     },
   };
 }

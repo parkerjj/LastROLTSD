@@ -310,6 +310,10 @@ export function createHostedService(
         if (await tx.countHostedRecords(owner) >= hostedCap(hosting)) {
           throw new KeFailure('KE_HOSTED_CAP_REACHED', 409, '运行中的托管实例已达上限');
         }
+        if (row.desired === 'stopped' && row.assignedAgent !== null) {
+          // 上一次停止还没收到 agent 的回执：稍后再试，而不是误报“角色被占用”。
+          throw new KeFailure('KE_HOSTED_STOPPING', 409, '托管实例正在停止，请稍后再启动');
+        }
         if (!await tx.markRunning(instanceId, timestamp)) {
           throw new KeFailure('KE_HOSTED_CHARACTER_BUSY', 409, '该角色已有运行中的托管实例');
         }

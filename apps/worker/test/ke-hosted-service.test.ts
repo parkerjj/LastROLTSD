@@ -181,6 +181,15 @@ describe('启动、调度与停止（6.1/6.2）', () => {
     expect(result.notify).toEqual([AGENT_A]);
   });
 
+  it('上一次停止还没收到回执时再点启动：返回 KE_HOSTED_STOPPING，不误报角色被占用', async () => {
+    const { service, repo } = setup();
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    await service.stop(String(USER), id);
+    await expect(service.start(String(USER), id)).rejects.toMatchObject({ code: 'KE_HOSTED_STOPPING', status: 409 });
+    expect(repo.hosted.get(id)?.desired).toBe('stopped');
+  });
+
   it('过期 epoch 的回执被拒绝；error 回执让 LTSD 置 desired=stopped 并释放槽位', async () => {
     const { service, repo } = setup();
     const { id } = await create(service);
