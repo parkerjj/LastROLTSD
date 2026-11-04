@@ -94,6 +94,8 @@ export interface HostingStore {
 
 export interface HostingPanelOptions {
   now?: () => number;
+  /** 过渡状态下自动重新读取的间隔（毫秒），默认 30 秒；主要给测试缩短。 */
+  pollMs?: number;
 }
 
 const SERVER_LABELS: Record<number, { label: string; code: string }> = {
@@ -104,6 +106,11 @@ const SERVER_LABELS: Record<number, { label: string; code: string }> = {
 /** 状态快照随 5 分钟心跳上报；超过两个周期没有更新就提示数据较旧。 */
 const STALE_AFTER_MS = 12 * 60 * 1000;
 const DELETE_ARM_MS = 3000;
+/** 这些阶段是“启动 / 停止还没落定”，页面要自动刷新才能看到结果。 */
+const SETTLING_PHASES = new Set(["queued", "assigned", "starting", "stopping", "migrating"]);
+const POLL_MS = 30_000;
+/** 一直落不定（例如没有可用的托管服务器）时最多自动读取这么多次，之后改回手动刷新。 */
+const POLL_MAX = 20;
 
 type Tone = "good" | "wait" | "idle" | "warn" | "bad";
 
@@ -221,6 +228,7 @@ export function mountHostingPanel(
   options: HostingPanelOptions = {},
 ): () => void {
   const now = options.now ?? Date.now;
+  const pollMs = options.pollMs ?? POLL_MS;
   type View =
     | { kind: "loading" }
     | { kind: "anonymous" }
@@ -239,6 +247,8 @@ export function mountHostingPanel(
   let dialogError = "";
   let dialogBusy = false;
   let loadSequence = 0;
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollCount = 0;
   let disposed = false;
   const initial = store.getState();
   let lastUserId: string | null = initial.status === "active" ? initial.user.id : null;
@@ -513,7 +523,7 @@ export function mountHostingPanel(
       </div>
       ${items.length > 0 ? `<div class="accounts-grid kc-grid" aria-live="polite">${items.map(cardMarkup).join("")}</div>` : emptyMarkup(eligibility)}
       ${noticeMarkup}
-      <p class="kc-foot">状态随游戏进程的心跳（约每 5 分钟）更新，不会自动刷新；需要最新状态时点「刷新」。</p>
+      <p class="kc-foot">状态随游戏进程的心跳（约每 5 分钟）更新；启动、停止过程中页面会自动刷新，其余时候需要最新状态请点「刷新」。</p>
       ${dialogMarkup()}`;
   }
 
@@ -538,6 +548,22 @@ export function mountHostingPanel(
       view = { kind: "error", message: errorText(error, "托管服务暂时不可用，请稍后重试") };
     }
     render();
+    schedulePoll();
+  }
+
+  /** 有实例处于启动 / 停止过渡中时，隔几秒静默重新读取，直到全部落定。 */
+  function schedulePoll(): void {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+    const settling = view.kind === "ready" && view.items.some((entry) => SETTLING_PHASES.has(entry.phase));
+    if (!settling) { pollCount = 0; return; }
+    if (disposed || pollCount >= POLL_MAX) return;
+    pollCount += 1;
+    pollTimer = setTimeout(() => {
+      pollTimer = null;
+      // 添加对话框打开时重画会清掉正在输入的内容，先跳过这一次。
+      if (dialogOpen) schedulePoll(); else void load(true);
+    }, pollMs);
   }
 
   function setNotice(text: string, tone: "ok" | "error" | ""): void {
@@ -547,6 +573,7 @@ export function mountHostingPanel(
 
   async function act(id: string, run: () => Promise<void>, doing: string, done: string): Promise<void> {
     if (busyIds.has(id)) return;
+    pollCount = 0;
     busyIds = new Set(busyIds).add(id);
     setNotice(doing, "");
     render();
@@ -647,7 +674,7 @@ export function mountHostingPanel(
       }
       return;
     }
-    if (target.closest("[data-kc-reload]")) { setNotice("", ""); void load(); return; }
+    if (target.closest("[data-kc-reload]")) { setNotice("", ""); pollCount = 0; void load(); return; }
     if (target.closest("[data-kc-open-dialog]")) { void openDialog(); return; }
     if (target.closest("[data-kc-close-dialog]")) { closeDialog(); return; }
     if (target.matches("[data-kc-overlay]")) closeDialog();
@@ -678,6 +705,7 @@ export function mountHostingPanel(
 
   return () => {
     disposed = true;
+    if (pollTimer) clearTimeout(pollTimer);
     disarm();
     unsubscribe();
     root.removeEventListener("click", onClick);

@@ -33,6 +33,7 @@ function setup(options: {
   eligibility?: HostedEligibility;
   items?: HostedItem[];
   characters?: HostableCharacter[];
+  pollMs?: number;
 } = {}) {
   const dom = new JSDOM('<main id="app"></main>', { url: "http://localhost/accounts" });
   const previous = { document: globalThis.document, window: (globalThis as { window?: unknown }).window };
@@ -54,7 +55,7 @@ function setup(options: {
     subscribe: (next) => { listener = next; return () => { listener = null; }; },
   };
   const root = dom.window.document.querySelector<HTMLElement>("#app")!;
-  const dispose = mountHostingPanel(root, api, store, { now: () => NOW });
+  const dispose = mountHostingPanel(root, api, store, { now: () => NOW, ...(options.pollMs ? { pollMs: options.pollMs } : {}) });
   const restore = () => {
     dispose();
     Object.defineProperty(globalThis, "document", { configurable: true, value: previous.document });
@@ -240,6 +241,48 @@ describe("KE 监控台：离线挂机面板", () => {
     click(dom, '[data-kc-delete="i-3"]');
     await flush();
     expect(api.remove).toHaveBeenCalledWith("i-3");
+    restore();
+  });
+
+  it("启动 / 停止后处于过渡状态时自动重新读取，稳定后停止轮询", async () => {
+    const { dom, root, api, items, restore } = setup({
+      items: [item({ id: "i-3", desired: "stopped", phase: "stopped", stop_reason: "user", status: null, status_at: null })],
+      pollMs: 5,
+    });
+    await flush();
+    expect(api.load).toHaveBeenCalledTimes(1);
+
+    items.current = [item({ id: "i-3", desired: "running", phase: "queued", status: null, status_at: null })];
+    click(dom, '[data-kc-start="i-3"]');
+    await flush();
+    expect(root.textContent).toContain("排队中");
+
+    items.current = [item({ id: "i-3", desired: "running", phase: "starting", status: null, status_at: null })];
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(root.textContent).toContain("启动中");
+
+    items.current = [item({ id: "i-3" })];
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(root.textContent).toContain("运行中");
+
+    const settled = (api.load as ReturnType<typeof vi.fn>).mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(api.load).toHaveBeenCalledTimes(settled);
+    restore();
+  });
+
+  it("打开添加对话框时暂停轮询，避免清掉正在输入的内容", async () => {
+    const { dom, api, items, restore } = setup({
+      items: [item({ phase: "stopping", desired: "stopped" })],
+      characters: [{ aid: 1, cid: 2, nid: 5, char_name: "新角色", job_id: null, map_name: null, last_seen_at: NOW }],
+      pollMs: 5,
+    });
+    await flush();
+    click(dom, "[data-kc-open-dialog]");
+    await flush();
+    const before = (api.load as ReturnType<typeof vi.fn>).mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(api.load).toHaveBeenCalledTimes(before);
     restore();
   });
 
