@@ -48,6 +48,7 @@ MYSQL_URL=... node scripts/ke-agent-register.mjs --name vps-1 --pubkey <base64ur
 | GET | `/api/v1/ke/hosted` | 资格与托管列表（含最新状态快照） |
 | POST | `/api/v1/ke/hosted` | 登记托管角色；需 `current_password` 重新验证账号密码 |
 | POST | `/api/v1/ke/hosted/:id/start` · `/stop` | 启动/停止（每会话每小时 30 次） |
+| POST | `/api/v1/ke/hosted/:id/sync-config` | 同步并重载配置：`config_sync_seq` 加 1 并推送所属 agent；实例没有在运行时返回 409 `KE_HOSTED_NOT_RUNNING`。与启动/停止共用限速 |
 | DELETE | `/api/v1/ke/hosted/:id` | 删除（须先停止） |
 
 agent（请求签名，直连 `origin.ltsd.ro`）：头 `x-ke-agent` / `x-ke-ts` / `x-ke-nonce` / `x-ke-sig`，
@@ -55,7 +56,7 @@ agent（请求签名，直连 `origin.ltsd.ro`）：头 `x-ke-agent` / `x-ke-ts`
 
 | 路径 | 说明 |
 | --- | --- |
-| `POST /api/v1/ke/agent/lease` | 租约与对账（每 60 秒）；返回属于该 agent 的实例与期望状态；被围栏时 `fenced:true` |
+| `POST /api/v1/ke/agent/lease` | 租约与对账（每 60 秒）；返回属于该 agent 的实例与期望状态（含 `config_sync_seq`，agent 发现它变大就让子进程重新拉取配置）；被围栏时 `fenced:true` |
 | `POST /api/v1/ke/agent/instances/:id/launch` | 预占额度并下发启动包（游戏凭据 + 托管 token） |
 | `POST /api/v1/ke/agent/instances/:id/token` | 刷新托管 token |
 | `POST /api/v1/ke/agent/instances/:id/report` | 上报阶段：`starting/running/backoff/stopping/stopped/error` |

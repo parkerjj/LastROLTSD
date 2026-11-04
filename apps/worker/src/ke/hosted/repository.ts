@@ -23,6 +23,8 @@ export interface HostedRow {
   assignedAgent: string | null;
   epoch: number;
   launchSeq: number;
+  /** 用户点“同步并重载配置”的累计次数；agent 据此通知子进程重新拉配置。 */
+  configSyncSeq: number;
   stopReason: string | null;
   retryAt: number | null;
   launchCommands: string[];
@@ -107,6 +109,8 @@ export interface HostedTx {
   /** 置为运行：设置唯一的 active_char_key；同一角色已有运行中的托管记录则返回 false。 */
   markRunning(instanceId: string, now: number): Promise<boolean>;
   markStopped(instanceId: string, reason: string, now: number): Promise<void>;
+  /** 请求“同步并重载配置”：序号加 1。只对已分配到 agent 且 desired=running 的实例生效，返回是否生效。 */
+  requestConfigSync(instanceId: string, now: number): Promise<boolean>;
   /** 条件分配：仅当仍未分配且 desired=running；epoch 加 1，launch_seq 归零。 */
   assign(instanceId: string, agentId: string, now: number): Promise<boolean>;
   /** 释放归属；toQueue=true 回到 queued（desired 仍是 running），否则落到 stopped。返回原归属。 */
@@ -175,7 +179,7 @@ function parseCommands(value: unknown): string[] {
   return ['ai auto'];
 }
 
-const HOSTED_COLUMNS = 'instance_id, user_id, credential_id, nid, aid, cid, desired, phase, assigned_agent, epoch, launch_seq, stop_reason, retry_at, launch_commands, last_report_at, migrating_since, created_at';
+const HOSTED_COLUMNS = 'instance_id, user_id, credential_id, nid, aid, cid, desired, phase, assigned_agent, epoch, launch_seq, config_sync_seq, stop_reason, retry_at, launch_commands, last_report_at, migrating_since, created_at';
 
 function readHosted(row: MysqlRow): HostedRow {
   return {
@@ -190,6 +194,7 @@ function readHosted(row: MysqlRow): HostedRow {
     assignedAgent: asNullableString(row.assigned_agent),
     epoch: asNumber(row.epoch),
     launchSeq: asNumber(row.launch_seq),
+    configSyncSeq: asNumber(row.config_sync_seq),
     stopReason: asNullableString(row.stop_reason),
     retryAt: asNullableNumber(row.retry_at),
     launchCommands: parseCommands(row.launch_commands),
@@ -379,6 +384,14 @@ function hostedTxFor(db: MysqlDatabase): HostedTx {
         [reason, now, instanceId],
       );
       await db.run('UPDATE ke_hosted_tokens SET revoked_at = ? WHERE instance_id = ? AND revoked_at IS NULL', [now, instanceId]);
+    },
+
+    async requestConfigSync(instanceId, now) {
+      const result = await db.run(
+        "UPDATE ke_hosted_instances SET config_sync_seq = config_sync_seq + 1, updated_at = ? WHERE instance_id = ? AND desired = 'running' AND assigned_agent IS NOT NULL",
+        [now, instanceId],
+      );
+      return result.affectedRows === 1;
     },
 
     async assign(instanceId, agentId, now) {

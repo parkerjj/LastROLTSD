@@ -55,7 +55,7 @@ export interface LeaseResponse {
   server_time_ms: number;
   lease_ms: number;
   max_instances: number;
-  instances: { id: string; epoch: number; desired: 'running' | 'stopped'; phase: string; char_name: string | null }[];
+  instances: { id: string; epoch: number; desired: 'running' | 'stopped'; phase: string; char_name: string | null; config_sync_seq: number }[];
 }
 
 export interface LaunchPackage {
@@ -110,6 +110,8 @@ export interface HostedService {
   remove(userId: string, instanceId: string): Promise<void>;
   start(userId: string, instanceId: string): Promise<{ notify: string[] }>;
   stop(userId: string, instanceId: string): Promise<{ notify: string[] }>;
+  /** 同步并重载配置：通知托管服务器让子进程重新拉取配置并 reload all；实例没在运行时返回 409。 */
+  syncConfig(userId: string, instanceId: string): Promise<{ notify: string[] }>;
 
   authenticateAgent(input: { headers: Headers; method: string; pathAndQuery: string; body: Uint8Array }): Promise<AgentRow>;
   lease(agent: AgentRow, input: LeaseInput): Promise<LeaseResponse>;
@@ -360,6 +362,21 @@ export function createHostedService(
       });
     },
 
+    async syncConfig(userId, instanceId) {
+      const owner = Number(userId);
+      const timestamp = now();
+      return repository.transaction(async (tx) => {
+        await tx.ke.lockUser(owner);
+        const row = await tx.findHosted(instanceId);
+        if (row === null || row.userId !== owner) throw notFound();
+        // 没有进程在运行（已停止、排队中、还没分配）：新进程启动时本来就会拉取最新配置，不需要也无法同步。
+        if (row.desired !== 'running' || row.assignedAgent === null || !await tx.requestConfigSync(instanceId, timestamp)) {
+          throw new KeFailure('KE_HOSTED_NOT_RUNNING', 409, '托管实例还没有运行，启动后会自动使用最新配置');
+        }
+        return { notify: [row.assignedAgent] };
+      });
+    },
+
     async authenticateAgent({ headers, method, pathAndQuery, body }) {
       const timestamp = now();
       let signed: ReturnType<typeof parseSignedHeaders>;
@@ -422,7 +439,7 @@ export function createHostedService(
         lease_ms: AGENT_LEASE_MS,
         max_instances: first.maxInstances,
         instances: rows.map((row) => ({
-          id: row.instanceId, epoch: row.epoch, desired: row.desired, phase: row.phase, char_name: null,
+          id: row.instanceId, epoch: row.epoch, desired: row.desired, phase: row.phase, char_name: null, config_sync_seq: row.configSyncSeq,
         })),
       };
     },

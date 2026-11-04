@@ -53,6 +53,8 @@ export interface HostingApi {
   create(form: CreateHostedForm): Promise<{ id: string }>;
   start(id: string): Promise<void>;
   stop(id: string): Promise<void>;
+  /** 让托管服务器重新拉取该角色在 LTSD 上保存的配置并 reload all（约 1～2 分钟生效）。 */
+  syncConfig(id: string): Promise<void>;
   remove(id: string): Promise<void>;
 }
 
@@ -83,6 +85,7 @@ export function createHostingApi(api: Pick<AuthApiClient, "sessionRead" | "sessi
     },
     async start(id) { await api.sessionRequest<void>(path(id, "/start"), "POST", {}); },
     async stop(id) { await api.sessionRequest<void>(path(id, "/stop"), "POST", {}); },
+    async syncConfig(id) { await api.sessionRequest<void>(path(id, "/sync-config"), "POST", {}); },
     async remove(id) { await api.sessionRequest<void>(path(id), "DELETE"); },
   };
 }
@@ -421,8 +424,12 @@ export function mountHostingPanel(
     const updated = item.status_at !== null
       ? `<span class="account-updated">${escapeHtml(formatRelative(item.status_at, nowMs))}更新${stale && running ? '<small class="account-stale">数据较旧</small>' : ""}</span>`
       : `<span class="account-updated">${running && item.agent ? `由 ${escapeHtml(item.agent)} 托管` : running ? "等待分配" : "未在托管"}</span>`;
+    // 只有进程在运行时才有配置可同步；排队、启动中、等待重连的实例启动时本来就会拉最新配置。
+    const sync = item.phase === "running"
+      ? `<button type="button" class="acc-btn kc-btn-sync" data-kc-sync="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="同步并重载 ${escapeHtml(item.char_name)} 的配置" title="从 LTSD 同步最新配置并重载"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i><span>同步并重载配置</span></button>`
+      : "";
     const toggle = running
-      ? `<button type="button" class="acc-btn kc-btn-stop" data-kc-stop="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="停止托管 ${escapeHtml(item.char_name)}" title="停止"><i class="ph ph-stop-circle" aria-hidden="true"></i><span>停止</span></button>`
+      ? `${sync}<button type="button" class="acc-btn kc-btn-stop" data-kc-stop="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="停止托管 ${escapeHtml(item.char_name)}" title="停止"><i class="ph ph-stop-circle" aria-hidden="true"></i><span>停止</span></button>`
       : `<button type="button" class="acc-btn kc-btn-start" data-kc-start="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="启动托管 ${escapeHtml(item.char_name)}" title="启动"><i class="ph ph-play-circle" aria-hidden="true"></i><span>启动</span></button>`;
     return `<article class="account-card kc-card kc-card--${meta.tone}" data-kc-card="${escapeHtml(item.id)}">
       <div class="acc-inner">
@@ -653,6 +660,8 @@ export function mountHostingPanel(
     const pick = <T extends string>(attribute: T): string | null => target.closest<HTMLElement>(`[${attribute}]`)?.getAttribute(attribute) ?? null;
     const start = pick("data-kc-start");
     if (start) { void act(start, () => api.start(start), "正在启动…", "已提交启动，托管服务器会在一分钟内接手。"); return; }
+    const sync = pick("data-kc-sync");
+    if (sync) { void act(sync, () => api.syncConfig(sync), "正在提交…", "已提交，托管服务器会在 1～2 分钟内拉取最新配置并重载。"); return; }
     const stop = pick("data-kc-stop");
     if (stop) { void act(stop, () => api.stop(stop), "正在停止…", "已提交停止，进程会先让角色正常下线。"); return; }
     const statsId = pick("data-kc-run");

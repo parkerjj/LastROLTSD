@@ -46,6 +46,7 @@ function setup(options: {
     create: vi.fn(async () => ({ id: "i-2" })),
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
+    syncConfig: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
   };
   let listener: ((state: ReturnType<HostingStore["getState"]>) => void) | null = null;
@@ -283,6 +284,26 @@ describe("KE 监控台：离线挂机面板", () => {
     const before = (api.load as ReturnType<typeof vi.fn>).mock.calls.length;
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(api.load).toHaveBeenCalledTimes(before);
+    restore();
+  });
+
+  it("运行中的实例有“同步并重载配置”按钮，点击后提交并提示 1～2 分钟生效；其它状态不出现", async () => {
+    const { dom, root, api, restore } = setup({
+      items: [
+        item(),
+        item({ id: "i-2", char_name: "排队中", desired: "running", phase: "queued", status: null, status_at: null }),
+        item({ id: "i-3", char_name: "已停止", desired: "stopped", phase: "stopped", status: null, status_at: null }),
+      ],
+    });
+    await flush();
+    expect(root.querySelector('[data-kc-sync="i-1"]')).not.toBeNull();
+    expect(root.querySelector('[data-kc-sync="i-2"]')).toBeNull();
+    expect(root.querySelector('[data-kc-sync="i-3"]')).toBeNull();
+
+    click(dom, '[data-kc-sync="i-1"]');
+    await flush();
+    expect(api.syncConfig).toHaveBeenCalledWith("i-1");
+    expect(root.textContent).toContain("1～2 分钟");
     restore();
   });
 

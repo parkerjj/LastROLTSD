@@ -356,6 +356,39 @@ describe('launch（I3/I9/I15）', () => {
   });
 });
 
+describe('同步并重载配置', () => {
+  const leaseInput = { version: '1', packageId: 'pkg', memAvailableMb: 900, cleanSlate: false, instances: [] as { id: string; epoch: number; phase: string; retryAt: number | null }[] };
+
+  it('运行中的实例：序号加 1、通知所属 agent，租约里带上最新序号', async () => {
+    const { service, repo } = setup();
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    expect((await service.lease(repo.agents.get(AGENT_A)!, leaseInput)).instances[0]).toMatchObject({ id, config_sync_seq: 0 });
+
+    expect((await service.syncConfig(String(USER), id)).notify).toEqual([AGENT_A]);
+    await service.syncConfig(String(USER), id);
+    expect(repo.hosted.get(id)?.configSyncSeq).toBe(2);
+    expect((await service.lease(repo.agents.get(AGENT_A)!, leaseInput)).instances[0]).toMatchObject({ id, config_sync_seq: 2 });
+  });
+
+  it('没有进程在运行（已停止、排队中）：返回 409，序号不变', async () => {
+    const { service, repo } = setup({ agents: [] });
+    const { id } = await create(service);
+    await expect(service.syncConfig(String(USER), id)).rejects.toMatchObject({ code: 'KE_HOSTED_NOT_RUNNING', status: 409 });
+    await service.start(String(USER), id); // 没有 agent：queued
+    await expect(service.syncConfig(String(USER), id)).rejects.toMatchObject({ code: 'KE_HOSTED_NOT_RUNNING' });
+    expect(repo.hosted.get(id)?.configSyncSeq).toBe(0);
+  });
+
+  it('别的用户不能触发', async () => {
+    const { service, repo } = setup();
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    await expect(service.syncConfig(String(OTHER_USER), id)).rejects.toMatchObject({ code: 'KE_INSTANCE_NOT_FOUND' });
+    expect(repo.hosted.get(id)?.configSyncSeq).toBe(0);
+  });
+});
+
 describe('租约对账与资格收敛（I1/I6）', () => {
   const leaseInput = { version: '1', packageId: 'pkg', memAvailableMb: 900, cleanSlate: false, instances: [] as { id: string; epoch: number; phase: string; retryAt: number | null }[] };
 

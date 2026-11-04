@@ -194,8 +194,9 @@ export function registerHostedRoutes(app: Hono<any>, deps: HostedRouterDeps): vo
     }
   });
 
-  for (const action of ['start', 'stop'] as const) {
-    app.post(`/api/v1/ke/hosted/:id/${action}`, async (c: any) => {
+  const controlActions = [['start', 'start'], ['stop', 'stop'], ['sync-config', 'syncConfig']] as const;
+  for (const [path, action] of controlActions) {
+    app.post(`/api/v1/ke/hosted/:id/${path}`, async (c: any) => {
       const ctx = await serviceFor();
       if (!ctx) return deps.unavailable(c);
       try {

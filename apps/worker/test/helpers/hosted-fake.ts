@@ -86,7 +86,7 @@ export function makeFakeHostedRepository(): FakeHostedRepository {
     async insertHosted(row, now) {
       hosted.set(row.instanceId, {
         instanceId: row.instanceId, userId: row.userId, credentialId: row.credentialId, nid: row.nid, aid: row.aid, cid: row.cid,
-        desired: 'stopped', phase: 'stopped', assignedAgent: null, epoch: 0, launchSeq: 0, stopReason: null, retryAt: null,
+        desired: 'stopped', phase: 'stopped', assignedAgent: null, epoch: 0, launchSeq: 0, configSyncSeq: 0, stopReason: null, retryAt: null,
         launchCommands: ['ai auto'], lastReportAt: null, migratingSince: null, createdAt: now,
       });
     },
@@ -130,6 +130,12 @@ export function makeFakeHostedRepository(): FakeHostedRepository {
       clearKey(instanceId);
       Object.assign(row, { desired: 'stopped', phase: row.assignedAgent === null ? 'stopped' : 'stopping', stopReason: reason, retryAt: null });
       for (const token of tokens) if (token.instanceId === instanceId && token.revokedAt === null) token.revokedAt = 1;
+    },
+    async requestConfigSync(instanceId) {
+      const row = hosted.get(instanceId);
+      if (!row || row.desired !== 'running' || row.assignedAgent === null) return false;
+      row.configSyncSeq += 1;
+      return true;
     },
     async assign(instanceId, agentId) {
       const row = hosted.get(instanceId);
