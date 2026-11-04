@@ -21,19 +21,20 @@ import {
 } from '../src/ke/hosted/signature';
 import { base64UrlDecode, base64UrlEncode } from '../src/ke/crypto';
 
-const entitlement = (slots: number, extraSlots: number, hasCore = true): HostingEntitlement => ({ slots, extraSlots, hasCore });
+const entitlement = (slots: number, hasHosting: boolean, hasCore = true): HostingEntitlement => ({ slots, hasHosting, hasCore });
 
-describe('托管资格（I1）：全有或全无', () => {
-  it('只有免费额度、没有核心模块、被扣减到 0 都没有资格', () => {
-    expect(hostingEligible(entitlement(1, 0))).toBe(false);
-    expect(hostingEligible(entitlement(2, 1, false))).toBe(false);
-    expect(hostingEligible(entitlement(1, 0))).toBe(false);
-    expect(hostedCap(entitlement(1, 0))).toBe(0);
+describe('托管资格（I1）：全有或全无，只看离线挂机功能', () => {
+  it('没有离线挂机功能（哪怕买了很多实例额度）、没有核心模块都没有资格', () => {
+    expect(hostingEligible(entitlement(1, false))).toBe(false);
+    expect(hostingEligible(entitlement(11, false))).toBe(false);
+    expect(hostingEligible(entitlement(2, true, false))).toBe(false);
+    expect(hostedCap(entitlement(11, false))).toBe(0);
   });
-  it('任何额外额度（含管理员赠送）都有资格，托管上限等于总额度（含免费那个）', () => {
-    expect(hostingEligible(entitlement(2, 1))).toBe(true);
-    expect(hostedCap(entitlement(2, 1))).toBe(2);
-    expect(hostedCap(entitlement(11, 10))).toBe(11);
+  it('有离线挂机功能即有资格（免费额度也能托管），托管上限等于总额度', () => {
+    expect(hostingEligible(entitlement(1, true))).toBe(true);
+    expect(hostedCap(entitlement(1, true))).toBe(1);
+    expect(hostedCap(entitlement(11, true))).toBe(11);
+    expect(hostedCap(entitlement(0, true))).toBe(0);
   });
 });
 

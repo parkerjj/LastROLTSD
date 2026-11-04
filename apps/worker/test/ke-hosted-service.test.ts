@@ -36,9 +36,9 @@ function setup(options: { slots?: number; extra?: number; agents?: string[] } = 
   let nowMs = 1_700_000_000_000;
   const repo = makeFakeHostedRepository();
   repo.ke.entitlements.set(USER, { slots: options.slots ?? 2, modules: new Set(['core']) });
-  repo.ke.hostingExtra.set(USER, options.extra ?? 1);
+  repo.ke.hostingModule.set(USER, options.extra ?? 1);
   repo.ke.entitlements.set(OTHER_USER, { slots: 2, modules: new Set(['core']) });
-  repo.ke.hostingExtra.set(OTHER_USER, 1);
+  repo.ke.hostingModule.set(OTHER_USER, 1);
   for (const id of options.agents ?? [AGENT_A]) repo.agents.set(id, agentRow(id, { lastSeen: nowMs }));
   const events: [string, Record<string, unknown>][] = [];
   const service = createHostedService(repo, config(), () => nowMs, (event, detail) => events.push([event, detail]));
@@ -92,7 +92,7 @@ describe('托管创建与资格（I1/I2）', () => {
 
   it('托管密钥未配置时整体不可用（fail closed）', async () => {
     const repo = makeFakeHostedRepository();
-    repo.ke.hostingExtra.set(USER, 1);
+    repo.ke.hostingModule.set(USER, 1);
     const service = createHostedService(repo, { ...config(), hostedCredentialKey: null }, () => 1);
     await expect(create(service)).rejects.toMatchObject({ code: 'KE_UNAVAILABLE' });
   });
@@ -116,7 +116,7 @@ describe('启动、调度与停止（6.1/6.2）', () => {
     await service.start(String(USER), ids[0]!);
     await service.start(String(USER), ids[1]!);
     await expect(service.start(String(USER), ids[2]!)).rejects.toMatchObject({ code: 'KE_HOSTED_CAP_REACHED' });
-    repo.ke.hostingExtra.set(USER, 0);
+    repo.ke.hostingModule.set(USER, 0);
     await expect(service.start(String(USER), ids[2]!)).rejects.toMatchObject({ code: 'KE_HOSTING_ENTITLEMENT_REQUIRED' });
   });
 
@@ -281,7 +281,7 @@ describe('launch（I3/I9/I15）', () => {
   it('失去资格后重放 launch 必须失败，且停止被持久化（不再下发密码）', async () => {
     const { service, repo, id, agent } = await started();
     await service.launch(agent, id, 1);
-    repo.ke.hostingExtra.set(USER, 0);
+    repo.ke.hostingModule.set(USER, 0);
     repo.ke.entitlements.set(USER, { slots: 1, modules: new Set(['core']) });
     await expect(service.launch(agent, id, 1)).rejects.toMatchObject({ code: 'KE_HOSTING_ENTITLEMENT_REQUIRED' });
     expect(repo.hosted.get(id)).toMatchObject({ desired: 'stopped', stopReason: 'no-hosting-entitlement' });
@@ -337,14 +337,14 @@ describe('租约对账与资格收敛（I1/I6）', () => {
     const b = await create(service, 2);
     await service.start(String(USER), a.id);
     await service.start(String(USER), b.id);
-    repo.ke.hostingExtra.set(USER, 0);
+    repo.ke.hostingModule.set(USER, 0);
     repo.ke.entitlements.set(USER, { slots: 1, modules: new Set(['core']) });
     const response = await service.lease(repo.agents.get(AGENT_A)!, leaseInput);
     expect(response.instances.map((item) => item.desired)).toEqual(['stopped', 'stopped']);
     expect(repo.hosted.get(a.id)).toMatchObject({ desired: 'stopped', stopReason: 'no-hosting-entitlement', phase: 'stopping' });
     expect(repo.hosted.get(b.id)).toMatchObject({ desired: 'stopped', stopReason: 'no-hosting-entitlement' });
     // 重新购买后不自动恢复：必须用户再点启动。
-    repo.ke.hostingExtra.set(USER, 1);
+    repo.ke.hostingModule.set(USER, 1);
     repo.ke.entitlements.set(USER, { slots: 2, modules: new Set(['core']) });
     const again = await service.lease(repo.agents.get(AGENT_A)!, leaseInput);
     expect(again.instances.map((item) => item.desired)).toEqual(['stopped', 'stopped']);
@@ -359,7 +359,7 @@ describe('租约对账与资格收敛（I1/I6）', () => {
       await service.start(String(USER), ids.at(-1)!);
     }
     repo.ke.entitlements.set(USER, { slots: 2, modules: new Set(['core']) });
-    repo.ke.hostingExtra.set(USER, 1);
+    repo.ke.hostingModule.set(USER, 1);
     await service.lease(repo.agents.get(AGENT_A)!, leaseInput);
     expect(ids.map((id) => repo.hosted.get(id)?.desired)).toEqual(['running', 'running', 'stopped']);
   });
@@ -434,7 +434,7 @@ describe('故障转移（Cron）', () => {
     const { service, repo, advance } = setup();
     const { id } = await create(service);
     await service.start(String(USER), id);
-    repo.ke.hostingExtra.set(USER, 0);
+    repo.ke.hostingModule.set(USER, 0);
     repo.ke.entitlements.set(USER, { slots: 1, modules: new Set(['core']) });
     advance(1000);
     const summary = await service.tick();

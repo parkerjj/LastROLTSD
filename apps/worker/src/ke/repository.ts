@@ -144,7 +144,7 @@ export interface KeTx {
   /** 只统计占额度的 auto 实例；manual（半自动）实例不计入。 */
   countActive(userId: number, excludeInstanceId: string, threshold: number): Promise<number>;
   listActive(userId: number, threshold: number): Promise<ActiveInstanceInfo[]>;
-  /** 托管资格视图（额外额度、总额度、最晚到期时间）；与 readEntitlements 同源流水。 */
+  /** 托管资格视图（离线挂机权益、总额度、最晚到期时间）；与 readEntitlements 同源流水。 */
   readHostingEntitlement(userId: number, now: number): Promise<HostingEntitlementView>;
   /** 同一用户同一角色下仍有效（ACTIVE/IDLE）的其他实例（续连接管 / 托管互斥判断）。 */
   listSameCharacter(userId: number, aid: number, cid: number, nid: number, excludeInstanceId: string): Promise<SameCharacterRow[]>;

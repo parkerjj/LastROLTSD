@@ -104,7 +104,7 @@ export interface TickSummary {
 }
 
 export interface HostedService {
-  eligibility(userId: string): Promise<{ eligible: boolean; slots: number; extra_slots: number; cap: number; hosted_count: number }>;
+  eligibility(userId: string): Promise<{ eligible: boolean; slots: number; has_hosting: boolean; cap: number; hosted_count: number }>;
   list(userId: string): Promise<HostedItemView[]>;
   create(userId: string, input: CreateHostedInput): Promise<{ id: string }>;
   remove(userId: string, instanceId: string): Promise<void>;
@@ -218,7 +218,7 @@ export function createHostedService(
         return {
           eligible: hostingEligible(hosting),
           slots: hosting.slots,
-          extra_slots: hosting.extraSlots,
+          has_hosting: hosting.hasHosting,
           cap: hostedCap(hosting),
           hosted_count: await tx.countHostedRecords(owner),
         };
@@ -451,11 +451,11 @@ export function createHostedService(
           const active = await tx.ke.listActive(row.userId, threshold);
           throw new KeFailure('KE_QUOTA_EXCEEDED', 409, '已达实例额度', { active_instances: active });
         }
-        const licenseExpiresAt = cappedLicenseExpiry(timestamp, KE_LICENSE_LEASE_MS, hosting.extraExpiresAt);
+        const licenseExpiresAt = cappedLicenseExpiry(timestamp, KE_LICENSE_LEASE_MS, hosting.hostingExpiresAt);
         await tx.ke.activateInstance(instanceId, 'auto', JSON.stringify(['core']), null, null, null, licenseExpiresAt, timestamp);
         const launchSeq = await tx.bumpLaunchSeq(instanceId, timestamp);
         await tx.revokeTokens(instanceId, timestamp);
-        const { token, expiresAt } = await issueToken(tx, row, row.userId, launchSeq, timestamp, hosting.extraExpiresAt);
+        const { token, expiresAt } = await issueToken(tx, row, row.userId, launchSeq, timestamp, hosting.hostingExpiresAt);
         const password = await decryptGamePassword(config.hostedCredentialKey!, {
           userId: credential.userId, nid: credential.nid, aid: credential.aid, cid: credential.cid, keyVersion: credential.keyVersion,
         }, credential.gamePasswordEnc);
@@ -490,7 +490,7 @@ export function createHostedService(
           return { denied: new KeFailure('KE_HOSTING_ENTITLEMENT_REQUIRED', 403, '账号没有离线挂机资格') };
         }
         // 刷新不吊销旧 token（子进程切换前仍可能在用），旧 token 自然过期；停止/改派时统一吊销。
-        return issueToken(tx, row, row.userId, row.launchSeq, timestamp, hosting.extraExpiresAt);
+        return issueToken(tx, row, row.userId, row.launchSeq, timestamp, hosting.hostingExpiresAt);
       });
       if (isDenied(outcome)) throw outcome.denied;
       return { ltsd_token: outcome.token, ltsd_token_expires_at: outcome.expiresAt };

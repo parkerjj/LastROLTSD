@@ -12,7 +12,7 @@ export interface FakeRepository extends KeRepository {
   hostedRows: Map<string, HostedRowLite>;
   hostedIds: Set<string>;
   /** 每个用户的“非 signup 额外额度”之和与最晚到期时间。 */
-  hostingExtra: Map<number, number>;
+  hostingModule: Map<number, number>;
   hostingExpiry: Map<number, number>;
   policyStops: string[];
   statuses: Map<string, string>;
@@ -24,7 +24,7 @@ export function makeFakeRepository(): FakeRepository {
   const entitlements = new Map<number, KeEntitlements>();
   const hostedRows = new Map<string, HostedRowLite>();
   const hostedIds = new Set<string>();
-  const hostingExtra = new Map<number, number>();
+  const hostingModule = new Map<number, number>();
   const hostingExpiry = new Map<number, number>();
   const policyStops: string[] = [];
   const statuses = new Map<string, string>();
@@ -122,8 +122,9 @@ export function makeFakeRepository(): FakeRepository {
     },
     async readHostingEntitlement(userId) {
       const base = entitlements.get(userId) ?? { slots: 1, modules: new Set(['core']) };
-      const extra = hostingExtra.get(userId) ?? 0;
-      return { slots: base.slots, extraSlots: extra, hasCore: base.modules.has('core'), extraExpiresAt: hostingExpiry.get(userId) ?? null };
+      // hostingModule：>= 1 表示该用户拥有有效的 module:hosting。
+      const hasHosting = (hostingModule.get(userId) ?? 0) >= 1;
+      return { slots: base.slots, hasHosting, hasCore: base.modules.has('core'), hostingExpiresAt: hasHosting ? hostingExpiry.get(userId) ?? null : null };
     },
     async listSameCharacter(userId, aid, cid, nid, excludeInstanceId) {
       return [...instances.values()]
@@ -155,7 +156,7 @@ export function makeFakeRepository(): FakeRepository {
     entitlements,
     hostedRows,
     hostedIds,
-    hostingExtra,
+    hostingModule,
     hostingExpiry,
     policyStops,
     statuses,

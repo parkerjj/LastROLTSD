@@ -525,7 +525,7 @@ describe('ke service', () => {
     const hostedStart = (extra: Record<string, unknown> = {}) => ({ ...bindInput(INST_H), hosted: principal(), kickInstanceId: null, ...extra });
     const setupHosted = (repository: FakeRepository, options: { extra?: number; slots?: number; expiry?: number } = {}) => {
       repository.entitlements.set(10000, { slots: options.slots ?? 2, modules: new Set(['core']) });
-      repository.hostingExtra.set(10000, options.extra ?? 1);
+      repository.hostingModule.set(10000, options.extra ?? 1);
       if (options.expiry !== undefined) repository.hostingExpiry.set(10000, options.expiry);
       repository.hostedIds.add(INST_H);
       repository.hostedRows.set(INST_H, { instance_id: INST_H, user_id: 10000, nid: 3000003, aid: 1000001, cid: 2000002, desired: 'running', assigned_agent: 'agt_000000000000000000000001', epoch: 3 });
@@ -651,7 +651,7 @@ describe('ke service', () => {
       await service.start('10000', { ...bindInput(INST_A, { aid: 1000009, char_name: 'Other' }), kickInstanceId: null });
       // 额外额度到期：回到只有免费 1 个。
       repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
-      repository.hostingExtra.set(10000, 0);
+      repository.hostingModule.set(10000, 0);
       advance(60_000);
 
       await expect(service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal() }))
@@ -675,7 +675,7 @@ describe('ke service', () => {
       await service.bind('10000', { ...bindInput(INST_H2, second), hosted: { instanceId: INST_H2, epoch: 3, launchSeq: 1 } });
       await service.start('10000', { ...bindInput(INST_H2, second), hosted: { instanceId: INST_H2, epoch: 3, launchSeq: 1 }, kickInstanceId: null });
       repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
-      repository.hostingExtra.set(10000, 0);
+      repository.hostingModule.set(10000, 0);
       advance(60_000);
 
       await expect(service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal() }))

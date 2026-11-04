@@ -28,7 +28,7 @@ function config(): KeConfig {
   };
 }
 
-async function insertUser(database: MysqlDatabase, name: string, extraSlots: number): Promise<number> {
+async function insertUser(database: MysqlDatabase, name: string, extraSlots: number, hosting = extraSlots > 0): Promise<number> {
   const result = await database.run(
     'INSERT INTO auth_users (email, email_normalized, display_name, status, email_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [`${name}@example.test`, `${name}@example.test`, name, 'ACTIVE', 1, 1, 1],
@@ -40,7 +40,10 @@ async function insertUser(database: MysqlDatabase, name: string, extraSlots: num
     );
   await grant('slots', 1, 'signup', 'email-verified:slots');
   await grant('module:core', 1, 'signup', 'email-verified:module:core');
-  if (extraSlots > 0) await grant('slots', extraSlots, 'admin', 'test-extra', Date.now() + 40 * 24 * 3600 * 1000);
+  const soon = Date.now() + 40 * 24 * 3600 * 1000;
+  // 额外额度只决定托管上限；托管资格来自离线挂机功能（module:hosting），extraSlots >= 0 的“有无功能”由 hosting 参数决定。
+  if (extraSlots > 0) await grant('slots', extraSlots, 'admin', 'test-extra', soon);
+  if (hosting) await grant('module:hosting', 1, 'admin', 'test-hosting', soon);
   return result.insertId;
 }
 

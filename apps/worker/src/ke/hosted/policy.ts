@@ -2,21 +2,22 @@
  * 托管（离线挂机）的纯策略函数：不碰数据库，便于逐条验证 docs/linux-hosting-design.md 第 6A 节的不变量。
  */
 
-/** 实例额度流水按来源拆分后的求和。 */
+/** 托管资格所需的权益视图。 */
 export interface HostingEntitlement {
   /** 当前总额度（含免费 1 个），已钳到 0。 */
   slots: number;
-  /** 非 signup 来源的有效 slots 之和：买了或被赠送的额外额度。 */
-  extraSlots: number;
+  /** 是否拥有有效的 `module:hosting`（付费功能“离线挂机”，含迁移赠送与管理员授予）。 */
+  hasHosting: boolean;
   /** 是否拥有核心模块。 */
   hasCore: boolean;
 }
 
-export const HOSTING_SIGNUP_SOURCE = 'signup';
-
-/** I1：托管资格全有或全无——任何额外额度（含管理员赠送）≥ 1 才有资格；被扣减到 0 则无资格。 */
+/**
+ * I1：托管资格全有或全无——只看是否拥有有效的离线挂机功能（`module:hosting`）加核心模块；
+ * 与实例额度多少无关（额度只决定能托管几个）。功能到期或被撤销则无资格。
+ */
 export function hostingEligible(entitlement: HostingEntitlement): boolean {
-  return entitlement.hasCore && entitlement.extraSlots >= 1;
+  return entitlement.hasCore && entitlement.hasHosting;
 }
 
 /** 托管记录数/运行数上限：有资格时等于总额度（含免费那一个），无资格为 0。 */

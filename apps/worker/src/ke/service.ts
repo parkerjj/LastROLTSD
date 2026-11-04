@@ -346,7 +346,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
         if (input.hosted) {
           const check = await checkHostedPrincipal(tx, input.hosted, found.instance_id, ownerId, input.report, timestamp);
           if (isDenied(check)) return check;
-          expiryCapMs = check.entitlement.extraExpiresAt;
+          expiryCapMs = check.entitlement.hostingExpiresAt;
           // 托管永不踢人（I4）：带 kick 的请求直接拒绝。
           if (input.kickInstanceId !== null) throw new KeFailure('KE_BAD_REQUEST', 400, '托管实例不能踢人');
         }
@@ -444,7 +444,7 @@ export function createKeService(repository: KeRepository, config: KeConfig, now:
           }
         }
         if (selfDenied !== null) return { denied: selfDenied };
-        const expiryCapMs = extra?.hosted ? hosting.extraExpiresAt : null;
+        const expiryCapMs = extra?.hosted ? hosting.hostingExpiresAt : null;
         const licenseExpiresAt = cappedLicenseExpiry(timestamp, KE_LICENSE_LEASE_MS, expiryCapMs);
         await tx.updateInstanceReport(instanceId, report, licenseExpiresAt, attestation.buildId, attestation.ipHash, attestation.uaHash, timestamp);
         await tx.updateCharacterReport(ownerId, report, timestamp);
