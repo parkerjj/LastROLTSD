@@ -234,12 +234,15 @@ function hostedTxFor(db: MysqlDatabase): HostedTx {
     },
 
     async recomputeReserved(agentId, now) {
+      // 先锁 agent 行：并发的 reserveAgentSlot（+1）与随后的 assign 在提交前持有同一把锁，
+      // 拿到锁之后再用当前读统计，才不会拿一份过期快照覆盖掉别人刚提交的预留。
+      await db.all<MysqlRow>('SELECT agent_id FROM ke_agents WHERE agent_id = ? FOR UPDATE', [agentId]);
       const row = await db.first<MysqlRow>(
-        "SELECT COUNT(*) AS n FROM ke_hosted_instances WHERE assigned_agent = ? AND desired = 'running'",
+        "SELECT COUNT(*) AS n FROM ke_hosted_instances WHERE assigned_agent = ? AND desired = 'running' LOCK IN SHARE MODE",
         [agentId],
       );
       const stopping = await db.first<MysqlRow>(
-        "SELECT COUNT(*) AS n FROM ke_hosted_instances WHERE assigned_agent = ? AND desired = 'stopped'",
+        "SELECT COUNT(*) AS n FROM ke_hosted_instances WHERE assigned_agent = ? AND desired = 'stopped' LOCK IN SHARE MODE",
         [agentId],
       );
       const total = asNumber(row?.n ?? 0) + asNumber(stopping?.n ?? 0);

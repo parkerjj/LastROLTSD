@@ -189,11 +189,15 @@ export function createHostedService(
       const hosting = await tx.ke.readHostingEntitlement(userId, timestamp);
       const running = (await tx.listHostedByUser(userId)).filter((row) => row.desired === 'running');
       if (running.length === 0) return 0;
-      const verdicts = planConvergence({
-        eligible: hostingEligible(hosting),
-        slots: hosting.slots,
-        instances: running.map((row) => ({ instanceId: row.instanceId, hosted: true, startedAt: row.createdAt })),
-      });
+      // 与心跳收敛（KeService.heartbeat）用同一个年龄口径：ke_instances.started_at，而不是托管记录的登记时间，
+      // 否则登记顺序与启动顺序不一致时，两条路径会选出不同的幸存者，导致全部被停。
+      // 尚未启动的（没有 started_at）排在所有已启动的之后，彼此仍按登记顺序（running 已按 created_at 排序）。
+      const instances = await Promise.all(running.map(async (row, index) => ({
+        instanceId: row.instanceId,
+        hosted: true,
+        startedAt: (await tx.ke.findInstance(row.instanceId))?.started_at ?? timestamp + index,
+      })));
+      const verdicts = planConvergence({ eligible: hostingEligible(hosting), slots: hosting.slots, instances });
       let stopped = 0;
       for (const verdict of verdicts) {
         if (verdict.action === 'kick_quota_shrunk') continue;

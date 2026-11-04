@@ -402,6 +402,28 @@ describe('租约对账与资格收敛（I1/I6）', () => {
     expect(ids.map((id) => repo.hosted.get(id)?.desired)).toEqual(['running', 'running', 'stopped']);
   });
 
+  it('额度 2 → 1：幸存者按 KE 启动时间而非登记顺序选择，与心跳收敛一致', async () => {
+    const { service, repo, advance, now } = setup({ slots: 2, extra: 1 });
+    const a = await create(service, 1); // 先登记
+    advance(10);
+    const b = await create(service, 2); // 后登记
+    await service.start(String(USER), a.id);
+    await service.start(String(USER), b.id);
+    const active = (id: string, startedAt: number) => ({
+      instance_id: id, user_id: USER, aid: 1, cid: 2000002, nid: 3, state: 'ACTIVE', mode: 'auto',
+      char_name: id, map_name: null, started_at: startedAt, last_heartbeat_at: now(), updated_at: now(), stopped_at: null,
+      kicked_by_instance_id: null, kick_reason: null,
+    } as never);
+    // B 比 A 更早启动 —— 心跳收敛会保留 B，所以 lease 也必须保留 B、停止 A。
+    repo.ke.instances.set(b.id, active(b.id, now() - 2000));
+    repo.ke.instances.set(a.id, active(a.id, now() - 1000));
+    repo.ke.entitlements.set(USER, { slots: 1, modules: new Set(['core']) });
+    repo.ke.hostingModule.set(USER, 1);
+    await service.lease(repo.agents.get(AGENT_A)!, leaseInput);
+    expect(repo.hosted.get(a.id)?.desired).toBe('stopped');
+    expect(repo.hosted.get(b.id)?.desired).toBe('running');
+  });
+
   it('被围栏（down）的 agent 租约返回 fenced；声明清场后才能重新上线', async () => {
     const { service, repo } = setup();
     repo.agents.get(AGENT_A)!.status = 'down';
