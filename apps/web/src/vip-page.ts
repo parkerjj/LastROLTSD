@@ -35,7 +35,7 @@ const BENEFITS: readonly VipBenefit[] = [
   {
     icon: "ph-monitor",
     title: "监控台账号扩容",
-    desc: "菜农监控台的账号位从 3 个提升到 20 个，多开挂机的角色都能放进来一起看。",
+    desc: "KE 监控台的账号位从 3 个提升到 20 个，多开挂机的角色都能放进来一起看。",
     tag: "监控",
   },
   {
@@ -177,7 +177,7 @@ const FAQS: readonly { readonly question: string; readonly answer: string }[] = 
   },
   {
     question: "不开会员会影响现有功能吗？",
-    answer: "不会。搜索市场、菜农监控台与玩家登记簿对所有玩家保持免费，会员仅增加额外权益。",
+    answer: "不会。搜索市场、KE 监控台与玩家登记簿对所有玩家保持免费，会员仅增加额外权益。",
   },
   {
     question: "可以退款吗？",
@@ -321,7 +321,7 @@ export function mountVipPage(
       <section class="site-notice vip-notice" aria-label="购买须知">
         <span class="notice-badge">购买须知</span>
         <div class="notice-body">
-          <p><strong>会员是增值服务，不是收费墙。</strong>搜索市场、菜农监控台、玩家登记簿等现有功能对所有玩家免费开放；会员只额外解锁上表中的深度数据与提醒等增值项。</p>
+          <p><strong>会员是增值服务，不是收费墙。</strong>搜索市场、KE 监控台、玩家登记簿等现有功能对所有玩家免费开放；会员只额外解锁上表中的深度数据与提醒等增值项。</p>
           <p><strong>付款与生效：</strong>付款由 Stripe 收单，本站不保存卡号。付款成功后会按账号自动写入会员到期时间，当前档位剩余时长自动叠加；如需开具凭证或对订单有疑问，可通过 <a href="/guestbook">玩家登记簿</a> 或 QQ 群（725955796）联系站长。</p>
           <p><strong>退款说明：</strong>数字服务一经开通原则上不支持退款；若 24 小时内发现权益无法使用且问题未解决，可申请原路退回。</p>
         </div>
@@ -343,7 +343,7 @@ export function mountVipPage(
         </div>
       </section>
     </main>
-    <footer class="site-footer vip-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>支付由 Stripe 收单 · 账号与付款信息仅用于会员开通，不做他用</small></div></footer>
+    <footer class="site-footer vip-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">KE 监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>支付由 Stripe 收单 · 账号与付款信息仅用于会员开通，不做他用</small></div></footer>
   `;
 
   mountSiteNav(root, store);

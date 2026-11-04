@@ -104,7 +104,7 @@ export interface TickSummary {
 }
 
 export interface HostedService {
-  eligibility(userId: string): Promise<{ eligible: boolean; slots: number; has_hosting: boolean; cap: number; hosted_count: number }>;
+  eligibility(userId: string): Promise<{ eligible: boolean; slots: number; has_hosting: boolean; hosting_expires_at: number | null; cap: number; hosted_count: number }>;
   list(userId: string): Promise<HostedItemView[]>;
   create(userId: string, input: CreateHostedInput): Promise<{ id: string }>;
   remove(userId: string, instanceId: string): Promise<void>;
@@ -219,6 +219,7 @@ export function createHostedService(
           eligible: hostingEligible(hosting),
           slots: hosting.slots,
           has_hosting: hosting.hasHosting,
+          hosting_expires_at: hosting.hostingExpiresAt,
           cap: hostedCap(hosting),
           hosted_count: await tx.countHostedRecords(owner),
         };

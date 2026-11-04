@@ -8,6 +8,12 @@ import {
   LAUNCH_POPUP_KEY,
 } from "./game-launch";
 import { AnalyticsEvent, track } from "./analytics";
+import { authApi } from "./auth/api";
+import { authStore } from "./auth/store";
+import { createHostingApi, mountHostingPanel, type HostingApi, type HostingStore } from "./ke-hosting-panel";
+
+const TAB_KEY = "lastro.kc.tab.v1";
+type ConsoleTab = "hosting" | "accounts";
 
 const STORAGE_KEY = "lastro.accounts.v1";
 const STALE_AFTER_MS = 5 * 60 * 1000;
@@ -48,6 +54,8 @@ function accountKey(account: StoredAccount): string {
 interface AccountsPageOptions {
   storage?: Pick<Storage, "getItem" | "setItem">;
   now?: () => number;
+  /** 离线挂机面板的依赖；不传则使用真实的账号会话与接口。 */
+  hosting?: { api: HostingApi; store: HostingStore };
 }
 
 type CardStatus =
@@ -201,7 +209,7 @@ export function mountAccountsPage(
   api: MarketApiClient = new MarketApi(),
   options: AccountsPageOptions = {},
 ): void {
-  document.title = "菜农监控台 · 露天商店.Ro";
+  document.title = "KE 监控台 · 露天商店.Ro";
   const storage = options.storage ?? window.localStorage;
   const now = options.now ?? Date.now;
 
@@ -213,9 +221,9 @@ export function mountAccountsPage(
     <main class="accounts-main page-width">
       <section class="accounts-hero">
         <div class="accounts-hero-copy">
-          <p class="eyebrow">LastRO 角色监控</p>
-          <h1>菜农监控台</h1>
-          <p>支持三转、进阶二转与 App 服。把游戏账号添加到这里，随时查看角色等级、经验进度、所在地图和在线状态。</p>
+          <p class="eyebrow">LastRO · KoreEngine</p>
+          <h1>KE 监控台</h1>
+          <p>管理离线挂机的托管角色，也可以把游戏账号添加进来，随时查看角色等级、经验进度、所在地图和在线状态。支持三转、进阶二转与 App 服。</p>
         </div>
         <div class="accounts-launchers" aria-label="游戏客户端入口">
           <button class="accounts-launch accounts-launch--primary" type="button" id="accounts-launch-v1"><i class="ph ph-play" aria-hidden="true"></i>老旧客户端</button>
@@ -227,6 +235,14 @@ export function mountAccountsPage(
         </div>
       </section>
 
+      <div class="kc-tabs" role="tablist" aria-label="监控台分区">
+        <button type="button" role="tab" id="kc-tab-hosting" class="kc-tab" data-kc-tab="hosting" aria-controls="kc-pane-hosting"><i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>离线挂机</button>
+        <button type="button" role="tab" id="kc-tab-accounts" class="kc-tab" data-kc-tab="accounts" aria-controls="kc-pane-accounts"><i class="ph ph-monitor" aria-hidden="true"></i>官方账号监控</button>
+      </div>
+
+      <div id="kc-pane-hosting" class="kc-pane" role="tabpanel" aria-labelledby="kc-tab-hosting" data-kc-pane="hosting"></div>
+
+      <div id="kc-pane-accounts" class="kc-pane" role="tabpanel" aria-labelledby="kc-tab-accounts" data-kc-pane="accounts">
       <section class="accounts-privacy" aria-labelledby="accounts-privacy-title">
         <span class="accounts-privacy-icon" aria-hidden="true"><i class="ph ph-shield-check"></i></span>
         <div class="accounts-privacy-body">
@@ -259,8 +275,9 @@ export function mountAccountsPage(
         </div>
         <p id="accounts-status" class="accounts-status" role="status" aria-live="polite"></p>
       </section>
+      </div>
     </main>
-    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">菜农监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
+    <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">KE 监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
 
     <div class="account-modal-overlay" id="account-modal" hidden>
       <div class="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
@@ -292,6 +309,29 @@ export function mountAccountsPage(
 
   mountSiteNav(root);
   injectLegalLinksIntoFooters(root);
+
+  // 分区：离线挂机 / 官方账号监控。记住上次停留的分区；读取失败时默认进入离线挂机。
+  const tabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-kc-tab]"));
+  const panes = Array.from(root.querySelectorAll<HTMLElement>("[data-kc-pane]"));
+  function showTab(tab: ConsoleTab, remember: boolean): void {
+    for (const button of tabButtons) {
+      const active = button.dataset.kcTab === tab;
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const pane of panes) pane.hidden = pane.dataset.kcPane !== tab;
+    if (remember) {
+      try { storage.setItem(TAB_KEY, tab); } catch { /* 隐私模式下不记忆 */ }
+    }
+  }
+  let initialTab: ConsoleTab = "hosting";
+  try { if (storage.getItem(TAB_KEY) === "accounts") initialTab = "accounts"; } catch { /* 默认值 */ }
+  showTab(initialTab, false);
+  for (const button of tabButtons) {
+    button.addEventListener("click", () => showTab(button.dataset.kcTab === "accounts" ? "accounts" : "hosting", true));
+  }
+  const hostingDeps = options.hosting ?? { api: createHostingApi(authApi), store: authStore };
+  mountHostingPanel(root.querySelector<HTMLElement>("#kc-pane-hosting")!, hostingDeps.api, hostingDeps.store, { now });
 
   const grid = root.querySelector<HTMLElement>("#accounts-grid")!;
   const emptyState = root.querySelector<HTMLElement>("#accounts-empty")!;

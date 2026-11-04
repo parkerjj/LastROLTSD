@@ -44,7 +44,7 @@ describe('auth navigation', () => {
 
     expect(markup).toContain('data-auth-nav');
     expect(markup).toContain('href="/accounts"');
-    expect(markup).toContain('菜农监控台');
+    expect(markup).toContain('KE 监控台');
     expect(markup).toContain('href="/guestbook"');
     expect(markup).toContain('href="/client"');
     expect(markup).toContain('href="/sponsor"');

@@ -30,6 +30,15 @@ MYSQL_URL=... node scripts/ke-agent-register.mjs --name vps-1 --pubkey <base64ur
 
 公钥由 VPS 上的 `ke-agent enroll` 生成，私钥不离开 VPS。`max_instances` 以这里为准，agent 自报的容量只作参考。
 
+## 网页：KE 监控台（`/accounts`）
+
+原“菜农监控台”升级为 KE 监控台，两个分区：**离线挂机**（默认）与**官方账号监控**（原有功能，账号只存浏览器）。
+离线挂机分区需要登录，展示开通状态与到期日、托管数量/上限、实例额度、需要处理的数量；每个托管角色一张卡片，显示阶段
+（排队中/启动中/运行中/等待重连/已停止/需要处理）、最近一次心跳上报的状态快照（等级、HP/SP、负重、地图坐标、金币、AI 模式）、
+重试倒计时与停止原因；支持启动、停止、删除（二次确认，仅已停止的可删）与添加角色（从“我的 KE”里已绑定的角色中选择，
+再填游戏账号/密码并重新输入本站密码）。没有离线挂机功能时显示购买入口 `/ke/buy`。页面不自动刷新（快照本来就按 5 分钟心跳更新）。
+实现见 `apps/web/src/ke-hosting-panel.ts`；`GET /api/v1/ke/hosted` 的 `eligibility` 增加了 `hosting_expires_at`。
+
 ## 接口
 
 面板（会话 cookie，写操作校验 Origin）：

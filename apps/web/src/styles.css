@@ -11100,3 +11100,305 @@ a.sponsor-honor-card:hover {
     padding: 5px 6px;
   }
 }
+
+/* ==================== KE 监控台：分区与离线挂机 ==================== */
+.kc-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 26px 0 0;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+
+.kc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 20px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: .95rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: none;
+  transform: none;
+}
+
+.kc-tab:hover {
+  color: var(--forest);
+  background: transparent;
+}
+
+.kc-tab[aria-selected="true"] {
+  color: var(--forest);
+  border-bottom-color: var(--red);
+}
+
+.kc-tab:focus-visible,
+.kc-link-button:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: -3px;
+}
+
+.kc-pane {
+  padding-top: 26px;
+}
+
+.kc-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.kc-stats > [role="listitem"] {
+  display: flex;
+  min-width: 0;
+}
+
+.kc-stat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px 13px;
+  background: #f7f4ee;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-light);
+  border-radius: 8px;
+}
+
+.kc-stat--good { border-left-color: var(--buy); }
+.kc-stat--warn { border-left-color: var(--gold); }
+.kc-stat--idle { border-left-color: var(--line-light); }
+
+.kc-stat-label {
+  color: var(--muted);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+
+.kc-stat-value {
+  color: var(--forest);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.kc-stat-value small {
+  color: var(--muted);
+  font-size: .95rem;
+  font-weight: 400;
+}
+
+.kc-stat-sub {
+  color: var(--muted);
+  font-size: .8rem;
+  overflow-wrap: anywhere;
+}
+
+.kc-upsell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  margin-bottom: 24px;
+  padding: 20px 24px;
+  background: var(--forest);
+  color: var(--cream);
+  border-radius: 10px;
+}
+
+.kc-upsell-copy {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.kc-upsell .eyebrow {
+  margin-bottom: 6px;
+  color: var(--gold);
+}
+
+.kc-upsell h3 {
+  margin: 0 0 6px;
+  color: var(--cream);
+  font-size: 1.15rem;
+}
+
+.kc-upsell p {
+  margin: 0;
+  color: rgba(255, 248, 238, .82);
+}
+
+.kc-upsell-action {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.kc-upsell-action b {
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 1.7rem;
+  white-space: nowrap;
+}
+
+.kc-upsell-action small {
+  font-size: .9rem;
+  font-weight: 400;
+  opacity: .75;
+}
+
+.kc-link-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 18px;
+  background: var(--gold);
+  color: var(--forest-deep);
+  border-radius: 6px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.kc-link-button:hover {
+  background: #d6a556;
+}
+
+.kc-grid .kc-card {
+  min-height: 0;
+}
+
+.kc-card--good { border-top: 3px solid var(--buy); }
+.kc-card--warn { border-top: 3px solid var(--gold); }
+.kc-card--bad { border-top: 3px solid var(--sell); }
+
+.kc-stamp {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.kc-stamp i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.kc-stamp--good { color: var(--buy); background: var(--buy-soft); }
+.kc-stamp--wait { color: var(--tip); background: var(--tip-soft); }
+.kc-stamp--idle { color: var(--muted); }
+.kc-stamp--warn { color: var(--tip-strong); background: var(--tip-soft); }
+.kc-stamp--bad { color: var(--sell); background: var(--sell-soft); }
+
+.kc-hint {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  background: #efeadf;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: .85rem;
+  line-height: 1.5;
+}
+
+.kc-hint i { flex: none; margin-top: 3px; }
+.kc-hint--warn { background: var(--tip-soft); }
+.kc-hint--bad { background: var(--sell-soft); }
+
+.kc-btn-start,
+.kc-btn-stop {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.kc-btn-start { color: var(--buy-strong); }
+.kc-btn-stop { color: var(--sell-strong); }
+
+.kc-empty { margin-top: 4px; }
+
+.kc-loading {
+  padding: 30px 0;
+}
+
+.kc-notice.is-ok { color: var(--buy-strong); }
+.kc-notice.is-error { color: var(--sell-strong); }
+
+.kc-foot {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.kc-char-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.kc-char-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf8;
+  cursor: pointer;
+}
+
+.kc-char-option:has(input:checked) {
+  border-color: var(--forest);
+  background: var(--accent-soft, #e7ede7);
+}
+
+.kc-char-option span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.kc-char-option small {
+  color: var(--muted);
+}
+
+.kc-warning {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--tip-soft);
+  border-radius: 6px;
+  font-size: .84rem;
+  line-height: 1.5;
+}
+
+.kc-warning i { flex: none; margin-top: 3px; }
+
+@media (max-width: 640px) {
+  .kc-tab { padding: 0 14px; }
+  .kc-upsell { padding: 18px; }
+  .kc-upsell-action { width: 100%; justify-content: space-between; }
+}

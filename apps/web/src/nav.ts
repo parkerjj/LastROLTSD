@@ -73,7 +73,7 @@ const NAV_ENTRIES: readonly NavEntry[] = [
   {
     page: "accounts",
     href: "/accounts",
-    label: "菜农监控台",
+    label: "KE 监控台",
     icon: "ph-monitor",
   },
   {
