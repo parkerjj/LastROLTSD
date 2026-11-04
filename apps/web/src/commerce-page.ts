@@ -621,7 +621,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     return `<article class="commerce-card" data-product="feature">
       <div class="commerce-card-head">
         <div><h2>${FEATURE_NAME}</h2><p>账号级功能，开通后账号下所有实例都能用，不按实例数量另收费。</p></div>
-        <div class="commerce-card-price"><b>${formatShortCents(featureProduct.monthlyUnitPriceCents)}</b><span>/ 账号 · 30 天</span></div>
+        <div class="commerce-card-price"><b>${formatShortCents(featureProduct.monthlyUnitPriceCents)}</b><span>/ 30 天</span></div>
       </div>
       <div class="commerce-switch-row">
         <div class="commerce-switch-info"><b>本次${action}脱机功能</b><span>${hostingSelected ? "已包含在本次选择的离线挂机中，无需单独购买。" : state}</span></div>
@@ -643,8 +643,8 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const action = active.length ? "续期" : "开通";
     return `<article class="commerce-card" data-product="hosting">
       <div class="commerce-card-head">
-        <div><h2>离线挂机</h2><p>把实例交给服务器 24 小时挂机，关掉浏览器和电脑也不中断。购买时<b>自动包含</b>等时长的全平台脱机 KoreEngine；托管实例数量不超过你的挂机额度。</p></div>
-        <div class="commerce-card-price"><b>${formatShortCents(hostingProduct.monthlyUnitPriceCents)}</b><span>/ 账号 · 30 天</span></div>
+        <div><h2>离线挂机</h2><p>账号级功能，开通后账号下所有实例都能用，把 KoreEngine 交给服务器运行 7x24 小时挂机，关掉浏览器和电脑也不中断。购买时<b>自动赠送</b>等时长的全平台脱机 KoreEngine；</p></div>
+        <div class="commerce-card-price"><b>${formatShortCents(hostingProduct.monthlyUnitPriceCents)}</b><span>/ 30 天</span></div>
       </div>
       <div class="commerce-switch-row">
         <div class="commerce-switch-info"><b>本次${action}离线挂机</b><span>${state}</span></div>
