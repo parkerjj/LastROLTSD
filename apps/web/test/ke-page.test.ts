@@ -301,7 +301,7 @@ describe("ke page", () => {
     expect(body.pickupitems).toBe('all 1');
     expect(body.items_control).toBe('all 0 0 0');
     // timeouts 为空时按 KE 默认值 + LastRO 覆盖值填满，而非存空/NULL。
-    expect(body.timeouts).toBe('ai_attack 0.3\nai_teleport_idle 10');
+    expect(body.timeouts).toBe('ai_attack 0.3\nai_teleport_idle 0.8');
   });
 
   it('保留卡片可获得的服侍技能，但不把 ALL 命名空间技能放进职业候选', async () => {

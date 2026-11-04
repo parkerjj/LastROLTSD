@@ -87,7 +87,7 @@ describe('ke control files', () => {
       ai_skill_use: '0.5',
       ai_item_use_auto: '0.3',
       ai_teleport: '0.4',
-      ai_teleport_idle: '10',
+      ai_teleport_idle: '0.8',
       ai_teleport_delay: '0.2',
       ai_buyAuto: '15',
       ai_sellAuto: '0.2',
