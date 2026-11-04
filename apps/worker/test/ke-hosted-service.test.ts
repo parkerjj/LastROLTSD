@@ -203,6 +203,44 @@ describe('启动、调度与停止（6.1/6.2）', () => {
     expect(agent.reserved).toBe(0);
   });
 
+  it('进程确认退出（stopped / error 回执）后，它在 KE 实例表里预占的额度一起释放', async () => {
+    const { service, repo } = setup({ slots: 1 });
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    const agent = repo.agents.get(AGENT_A)!;
+    const now = Date.now();
+    // launch 预占额度后，KE 实例行是 ACTIVE。
+    repo.ke.instances.set(id, {
+      instance_id: id, user_id: USER, aid: 1000001, cid: 2000002, nid: 3, state: 'ACTIVE', mode: 'auto',
+      char_name: 'Char1000001', map_name: null, started_at: now, last_heartbeat_at: now, updated_at: now, stopped_at: null,
+      kicked_by_instance_id: null, kick_reason: null,
+    } as never);
+    await service.stop(String(USER), id);
+    await service.report(agent, id, { epoch: 1, phase: 'stopped', retryAt: null });
+    expect(repo.ke.instances.get(id)?.state).toBe('STOPPED');
+
+    // error 回执同样释放。
+    const second = await create(service, 1000002);
+    await service.start(String(USER), second.id);
+    repo.ke.instances.set(second.id, { ...repo.ke.instances.get(id)!, instance_id: second.id, state: 'ACTIVE' } as never);
+    await service.report(agent, second.id, { epoch: 1, phase: 'error', retryAt: null });
+    expect(repo.ke.instances.get(second.id)?.state).toBe('STOPPED');
+  });
+
+  it('被其他方式顶下线（KICKED）的 KE 实例行不会被终止回执改写', async () => {
+    const { service, repo } = setup();
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    const now = Date.now();
+    repo.ke.instances.set(id, {
+      instance_id: id, user_id: USER, aid: 1000001, cid: 2000002, nid: 3, state: 'KICKED', mode: 'auto',
+      char_name: 'Char1000001', map_name: null, started_at: now, last_heartbeat_at: now, updated_at: now, stopped_at: null,
+      kicked_by_instance_id: 'other', kick_reason: 'quota_kick',
+    } as never);
+    await service.report(repo.agents.get(AGENT_A)!, id, { epoch: 1, phase: 'error', retryAt: null });
+    expect(repo.ke.instances.get(id)?.state).toBe('KICKED');
+  });
+
   it('删除前必须先停止', async () => {
     const { service, repo } = setup();
     const { id } = await create(service);
@@ -440,6 +478,24 @@ describe('故障转移（Cron）', () => {
     const summary = await service.tick();
     expect(summary.enforced).toBe(1);
     expect(repo.hosted.get(id)).toMatchObject({ desired: 'stopped', stopReason: 'no-hosting-entitlement' });
+  });
+
+  it('agent 已被标记 down 但上一轮释放中途失败：下一轮 tick 继续完成改派（也覆盖运维手动置 down）', async () => {
+    const { service, repo, advance, now } = setup({ agents: [AGENT_A, AGENT_B] });
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    const assignedTo = repo.hosted.get(id)!.assignedAgent!;
+    const other = assignedTo === AGENT_A ? AGENT_B : AGENT_A;
+    // 模拟：agent 已 down，但实例仍挂在它名下（事务 B 没跑完）。
+    repo.agents.get(assignedTo)!.status = 'down';
+    advance(1000);
+    repo.agents.get(other)!.lastSeen = now();
+    const summary = await service.tick();
+    expect(summary.failedOver).toContain(assignedTo);
+    expect(repo.hosted.get(id)).toMatchObject({ assignedAgent: other, desired: 'running' });
+    expect(repo.agents.get(assignedTo)!.reserved).toBe(0);
+    // 已经干净的 down agent 不会反复处理。
+    expect((await service.tick()).failedOver).not.toContain(assignedTo);
   });
 
   it('down 的 agent 名下 desired=stopped 的实例也要释放归属（否则之后永远无法再启动）', async () => {

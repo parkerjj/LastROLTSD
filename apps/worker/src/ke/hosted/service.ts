@@ -165,6 +165,23 @@ export function createHostedService(
   }
 
   /** I1/I6：一个用户的托管资格与上限；失去资格或超出上限的托管实例立即停止（真正断开由 agent 完成）。 */
+  /** 释放某台 agent 名下的实例：逐个先锁用户（与其他路径同一加锁顺序），再整体重算它的预留计数。 */
+  async function releaseInstances(
+    agentId: string,
+    instances: ReadonlyArray<{ instanceId: string; userId: number }>,
+    timestamp: number,
+  ): Promise<void> {
+    for (const instance of instances) {
+      await repository.transaction(async (tx) => {
+        await tx.ke.lockUser(instance.userId);
+        const current = await tx.findHosted(instance.instanceId);
+        if (current === null || current.assignedAgent !== agentId) return;
+        await tx.release(instance.instanceId, current.desired === 'running', current.desired === 'running' ? 'agent-down' : null, timestamp);
+      });
+    }
+    await repository.transaction((tx) => tx.recomputeReserved(agentId, timestamp));
+  }
+
   async function enforceUser(userId: number): Promise<number> {
     return repository.transaction(async (tx) => {
       const timestamp = now();
@@ -508,6 +525,12 @@ export function createHostedService(
           throw new KeFailure('KE_EPOCH_STALE', 409, '托管实例已被改派');
         }
         const notify: string[] = [];
+        if (input.phase === 'stopped' || input.phase === 'error') {
+          // 进程已确认退出：它在 ke_instances 里预占的额度必须同时释放，否则用户停掉 A 再启动 B 要白等 10 分钟的存活窗口。
+          // 停止回执到达时托管 token 已被吊销，进程自己没法再调 /stop，所以只能在这里收尾。
+          const keRow = await tx.ke.findInstance(instanceId);
+          if (keRow !== null && keRow.state === 'ACTIVE') await tx.ke.markStopped(instanceId, timestamp);
+        }
         if (input.phase === 'stopped') {
           // 停止回执时按“当时的” desired 决定落点：用户可能在停止过程中又点了启动。
           const requeue = row.desired === 'running';
@@ -574,16 +597,20 @@ export function createHostedService(
         if (instances === null) continue;
         summary.failedOver.push(agentId);
         // 事务 B：逐个先锁用户再释放；desired=running 的回到 queued，desired=stopped 的也要清掉归属。
-        for (const instance of instances) {
-          await repository.transaction(async (tx) => {
-            await tx.ke.lockUser(instance.userId);
-            const current = await tx.findHosted(instance.instanceId);
-            if (current === null || current.assignedAgent !== agentId) return;
-            await tx.release(instance.instanceId, current.desired === 'running', current.desired === 'running' ? 'agent-down' : null, timestamp);
-          });
-        }
-        await repository.transaction((tx) => tx.recomputeReserved(agentId, timestamp));
+        await releaseInstances(agentId, instances, timestamp);
         log('hosted.agent_failed_over', { agentId, instances: instances.length });
+      }
+      // 补偿：agent 已经被标记 down（上一轮的事务 B 中途失败/Worker 中断，或运维手动置 down），名下还挂着的实例继续释放。
+      // 熔断期间不动：那说明现在的健康证据不足，不是该改派的时候。
+      if (decision.frozen === 'none') {
+        for (const agent of agents) {
+          if (agent.status !== 'down' || decision.expired.includes(agent.agentId)) continue;
+          const stranded = await repository.transaction((tx) => tx.listHostedByAgent(agent.agentId));
+          if (stranded.length === 0) continue;
+          await releaseInstances(agent.agentId, stranded, timestamp);
+          summary.failedOver.push(agent.agentId);
+          log('hosted.agent_failover_resumed', { agentId: agent.agentId, instances: stranded.length });
+        }
       }
       // 资格/上限扫描：时间驱动的到期没有事件，租约对账、heartbeat、这里三处都要查。
       const users = await repository.transaction((tx) => tx.listRunningUserIds(ENTITLEMENT_SWEEP_LIMIT));
