@@ -153,6 +153,29 @@ function finite(value: unknown, fallback = 0): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
+/** 带正负号的整数，Zeny 变化用：+1,268,400 / -5,000 / 0。 */
+function formatSigned(value: unknown): string {
+  const number = finite(value);
+  return `${number > 0 ? "+" : number < 0 ? "-" : ""}${numberFormatter.format(Math.abs(number))}`;
+}
+
+/** 中文习惯的大数：≥1 亿写“x.x 亿”，≥1 万写“x 万”，否则原样。 */
+function formatCompact(value: unknown): string {
+  const number = Math.abs(finite(value));
+  const sign = finite(value) < 0 ? "-" : "";
+  const trim = (n: number) => String(Math.round(n * 10) / 10);
+  if (number >= 100_000_000) return `${sign}${trim(number / 100_000_000)} 亿`;
+  if (number >= 10_000) return `${sign}${trim(number / 10_000)} 万`;
+  return `${sign}${numberFormatter.format(number)}`;
+}
+
+function formatElapsed(ms: unknown): string {
+  const minutes = Math.floor(finite(ms) / 60_000);
+  if (minutes < 1) return "不到 1 分";
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours} 时 ${minutes % 60} 分` : `${minutes} 分`;
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -206,6 +229,7 @@ export function mountHostingPanel(
   let noticeTone: "ok" | "error" | "" = "";
   let busyIds = new Set<string>();
   let armedDelete: string | null = null;
+  const runOpen = new Set<string>();
   let armedTimer: ReturnType<typeof setTimeout> | null = null;
   let dialogOpen = false;
   let dialogCharacters: HostableCharacter[] | null = null;
@@ -256,6 +280,51 @@ export function mountHostingPanel(
     </aside>`;
   }
 
+  /** 运行统计：收起时一行摘要 + 卡片/装备数量，点开看详情。旧版 agent 的快照没有 stats，就不画。 */
+  function runMarkup(item: HostedItem, snapshot: Record<string, unknown>): string {
+    const stats = record(snapshot.stats);
+    if (!stats) return "";
+    const open = runOpen.has(item.id);
+    const cards = finite(stats.important_cards);
+    const equips = finite(stats.important_equips);
+    const badges = cards > 0 || equips > 0
+      ? `<div class="kc-run-badges">${cards > 0 ? `<span class="kc-tag kc-tag--card">★ 卡片 ×${formatNumber(cards)}</span>` : ""}${equips > 0 ? `<span class="kc-tag kc-tag--equip">★ 装备 ×${formatNumber(equips)}</span>` : ""}</div>`
+      : "";
+    const zenyClass = finite(stats.zeny_net) > 0 ? " is-up" : finite(stats.zeny_net) < 0 ? " is-down" : "";
+    const summary = `<div class="kc-run-head"><span class="kc-run-summary">击杀 <b>${formatNumber(stats.kills)}</b> · 道具 <b>${formatNumber(stats.item_count)}</b> · Zeny <b class="kc-zeny${zenyClass}">${formatSigned(stats.zeny_net)}</b></span><button type="button" class="kc-run-toggle" data-kc-run="${escapeHtml(item.id)}" aria-expanded="${open}">${open ? "收起 ▴" : "展开 ▾"}</button></div>${badges}`;
+    return `<div class="kc-run"><hr class="acc-divider">${summary}${open ? runDetail(stats) : ""}</div>`;
+  }
+
+  function runDetail(stats: Record<string, unknown>): string {
+    const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record).filter((row): row is Record<string, unknown> => row !== null) : []);
+    const section = (title: string, aside: string, body: string): string =>
+      body ? `<div class="kc-run-section"><div class="kc-run-title"><span>${title}</span><span>${aside}</span></div>${body}</div>` : "";
+    const row = (label: string, value: string): string => `<div class="kc-run-row"><span>${label}</span><b>${value}</b></div>`;
+    const important = rows(stats.important).map((entry) => {
+      const card = entry.kind === "card";
+      return row(`<span class="kc-tag kc-tag--${card ? "card" : "equip"}">${card ? "卡片" : "装备"}</span>${escapeHtml(String(entry.name ?? "?"))}`, `×${formatNumber(entry.count)}`);
+    }).join("");
+    const topItems = rows(stats.top_items).map((entry) => row(escapeHtml(String(entry.name ?? "?")), `×${formatNumber(entry.count)}`)).join("");
+    const topMonsters = rows(stats.top_monsters).map((entry) => row(escapeHtml(String(entry.name ?? "?")), formatNumber(entry.count))).join("");
+    const perHour = (value: unknown): string => (value === null || value === undefined ? "" : ` (${formatCompact(value)}/时)`);
+    const hasZenyRate = stats.zeny_per_hour !== null && stats.zeny_per_hour !== undefined;
+    const other = [
+      row("挂机时长", escapeHtml(formatElapsed(stats.elapsed_ms))),
+      row("Base 经验", `+${formatCompact(stats.base_exp_gained)}${perHour(stats.base_exp_per_hour)}`),
+      row("Job 经验", `+${formatCompact(stats.job_exp_gained)}${perHour(stats.job_exp_per_hour)}`),
+      row("死亡", `${formatNumber(stats.deaths)} 次`),
+      row("获得道具", `${formatNumber(stats.item_kinds)} 种 / ${formatNumber(stats.item_count)} 件`),
+      hasZenyRate ? row("Zeny 每小时", `约 ${formatCompact(stats.zeny_per_hour)}`) : "",
+    ].join("");
+    return `<div class="kc-run-detail">
+      ${section("重要掉落", `卡片 ${formatNumber(stats.important_cards)} · 装备 ${formatNumber(stats.important_equips)}`, important)}
+      ${section("掉落最多", "前 5 名", topItems)}
+      ${section("击杀排行", "前 5 名", topMonsters)}
+      ${section("本次其他数据", "", other)}
+      <p class="kc-run-note">统计自本次托管启动起累计；卖出、存仓、使用不会减少“获得”，从仓库取出、商店买入不算获得。</p>
+    </div>`;
+  }
+
   function snapshotMarkup(item: HostedItem): string {
     const snapshot = record(item.status);
     if (!snapshot) {
@@ -298,7 +367,7 @@ export function mountHostingPanel(
         <span class="chip chip--map"><i class="ph ph-map-pin" aria-hidden="true"></i>${escapeHtml(mapName)}${hasXY ? ` (${finite(map.x)}, ${finite(map.y)})` : ""}</span>
         <span class="chip"><i class="ph ph-coins" aria-hidden="true"></i>${formatNumber(vitals.zeny)} z</span>
         ${ai ? `<span class="chip">${escapeHtml(AI_MODES[ai] ?? ai)}</span>` : ""}
-      </div>`;
+      </div>${runMarkup(item, snapshot)}`;
   }
 
   function cardMarkup(item: HostedItem): string {
@@ -537,6 +606,12 @@ export function mountHostingPanel(
     if (start) { void act(start, () => api.start(start), "正在启动…", "已提交启动，托管服务器会在一分钟内接手。"); return; }
     const stop = pick("data-kc-stop");
     if (stop) { void act(stop, () => api.stop(stop), "正在停止…", "已提交停止，进程会先让角色正常下线。"); return; }
+    const statsId = pick("data-kc-run");
+    if (statsId) {
+      if (runOpen.has(statsId)) runOpen.delete(statsId); else runOpen.add(statsId);
+      render();
+      return;
+    }
     const remove = pick("data-kc-delete");
     if (remove) {
       if (armedDelete === remove) {

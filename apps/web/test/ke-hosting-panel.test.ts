@@ -93,6 +93,70 @@ describe("KE 监控台：离线挂机面板", () => {
     restore();
   });
 
+  const STATS = {
+    elapsed_ms: 6 * 3_600_000 + 12 * 60_000, kills: 1284, deaths: 2, zeny_net: 1_268_400, zeny_per_hour: 204_000,
+    base_exp_gained: 4_200_000, job_exp_gained: 1_100_000, base_exp_per_hour: 680_000, job_exp_per_hour: 180_000,
+    item_kinds: 57, item_count: 3402, important_cards: 3, important_equips: 4,
+    important: [
+      { id: 4036, name: "剑鱼卡片", kind: "card", count: 1 },
+      { id: 4040, name: "骷髅士兵卡片", kind: "card", count: 2 },
+      { id: 2101, name: "皮靴[1]", kind: "equip", count: 3 },
+      { id: 2201, name: "铁手套", kind: "equip", count: 1 },
+    ],
+    top_items: [{ id: 909, name: "胶质物", count: 117 }, { id: 511, name: "青草", count: 96 }],
+    top_monsters: [{ name: "波利", count: 412 }, { name: "蚊子", count: 268 }],
+  };
+  const withStats = () => item({ status: { ...item().status as object, stats: STATS } });
+
+  it("有挂机统计时收起一行摘要：击杀、道具、Zeny 变化，以及卡片和装备的数量", async () => {
+    const { root, restore } = setup({ items: [withStats()] });
+    await flush();
+    const summary = root.querySelector(".kc-run-summary")?.textContent ?? "";
+    expect(summary).toContain("击杀 1,284");
+    expect(summary).toContain("道具 3,402");
+    expect(summary).toContain("Zeny +1,268,400");
+    expect(root.querySelector(".kc-run-badges")?.textContent).toContain("卡片 ×3");
+    expect(root.querySelector(".kc-run-badges")?.textContent).toContain("装备 ×4");
+    expect(root.querySelector(".kc-run-detail")).toBeNull();
+    restore();
+  });
+
+  it("点击展开看重要掉落、掉落最多、击杀排行和经验，再点收起；重新读取后保持展开", async () => {
+    const { dom, root, restore } = setup({ items: [withStats()] });
+    await flush();
+    click(dom, '[data-kc-run="i-1"]');
+    const detail = root.querySelector(".kc-run-detail")?.textContent ?? "";
+    expect(detail).toContain("剑鱼卡片");
+    expect(detail).toContain("×2");
+    expect(detail).toContain("皮靴[1]");
+    expect(detail).toContain("胶质物");
+    expect(detail).toContain("×117");
+    expect(detail).toContain("波利");
+    expect(detail).toContain("412");
+    expect(detail).toContain("6 时 12 分");
+    expect(detail).toContain("Base 经验");
+    expect(detail).toContain("68 万/时");
+    expect(detail).toContain("死亡");
+    expect(detail).toContain("本次托管启动");
+    click(dom, "[data-kc-reload]");
+    await flush();
+    expect(root.querySelector(".kc-run-detail")).not.toBeNull();
+    click(dom, '[data-kc-run="i-1"]');
+    expect(root.querySelector(".kc-run-detail")).toBeNull();
+    restore();
+  });
+
+  it("没有 stats 的旧快照不显示统计区；Zeny 变化为负数时带负号", async () => {
+    const { root, restore } = setup();
+    await flush();
+    expect(root.querySelector(".kc-run")).toBeNull();
+    restore();
+    const negative = setup({ items: [item({ status: { ...item().status as object, stats: { ...STATS, zeny_net: -5000 } } })] });
+    await flush();
+    expect(negative.root.querySelector(".kc-run-summary")?.textContent).toContain("Zeny -5,000");
+    negative.restore();
+  });
+
   it("没有离线挂机功能时显示购买入口，且不能添加角色", async () => {
     const { root, restore } = setup({
       eligibility: { eligible: false, slots: 1, has_hosting: false, hosting_expires_at: null, cap: 0, hosted_count: 0 },

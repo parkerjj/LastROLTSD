@@ -329,12 +329,13 @@ export function createHostedService(
           return { denied: new KeFailure('KE_HOSTING_ENTITLEMENT_REQUIRED', 403, '账号没有离线挂机资格') };
         }
         if (row.desired === 'running') return { notify: [] }; // 幂等
-        if (await tx.countHostedRecords(owner) >= hostedCap(hosting)) {
-          throw new KeFailure('KE_HOSTED_CAP_REACHED', 409, '运行中的托管实例已达上限');
-        }
         if (row.desired === 'stopped' && row.assignedAgent !== null) {
           // 上一次停止还没收到 agent 的回执：稍后再试，而不是误报“角色被占用”。
+          // 必须先于额度检查：这一行自己在回执前仍占着名额（旧进程可能还在线），先查额度会把它误报成“已达上限”。
           throw new KeFailure('KE_HOSTED_STOPPING', 409, '托管实例正在停止，请稍后再启动');
+        }
+        if (await tx.countHostedRecords(owner) >= hostedCap(hosting)) {
+          throw new KeFailure('KE_HOSTED_CAP_REACHED', 409, '运行中的托管实例已达上限');
         }
         if (!await tx.markRunning(instanceId, timestamp)) {
           throw new KeFailure('KE_HOSTED_CHARACTER_BUSY', 409, '该角色已有运行中的托管实例');

@@ -190,6 +190,19 @@ describe('启动、调度与停止（6.1/6.2）', () => {
     expect(repo.hosted.get(id)?.desired).toBe('stopped');
   });
 
+  it('额度只有 1 时停止后立刻再启动：提示“正在停止”，不能被自己占着的名额误报为“已达上限”', async () => {
+    const { service, repo } = setup({ slots: 1 });
+    const { id } = await create(service);
+    await service.start(String(USER), id);
+    await service.stop(String(USER), id);
+    // 回执前这一行仍占着名额（旧进程可能还在线），但拒绝原因应是“正在停止”，不是“已达上限”。
+    await expect(service.start(String(USER), id)).rejects.toMatchObject({ code: 'KE_HOSTED_STOPPING', status: 409 });
+    // agent 回执 stopped 后名额释放，可以再启动。
+    await service.report(repo.agents.get(AGENT_A)!, id, { epoch: 1, phase: 'stopped', retryAt: null });
+    await expect(service.start(String(USER), id)).resolves.toBeDefined();
+    expect(repo.hosted.get(id)).toMatchObject({ desired: 'running' });
+  });
+
   it('过期 epoch 的回执被拒绝；error 回执让 LTSD 置 desired=stopped 并释放槽位', async () => {
     const { service, repo } = setup();
     const { id } = await create(service);

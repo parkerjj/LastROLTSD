@@ -11324,6 +11324,44 @@ a.sponsor-honor-card:hover {
 .kc-hint--warn { background: var(--tip-soft); }
 .kc-hint--bad { background: var(--sell-soft); }
 
+/* 托管角色卡片里的运行统计：收起一行摘要，展开看详情（击杀、道具、卡片装备、Zeny、经验）。 */
+.kc-run { display: grid; gap: 8px; }
+.kc-run .acc-divider { margin-bottom: 2px; }
+.kc-run-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.kc-run-summary { font-size: .9rem; color: var(--ink); }
+.kc-run-summary b { font-variant-numeric: tabular-nums; }
+.kc-zeny.is-up { color: var(--buy); }
+.kc-zeny.is-down { color: var(--sell); }
+.kc-run-toggle {
+  flex: none;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: .8rem;
+  cursor: pointer;
+}
+.kc-run-toggle:hover { color: var(--ink); }
+.kc-run-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.kc-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: .76rem;
+  line-height: 1.5;
+}
+.kc-run-badges .kc-tag { margin-right: 0; }
+.kc-tag--card { background: var(--tip-soft); color: var(--tip); }
+.kc-tag--equip { background: var(--buy-soft); color: var(--buy); }
+.kc-run-detail { display: grid; gap: 12px; padding-top: 4px; }
+.kc-run-title { display: flex; justify-content: space-between; color: var(--muted); font-size: .76rem; letter-spacing: .04em; margin-bottom: 2px; }
+.kc-run-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px dashed rgba(170, 157, 136, .45); font-size: .86rem; }
+.kc-run-row:last-child { border-bottom: 0; }
+.kc-run-row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kc-run-note { margin: 0; color: var(--muted); font-size: .76rem; }
+
 .kc-btn-start,
 .kc-btn-stop {
   width: auto;
