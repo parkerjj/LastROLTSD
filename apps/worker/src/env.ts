@@ -16,7 +16,7 @@ export interface CommerceConfig {
   stripeAccountId: string;
   livemode: boolean;
   pricingVersion: string;
-  productIds: { slots: string; 'module:standalone': string };
+  productIds: { slots: string; 'module:standalone': string; 'module:hosting': string };
   paymentMethodConfigurationId: string;
   siteOrigin: string;
 }
@@ -38,6 +38,8 @@ export interface AppEnv extends AuthBindings, KeBindings {
   UPLOAD_LIMITER?: Fetcher | undefined;
   ADMIN_SECRET?: string | undefined;
   SNAPSHOT_QUEUE?: { send(message: SnapshotMessage): Promise<void> } | undefined;
+  /** 托管 agent 的即时推送（Durable Object，可选；未绑定时推送为 no-op，agent 退回 60 秒租约）。 */
+  AGENT_HUB?: { idFromName(name: string): unknown; get(id: unknown): { fetch(url: string, init?: RequestInit): Promise<Response> } } | undefined;
   SNAPSHOT_QUEUE_DAILY_BUDGET?: number | undefined;
   SNAPSHOT_RECONCILE_BATCH_SIZE?: number | undefined;
   /** 账号邮件唤醒队列；缺省时只靠 Cron 兜底发送。 */
@@ -63,6 +65,7 @@ export interface AppEnv extends AuthBindings, KeBindings {
   COMMERCE_PRICING_VERSION?: string | undefined;
   COMMERCE_STRIPE_PRODUCT_SLOTS_ID?: string | undefined;
   COMMERCE_STRIPE_PRODUCT_STANDALONE_ID?: string | undefined;
+  COMMERCE_STRIPE_PRODUCT_HOSTING_ID?: string | undefined;
   COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID?: string | undefined;
   COMMERCE_SITE_ORIGIN?: string | undefined;
 }
@@ -95,6 +98,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     UPLOAD_LIMITER: bindings.UPLOAD_LIMITER as Fetcher | undefined,
     ADMIN_SECRET: bindings.ADMIN_SECRET as string | undefined,
     SNAPSHOT_QUEUE: bindings.SNAPSHOT_QUEUE as AppEnv['SNAPSHOT_QUEUE'],
+    AGENT_HUB: bindings.AGENT_HUB as AppEnv['AGENT_HUB'],
     MAIL_QUEUE: bindings.MAIL_QUEUE as AppEnv['MAIL_QUEUE'],
     SNAPSHOT_QUEUE_DAILY_BUDGET: nonnegativeInteger(bindings.SNAPSHOT_QUEUE_DAILY_BUDGET, 9000),
     SNAPSHOT_RECONCILE_BATCH_SIZE: positiveInteger(bindings.SNAPSHOT_RECONCILE_BATCH_SIZE, 200),
@@ -112,6 +116,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     COMMERCE_PRICING_VERSION: optionalString(bindings.COMMERCE_PRICING_VERSION),
     COMMERCE_STRIPE_PRODUCT_SLOTS_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_SLOTS_ID),
     COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID),
+    COMMERCE_STRIPE_PRODUCT_HOSTING_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_HOSTING_ID),
     COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: optionalString(bindings.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID),
     COMMERCE_SITE_ORIGIN: optionalString(bindings.COMMERCE_SITE_ORIGIN),
     AUTH_ENABLED: typeof bindings.AUTH_ENABLED === 'string' ? bindings.AUTH_ENABLED : undefined,
@@ -139,6 +144,8 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     KE_CORE_KEY_VERSION: typeof bindings.KE_CORE_KEY_VERSION === 'string' ? bindings.KE_CORE_KEY_VERSION : undefined,
     KE_NETWORK_KEY: typeof bindings.KE_NETWORK_KEY === 'string' ? bindings.KE_NETWORK_KEY : undefined,
     KE_NETWORK_KEY_VERSION: typeof bindings.KE_NETWORK_KEY_VERSION === 'string' ? bindings.KE_NETWORK_KEY_VERSION : undefined,
+    KE_HOSTED_CRED_KEY: typeof bindings.KE_HOSTED_CRED_KEY === 'string' ? bindings.KE_HOSTED_CRED_KEY : undefined,
+    KE_HOSTED_CRED_KEY_VERSION: typeof bindings.KE_HOSTED_CRED_KEY_VERSION === 'string' ? bindings.KE_HOSTED_CRED_KEY_VERSION : undefined,
     KE_BUILD_MANIFEST: typeof bindings.KE_BUILD_MANIFEST === 'string' ? bindings.KE_BUILD_MANIFEST : undefined,
   };
 }
@@ -159,6 +166,7 @@ export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
   const pricingVersion = env.COMMERCE_PRICING_VERSION;
   const slotsProductId = env.COMMERCE_STRIPE_PRODUCT_SLOTS_ID;
   const standaloneProductId = env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID;
+  const hostingProductId = env.COMMERCE_STRIPE_PRODUCT_HOSTING_ID;
   const paymentMethodConfigurationId = env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
   const siteOrigin = env.COMMERCE_SITE_ORIGIN;
 
@@ -169,7 +177,7 @@ export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
     stripeAccountId: stripeAccountId!,
     livemode,
     pricingVersion: pricingVersion!,
-    productIds: { slots: slotsProductId!, 'module:standalone': standaloneProductId! },
+    productIds: { slots: slotsProductId!, 'module:standalone': standaloneProductId!, 'module:hosting': hostingProductId! },
     paymentMethodConfigurationId: paymentMethodConfigurationId!,
     siteOrigin: new URL(siteOrigin!).origin,
   };
@@ -208,6 +216,9 @@ export function commerceConfigIssueFields(env: AppEnv): string[] {
   }
   if (!env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID || !/^prod_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID)) {
     issues.push('COMMERCE_STRIPE_PRODUCT_STANDALONE_ID');
+  }
+  if (!env.COMMERCE_STRIPE_PRODUCT_HOSTING_ID || !/^prod_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PRODUCT_HOSTING_ID)) {
+    issues.push('COMMERCE_STRIPE_PRODUCT_HOSTING_ID');
   }
   if (!env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID
     || !/^pmc_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID)) {

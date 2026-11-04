@@ -17,6 +17,14 @@ const PRODUCTS: readonly CommerceProduct[] = [
     monthlyUnitPriceCents: '3000',
     purchaseMode: 'duration',
   },
+  {
+    key: 'module:hosting',
+    name: '离线挂机（含全平台离线 KoreEngine 功能）',
+    description: '把实例交给服务器 24 小时挂机；购买时自动包含等时长的全平台离线 KoreEngine 功能。托管实例数量受实例额度限制。',
+    unitLabel: '账号功能',
+    monthlyUnitPriceCents: '5000',
+    purchaseMode: 'duration',
+  },
 ];
 
 const TERMS: readonly CommerceTerm[] = [

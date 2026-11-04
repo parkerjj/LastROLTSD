@@ -1,4 +1,4 @@
-export type CommerceProductKey = 'slots' | 'module:standalone';
+export type CommerceProductKey = 'slots' | 'module:standalone' | 'module:hosting';
 export type CommercePurchaseMode = 'quantity-and-duration' | 'duration';
 export type CommerceDiscountPercent = 100 | 80 | 70;
 

@@ -5,7 +5,11 @@ import { appendRefundProjection, retainedDurationMs, syncOrderRefunds } from './
 import type { StripeClient } from './stripe-client';
 
 const MAX_SAFE_MILLIS = BigInt(Number.MAX_SAFE_INTEGER);
-const MODULE_RESOURCE = 'module:standalone';
+type ModuleResource = 'module:standalone' | 'module:hosting';
+
+function isModuleResource(value: string): value is ModuleResource {
+  return value === 'module:standalone' || value === 'module:hosting';
+}
 
 interface OrderSnapshot {
   orderId: string;
@@ -24,8 +28,8 @@ interface OrderSnapshot {
 interface OrderItem {
   id: string;
   ordinal: number;
-  productKey: 'slots' | 'module:standalone';
-  resource: 'slots' | 'module:standalone';
+  productKey: 'slots' | ModuleResource;
+  resource: 'slots' | ModuleResource;
   operation: 'ADD' | 'RENEW' | 'ALIGN';
   targetUnitId: string | null;
   durationMs: bigint;
@@ -153,7 +157,7 @@ function parseOrderSnapshot(row: MysqlRow): OrderSnapshot {
 function readOrderItem(row: MysqlRow): OrderItem {
   const productKey = String(row.product_key);
   const operation = String(row.operation);
-  if ((productKey !== 'slots' && productKey !== MODULE_RESOURCE)
+  if ((productKey !== 'slots' && !isModuleResource(productKey))
     || (operation !== 'ADD' && operation !== 'RENEW' && operation !== 'ALIGN')) {
     throw new TypeError('invalid commerce order item');
   }
@@ -419,9 +423,11 @@ async function createUnit(
   return unitId;
 }
 
-async function resolveStandaloneUnit(
+/** 模块类权益（脱机版 / 离线挂机）共用的“当前账号单元”：优先沿用已有流水，没有就新建 commerce 单元。 */
+async function resolveModuleUnit(
   tx: CommerceTransaction,
   userId: string,
+  resource: ModuleResource,
   now: number,
 ): Promise<string> {
   const row = await tx.first<MysqlRow>(
@@ -431,9 +437,9 @@ async function resolveStandaloneUnit(
       + 'WHERE e.user_id = ? AND e.resource = ? AND e.quantity > 0 '
       + 'AND e.starts_at <= ? AND e.expires_at > ? AND e.revoked_at IS NULL '
       + 'ORDER BY e.expires_at DESC, e.id ASC LIMIT 1 FOR UPDATE',
-    [userId, MODULE_RESOURCE, now, now],
+    [userId, resource, now, now],
   );
-  if (!row) return createUnit(tx, userId, MODULE_RESOURCE, now, 'commerce');
+  if (!row) return createUnit(tx, userId, resource, now, 'commerce');
   if (row.unit_id !== null && row.unit_id !== undefined) {
     return assertCommerceId(String(row.unit_id));
   }
@@ -442,13 +448,13 @@ async function resolveStandaloneUnit(
   const entitlementId = assertCommerceId(String(row.entitlement_id));
   const quantity = readSmallNumber(row.quantity, 'module quantity');
   if (quantity <= 0 || expiresAt <= startsAt) throw new TypeError('invalid commerce module baseline');
-  return createUnit(tx, userId, MODULE_RESOURCE, now, 'legacy', {
+  return createUnit(tx, userId, resource, now, 'legacy', {
     entitlementId,
     quantity,
     startsAt,
     expiresAt,
     source: String(row.source),
-    sourceRef: String(row.source_ref ?? 'legacy-standalone'),
+    sourceRef: String(row.source_ref ?? `legacy-${resource.slice('module:'.length)}`),
   });
 }
 
@@ -459,8 +465,8 @@ async function deliverItem(
   deliveredAt: bigint,
 ): Promise<void> {
   let unitId: string;
-  if (item.productKey === MODULE_RESOURCE) {
-    unitId = await resolveStandaloneUnit(tx, order.userId, mysqlMillis(deliveredAt, 'delivery timestamp'));
+  if (isModuleResource(item.productKey)) {
+    unitId = await resolveModuleUnit(tx, order.userId, item.productKey, mysqlMillis(deliveredAt, 'delivery timestamp'));
   } else if (item.operation === 'ADD') {
     unitId = await createUnit(tx, order.userId, 'slots', mysqlMillis(deliveredAt, 'delivery timestamp'), 'commerce');
   } else {

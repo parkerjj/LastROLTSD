@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getCommerceCatalog } from '@lastroweb/commerce';
 
 describe('commerce catalog', () => {
-  it('publishes the two independent CNY products and supported term discounts', () => {
+  it('publishes the three independent CNY products and supported term discounts', () => {
     const catalog = getCommerceCatalog('2026-10-v1');
 
     expect(catalog).toMatchObject({
@@ -24,6 +24,14 @@ describe('commerce catalog', () => {
           description: '有效期间，账号下所有实例均可使用。',
           unitLabel: '账号功能',
           monthlyUnitPriceCents: '3000',
+          purchaseMode: 'duration',
+        },
+        {
+          key: 'module:hosting',
+          name: '离线挂机（含全平台离线 KoreEngine 功能）',
+          description: '把实例交给服务器 24 小时挂机；购买时自动包含等时长的全平台离线 KoreEngine 功能。托管实例数量受实例额度限制。',
+          unitLabel: '账号功能',
+          monthlyUnitPriceCents: '5000',
           purchaseMode: 'duration',
         },
       ],

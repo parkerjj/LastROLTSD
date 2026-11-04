@@ -347,6 +347,7 @@ describe('commerce cron configuration', () => {
       COMMERCE_PRICING_VERSION: 'ke-commerce-test-v1',
       COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slotstest',
       COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_offlinetest',
+      COMMERCE_STRIPE_PRODUCT_HOSTING_ID: 'prod_hostingtest',
       COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_alipaytest',
       COMMERCE_SITE_ORIGIN: 'https://ltsd.example',
     });

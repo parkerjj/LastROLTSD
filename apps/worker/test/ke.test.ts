@@ -3,8 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { base64UrlDecode, buildLicense, wrapChunkKey } from '../src/ke/crypto';
 import { createKeService, type Attestation } from '../src/ke/service';
 import type { KeConfig, BuildEntry } from '../src/ke/config';
-import type { CharacterRow, InstanceRow, KeRepository, KeTx } from '../src/ke/repository';
-import type { KeEntitlements } from '../src/ke/entitlements';
+import { makeFakeRepository, type FakeRepository } from './helpers/ke-fake';
 import { KeFailure, type CharacterReport, type WrappedKeyBundle } from '../src/ke/types';
 
 const encoder = new TextEncoder();
@@ -33,6 +32,8 @@ function testKeConfig(
     networkKey,
     networkKeyVersion: '2',
     buildManifest: manifest,
+    hostedCredentialKey: new Uint8Array(32).fill(5),
+    hostedCredentialKeyVersion: 1,
   };
 }
 
@@ -78,120 +79,6 @@ function report(overrides: Partial<CharacterReport> = {}): CharacterReport {
     job_id: 4008,
     map_name: 'prt_fild08',
     ...overrides,
-  };
-}
-
-interface FakeRepository extends KeRepository {
-  characters: Map<string, CharacterRow>;
-  instances: Map<string, InstanceRow>;
-  /** 按用户覆盖权益；未设置的用户沿用默认（邮箱已验证：1 个额度 + core 模块）。 */
-  entitlements: Map<number, KeEntitlements>;
-}
-
-function makeFakeRepository(): FakeRepository {
-  const characters = new Map<string, CharacterRow>();
-  const instances = new Map<string, InstanceRow>();
-  const entitlements = new Map<number, KeEntitlements>();
-  const key = (aid: number, cid: number, nid: number): string => `${aid}:${cid}:${nid}`;
-
-  const tx: KeTx = {
-    async lockUser() {
-      // 无真实行锁；测试只验证串行化后的业务分支。
-    },
-    async readEntitlements(userId) {
-      return entitlements.get(userId) ?? { slots: 1, modules: new Set(['core']) };
-    },
-    async findCharacter(aid, cid, nid) {
-      return characters.get(key(aid, cid, nid)) ?? null;
-    },
-    async insertCharacter(userId, r, now) {
-      characters.set(key(r.aid, r.cid, r.nid), {
-        aid: r.aid, cid: r.cid, nid: r.nid, user_id: userId,
-        char_name: r.char_name, base_level: r.base_level, job_level: r.job_level, job_id: r.job_id,
-        map_name: r.map_name, bound_at: now, last_seen_at: now,
-      });
-    },
-    async updateCharacterReport(userId, r, now) {
-      const character = characters.get(key(r.aid, r.cid, r.nid));
-      if (character && character.user_id === userId) Object.assign(character, {
-        char_name: r.char_name, base_level: r.base_level, job_level: r.job_level, job_id: r.job_id, map_name: r.map_name, last_seen_at: now,
-      });
-    },
-    async transferCharacter(userId, r, now) {
-      const character = characters.get(key(r.aid, r.cid, r.nid));
-      if (character) Object.assign(character, {
-        user_id: userId, bound_at: now, char_name: r.char_name, base_level: r.base_level, job_level: r.job_level, job_id: r.job_id, map_name: r.map_name, last_seen_at: now,
-      });
-    },
-    async insertInstance(instanceId, userId, r, buildId, _ipHash, _uaHash, now) {
-      instances.set(instanceId, {
-        instance_id: instanceId, user_id: userId, aid: r.aid, cid: r.cid, nid: r.nid,
-        char_name: r.char_name, map_name: r.map_name, state: 'IDLE', mode: 'auto', features: null, build_id: buildId,
-        license_expires_at: null, last_heartbeat_at: null, started_at: null,
-        kicked_at: null, kicked_by_instance_id: null, stopped_at: null,
-      });
-    },
-    async findInstance(instanceId) {
-      return instances.get(instanceId) ?? null;
-    },
-    async rebindInstance(instanceId, r, buildId, _ipHash, _uaHash, now) {
-      const instance = instances.get(instanceId);
-      if (!instance) return;
-      const wasActive = instance.state === 'ACTIVE';
-      Object.assign(instance, {
-        aid: r.aid, cid: r.cid, nid: r.nid, char_name: r.char_name, map_name: r.map_name, build_id: buildId,
-        ...(wasActive ? { state: 'STOPPED', stopped_at: now } : {}),
-      });
-    },
-    async updateInstanceReport(instanceId, r, licenseExpiresAt, _buildId, _ipHash, _uaHash, now) {
-      const instance = instances.get(instanceId);
-      if (instance) Object.assign(instance, {
-        char_name: r.char_name, map_name: r.map_name, last_heartbeat_at: now, license_expires_at: licenseExpiresAt,
-      });
-    },
-    async activateInstance(instanceId, mode, featuresJson, buildId, _ipHash, _uaHash, licenseExpiresAt, now) {
-      const instance = instances.get(instanceId);
-      if (instance) Object.assign(instance, {
-        state: 'ACTIVE', mode, features: featuresJson, build_id: buildId,
-        license_expires_at: licenseExpiresAt, started_at: now, last_heartbeat_at: now,
-        kicked_at: null, kicked_by_instance_id: null, stopped_at: null,
-      });
-    },
-    async markKicked(instanceId, kickedBy, now) {
-      const instance = instances.get(instanceId);
-      if (instance) Object.assign(instance, { state: 'KICKED', kicked_at: now, kicked_by_instance_id: kickedBy });
-    },
-    async markStopped(instanceId, now) {
-      const instance = instances.get(instanceId);
-      if (instance) Object.assign(instance, { state: 'STOPPED', stopped_at: now });
-    },
-    async countActive(userId, excludeInstanceId, threshold) {
-      let count = 0;
-      for (const instance of instances.values()) {
-        if (instance.user_id === userId && instance.state === 'ACTIVE' && instance.mode === 'auto' && instance.instance_id !== excludeInstanceId && (instance.last_heartbeat_at ?? 0) > threshold) count += 1;
-      }
-      return count;
-    },
-    async listActive(userId, threshold) {
-      const active: { instance_id: string; char_name: string | null; map_name: string | null; last_heartbeat_at: number | null }[] = [];
-      for (const instance of instances.values()) {
-        if (instance.user_id === userId && instance.state === 'ACTIVE' && instance.mode === 'auto' && (instance.last_heartbeat_at ?? 0) > threshold) {
-          active.push({ instance_id: instance.instance_id, char_name: instance.char_name, map_name: instance.map_name, last_heartbeat_at: instance.last_heartbeat_at });
-        }
-      }
-      return active;
-    },
-  };
-
-  return {
-    characters,
-    instances,
-    entitlements,
-    findCharacter: (aid, cid, nid) => tx.findCharacter(aid, cid, nid),
-    findInstance: (instanceId) => tx.findInstance(instanceId),
-    listCharacters: async (userId) => [...characters.values()].filter((character) => character.user_id === userId),
-    transaction: (work) => work(tx),
-    cleanup: async () => {},
   };
 }
 
@@ -283,13 +170,12 @@ describe('ke service', () => {
       expect(repository.instances.get(INST_A)?.state).toBe('IDLE');
     });
 
-    it('额度为 0 时 auto 被额度拦下，manual 不占额度仍可 start', async () => {
+    it('额度为 0 时 auto 与 manual 都被额度拦下（半自动同样占额度）', async () => {
       const { repository, service } = serviceAndClock();
       grant(repository, 10000, 0, ['core']);
       await service.bind('10000', bindInput(INST_A));
       await expect(service.start('10000', startInput(INST_A))).rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
-      const started = await service.start('10000', startInput(INST_A, { mode: 'manual' }));
-      expect(typeof started.license).toBe('string');
+      await expect(service.start('10000', startInput(INST_A, { mode: 'manual' }))).rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
     });
 
     it('auto 实例上限取自账号当前额度，而不是固定常量', async () => {
@@ -374,11 +260,11 @@ describe('ke service', () => {
     expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
 
     advance(60_000);
-    await service.bind('10000', bindInput(INST_B, { char_name: 'Bob' }));
-    await expect(service.start('10000', { ...bindInput(INST_B, { char_name: 'Bob' }), kickInstanceId: null }))
+    await service.bind('10000', bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }));
+    await expect(service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: null }))
       .rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
 
-    const resumed = await service.start('10000', { ...bindInput(INST_B, { char_name: 'Bob' }), kickInstanceId: INST_A });
+    const resumed = await service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: INST_A });
     expect(typeof resumed.license).toBe('string');
     expect(repository.instances.get(INST_A)?.state).toBe('KICKED');
     expect(repository.instances.get(INST_B)?.state).toBe('ACTIVE');
@@ -389,8 +275,8 @@ describe('ke service', () => {
     await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
     await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null });
     advance(60_000);
-    await service.bind('10000', bindInput(INST_B, { char_name: 'Bob' }));
-    await service.start('10000', { ...bindInput(INST_B, { char_name: 'Bob' }), kickInstanceId: INST_A });
+    await service.bind('10000', bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }));
+    await service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: INST_A });
 
     await expect(service.heartbeat('10000', INST_A, report({ char_name: 'Alice' }), Math.floor(now() / 1000), noAttestation()))
       .rejects.toMatchObject({ code: 'KE_INSTANCE_KICKED' });
@@ -511,57 +397,40 @@ describe('ke service', () => {
     expect(typeof renewed.license).toBe('string');
   });
 
-  describe('manual（半自动）模式：需要授权但不占额度', () => {
+  describe('manual 与 auto 一视同仁（I14）：半自动同样占额度', () => {
     const second = { aid: 5, cid: 5, nid: 5, char_name: 'Bob' };
 
-    it('manual 的 start 签发 license，但不占额度：auto 额度满时仍可启动，且 auto 实例不受影响', async () => {
+    it('manual 的 start 也要过额度判定，并以 auto 持久化', async () => {
       const { repository, service } = serviceAndClock();
       await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
       await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' });
       await service.bind('10000', bindInput(INST_B, second));
-
-      const started = await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'manual' });
-      expect(typeof started.license).toBe('string');
-      expect(repository.instances.get(INST_B)).toMatchObject({ state: 'ACTIVE', mode: 'manual' });
+      await expect(service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'manual' }))
+        .rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
       expect(repository.instances.get(INST_A)).toMatchObject({ state: 'ACTIVE', mode: 'auto' });
     });
 
-    it('manual 实例不占额度：它运行时，另一个实例仍可 auto，满额列表里也不会出现 manual 实例', async () => {
-      const { service } = serviceAndClock();
+    it('manual 请求即使不占名额也不能绕过：被接受时存的就是 auto，并且会占住额度', async () => {
+      const { repository, service } = serviceAndClock();
       await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
       await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'manual' });
+      expect(repository.instances.get(INST_A)).toMatchObject({ state: 'ACTIVE', mode: 'auto' });
       await service.bind('10000', bindInput(INST_B, second));
-      await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' });
-
-      await service.bind('10000', bindInput('33333333-3333-4333-8333-333333333333', { aid: 6, cid: 6, nid: 6, char_name: 'Carol' }));
-      await expect(service.start('10000', { ...bindInput('33333333-3333-4333-8333-333333333333', { aid: 6, cid: 6, nid: 6, char_name: 'Carol' }), kickInstanceId: null, mode: 'auto' }))
+      await expect(service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' }))
         .rejects.toMatchObject({
           code: 'KE_QUOTA_EXCEEDED',
-          details: { active_instances: [expect.objectContaining({ instance_id: INST_B })] },
+          details: { active_instances: [expect.objectContaining({ instance_id: INST_A })] },
         });
     });
 
-    it('auto 切到 manual 会释放额度（同一实例再次 start），manual 切回 auto 要重新过额度判定', async () => {
-      const { repository, service } = serviceAndClock();
-      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
-      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' });
-      await service.bind('10000', bindInput(INST_B, second));
-
-      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'manual' });
-      await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' });
-
-      await expect(service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' }))
-        .rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
-      expect(repository.instances.get(INST_A)).toMatchObject({ state: 'ACTIVE', mode: 'manual' });
-    });
-
-    it('manual 的 start 不会踢人，即使带了 kick_instance_id', async () => {
+    it('manual 请求带 kick_instance_id 同样会踢人（与 auto 相同）', async () => {
       const { repository, service } = serviceAndClock();
       await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
       await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'auto' });
       await service.bind('10000', bindInput(INST_B, second));
       await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: INST_A, mode: 'manual' });
-      expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
+      expect(repository.instances.get(INST_A)?.state).toBe('KICKED');
+      expect(repository.instances.get(INST_B)).toMatchObject({ state: 'ACTIVE', mode: 'auto' });
     });
 
     it('缺省 mode 按 auto 处理（旧客户端）', async () => {
@@ -571,16 +440,270 @@ describe('ke service', () => {
       expect(repository.instances.get(INST_A)?.mode).toBe('auto');
     });
 
-    it('心跳超时的 manual 实例不会因 auto 额度被占满而被判为被顶替', async () => {
+    it('心跳超时的实例额度被他人占满后不能凭心跳复活（不再因为 manual 例外而放行）', async () => {
       const { service, advance, now } = serviceAndClock();
       await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
       await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null, mode: 'manual' });
       advance(11 * 60 * 1000);
       await service.bind('10000', bindInput(INST_B, second));
       await service.start('10000', { ...bindInput(INST_B, second), kickInstanceId: null, mode: 'auto' });
+      await expect(service.heartbeat('10000', INST_A, report({ char_name: 'Alice' }), Math.floor(now() / 1000), noAttestation()))
+        .rejects.toMatchObject({ code: 'KE_INSTANCE_KICKED' });
+    });
+  });
 
+  describe('同角色续连接管与被踢原因', () => {
+    it('同一用户用新 instance_id 重新开启同一角色：直接接管旧会话，不提示实例超额', async () => {
+      const { repository, service, advance } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      advance(1000);
+      await service.bind('10000', bindInput(INST_B));
+      const started = await service.start('10000', { ...bindInput(INST_B), kickInstanceId: null });
+      expect(typeof started.license).toBe('string');
+      expect(repository.instances.get(INST_A)).toMatchObject({ state: 'KICKED', kick_reason: 'character_takeover', kicked_by_instance_id: INST_B });
+      expect(repository.instances.get(INST_B)?.state).toBe('ACTIVE');
+    });
+
+    it('被接管的实例心跳返回 KE_INSTANCE_KICKED，并带上 reason', async () => {
+      const { service, advance, now } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      advance(1000);
+      await service.bind('10000', bindInput(INST_B));
+      await service.start('10000', { ...bindInput(INST_B), kickInstanceId: null });
+      await expect(service.heartbeat('10000', INST_A, report(), Math.floor(now() / 1000), noAttestation()))
+        .rejects.toMatchObject({ code: 'KE_INSTANCE_KICKED', details: { reason: 'character_takeover' } });
+    });
+
+    it('为腾名额主动踢人的 reason 是 quota_kick', async () => {
+      const { service, advance, now } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null });
+      advance(1000);
+      await service.bind('10000', bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }));
+      await service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: INST_A });
+      await expect(service.heartbeat('10000', INST_A, report({ char_name: 'Alice' }), Math.floor(now() / 1000), noAttestation()))
+        .rejects.toMatchObject({ code: 'KE_INSTANCE_KICKED', details: { reason: 'quota_kick' } });
+    });
+
+    it('started_at 是首次进入 ACTIVE 的时间：幂等续期不改变它', async () => {
+      const { repository, service, advance } = serviceAndClock();
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      const first = repository.instances.get(INST_A)?.started_at;
+      advance(60_000);
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      expect(repository.instances.get(INST_A)?.started_at).toBe(first);
+    });
+  });
+
+  describe('额度缩水收敛（I6）：非托管实例', () => {
+    it('额度 2 → 1：保留最早启动的，最新的在下一次心跳被踢，且结果持久化', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      repository.entitlements.set(10000, { slots: 2, modules: new Set(['core']) });
+      await service.bind('10000', bindInput(INST_A, { char_name: 'Alice' }));
+      await service.start('10000', { ...bindInput(INST_A, { char_name: 'Alice' }), kickInstanceId: null });
+      advance(1000);
+      await service.bind('10000', bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }));
+      await service.start('10000', { ...bindInput(INST_B, { aid: 1000009, char_name: 'Bob' }), kickInstanceId: null });
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
+      advance(60_000);
+
+      await expect(service.heartbeat('10000', INST_B, report({ aid: 1000009, char_name: 'Bob' }), Math.floor(now() / 1000), noAttestation()))
+        .rejects.toMatchObject({ code: 'KE_INSTANCE_KICKED', details: { reason: 'quota_shrunk' } });
+      expect(repository.instances.get(INST_B)).toMatchObject({ state: 'KICKED', kick_reason: 'quota_shrunk' });
       const renewed = await service.heartbeat('10000', INST_A, report({ char_name: 'Alice' }), Math.floor(now() / 1000), noAttestation());
       expect(typeof renewed.license).toBe('string');
+    });
+  });
+
+  describe('托管主体（离线挂机）', () => {
+    const INST_H = '55555555-5555-4555-8555-555555555555';
+    const principal = (epoch = 3) => ({ instanceId: INST_H, epoch, launchSeq: 1 });
+    const hostedBind = (extra: Record<string, unknown> = {}) => ({ ...bindInput(INST_H), hosted: principal(), ...extra });
+    const hostedStart = (extra: Record<string, unknown> = {}) => ({ ...bindInput(INST_H), hosted: principal(), kickInstanceId: null, ...extra });
+    const setupHosted = (repository: FakeRepository, options: { extra?: number; slots?: number; expiry?: number } = {}) => {
+      repository.entitlements.set(10000, { slots: options.slots ?? 2, modules: new Set(['core']) });
+      repository.hostingModule.set(10000, options.extra ?? 1);
+      if (options.expiry !== undefined) repository.hostingExpiry.set(10000, options.expiry);
+      repository.hostedIds.add(INST_H);
+      repository.hostedRows.set(INST_H, { instance_id: INST_H, user_id: 10000, nid: 3000003, aid: 1000001, cid: 2000002, desired: 'running', assigned_agent: 'agt_000000000000000000000001', epoch: 3 });
+    };
+
+    it('旧 epoch 的进程在 bind/start/heartbeat 都被拒绝（KE_EPOCH_STALE）', async () => {
+      const { repository, service, now } = serviceAndClock();
+      setupHosted(repository);
+      await service.bind('10000', hostedBind());
+      await service.start('10000', hostedStart());
+      repository.hostedRows.get(INST_H)!.epoch = 4; // 实例被改派
+      await expect(service.bind('10000', hostedBind())).rejects.toMatchObject({ code: 'KE_EPOCH_STALE', status: 409 });
+      await expect(service.start('10000', hostedStart())).rejects.toMatchObject({ code: 'KE_EPOCH_STALE' });
+      await expect(service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal() }))
+        .rejects.toMatchObject({ code: 'KE_EPOCH_STALE' });
+    });
+
+    it('上报的角色必须与托管登记一致（防止登记假 id 躲开唯一键）', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository);
+      await expect(service.bind('10000', hostedBind({ report: report({ cid: 99 }) }))).rejects.toMatchObject({ code: 'KE_CHARACTER_MISMATCH' });
+    });
+
+    it('没有托管资格：bind 被拒，并且停止托管实例的动作被持久化（拒绝在事务提交之后才抛出）', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository, { extra: 0, slots: 1 });
+      await expect(service.bind('10000', hostedBind())).rejects.toMatchObject({ code: 'KE_HOSTING_ENTITLEMENT_REQUIRED', status: 403 });
+      expect(repository.policyStops).toEqual([INST_H]);
+      expect(repository.hostedRows.get(INST_H)?.desired).toBe('stopped');
+    });
+
+    it('desired 已是 stopped 的托管实例不能继续 start', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository);
+      await service.bind('10000', hostedBind());
+      repository.hostedRows.get(INST_H)!.desired = 'stopped';
+      await expect(service.start('10000', hostedStart())).rejects.toMatchObject({ code: 'KE_INSTANCE_NOT_ACTIVE' });
+      await expect(service.bind('10000', hostedBind())).rejects.toMatchObject({ code: 'KE_INSTANCE_NOT_ACTIVE' });
+    });
+
+    it('托管 start 永不踢人，带 kick_instance_id 直接拒绝', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository);
+      await service.bind('10000', hostedBind());
+      await expect(service.start('10000', hostedStart({ kickInstanceId: INST_A }))).rejects.toMatchObject({ code: 'KE_BAD_REQUEST' });
+    });
+
+    it('I15：同角色有存活的非托管会话时，托管 start 返回 KE_CHARACTER_IN_USE，且不接管对方', async () => {
+      const { repository, service, advance } = serviceAndClock();
+      setupHosted(repository, { slots: 3 });
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      advance(1000);
+      await service.bind('10000', hostedBind());
+      await expect(service.start('10000', hostedStart())).rejects.toMatchObject({ code: 'KE_CHARACTER_IN_USE', status: 409 });
+      expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
+    });
+
+    it('I15：非托管会话已经 10 分钟没有心跳，托管可以启动', async () => {
+      const { repository, service, advance } = serviceAndClock();
+      setupHosted(repository, { slots: 3 });
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      advance(11 * 60 * 1000);
+      await service.bind('10000', hostedBind());
+      const started = await service.start('10000', hostedStart());
+      expect(typeof started.license).toBe('string');
+    });
+
+    it('非托管用户重新开启同一角色会接管托管实例（reason=character_takeover）', async () => {
+      const { repository, service, advance } = serviceAndClock();
+      setupHosted(repository, { slots: 3 });
+      await service.bind('10000', hostedBind());
+      await service.start('10000', hostedStart());
+      advance(1000);
+      await service.bind('10000', bindInput(INST_A));
+      await service.start('10000', { ...bindInput(INST_A), kickInstanceId: null });
+      expect(repository.instances.get(INST_H)).toMatchObject({ state: 'KICKED', kick_reason: 'character_takeover' });
+    });
+
+    it('托管 start 同样占额度：额度被非托管实例占满时返回 KE_QUOTA_EXCEEDED，不踢人', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository, { slots: 1 });
+      await service.bind('10000', bindInput(INST_A, { aid: 1000009, char_name: 'Other' }));
+      await service.start('10000', { ...bindInput(INST_A, { aid: 1000009, char_name: 'Other' }), kickInstanceId: null });
+      await service.bind('10000', hostedBind());
+      await expect(service.start('10000', hostedStart())).rejects.toMatchObject({ code: 'KE_QUOTA_EXCEEDED' });
+      expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
+    });
+
+    it('托管 license 到期封顶为资格到期时间', async () => {
+      const { repository, service, now } = serviceAndClock();
+      const expiry = now() + 5 * 60 * 1000;
+      setupHosted(repository, { expiry });
+      await service.bind('10000', hostedBind());
+      const started = await service.start('10000', hostedStart());
+      const payload = JSON.parse(decoder.decode(base64UrlDecode(started.license.split('.')[0]!))) as { exp: number };
+      expect(payload.exp).toBe(Math.floor(expiry / 1000));
+      expect(repository.instances.get(INST_H)?.license_expires_at).toBe(expiry);
+    });
+
+    it('托管 heartbeat 保存状态快照；超过 16KB 或非对象的快照被忽略', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      setupHosted(repository);
+      await service.bind('10000', hostedBind());
+      await service.start('10000', hostedStart());
+      advance(1000);
+      await service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal(), status: { v: 1, ai: 'auto' } });
+      expect(JSON.parse(repository.statuses.get(INST_H)!)).toEqual({ v: 1, ai: 'auto' });
+      repository.statuses.clear();
+      await service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal(), status: { blob: 'x'.repeat(20_000) } });
+      await service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal(), status: 'nope' });
+      expect(repository.statuses.size).toBe(0);
+    });
+
+    it('资格在运行中丢失：托管 heartbeat 被拒（KE_HOSTING_ENTITLEMENT_REQUIRED），同用户的非托管实例不被误杀', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      setupHosted(repository, { slots: 2 });
+      await service.bind('10000', hostedBind());
+      await service.start('10000', hostedStart());
+      advance(1000);
+      await service.bind('10000', bindInput(INST_A, { aid: 1000009, char_name: 'Other' }));
+      await service.start('10000', { ...bindInput(INST_A, { aid: 1000009, char_name: 'Other' }), kickInstanceId: null });
+      // 额外额度到期：回到只有免费 1 个。
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
+      repository.hostingModule.set(10000, 0);
+      advance(60_000);
+
+      await expect(service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal() }))
+        .rejects.toMatchObject({ code: 'KE_HOSTING_ENTITLEMENT_REQUIRED' });
+      expect(repository.policyStops).toContain(INST_H);
+      const renewed = await service.heartbeat('10000', INST_A, report({ aid: 1000009, char_name: 'Other' }), Math.floor(now() / 1000), noAttestation());
+      expect(typeof renewed.license).toBe('string');
+      expect(repository.instances.get(INST_A)?.state).toBe('ACTIVE');
+    });
+
+    it('买了 1 个额外额度、托管 2 个，额度到期：两个托管实例的 heartbeat 都被拒，一个都不保留', async () => {
+      const { repository, service, advance, now } = serviceAndClock();
+      const INST_H2 = '66666666-6666-4666-8666-666666666666';
+      setupHosted(repository, { slots: 2 });
+      repository.hostedIds.add(INST_H2);
+      repository.hostedRows.set(INST_H2, { instance_id: INST_H2, user_id: 10000, nid: 3000003, aid: 1000002, cid: 2000002, desired: 'running', assigned_agent: 'agt_000000000000000000000001', epoch: 3 });
+      const second = { aid: 1000002 };
+      await service.bind('10000', hostedBind());
+      await service.start('10000', hostedStart());
+      advance(1000);
+      await service.bind('10000', { ...bindInput(INST_H2, second), hosted: { instanceId: INST_H2, epoch: 3, launchSeq: 1 } });
+      await service.start('10000', { ...bindInput(INST_H2, second), hosted: { instanceId: INST_H2, epoch: 3, launchSeq: 1 }, kickInstanceId: null });
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
+      repository.hostingModule.set(10000, 0);
+      advance(60_000);
+
+      await expect(service.heartbeat('10000', INST_H, report(), Math.floor(now() / 1000), noAttestation(), { hosted: principal() }))
+        .rejects.toMatchObject({ code: 'KE_HOSTING_ENTITLEMENT_REQUIRED' });
+      await expect(service.heartbeat('10000', INST_H2, report(second), Math.floor(now() / 1000), noAttestation(), { hosted: { instanceId: INST_H2, epoch: 3, launchSeq: 1 } }))
+        .rejects.toMatchObject({ code: 'KE_HOSTING_ENTITLEMENT_REQUIRED' });
+      expect(repository.hostedRows.get(INST_H)?.desired).toBe('stopped');
+      expect(repository.hostedRows.get(INST_H2)?.desired).toBe('stopped');
+    });
+
+    it('额度满的踢人列表里，托管实例带“[托管]”前缀和 hosted 标志（旧客户端也能认出来）', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository, { slots: 1 });
+      await service.bind('10000', hostedBind());
+      repository.entitlements.set(10000, { slots: 2, modules: new Set(['core']) });
+      await service.start('10000', hostedStart());
+      repository.entitlements.set(10000, { slots: 1, modules: new Set(['core']) });
+      await service.bind('10000', bindInput(INST_A, { aid: 1000009, char_name: 'Other' }));
+      const error = await service.start('10000', { ...bindInput(INST_A, { aid: 1000009, char_name: 'Other' }), kickInstanceId: null }).catch((e: unknown) => e) as KeFailure;
+      expect(error.code).toBe('KE_QUOTA_EXCEEDED');
+      expect((error.details as { active_instances: { hosted: boolean; char_name: string }[] }).active_instances)
+        .toEqual([expect.objectContaining({ hosted: true, char_name: expect.stringMatching(/^\[托管\] /u) })]);
+    });
+
+    it('托管 token 不能操作别的实例', async () => {
+      const { repository, service } = serviceAndClock();
+      setupHosted(repository);
+      await expect(service.stop('10000', INST_A, principal())).rejects.toMatchObject({ code: 'KE_AUTH_FORBIDDEN' });
     });
   });
 

@@ -11,7 +11,10 @@
   `network` 版本。没有该权益的账号请求 `network` 返回
   `403 KE_NOT_ENTITLED`。
 
-管理员在现有权益调整页把资源填成 `module:standalone` 即可，语义与 `module:core` 相同。
+- `module:hosting`：离线挂机（付费功能）。拥有它期间同时具备 `standalone` 能力（上面的 `network` 密钥与 `features` 与拥有
+  `module:standalone` 完全一样），到期/退款后一起失效；它同时是 Linux 托管的资格条件，详见 `ke-hosting.md`。
+
+管理员在现有权益调整页把资源填成 `module:standalone` 或 `module:hosting` 即可，语义与 `module:core` 相同。
 
 ## 登录前领取模块密钥（脱机版推荐）
 

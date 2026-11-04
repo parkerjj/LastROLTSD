@@ -109,7 +109,7 @@ export async function previewPromotion(
   let expectedSubtotalCents = 0n;
   let selectedUnitCount = 0;
   for (const item of input.items) {
-    if ((item.productKey !== 'slots' && item.productKey !== 'module:standalone')
+    if ((item.productKey !== 'slots' && item.productKey !== 'module:standalone' && item.productKey !== 'module:hosting')
       || !/^prod_[A-Za-z0-9]+$/u.test(item.productId) || !item.description.trim() || item.description.length > 500
       || !Number.isSafeInteger(item.rawUnitAmountCents) || item.rawUnitAmountCents <= 0
       || !Number.isSafeInteger(item.tierUnitAmountCents) || item.tierUnitAmountCents <= 0 || item.tierUnitAmountCents > item.rawUnitAmountCents

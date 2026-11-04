@@ -1,4 +1,5 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
+import type { HostingEntitlement } from './hosted/policy';
 
 /** KE 权益：实例额度与可用模块，均由 ke_entitlements 流水按「当前时刻」实时求和得出。 */
 
@@ -10,6 +11,11 @@ export const KE_MODULE_PREFIX = 'module:';
 export const KE_CORE_MODULE = 'core';
 /** 脱机版模块：允许 bind 下发 network 模块密钥，并在 license.key_versions 里带 network。 */
 export const KE_STANDALONE_MODULE = 'standalone';
+/**
+ * 离线挂机功能（付费，50 元/月）：账号可以把实例交给托管服务器长期挂机。
+ * 拥有它期间同时具备脱机版（standalone）能力，到期/退款后一起失效（“包含式”赠送，见 foldEntitlements）。
+ */
+export const KE_HOSTING_MODULE = 'hosting';
 
 export interface KeEntitlements {
   /** auto 实例额度；负数流水可能让总和为负，这里钳到 0。 */
@@ -23,7 +29,11 @@ export interface ResourceTotal {
   total: number;
 }
 
-/** 把「有效流水按 resource 求和」的结果折算成权益：额度钳到 0，模块总和 > 0 才生效。 */
+/**
+ * 把「有效流水按 resource 求和」的结果折算成权益：额度钳到 0，模块总和 > 0 才生效。
+ * 离线挂机（hosting）包含脱机版（standalone）：购买离线挂机即赠送等时长的脱机版，
+ * 这里不额外写赠送流水，而是在生效模块里直接补上 standalone，退款/到期自然同步。
+ */
 export function foldEntitlements(totals: readonly ResourceTotal[]): KeEntitlements {
   let slots = 0;
   const modules = new Set<string>();
@@ -31,6 +41,7 @@ export function foldEntitlements(totals: readonly ResourceTotal[]): KeEntitlemen
     if (resource === KE_RESOURCE_SLOTS) slots = Math.max(0, total);
     else if (resource.startsWith(KE_MODULE_PREFIX) && total > 0) modules.add(resource.slice(KE_MODULE_PREFIX.length));
   }
+  if (modules.has(KE_HOSTING_MODULE)) modules.add(KE_STANDALONE_MODULE);
   return { slots, modules };
 }
 
@@ -58,4 +69,54 @@ export async function grantSignupEntitlements(db: MysqlDatabase, userId: string,
      ON DUPLICATE KEY UPDATE id = id`,
     [userId, KE_RESOURCE_SLOTS, at, expiresAt, at, userId, `${KE_MODULE_PREFIX}${KE_CORE_MODULE}`, at, expiresAt, at],
   );
+}
+
+/** 托管资格用的权益视图：在 slots 总额之外，给出离线挂机功能的最晚到期时间。 */
+export interface HostingEntitlementView extends HostingEntitlement {
+  /** 有效的离线挂机权益中最晚的到期时间（毫秒）；用于托管 license 封顶。 */
+  hostingExpiresAt: number | null;
+}
+
+export interface HostingEntitlementRow {
+  resource: string;
+  total: number;
+  maxExpiresAt: number;
+}
+
+const HOSTING_RESOURCE = `${KE_MODULE_PREFIX}${KE_HOSTING_MODULE}`;
+
+/** 纯函数：把按 resource 分组求和的结果折算成托管资格视图。 */
+export function foldHostingEntitlement(rows: readonly HostingEntitlementRow[]): HostingEntitlementView {
+  let slots = 0;
+  let hostingTotal = 0;
+  let hostingExpiresAt: number | null = null;
+  let hasCore = false;
+  for (const row of rows) {
+    if (row.resource === KE_RESOURCE_SLOTS) {
+      slots += row.total;
+    } else if (row.resource === HOSTING_RESOURCE) {
+      hostingTotal += row.total;
+      if (row.total > 0) hostingExpiresAt = Math.max(hostingExpiresAt ?? 0, row.maxExpiresAt);
+    } else if (row.resource === `${KE_MODULE_PREFIX}${KE_CORE_MODULE}` && row.total > 0) {
+      hasCore = true;
+    }
+  }
+  const hasHosting = hostingTotal > 0;
+  return { slots: Math.max(0, slots), hasHosting, hasCore, hostingExpiresAt: hasHosting ? hostingExpiresAt : null };
+}
+
+export async function queryHostingEntitlement(db: Pick<MysqlDatabase, 'all'>, userId: number | string, now: number): Promise<HostingEntitlementView> {
+  const rows = await db.all<MysqlRow>(
+    `SELECT resource, SUM(quantity) AS total, MAX(expires_at) AS max_expires
+     FROM ke_entitlements
+     WHERE user_id = ? AND starts_at <= ? AND expires_at > ? AND revoked_at IS NULL
+       AND resource IN ('slots', 'module:core', 'module:hosting')
+     GROUP BY resource`,
+    [userId, now, now],
+  );
+  return foldHostingEntitlement(rows.map((row) => ({
+    resource: String(row.resource),
+    total: Number(row.total),
+    maxExpiresAt: Number(row.max_expires),
+  })));
 }

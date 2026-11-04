@@ -14,6 +14,7 @@ describe('commerce worker wiring', () => {
       COMMERCE_PRICING_VERSION: 'ke-commerce-v1',
       COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slots',
       COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_standalone',
+      COMMERCE_STRIPE_PRODUCT_HOSTING_ID: 'prod_hosting',
       COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_123',
       COMMERCE_SITE_ORIGIN: 'https://ltsd.ro',
     } as AppEnv;

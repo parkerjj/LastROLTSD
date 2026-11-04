@@ -25,10 +25,11 @@ function matchesAccount(value: unknown, expectedId: string): boolean {
 }
 
 export async function verifyStripeCommerceConfiguration(config: CommerceConfig, stripe: StripeClient): Promise<void> {
-  const [, slotsResult, standaloneResult, paymentConfigurationResult] = await Promise.all([
+  const [, slotsResult, standaloneResult, hostingResult, paymentConfigurationResult] = await Promise.all([
     verifyStripeAccount(config, stripe),
     stripe.get<unknown>(`/products/${encodeURIComponent(config.productIds.slots)}`),
     stripe.get<unknown>(`/products/${encodeURIComponent(config.productIds['module:standalone'])}`),
+    stripe.get<unknown>(`/products/${encodeURIComponent(config.productIds['module:hosting'])}`),
     stripe.get<unknown>(`/payment_method_configurations/${encodeURIComponent(config.paymentMethodConfigurationId)}`),
   ]);
   const paymentConfiguration = record(paymentConfigurationResult);
@@ -38,6 +39,8 @@ export async function verifyStripeCommerceConfiguration(config: CommerceConfig, 
     || !matchesProductKey(slotsResult, 'slots')
     || !matchesResource(standaloneResult, { id: config.productIds['module:standalone'], livemode: config.livemode, active: true })
     || !matchesProductKey(standaloneResult, 'module:standalone')
+    || !matchesResource(hostingResult, { id: config.productIds['module:hosting'], livemode: config.livemode, active: true })
+    || !matchesProductKey(hostingResult, 'module:hosting')
     || paymentConfiguration?.id !== config.paymentMethodConfigurationId
     || paymentConfiguration.active !== true
     || paymentConfiguration.livemode !== config.livemode

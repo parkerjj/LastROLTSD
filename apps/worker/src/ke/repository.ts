@@ -1,8 +1,10 @@
 import type { MysqlDatabase, MysqlRow } from '../db/mysql-client';
-import { queryEntitlements, type KeEntitlements } from './entitlements';
+import { queryEntitlements, queryHostingEntitlement, type HostingEntitlementView, type KeEntitlements } from './entitlements';
 import type { ActiveInstanceInfo, CharacterReport, KeLicenseMode } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** 踢人列表里托管实例的名字前缀（旧版客户端没有 hosted 字段，也能从名字上认出来）。 */
+export const HOSTED_LABEL = '[托管] ';
 
 export interface CharacterRow {
   aid: number;
@@ -36,6 +38,36 @@ export interface InstanceRow {
   kicked_at: number | null;
   kicked_by_instance_id: string | null;
   stopped_at: number | null;
+  kick_reason: string | null;
+  updated_at: number;
+}
+
+/** 同一角色下仍有效（ACTIVE/IDLE）的其他实例；hosted 标记它是否为托管实例。 */
+export interface SameCharacterRow {
+  instance_id: string;
+  state: string;
+  last_heartbeat_at: number | null;
+  updated_at: number;
+  hosted: boolean;
+}
+
+/** 超额收敛用：占槽的 ACTIVE auto 实例及其首次进入 ACTIVE 的时间。 */
+export interface ConvergenceRow {
+  instance_id: string;
+  started_at: number;
+  hosted: boolean;
+}
+
+/** 托管记录的最小视图：供 bind/start/heartbeat 校验 epoch 与登记的角色身份。 */
+export interface HostedRowLite {
+  instance_id: string;
+  user_id: number;
+  nid: number;
+  aid: number;
+  cid: number;
+  desired: string;
+  assigned_agent: string | null;
+  epoch: number;
 }
 
 function asNumber(value: unknown): number {
@@ -85,6 +117,8 @@ function readInstance(row: MysqlRow): InstanceRow {
     kicked_at: asNullableNumber(row.kicked_at),
     kicked_by_instance_id: asNullableString(row.kicked_by_instance_id),
     stopped_at: asNullableNumber(row.stopped_at),
+    kick_reason: asNullableString(row.kick_reason),
+    updated_at: asNumber(row.updated_at ?? 0),
   };
 }
 
@@ -105,11 +139,23 @@ export interface KeTx {
   rebindInstance(instanceId: string, report: CharacterReport, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
   updateInstanceReport(instanceId: string, report: CharacterReport, licenseExpiresAt: number, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, now: number): Promise<void>;
   activateInstance(instanceId: string, mode: KeLicenseMode, featuresJson: string, buildId: string | null, ipHash: Uint8Array | null, uaHash: Uint8Array | null, licenseExpiresAt: number, now: number): Promise<void>;
-  markKicked(instanceId: string, kickedBy: string, now: number): Promise<void>;
+  markKicked(instanceId: string, kickedBy: string, now: number, reason: string): Promise<void>;
   markStopped(instanceId: string, now: number): Promise<void>;
   /** 只统计占额度的 auto 实例；manual（半自动）实例不计入。 */
   countActive(userId: number, excludeInstanceId: string, threshold: number): Promise<number>;
   listActive(userId: number, threshold: number): Promise<ActiveInstanceInfo[]>;
+  /** 托管资格视图（离线挂机权益、总额度、最晚到期时间）；与 readEntitlements 同源流水。 */
+  readHostingEntitlement(userId: number, now: number): Promise<HostingEntitlementView>;
+  /** 同一用户同一角色下仍有效（ACTIVE/IDLE）的其他实例（续连接管 / 托管互斥判断）。 */
+  listSameCharacter(userId: number, aid: number, cid: number, nid: number, excludeInstanceId: string): Promise<SameCharacterRow[]>;
+  /** 占槽的 ACTIVE auto 实例（超额收敛用）。 */
+  listActiveForConvergence(userId: number, threshold: number): Promise<ConvergenceRow[]>;
+  /** 托管记录最小视图；非托管实例返回 null。 */
+  findHostedRow(instanceId: string): Promise<HostedRowLite | null>;
+  /** 因资格/额度策略停止托管实例：desired=stopped 并吊销其 token；已停止的不重复处理。 */
+  stopHostedByPolicy(instanceId: string, reason: string, now: number): Promise<void>;
+  /** 监控台展示用的最新状态快照（覆盖写）。 */
+  saveStatus(instanceId: string, statusJson: string, now: number): Promise<void>;
 }
 
 export interface KeRepository {
@@ -121,7 +167,7 @@ export interface KeRepository {
   cleanup(now: number): Promise<void>;
 }
 
-function txFor(db: MysqlDatabase): KeTx {
+export function txFor(db: MysqlDatabase): KeTx {
   return {
     async lockUser(userId) {
       await db.all('SELECT id FROM auth_users WHERE id = ? FOR UPDATE', [userId]);
@@ -167,7 +213,7 @@ function txFor(db: MysqlDatabase): KeTx {
 
     async findInstance(instanceId) {
       const rows = await db.all<MysqlRow>(
-        'SELECT instance_id, user_id, aid, cid, nid, char_name, map_name, state, mode, features, build_id, license_expires_at, last_heartbeat_at, started_at, kicked_at, kicked_by_instance_id, stopped_at FROM ke_instances WHERE instance_id = ?',
+        'SELECT instance_id, user_id, aid, cid, nid, char_name, map_name, state, mode, features, build_id, license_expires_at, last_heartbeat_at, started_at, kicked_at, kicked_by_instance_id, stopped_at, kick_reason, updated_at FROM ke_instances WHERE instance_id = ?',
         [instanceId],
       );
       return rows.length > 0 ? readInstance(rows[0]!) : null;
@@ -189,16 +235,18 @@ function txFor(db: MysqlDatabase): KeTx {
     },
 
     async activateInstance(instanceId, mode, featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now) {
+      // started_at 是“首次进入 ACTIVE 的时间”，超额收敛按它排序：已经 ACTIVE 的幂等续期不改变它。
+      // MySQL 的 SET 从左到右求值：started_at 必须排在 state 之前，才能读到更新前的 state。
       await db.run(
-        'UPDATE ke_instances SET state = ?, mode = ?, features = ?, build_id = ?, ip_hash = ?, ua_hash = ?, license_expires_at = ?, started_at = ?, last_heartbeat_at = ?, kicked_at = NULL, kicked_by_instance_id = NULL, stopped_at = NULL, updated_at = ? WHERE instance_id = ?',
-        ['ACTIVE', mode, featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now, now, now, instanceId],
+        'UPDATE ke_instances SET started_at = CASE WHEN state = ? AND started_at IS NOT NULL THEN started_at ELSE ? END, state = ?, mode = ?, features = ?, build_id = ?, ip_hash = ?, ua_hash = ?, license_expires_at = ?, last_heartbeat_at = ?, kicked_at = NULL, kicked_by_instance_id = NULL, kick_reason = NULL, stopped_at = NULL, updated_at = ? WHERE instance_id = ?',
+        ['ACTIVE', now, 'ACTIVE', mode, featuresJson, buildId, ipHash, uaHash, licenseExpiresAt, now, now, instanceId],
       );
     },
 
-    async markKicked(instanceId, kickedBy, now) {
+    async markKicked(instanceId, kickedBy, now, reason) {
       await db.run(
-        'UPDATE ke_instances SET state = ?, kicked_at = ?, kicked_by_instance_id = ?, updated_at = ? WHERE instance_id = ?',
-        ['KICKED', now, kickedBy, now, instanceId],
+        'UPDATE ke_instances SET state = ?, kicked_at = ?, kicked_by_instance_id = ?, kick_reason = ?, updated_at = ? WHERE instance_id = ?',
+        ['KICKED', now, kickedBy, reason, now, instanceId],
       );
     },
 
@@ -219,15 +267,89 @@ function txFor(db: MysqlDatabase): KeTx {
 
     async listActive(userId, threshold) {
       const rows = await db.all<MysqlRow>(
-        'SELECT instance_id, char_name, map_name, last_heartbeat_at FROM ke_instances WHERE user_id = ? AND state = ? AND mode = ? AND last_heartbeat_at > ?',
+        `SELECT i.instance_id, i.char_name, i.map_name, i.last_heartbeat_at, (h.instance_id IS NOT NULL) AS hosted
+         FROM ke_instances AS i
+         LEFT JOIN ke_hosted_instances AS h ON h.instance_id = i.instance_id
+         WHERE i.user_id = ? AND i.state = ? AND i.mode = ? AND i.last_heartbeat_at > ?`,
         [userId, 'ACTIVE', 'auto', threshold],
+      );
+      return rows.map((row) => {
+        const hosted = asNumber(row.hosted) === 1;
+        const name = asNullableString(row.char_name);
+        return {
+          instance_id: String(row.instance_id),
+          char_name: hosted ? `${HOSTED_LABEL}${name ?? ''}` : name,
+          map_name: asNullableString(row.map_name),
+          last_heartbeat_at: asNullableNumber(row.last_heartbeat_at),
+          hosted,
+        };
+      });
+    },
+
+    readHostingEntitlement: (userId, now) => queryHostingEntitlement(db, userId, now),
+
+    async listSameCharacter(userId, aid, cid, nid, excludeInstanceId) {
+      const rows = await db.all<MysqlRow>(
+        `SELECT i.instance_id, i.state, i.last_heartbeat_at, i.updated_at, (h.instance_id IS NOT NULL) AS hosted
+         FROM ke_instances AS i
+         LEFT JOIN ke_hosted_instances AS h ON h.instance_id = i.instance_id
+         WHERE i.user_id = ? AND i.aid = ? AND i.cid = ? AND i.nid = ? AND i.instance_id <> ? AND i.state IN ('ACTIVE', 'IDLE')`,
+        [userId, aid, cid, nid, excludeInstanceId],
       );
       return rows.map((row) => ({
         instance_id: String(row.instance_id),
-        char_name: asNullableString(row.char_name),
-        map_name: asNullableString(row.map_name),
+        state: String(row.state),
         last_heartbeat_at: asNullableNumber(row.last_heartbeat_at),
+        updated_at: asNumber(row.updated_at),
+        hosted: asNumber(row.hosted) === 1,
       }));
+    },
+
+    async listActiveForConvergence(userId, threshold) {
+      const rows = await db.all<MysqlRow>(
+        `SELECT i.instance_id, i.started_at, (h.instance_id IS NOT NULL) AS hosted
+         FROM ke_instances AS i
+         LEFT JOIN ke_hosted_instances AS h ON h.instance_id = i.instance_id
+         WHERE i.user_id = ? AND i.state = 'ACTIVE' AND i.mode = 'auto' AND i.last_heartbeat_at > ?`,
+        [userId, threshold],
+      );
+      return rows.map((row) => ({
+        instance_id: String(row.instance_id),
+        started_at: asNumber(row.started_at ?? 0),
+        hosted: asNumber(row.hosted) === 1,
+      }));
+    },
+
+    async findHostedRow(instanceId) {
+      const row = await db.first<MysqlRow>(
+        'SELECT instance_id, user_id, nid, aid, cid, desired, assigned_agent, epoch FROM ke_hosted_instances WHERE instance_id = ?',
+        [instanceId],
+      );
+      return row === null ? null : {
+        instance_id: String(row.instance_id),
+        user_id: asNumber(row.user_id),
+        nid: asNumber(row.nid),
+        aid: asNumber(row.aid),
+        cid: asNumber(row.cid),
+        desired: String(row.desired),
+        assigned_agent: asNullableString(row.assigned_agent),
+        epoch: asNumber(row.epoch),
+      };
+    },
+
+    async stopHostedByPolicy(instanceId, reason, now) {
+      await db.run(
+        "UPDATE ke_hosted_instances SET desired = 'stopped', active_char_key = NULL, phase = CASE WHEN assigned_agent IS NULL THEN 'stopped' ELSE 'stopping' END, stop_reason = ?, updated_at = ? WHERE instance_id = ? AND desired = 'running'",
+        [reason, now, instanceId],
+      );
+      await db.run('UPDATE ke_hosted_tokens SET revoked_at = ? WHERE instance_id = ? AND revoked_at IS NULL', [now, instanceId]);
+    },
+
+    async saveStatus(instanceId, statusJson, now) {
+      await db.run(
+        'INSERT INTO ke_instance_status (instance_id, status_json, status_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE status_json = VALUES(status_json), status_at = VALUES(status_at)',
+        [instanceId, statusJson, now],
+      );
     },
   };
 }

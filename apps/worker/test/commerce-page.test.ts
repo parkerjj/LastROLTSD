@@ -89,7 +89,7 @@ describe('commerce page bootstrap', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('text/html; charset=UTF-8');
     expect(response.headers.get('cache-control')).toBe('private, no-store');
-    expect(bootstrap.catalog?.products?.map(({ key }) => key)).toEqual(['slots', 'module:standalone']);
+    expect(bootstrap.catalog?.products?.map(({ key }) => key)).toEqual(['slots', 'module:standalone', 'module:hosting']);
     expect(bootstrap.session).toBeNull();
     expect(bootstrap.account).toMatchObject({ units: [], entitlements: [], effective: { slots: 0, modules: [] } });
   });

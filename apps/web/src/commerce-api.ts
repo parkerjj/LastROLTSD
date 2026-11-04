@@ -6,6 +6,7 @@ export type CommerceQuoteSelection =
   | { type: "slot_add"; quantity: number; termDays: 30 | 90 | 180 | 360 }
   | { type: "slot_renew"; unitIds: string[]; termDays: 30 | 90 | 180 | 360 }
   | { type: "standalone"; termDays: 30 | 90 | 180 | 360 }
+  | { type: "hosting"; termDays: 30 | 90 | 180 | 360 }
   | { type: "align_all_paid"; termDays: 30 | 90 | 180 | 360 };
 
 export interface CommerceBootstrapUnit {
@@ -188,7 +189,7 @@ function entitlement(value: unknown): value is CommercePreviewEntitlement {
     && Number.isSafeInteger(value.quantity)
     && decimal(value.startsAt)
     && decimal(value.expiresAt)
-    && (value.productKey === null || value.productKey === "slots" || value.productKey === "module:standalone")
+    && (value.productKey === null || value.productKey === "slots" || value.productKey === "module:standalone" || value.productKey === "module:hosting")
     && typeof value.isGift === "boolean"
     && (value.isNew === undefined || typeof value.isNew === "boolean");
 }
@@ -204,7 +205,7 @@ function quoteResponse(value: unknown): value is CommerceQuote {
     && Array.isArray(value.items)
     && value.items.every((item) => record(item)
       && Number.isSafeInteger(item.ordinal)
-      && (item.productKey === "slots" || item.productKey === "module:standalone")
+      && (item.productKey === "slots" || item.productKey === "module:standalone" || item.productKey === "module:hosting")
       && (item.operation === "ADD" || item.operation === "RENEW")
       && (item.targetUnitId === null || decimal(item.targetUnitId))
       && (item.targetEntitlementId === null || decimal(item.targetEntitlementId))
@@ -289,7 +290,7 @@ function orderView(value: unknown): value is CommerceOrderView {
 
   const validItems = value.items.every((item) => record(item)
     && Number.isSafeInteger(item.ordinal)
-    && (item.productKey === "slots" || item.productKey === "module:standalone")
+    && (item.productKey === "slots" || item.productKey === "module:standalone" || item.productKey === "module:hosting")
     && ["ADD", "RENEW", "ALIGN"].includes(String(item.operation))
     && (item.targetUnitId === null || decimal(item.targetUnitId))
     && (item.targetEntitlementId === null || decimal(item.targetEntitlementId))
@@ -317,6 +318,7 @@ function toWireSelection(selection: CommerceQuoteSelection): Record<string, unkn
     case "slot_add": return { type: selection.type, quantity: selection.quantity, term_days: selection.termDays };
     case "slot_renew": return { type: selection.type, unit_ids: [...selection.unitIds], term_days: selection.termDays };
     case "standalone":
+    case "hosting":
     case "align_all_paid": return { type: selection.type, term_days: selection.termDays };
   }
 }

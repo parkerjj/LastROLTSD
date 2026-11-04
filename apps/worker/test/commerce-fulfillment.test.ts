@@ -291,6 +291,21 @@ describe('paid commerce order fulfillment', () => {
     expect(repository.items[0]?.delivery_state).toBe('delivered');
   });
 
+  it('离线挂机订单项按 module:hosting 建立账号单元并交付，不触碰额度流水', async () => {
+    const repository = new FulfillmentRepository();
+    repository.items = [{ ...ADD_ITEM, product_key: 'module:hosting', resource: 'module:hosting' }];
+
+    const result = await reconcilePaidOrder('701', dependencies({ repository }));
+
+    expect(result).toMatchObject({ status: 'fulfilled', orderId: '701' });
+    const unit = repository.writes.find(({ sql }) => sql.includes('INSERT INTO commerce_units'));
+    expect(unit?.values[1]).toBe('module:hosting');
+    expect(unit?.values[2]).toBe('commerce');
+    const purchase = repository.writes.find(({ sql }) => sql.includes('INSERT INTO commerce_unit_events'));
+    expect(purchase?.values).toContain('order-item:801');
+    expect(repository.items[0]?.delivery_state).toBe('delivered');
+  });
+
   it('persists the Stripe payment charge ID, including Alipay py_ IDs, for refund event matching', async () => {
     const repository = new FulfillmentRepository();
 

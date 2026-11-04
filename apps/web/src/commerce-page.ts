@@ -28,6 +28,10 @@ const TERM_DAYS = [30, 90, 180, 360] as const;
 const MAX_SELECTION_ITEMS = 1000;
 const SLOTS_NAME = "KE 挂机额度";
 const FEATURE_NAME = "全平台脱机 KoreEngine";
+const HOSTING_NAME = "离线挂机（含脱机 KoreEngine）";
+
+type ProductKey = CommerceProduct["key"];
+
 const WELCOME_PROMOTION_CODE = "ILOVEKE70";
 const WELCOME_PROMOTION_PERCENT = 30n;
 
@@ -48,9 +52,10 @@ function validCatalog(value: unknown): value is CommerceCatalog {
     && product.key === key && product.purchaseMode === mode
     && typeof product.name === "string" && typeof product.description === "string"
     && typeof product.unitLabel === "string" && decimal(product.monthlyUnitPriceCents));
-  return products.length === 2
+  return products.length === 3
     && hasProduct("slots", "quantity-and-duration")
     && hasProduct("module:standalone", "duration")
+    && hasProduct("module:hosting", "duration")
     && value.terms.length === 4
     && value.terms.every((term, index) => record(term)
       && term.days === TERM_DAYS[index]
@@ -188,7 +193,7 @@ function termLabel(days: number): string {
   return `${days / 30} 个月`;
 }
 
-function product(catalog: CommerceCatalog, key: "slots" | "module:standalone"): CommerceProduct {
+function product(catalog: CommerceCatalog, key: ProductKey): CommerceProduct {
   const value = catalog.products.find((entry) => entry.key === key);
   if (!value) throw new Error("购买目录缺少商品");
   return value;
@@ -210,12 +215,22 @@ function hasActiveStandaloneGift(account: CommerceBootstrap["account"], now: num
     && row.quantity > 0 && row.isGift && Number(row.startsAt) <= now && Number(row.expiresAt) > now);
 }
 
-function alignmentExpiries(account: CommerceBootstrap["account"], now: number): Array<{ key: "slots" | "module:standalone"; expiresAt: number }> {
-  const rows: Array<{ key: "slots" | "module:standalone"; expiresAt: number }> = activePaidSlots(account, now)
+function activeHosting(account: CommerceBootstrap["account"], now: number): CommerceBootstrapEntitlement[] {
+  if (!account.effective.modules.includes("hosting")) return [];
+  return account.entitlements.filter((row) => row.resource === "module:hosting" && row.quantity > 0 && !row.isGift
+    && Number(row.startsAt) <= now && Number(row.expiresAt) > now);
+}
+
+function alignmentExpiries(account: CommerceBootstrap["account"], now: number): Array<{ key: ProductKey; expiresAt: number }> {
+  const rows: Array<{ key: ProductKey; expiresAt: number }> = activePaidSlots(account, now)
     .map((unit) => ({ key: "slots", expiresAt: Number(unit.expiresAt) }));
   const features = activeStandalone(account, now);
   if (features.length) {
     rows.push({ key: "module:standalone", expiresAt: Math.max(...features.map((row) => Number(row.expiresAt))) });
+  }
+  const hosting = activeHosting(account, now);
+  if (hosting.length) {
+    rows.push({ key: "module:hosting", expiresAt: Math.max(...hosting.map((row) => Number(row.expiresAt))) });
   }
   return rows;
 }
@@ -224,18 +239,18 @@ function tierForDays(days: number) {
   return tierForDuration(BigInt(days) * COMMERCE_DAY_MS);
 }
 
-function lineCents(catalog: CommerceCatalog, key: "slots" | "module:standalone", durationMs: bigint): bigint {
+function lineCents(catalog: CommerceCatalog, key: ProductKey, durationMs: bigint): bigint {
   const item = product(catalog, key);
   const tier = tierForDuration(durationMs);
   return priceLineCents(BigInt(item.monthlyUnitPriceCents), durationMs, tier);
 }
 
-function rawLineCents(catalog: CommerceCatalog, key: "slots" | "module:standalone", days: number): bigint {
+function rawLineCents(catalog: CommerceCatalog, key: ProductKey, days: number): bigint {
   const item = product(catalog, key);
   return priceLineCents(BigInt(item.monthlyUnitPriceCents), BigInt(days) * COMMERCE_DAY_MS, 100);
 }
 
-function formatTerm(term: CommerceTerm, catalog: CommerceCatalog, key: "slots" | "module:standalone", group: string): string {
+function formatTerm(term: CommerceTerm, catalog: CommerceCatalog, key: ProductKey, group: string): string {
   const days = term.days;
   const discount = term.discountPercent === 100 ? "原价" : `${term.discountPercent / 10} 折`;
   const saveBadge = term.discountPercent === 100
@@ -253,6 +268,7 @@ function formatTerm(term: CommerceTerm, catalog: CommerceCatalog, key: "slots" |
 function entitlementName(row: CommercePreviewEntitlement): string {
   if (row.resource === "slots") return row.isGift ? "赠送挂机额度" : SLOTS_NAME;
   if (row.resource === "module:standalone") return FEATURE_NAME;
+  if (row.resource === "module:hosting") return HOSTING_NAME;
   if (row.resource === "module:core") return row.isGift ? "核心功能（赠送）" : "核心功能";
   return `额度调整 · ${row.resource}`;
 }
@@ -318,6 +334,7 @@ function buildNormalSelection(
   featureSelected: boolean,
   featureTermDays: number,
   account: CommerceBootstrap["account"],
+  hosting: { selected: boolean; termDays: number } = { selected: false, termDays: 30 },
 ): CommerceQuoteSelection[] {
   const selection: CommerceQuoteSelection[] = [];
   if (slotMode === "add") {
@@ -328,13 +345,15 @@ function buildNormalSelection(
     const unitIds = activePaidSlots(account, Date.now()).filter((unit) => selectedUnitIds.has(unit.unitId)).map((unit) => unit.unitId);
     if (unitIds.length) selection.push({ type: "slot_renew", unitIds, termDays: slotTermDays as 30 | 90 | 180 | 360 });
   }
-  if (featureSelected) selection.push({ type: "standalone", termDays: featureTermDays as 30 | 90 | 180 | 360 });
+  // 离线挂机已包含脱机版：选了离线挂机就不再单独收脱机功能的钱。
+  if (hosting.selected) selection.push({ type: "hosting", termDays: hosting.termDays as 30 | 90 | 180 | 360 });
+  else if (featureSelected) selection.push({ type: "standalone", termDays: featureTermDays as 30 | 90 | 180 | 360 });
   return selection;
 }
 
 function selectionItemCount(selection: readonly CommerceQuoteSelection[]): number {
   return selection.reduce((total, item) => total + (item.type === "slot_add" ? item.quantity
-    : item.type === "slot_renew" ? item.unitIds.length : item.type === "standalone" ? 1 : 0), 0);
+    : item.type === "slot_renew" ? item.unitIds.length : item.type === "standalone" || item.type === "hosting" ? 1 : 0), 0);
 }
 
 function selectionLimitMessage(): string {
@@ -345,9 +364,15 @@ function alignmentLimitMessage(itemCount: number): string {
   return `统一到期会产生 ${itemCount} 个付费项目，超过单笔 ${MAX_SELECTION_ITEMS} 项上限；请关闭窗口后分批选择额度续期。`;
 }
 
+function selectionKey(item: CommerceQuoteSelection): ProductKey {
+  if (item.type === "standalone") return "module:standalone";
+  if (item.type === "hosting") return "module:hosting";
+  return "slots";
+}
+
 function selectionPrice(selection: readonly CommerceQuoteSelection[], catalog: CommerceCatalog): bigint {
   return selection.reduce((total, item) => {
-    const key = item.type === "standalone" ? "module:standalone" : "slots";
+    const key = selectionKey(item);
     const amount = lineCents(catalog, key, BigInt(item.termDays) * COMMERCE_DAY_MS);
     const quantity = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
     return total + amount * BigInt(quantity);
@@ -356,7 +381,7 @@ function selectionPrice(selection: readonly CommerceQuoteSelection[], catalog: C
 
 function selectionRawPrice(selection: readonly CommerceQuoteSelection[], catalog: CommerceCatalog): bigint {
   return selection.reduce((total, item) => {
-    const key = item.type === "standalone" ? "module:standalone" : "slots";
+    const key = selectionKey(item);
     const amount = rawLineCents(catalog, key, item.termDays);
     const quantity = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
     return total + amount * BigInt(quantity);
@@ -364,7 +389,7 @@ function selectionRawPrice(selection: readonly CommerceQuoteSelection[], catalog
 }
 
 interface GroupedQuoteItem {
-  productKey: "slots" | "module:standalone";
+  productKey: ProductKey;
   operation: "ADD" | "RENEW";
   durationMs: bigint;
   expectedStartsAt: number;
@@ -396,12 +421,12 @@ function groupQuoteItems(items: readonly CommerceQuote["items"][number][]): Grou
   return [...grouped.values()];
 }
 
-function quoteItemName(key: "slots" | "module:standalone"): string {
-  return key === "slots" ? SLOTS_NAME : FEATURE_NAME;
+function quoteItemName(key: ProductKey): string {
+  return key === "slots" ? SLOTS_NAME : key === "module:hosting" ? HOSTING_NAME : FEATURE_NAME;
 }
 
-function quoteOperationLabel(key: "slots" | "module:standalone", operation: "ADD" | "RENEW"): string {
-  if (key === "module:standalone") return operation === "ADD" ? "开通" : "续期";
+function quoteOperationLabel(key: ProductKey, operation: "ADD" | "RENEW"): string {
+  if (key === "module:standalone" || key === "module:hosting") return operation === "ADD" ? "开通" : "续期";
   return operation === "ADD" ? "新买" : "续期";
 }
 
@@ -409,9 +434,11 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   let slotMode: "add" | "renew" = "add";
   let slotTermDays = 30;
   let featureTermDays = 30;
+  let hostingTermDays = 30;
   let alignTermDays = 30;
   let slotQuantity = "1";
   let featureSelected = false;
+  let hostingSelected = false;
   const selectedUnitIds = new Set<string>();
   let promotionCode = "";
   let currentQuote: CommerceQuote | null = null;
@@ -448,14 +475,15 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   const canPurchase = bootstrap.session?.user.status === "ACTIVE" && bootstrap.session.user.permission_level >= 1;
   const slotsProduct = product(bootstrap.catalog, "slots");
   const featureProduct = product(bootstrap.catalog, "module:standalone");
+  const hostingProduct = product(bootstrap.catalog, "module:hosting");
 
-  function renderTerms(group: string, key: "slots" | "module:standalone", days: number): string {
-    const ariaLabel = group === "alignment" ? "统一到期额外时长" : key === "slots" ? "挂机额度期限" : "脱机功能期限";
+  function renderTerms(group: string, key: ProductKey, days: number): string {
+    const ariaLabel = group === "alignment" ? "统一到期额外时长" : key === "slots" ? "挂机额度期限" : key === "module:hosting" ? "离线挂机期限" : "脱机功能期限";
     return `<div class="commerce-terms" data-term-group="${group}" role="group" aria-label="${ariaLabel}">${bootstrap.catalog.terms.map((term) => formatTerm(term, bootstrap.catalog, key, group).replace('aria-pressed="false"', `aria-pressed="${term.days === days}"`)).join("")}</div>`;
   }
 
   function normalPrice(): bigint {
-    return selectionPrice(buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account), bootstrap.catalog);
+    return selectionPrice(buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account, { selected: hostingSelected, termDays: hostingTermDays }), bootstrap.catalog);
   }
 
   function isWelcomePromotion(code: string): boolean {
@@ -514,6 +542,15 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         cents: lineCents(bootstrap.catalog, "module:standalone", BigInt(target - expiresAt)),
       });
     }
+    const hostingRows = activeHosting(bootstrap.account, now);
+    if (hostingRows.length) {
+      const expiresAt = Math.max(...hostingRows.map((row) => Number(row.expiresAt)));
+      rows.push({
+        label: `离线挂机（剩 ${remainingDays(expiresAt, now)} 天）`,
+        addedMs: BigInt(target - expiresAt),
+        cents: lineCents(bootstrap.catalog, "module:hosting", BigInt(target - expiresAt)),
+      });
+    }
     return rows;
   }
 
@@ -549,7 +586,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         <span class="commerce-quantity-hint">单笔上限 ${MAX_SELECTION_ITEMS} 个</span>
       </div>
       ${zeroQuantity
-        ? `<div class="commerce-quantity-zero${featureSelected ? "" : " is-warn"}" role="status"><span><b>已设为 0：本次不买额度。</b>${featureSelected ? "已同时加入脱机功能，可直接下单。" : "请在下方开启「脱机功能」后下单。"}</span><button type="button" data-focus-key="qty-reset" data-action="qty-reset">改回 1 个</button></div>`
+        ? `<div class="commerce-quantity-zero${featureSelected || hostingSelected ? "" : " is-warn"}" role="status"><span><b>已设为 0：本次不买额度。</b>${featureSelected || hostingSelected ? "已同时加入功能项，可直接下单。" : "请在下方开启「离线挂机」或「脱机功能」后下单。"}</span><button type="button" data-focus-key="qty-reset" data-action="qty-reset">改回 1 个</button></div>`
         : '<p class="commerce-quantity-tip">只想用脱机版？点右上角「只买脱机功能」，或把数量直接填 0。</p>'}
     </div>`;
   }
@@ -587,12 +624,35 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
         <div class="commerce-card-price"><b>${formatShortCents(featureProduct.monthlyUnitPriceCents)}</b><span>/ 账号 · 30 天</span></div>
       </div>
       <div class="commerce-switch-row">
-        <div class="commerce-switch-info"><b>本次${action}脱机功能</b><span>${state}</span></div>
-        <label class="commerce-switch"><input data-focus-key="feature-selected" name="feature-selected" type="checkbox" ${featureSelected ? "checked" : ""} ${!canPurchase ? "disabled" : ""} aria-label="将脱机功能加入本次订单"><span class="commerce-switch-track" aria-hidden="true"></span></label>
+        <div class="commerce-switch-info"><b>本次${action}脱机功能</b><span>${hostingSelected ? "已包含在本次选择的离线挂机中，无需单独购买。" : state}</span></div>
+        <label class="commerce-switch"><input data-focus-key="feature-selected" name="feature-selected" type="checkbox" ${featureSelected && !hostingSelected ? "checked" : ""} ${!canPurchase || hostingSelected ? "disabled" : ""} aria-label="将脱机功能加入本次订单"><span class="commerce-switch-track" aria-hidden="true"></span></label>
       </div>
       <div class="commerce-terms-block">
         <div class="commerce-terms-head"><h3>选择时长</h3><p>功能按账号计费，不按实例数量重复收费。</p></div>
         ${renderTerms("feature", "module:standalone", featureTermDays)}
+      </div>
+    </article>`;
+  }
+
+  function renderHostingCard(now: number): string {
+    const active = activeHosting(bootstrap.account, now);
+    const latest = active.length ? Math.max(...active.map((row) => Number(row.expiresAt))) : null;
+    const state = latest === null
+      ? "当前未开通，本次购买将开通。"
+      : `当前已开通，最晚到期 ${formatDay(latest)}，再次购买直接顺延。`;
+    const action = active.length ? "续期" : "开通";
+    return `<article class="commerce-card" data-product="hosting">
+      <div class="commerce-card-head">
+        <div><h2>离线挂机</h2><p>把实例交给服务器 24 小时挂机，关掉浏览器和电脑也不中断。购买时<b>自动包含</b>等时长的全平台脱机 KoreEngine；托管实例数量不超过你的挂机额度。</p></div>
+        <div class="commerce-card-price"><b>${formatShortCents(hostingProduct.monthlyUnitPriceCents)}</b><span>/ 账号 · 30 天</span></div>
+      </div>
+      <div class="commerce-switch-row">
+        <div class="commerce-switch-info"><b>本次${action}离线挂机</b><span>${state}</span></div>
+        <label class="commerce-switch"><input data-focus-key="hosting-selected" name="hosting-selected" type="checkbox" ${hostingSelected ? "checked" : ""} ${!canPurchase ? "disabled" : ""} aria-label="将离线挂机加入本次订单"><span class="commerce-switch-track" aria-hidden="true"></span></label>
+      </div>
+      <div class="commerce-terms-block">
+        <div class="commerce-terms-head"><h3>选择时长</h3><p>功能按账号计费；到期后所有托管实例会自动停止。</p></div>
+        ${renderTerms("hosting", "module:hosting", hostingTermDays)}
       </div>
     </article>`;
   }
@@ -665,14 +725,16 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const couponApplied = totals.couponApplied;
     const lines: Array<{ title: string; note: string; cents: bigint }> = [];
     for (const item of selection) {
-      const key = item.type === "standalone" ? "module:standalone" : "slots";
+      const key = selectionKey(item);
       const amount = couponApplied
         ? rawLineCents(bootstrap.catalog, key, item.termDays)
         : lineCents(bootstrap.catalog, key, BigInt(item.termDays) * COMMERCE_DAY_MS);
       const count = item.type === "slot_add" ? item.quantity : item.type === "slot_renew" ? item.unitIds.length : 1;
-      const title = item.type === "standalone" ? "脱机 KoreEngine" : `${SLOTS_NAME} × ${count}`;
+      const title = item.type === "standalone" ? "脱机 KoreEngine" : item.type === "hosting" ? HOSTING_NAME : `${SLOTS_NAME} × ${count}`;
       const action = item.type === "standalone"
         ? `${activeStandalone(bootstrap.account, Date.now()).length ? "续费" : "开通"} · ${termLabel(item.termDays)}（${item.termDays} 天）`
+        : item.type === "hosting"
+          ? `${activeHosting(bootstrap.account, Date.now()).length ? "续费" : "开通"} · ${termLabel(item.termDays)}（${item.termDays} 天）`
         : `${item.type === "slot_add" ? "新买" : "续费"} · ${termLabel(item.termDays)}（${item.termDays} 天）`;
       lines.push({ title, note: action, cents: amount * BigInt(count) });
     }
@@ -938,7 +1000,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const restoreCaret = caret === undefined && InputConstructor && active instanceof InputConstructor ? active.selectionStart : caret;
     const now = Date.now();
     const alignAmount = alignmentPrice(now);
-    const selection = buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account);
+    const selection = buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account, { selected: hostingSelected, termDays: hostingTermDays });
     const selectionOverLimit = selectionItemCount(selection) > MAX_SELECTION_ITEMS;
     const estimate = selectionPrice(selection, bootstrap.catalog);
     const totals = estimateTotals(selection, estimate);
@@ -952,7 +1014,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
       ${loginNotice}
       ${renderBanner()}
       <div class="commerce-grid">
-        <div class="commerce-main-column">${renderSlotsCard(now)}${renderFeatureCard(now)}${renderAlignLine(now, alignAmount)}</div>
+        <div class="commerce-main-column">${renderSlotsCard(now)}${renderHostingCard(now)}${renderFeatureCard(now)}${renderAlignLine(now, alignAmount)}</div>
         <aside class="commerce-sidebar" aria-label="结算侧栏">
           ${renderCouponCard()}
           ${renderSummary(selection, estimate, selectionOverLimit)}
@@ -1027,7 +1089,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   }
 
   function selectedNormalItems(): CommerceQuoteSelection[] {
-    return buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account);
+    return buildNormalSelection(slotMode, slotQuantity, slotTermDays, selectedUnitIds, featureSelected, featureTermDays, bootstrap.account, { selected: hostingSelected, termDays: hostingTermDays });
   }
 
   root.addEventListener("click", (event) => {
@@ -1048,6 +1110,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     if (termGroup && TERM_DAYS.includes(termDays as typeof TERM_DAYS[number])) {
       if (termGroup === "slots") slotTermDays = termDays;
       else if (termGroup === "feature") featureTermDays = termDays;
+      else if (termGroup === "hosting") hostingTermDays = termDays;
       else alignTermDays = termDays;
       invalidateQuote();
       errorMessage = "";
@@ -1242,6 +1305,7 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
     const target = event.target;
     if (!InputConstructor || !(target instanceof InputConstructor)) return;
     if (target.name === "feature-selected") featureSelected = target.checked;
+    else if (target.name === "hosting-selected") hostingSelected = target.checked;
     else if (target.dataset.slotUnit) {
       if (target.checked) selectedUnitIds.add(target.dataset.slotUnit);
       else selectedUnitIds.delete(target.dataset.slotUnit);

@@ -6,6 +6,7 @@ export type QuoteSelection =
   | { type: 'slot_add'; quantity: number; termDays: CommerceTermDays }
   | { type: 'slot_renew'; unitIds: string[]; termDays: CommerceTermDays }
   | { type: 'standalone'; termDays: CommerceTermDays }
+  | { type: 'hosting'; termDays: CommerceTermDays }
   | { type: 'align_all_paid'; termDays: CommerceTermDays };
 
 export interface ParsedQuoteInput {
@@ -60,6 +61,9 @@ function parseSelection(value: unknown): QuoteSelection {
     case 'standalone':
       if (!exactKeys(input, ['type', 'term_days'])) throw new QuoteInputError();
       return { type: 'standalone', termDays: duration };
+    case 'hosting':
+      if (!exactKeys(input, ['type', 'term_days'])) throw new QuoteInputError();
+      return { type: 'hosting', termDays: duration };
     case 'align_all_paid':
       if (!exactKeys(input, ['type', 'term_days'])) throw new QuoteInputError();
       return { type: 'align_all_paid', termDays: duration };
