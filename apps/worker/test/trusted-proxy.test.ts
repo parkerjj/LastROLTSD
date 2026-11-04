@@ -54,7 +54,7 @@ describe('trusted VPS -> Worker identity', () => {
     expect(trustedProxyClient(req, 'production', SECRET)).toBeNull();
   });
 
-  it('lets signed KE agents reach the origin directly from any VPS, but nothing else on it', () => {
+  it('lets self-authenticated KE callers (agents, CI build registration) reach the origin directly, but nothing else on it', () => {
     const direct = (path: string, headers: Record<string, string> = {}) =>
       new Request(`https://origin.ltsd.ro${path}`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.9', ...headers } });
     for (const path of [
@@ -62,6 +62,7 @@ describe('trusted VPS -> Worker identity', () => {
       '/api/v1/ke/agent/ws',
       '/api/v1/ke/agent/instances/abc/launch',
       '/api/v1/ke/agent/modules/keys',
+      '/api/v1/ke/builds/register',
     ]) {
       expect(isAllowedProxyRequest(direct(path), 'production', SECRET)).toBe(true);
     }
@@ -70,6 +71,10 @@ describe('trusted VPS -> Worker identity', () => {
       '/api/v1/ke/hosted',
       '/api/v1/ke/agentx/lease',
       '/api/v1/ke/agent',
+      '/api/v1/ke/builds',
+      '/api/v1/ke/builds/register/x',
+      '/api/v1/ke/builds/registerx',
+      '/api/v1/ke/builds/list',
       '/api/v1/ke/agent/../device/code',
       '/api/v1/ke/agent/%2e%2e/device/code',
       '/api/v1/market/search',

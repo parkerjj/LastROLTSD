@@ -46,13 +46,16 @@ export function trustedProxyClient(
 }
 
 /**
- * KE agent（Linux 托管 VPS）按设计直连 origin.ltsd.ro，自己用 Ed25519 请求签名鉴权，不经反代；
- * 来源门只放行这个路径前缀，其余 origin 请求仍须来自反代 VPS。
- * URL.pathname 已折叠 `..` / `%2e%2e`，所以 `/agent/../x` 不会借此绕过。
+ * origin.ltsd.ro 上自带鉴权、因此不要求来自反代 VPS 的路径：
+ * - `/api/v1/ke/agent/*`：Linux 托管 VPS 上的 ke-agent 按设计直连，用 Ed25519 请求签名鉴权；
+ * - `/api/v1/ke/builds/register`：GitHub Actions 用 OIDC 令牌登记构建（audience 绑定完整 payload 哈希），
+ *   runner 的出口 IP 不固定，不可能来自反代。
+ * 其余 origin 请求仍须来自反代 VPS。URL.pathname 已折叠 `..` / `%2e%2e`，所以不能借 `/agent/../x` 绕过。
  */
-export function isAgentOriginRequest(request: Request): boolean {
+export function isSelfAuthenticatedOriginRequest(request: Request): boolean {
   try {
-    return new URL(request.url).pathname.startsWith('/api/v1/ke/agent/');
+    const { pathname } = new URL(request.url);
+    return pathname.startsWith('/api/v1/ke/agent/') || pathname === '/api/v1/ke/builds/register';
   } catch {
     return false;
   }
@@ -62,6 +65,6 @@ export function isAgentOriginRequest(request: Request): boolean {
 export function isAllowedProxyRequest(request: Request, environment: string, proxySecret?: string): boolean {
   return environment !== 'production'
     || !isProxyOriginRequest(request)
-    || isAgentOriginRequest(request)
+    || isSelfAuthenticatedOriginRequest(request)
     || trustedProxyClient(request, environment, proxySecret) !== null;
 }
