@@ -58,13 +58,16 @@ Requests to the origin that fail these checks return 403 in the Worker script.
 Direct `ltsd.ro` requests continue using Cloudflare's own visitor IP and
 `request.cf` until cutover. API search and upload fast paths are protected too.
 
-**例外（KE agent）：** `/api/v1/ke/agent/*`（含 `/agent/ws`）不要求来自反代 VPS。Linux 托管 VPS 上的 `ke-agent`
-按设计直连 `origin.ltsd.ro`，用 Ed25519 请求签名自己鉴权（见 `docs/ke-hosting.md`）。实现见
-`isAgentOriginRequest`（`apps/worker/src/network/trusted-proxy.ts`）。下面的 WAF 规则如果要启用，必须同样放行这个路径，
-否则 agent 会收到纯文本 `Forbidden`（403）：
+**例外（自带鉴权的路径）：** 下面两类路径不要求来自反代 VPS，实现见 `isSelfAuthenticatedOriginRequest`
+（`apps/worker/src/network/trusted-proxy.ts`）：
+
+- `/api/v1/ke/agent/*`（含 `/agent/ws`）：Linux 托管 VPS 上的 `ke-agent` 按设计直连 `origin.ltsd.ro`，用 Ed25519 请求签名鉴权（见 `docs/ke-hosting.md`）。
+- `POST /api/v1/ke/builds/register`：KoreEngine 的 GitHub Actions 用 OIDC 令牌登记构建（audience 绑定完整 payload 哈希）。runner 出口 IP 不固定，且不必经过反代 VPS。
+
+没有这个例外，请求会收到纯文本 `Forbidden`（403）。下面的 WAF 规则如果要启用，必须同样放行这两类路径：
 
 ```text
-(http.host eq "origin.ltsd.ro" and not starts_with(http.request.uri.path, "/api/v1/ke/agent/") and ip.src ne 206.237.9.56)
+(http.host eq "origin.ltsd.ro" and not starts_with(http.request.uri.path, "/api/v1/ke/agent/") and http.request.uri.path ne "/api/v1/ke/builds/register" and ip.src ne 206.237.9.56)
 ```
 
 **Important:** Workers Static Assets can be served before the Worker script.
