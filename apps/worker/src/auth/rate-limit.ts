@@ -1,4 +1,4 @@
-import { isProxyOriginRequest, trustedProxyClient } from '../network/trusted-proxy';
+import { isProxyOriginRequest, LTSD_PROXY_IPV4, trustedProxyClient } from '../network/trusted-proxy';
 import type { AuthRepository } from './repository';
 import type { AuthRateLimitRule } from './types';
 
@@ -28,10 +28,13 @@ export async function authRateLimitKey(secret: Uint8Array, kind: AuthRateLimitKe
 }
 
 export function trustedAuthClientIp(request: Request, environment: string, proxySecret?: string): string {
-  if (environment === 'production' && isProxyOriginRequest(request)) {
-    return trustedProxyClient(request, environment, proxySecret)?.ip ?? 'unknown';
-  }
   if (environment === 'production') {
+    // 经反代 VPS 转发时，只有 VPS 身份 + 共享密钥都对得上才采信 X-LTSD-Client-IP；
+    // 其余（直连 origin 的 agent、CI、托管子进程，或密钥不符）按 Cloudflare 看到的真实来源限速，不能共用一个 unknown 桶。
+    const proxied = trustedProxyClient(request, environment, proxySecret);
+    if (proxied) return proxied.ip;
+    // 来自反代 VPS 但身份/密钥/转发地址校验没过：不能把 VPS 的地址当成访客（会让所有用户共用一个桶并污染记录）。
+    if (isProxyOriginRequest(request) && request.headers.get('cf-connecting-ip')?.trim() === LTSD_PROXY_IPV4) return 'unknown';
     const cloudflareIp = request.headers.get('cf-connecting-ip')?.trim();
     if (cloudflareIp && cloudflareIp.length <= 64) return cloudflareIp;
   }

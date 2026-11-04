@@ -54,31 +54,19 @@ The Worker accepts `X-LTSD-Client-IP` only when all are true:
 3. `X-LTSD-Proxy-Secret` matches the secret binding.
 4. `X-LTSD-Client-IP` is a single syntactically valid IPv4 or IPv6 address.
 
-Requests to the origin that fail these checks return 403 in the Worker script.
-Direct `ltsd.ro` requests continue using Cloudflare's own visitor IP and
-`request.cf` until cutover. API search and upload fast paths are protected too.
+`origin.ltsd.ro` **不设来源限制**：反代 VPS 只是为了加速，直连 origin 没有额外风险，所以 Worker 不再对
+`origin.ltsd.ro` 做“必须来自反代”的 403 拦截，也不需要为它配置 Cloudflare WAF 规则。
+Linux 托管 VPS 上的 `ke-agent` 与托管子进程、GitHub Actions 的构建登记都直连 origin，各自用自己的凭据鉴权
+（Ed25519 请求签名 / 实例令牌 / GitHub OIDC）。
 
-**例外（自带鉴权的路径）：** 下面两类路径不要求来自反代 VPS，实现见 `isSelfAuthenticatedOriginRequest`
-（`apps/worker/src/network/trusted-proxy.ts`）：
+这套信任模型只决定“客户端 IP 怎么取”（影响限速和活动记录）：
 
-- `/api/v1/ke/agent/*`（含 `/agent/ws`）：Linux 托管 VPS 上的 `ke-agent` 按设计直连 `origin.ltsd.ro`，用 Ed25519 请求签名鉴权（见 `docs/ke-hosting.md`）。
-- `POST /api/v1/ke/builds/register`：KoreEngine 的 GitHub Actions 用 OIDC 令牌登记构建（audience 绑定完整 payload 哈希）。runner 出口 IP 不固定，且不必经过反代 VPS。
-
-没有这个例外，请求会收到纯文本 `Forbidden`（403）。下面的 WAF 规则如果要启用，必须同样放行这两类路径：
-
-```text
-(http.host eq "origin.ltsd.ro" and not starts_with(http.request.uri.path, "/api/v1/ke/agent/") and http.request.uri.path ne "/api/v1/ke/builds/register" and ip.src ne 206.237.9.56)
-```
-
-**Important:** Workers Static Assets can be served before the Worker script.
-Add a Cloudflare WAF custom rule BEFORE removing the direct entrypoint:
-
-```text
-(http.host eq "origin.ltsd.ro" and ip.src ne 206.237.9.56)
-```
-
-Action: **Block**. Confirm the outbound VPS source IPv4 is correct before
-enabling the rule. Do not apply this rule to `ltsd.ro`.
+| 请求 | 客户端 IP |
+| --- | --- |
+| 经反代 VPS 且上面 4 项全部通过 | `X-LTSD-Client-IP`（访客真实地址） |
+| 直连 `origin.ltsd.ro`（agent、CI、托管子进程等） | Cloudflare 的 `CF-Connecting-IP`；转发头一律不采信，访客伪造 `X-LTSD-*` 无效 |
+| 来自反代 VPS 但校验没过（密钥不符、转发地址畸形等） | `unknown`（不会把 VPS 地址当访客，也不会让所有用户共用 VPS 的桶） |
+| 直接访问 `ltsd.ro` | Cloudflare 的访客 IP 与 `request.cf` |
 
 ## Geolocation
 
@@ -122,5 +110,4 @@ synthesize them from the VPS's own Cloudflare location or trust visitor headers.
 Test via `curl --resolve ltsd.ro:443:206.237.9.56 https://ltsd.ro/`.
 Verify KE device-code limits on two separate end-user IPs, login/CSRF cookies,
 Stripe webhooks, downloads, static assets, and host-based redirects.
-Check the cloudflare WAF rule separately because static assets can bypass JS.
 Make sure the origin Custom Domain remains attached across deployments.
