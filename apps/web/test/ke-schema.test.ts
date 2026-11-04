@@ -65,6 +65,38 @@ describe('ke config schema', () => {
     expect(new Set(blockTypes).size).toBe(blockTypes.length);
   });
 
+  it('风筝（runFromTarget）四项配置在攻击分组里，默认关闭，数值项可序列化并校验', () => {
+    const byKey = Object.fromEntries(CONFIG_SCALARS.map((s) => [s.key, s]));
+    for (const key of ['runFromTarget', 'runFromTarget_dist', 'runFromTarget_minStep', 'runFromTarget_maxPathDistance']) {
+      expect(byKey[key], key).toBeDefined();
+      expect(byKey[key]!.group, key).toBe('攻击');
+    }
+    expect(byKey.runFromTarget!.type).toBe('enum');
+    expect(byKey.runFromTarget!.default).toBe('0');
+    // 数值项不写默认值：留空时由 KE 用自己的默认（5 / 7 / 13），不在网页里重复一份。
+    for (const key of ['runFromTarget_dist', 'runFromTarget_minStep', 'runFromTarget_maxPathDistance']) {
+      expect(byKey[key]!.type, key).toBe('int');
+      expect(byKey[key]!.default, key).toBeUndefined();
+    }
+
+    const doc = emptyDoc();
+    doc.scalars = { runFromTarget: '1', runFromTarget_dist: '5', runFromTarget_minStep: '7', runFromTarget_maxPathDistance: '13' };
+    const text = serializeConfig(doc);
+    expect(text).toBe('runFromTarget 1\nrunFromTarget_dist 5\nrunFromTarget_minStep 7\nrunFromTarget_maxPathDistance 13\n');
+    expect(parseConfig(text).scalars).toEqual(doc.scalars);
+    expect(validateConfigDoc(doc)).toEqual([]);
+
+    doc.scalars['runFromTarget_minStep'] = '很远';
+    expect(validateConfigDoc(doc).some((e) => e.includes('数字'))).toBe(true);
+  });
+
+  it('attackCanSnipe 不再被说成风筝：它只管隔障碍攻击', () => {
+    const snipe = CONFIG_SCALARS.find((s) => s.key === 'attackCanSnipe')!;
+    expect(snipe.label).toBe('隔障碍攻击');
+    expect(snipe.help).not.toContain('边后退边攻击');
+    expect(snipe.help).toContain('不是放风筝');
+  });
+
   it('smartEncore 文案表示舞娘/诗人专用的自动安可', () => {
     const field = BLOCK_DEFS.find((block) => block.type === 'useSelf_skill')?.fields.find((item) => item.key === 'smartEncore');
     expect(field?.label).toBe('自动安可');
