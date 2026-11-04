@@ -11355,6 +11355,7 @@ a.sponsor-honor-card:hover {
   flex-direction: column;
   gap: 8px;
   max-height: 230px;
+  padding-right: 2px;
   overflow-y: auto;
 }
 
@@ -11369,6 +11370,23 @@ a.sponsor-honor-card:hover {
   cursor: pointer;
 }
 
+/* 角色选项也是 label，需要覆盖弹窗表单 label 的下边距，间距交给 .kc-char-list 的 gap */
+.account-modal form .kc-char-option {
+  margin-bottom: 0;
+}
+
+/* 重置全局 input 的 width/min-height，否则单选框会被拉伸成大圆点并把文字挤到行右侧 */
+.kc-char-option input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--forest);
+  cursor: pointer;
+}
+
 .kc-char-option:has(input:checked) {
   border-color: var(--forest);
   background: var(--accent-soft, #e7ede7);
@@ -11376,8 +11394,15 @@ a.sponsor-honor-card:hover {
 
 .kc-char-option span {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
+  line-height: 1.4;
+}
+
+.kc-char-option b,
+.kc-char-option small {
+  overflow-wrap: anywhere;
 }
 
 .kc-char-option small {
