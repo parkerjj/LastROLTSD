@@ -45,9 +45,23 @@ export function trustedProxyClient(
   return { ip };
 }
 
+/**
+ * KE agent（Linux 托管 VPS）按设计直连 origin.ltsd.ro，自己用 Ed25519 请求签名鉴权，不经反代；
+ * 来源门只放行这个路径前缀，其余 origin 请求仍须来自反代 VPS。
+ * URL.pathname 已折叠 `..` / `%2e%2e`，所以 `/agent/../x` 不会借此绕过。
+ */
+export function isAgentOriginRequest(request: Request): boolean {
+  try {
+    return new URL(request.url).pathname.startsWith('/api/v1/ke/agent/');
+  } catch {
+    return false;
+  }
+}
+
 /** Direct ltsd.ro remains usable throughout the migration. */
 export function isAllowedProxyRequest(request: Request, environment: string, proxySecret?: string): boolean {
   return environment !== 'production'
     || !isProxyOriginRequest(request)
+    || isAgentOriginRequest(request)
     || trustedProxyClient(request, environment, proxySecret) !== null;
 }

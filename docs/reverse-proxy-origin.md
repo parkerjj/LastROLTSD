@@ -58,6 +58,15 @@ Requests to the origin that fail these checks return 403 in the Worker script.
 Direct `ltsd.ro` requests continue using Cloudflare's own visitor IP and
 `request.cf` until cutover. API search and upload fast paths are protected too.
 
+**例外（KE agent）：** `/api/v1/ke/agent/*`（含 `/agent/ws`）不要求来自反代 VPS。Linux 托管 VPS 上的 `ke-agent`
+按设计直连 `origin.ltsd.ro`，用 Ed25519 请求签名自己鉴权（见 `docs/ke-hosting.md`）。实现见
+`isAgentOriginRequest`（`apps/worker/src/network/trusted-proxy.ts`）。下面的 WAF 规则如果要启用，必须同样放行这个路径，
+否则 agent 会收到纯文本 `Forbidden`（403）：
+
+```text
+(http.host eq "origin.ltsd.ro" and not starts_with(http.request.uri.path, "/api/v1/ke/agent/") and ip.src ne 206.237.9.56)
+```
+
 **Important:** Workers Static Assets can be served before the Worker script.
 Add a Cloudflare WAF custom rule BEFORE removing the direct entrypoint:
 

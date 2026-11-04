@@ -213,7 +213,7 @@ describe('commerce purchase page', () => {
     const hostingCard = root.querySelector('[data-product="hosting"]')!;
     expect(hostingCard.textContent).toContain('离线挂机');
     expect(hostingCard.textContent).toContain('¥50');
-    expect(hostingCard.textContent).toContain('自动包含');
+    expect(hostingCard.textContent).toContain('自动赠送');
 
     const feature = root.querySelector<HTMLInputElement>('[name="feature-selected"]')!;
     feature.checked = true;
