@@ -116,6 +116,10 @@ describe('MySQL Worker deployment configuration', () => {
     expect(workflow).toContain('COMMERCE_ENABLED: ${{ vars.COMMERCE_ENABLED }}');
     expect(workflow).toContain('COMMERCE_STRIPE_ACCOUNT_ID: ${{ vars.COMMERCE_STRIPE_ACCOUNT_ID }}');
     expect(workflow).toContain('COMMERCE_STRIPE_PRODUCT_SLOTS_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_SLOTS_ID }}');
+    expect(workflow).toContain('COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID }}');
+    // 离线挂机商品缺这个变量会让整个商业化配置被判为无效，部署必须把它带上。
+    expect(workflow).toContain('COMMERCE_STRIPE_PRODUCT_HOSTING_ID: ${{ vars.COMMERCE_STRIPE_PRODUCT_HOSTING_ID }}');
+    expect(workflow).toContain('--var "COMMERCE_STRIPE_PRODUCT_HOSTING_ID:${COMMERCE_STRIPE_PRODUCT_HOSTING_ID}"');
     expect(workflow).toContain('COMMERCE_STRIPE_SECRET_KEY: ${{ secrets.COMMERCE_STRIPE_SECRET_KEY }}');
     expect(workflow).toContain('wrangler secret put COMMERCE_STRIPE_SECRET_KEY');
     expect(workflow).toContain('STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}');
