@@ -54,6 +54,33 @@ describe('trusted VPS -> Worker identity', () => {
     expect(trustedProxyClient(req, 'production', SECRET)).toBeNull();
   });
 
+  it('lets signed KE agents reach the origin directly from any VPS, but nothing else on it', () => {
+    const direct = (path: string, headers: Record<string, string> = {}) =>
+      new Request(`https://origin.ltsd.ro${path}`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.9', ...headers } });
+    for (const path of [
+      '/api/v1/ke/agent/lease',
+      '/api/v1/ke/agent/ws',
+      '/api/v1/ke/agent/instances/abc/launch',
+      '/api/v1/ke/agent/modules/keys',
+    ]) {
+      expect(isAllowedProxyRequest(direct(path), 'production', SECRET)).toBe(true);
+    }
+    for (const path of [
+      '/api/v1/ke/device/code',
+      '/api/v1/ke/hosted',
+      '/api/v1/ke/agentx/lease',
+      '/api/v1/ke/agent',
+      '/api/v1/ke/agent/../device/code',
+      '/api/v1/ke/agent/%2e%2e/device/code',
+      '/api/v1/market/search',
+      '/',
+    ]) {
+      expect(isAllowedProxyRequest(direct(path), 'production', SECRET)).toBe(false);
+    }
+    // 不带反代身份时，agent 路径也不会被当成可信代理客户端。
+    expect(trustedProxyClient(direct('/api/v1/ke/agent/lease'), 'production', SECRET)).toBeNull();
+  });
+
   it('does not activate the production trust model in local and test environments', () => {
     expect(trustedProxyClient(request('origin.ltsd.ro', '1.2.3.4'), 'test', SECRET)).toBeNull();
     expect(isAllowedProxyRequest(request('origin.ltsd.ro', '1.2.3.4'), 'test', SECRET)).toBe(true);
