@@ -5,6 +5,14 @@
 import { randomBytes } from 'node:crypto';
 import mysql from 'mysql2/promise';
 
+/** 控制字符（0x00–0x1f）：用字符码判断，避免 no-control-regex。 */
+function hasControlCharacter(text) {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) < 0x20) return true;
+  }
+  return false;
+}
+
 export function parseArgs(argv) {
   const args = { dryRun: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -15,7 +23,7 @@ export function parseArgs(argv) {
     else if (arg === '--max-instances') args.maxInstances = Number(argv[++index]);
     else throw new Error(`unknown argument: ${arg}`);
   }
-  if (typeof args.name !== 'string' || args.name.length < 1 || args.name.length > 64 || /[\u0000-\u001f]/u.test(args.name)) throw new Error('--name is required (1-64 chars)');
+  if (typeof args.name !== 'string' || args.name.length < 1 || args.name.length > 64 || hasControlCharacter(args.name)) throw new Error('--name is required (1-64 chars)');
   if (typeof args.pubkey !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(args.pubkey)) throw new Error('--pubkey must be a 32-byte ed25519 public key in base64url');
   if (!Number.isSafeInteger(args.maxInstances) || args.maxInstances < 1 || args.maxInstances > 500) throw new Error('--max-instances must be 1-500');
   return args;
