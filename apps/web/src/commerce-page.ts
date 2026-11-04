@@ -476,6 +476,12 @@ export function mountCommercePage(root: HTMLElement, bootstrap: CommerceBootstra
   const slotsProduct = product(bootstrap.catalog, "slots");
   const featureProduct = product(bootstrap.catalog, "module:standalone");
   const hostingProduct = product(bootstrap.catalog, "module:hosting");
+  // 从监控台的离线挂机入口（?plan=hosting）进来：直接勾选离线挂机，并且不额外买额度
+  // （实例额度含免费 1 个，托管数量不超过它），用户一眼看到的就是要买的东西。
+  if (hostingProduct && canPurchase && location && new URL(location.href).searchParams.get("plan") === "hosting") {
+    hostingSelected = true;
+    slotQuantity = "0";
+  }
 
   function renderTerms(group: string, key: ProductKey, days: number): string {
     const ariaLabel = group === "alignment" ? "统一到期额外时长" : key === "slots" ? "挂机额度期限" : key === "module:hosting" ? "离线挂机期限" : "脱机功能期限";

@@ -157,15 +157,60 @@ describe("KE 监控台：离线挂机面板", () => {
     negative.restore();
   });
 
-  it("没有离线挂机功能时显示购买入口，且不能添加角色", async () => {
-    const { root, restore } = setup({
-      eligibility: { eligible: false, slots: 1, has_hosting: false, hosting_expires_at: null, cap: 0, hosted_count: 0 },
-      items: [],
-    });
+  const BUY = "/ke/buy?plan=hosting";
+  const NO_HOSTING: HostedEligibility = { eligible: false, slots: 1, has_hosting: false, hosting_expires_at: null, cap: 0, hosted_count: 0 };
+
+  it("没有离线挂机功能时，所有死胡同都变成指向购买页的入口，不再只有灰掉的按钮", async () => {
+    const { root, restore } = setup({ eligibility: NO_HOSTING, items: [] });
     await flush();
-    expect(root.querySelector<HTMLAnchorElement>(".kc-upsell a")?.getAttribute("href")).toBe("/ke/buy");
+    // 顶部横幅、工具栏、空状态、顶部“未开通”小方块，四处都能直接去开通。
+    expect(root.querySelector<HTMLAnchorElement>(".kc-upsell a")?.getAttribute("href")).toBe(BUY);
+    expect(root.querySelector<HTMLAnchorElement>(".kc-upsell a")?.textContent).toContain("立即开通");
+    expect(root.querySelector<HTMLAnchorElement>(".accounts-toolbar a[href]")?.getAttribute("href")).toBe(BUY);
+    expect(root.querySelector<HTMLAnchorElement>(".kc-empty a")?.getAttribute("href")).toBe(BUY);
+    expect(root.querySelector<HTMLAnchorElement>(".kc-stat a")?.getAttribute("href")).toBe(BUY);
     expect(root.textContent).toContain("未开通");
-    expect(root.querySelector<HTMLButtonElement>("button[data-kc-open-dialog]")!.disabled).toBe(true);
+    // 没有资格时不能添加角色，也不再放一个灰掉、点了没反应的按钮。
+    expect(root.querySelector("button[data-kc-open-dialog]")).toBeNull();
+    restore();
+  });
+
+  it("离线挂机到期后，文案是“续费”而不是“开通”", async () => {
+    const expired: HostedEligibility = { ...NO_HOSTING, hosting_expires_at: NOW - 3 * 86_400_000 };
+    const { root, restore } = setup({ eligibility: expired, items: [] });
+    await flush();
+    const upsell = root.querySelector(".kc-upsell")?.textContent ?? "";
+    expect(upsell).toContain("已到期");
+    expect(root.querySelector(".kc-upsell a")?.textContent).toContain("立即续费");
+    expect(root.querySelector(".accounts-toolbar a[href]")?.textContent).toContain("续费");
+    expect(root.querySelector<HTMLAnchorElement>(".kc-upsell a")?.getAttribute("href")).toBe(BUY);
+    restore();
+  });
+
+  it("因到期被自动停止的实例，提示里直接带“去续费”入口；有资格时不出现购买入口", async () => {
+    const stopped = item({ id: "i-3", desired: "stopped", phase: "stopped", stop_reason: "no-hosting-entitlement", status: null, status_at: null });
+    const lapsed = setup({ eligibility: { ...NO_HOSTING, hosting_expires_at: NOW - 86_400_000 }, items: [stopped] });
+    await flush();
+    expect(lapsed.root.querySelector<HTMLAnchorElement>(".kc-hint a")?.getAttribute("href")).toBe(BUY);
+    expect(lapsed.root.querySelector(".kc-hint a")?.textContent).toContain("去续费");
+    lapsed.restore();
+    const active = setup();
+    await flush();
+    expect(active.root.querySelector(".kc-upsell")).toBeNull();
+    expect(active.root.querySelector(".accounts-toolbar a[href]")).toBeNull();
+    expect(active.root.querySelector(".kc-stat a")).toBeNull();
+    active.restore();
+  });
+
+  it("没有资格时点启动被拒绝，提示后面带上开通入口", async () => {
+    const stopped = item({ id: "i-3", desired: "stopped", phase: "stopped", stop_reason: null, status: null, status_at: null });
+    const { dom, root, api, restore } = setup({ eligibility: NO_HOSTING, items: [stopped] });
+    (api.start as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("账号没有离线挂机资格"));
+    await flush();
+    click(dom, '[data-kc-start="i-3"]');
+    await flush();
+    expect(root.querySelector(".kc-notice")?.textContent).toContain("账号没有离线挂机资格");
+    expect(root.querySelector<HTMLAnchorElement>(".kc-notice a")?.getAttribute("href")).toBe(BUY);
     restore();
   });
 

@@ -233,6 +233,21 @@ describe('commerce purchase page', () => {
     ], undefined);
   });
 
+  it('从离线挂机入口（?plan=hosting）进来：已勾选离线挂机且不额外买额度，直接下单只含离线挂机', async () => {
+    const { root, api } = mount({ url: 'https://ltsd.ro/ke/buy?plan=hosting' });
+    expect(root.querySelector<HTMLInputElement>('[name="hosting-selected"]')!.checked).toBe(true);
+    expect(root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!.value).toBe('0');
+    click(root, '[data-action="review"]');
+    await settle();
+    expect(api.quoteCommerceSelection).toHaveBeenCalledWith([{ type: 'hosting', termDays: 30 }], undefined);
+  });
+
+  it('直接打开购买页（没有 plan 参数）时保持原默认：不勾选离线挂机，额度 1 个', () => {
+    const { root } = mount();
+    expect(root.querySelector<HTMLInputElement>('[name="hosting-selected"]')!.checked).toBe(false);
+    expect(root.querySelector<HTMLInputElement>('[name="slot-quantity"]')!.value).toBe('1');
+  });
+
   it('quotes the fixed 15/20/3-day alignment as 35/30/47 days for ¥155.33', async () => {
     const base = bootstrap();
     const aligned = quote({

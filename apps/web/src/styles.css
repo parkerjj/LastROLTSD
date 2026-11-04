@@ -11324,6 +11324,18 @@ a.sponsor-honor-card:hover {
 .kc-hint--warn { background: var(--tip-soft); }
 .kc-hint--bad { background: var(--sell-soft); }
 
+/* 没有离线挂机资格时的购买入口：文字链接要看得出可点；按钮式入口在工具栏/空状态里保持和其他按钮等高。 */
+.kc-stat-sub a,
+.kc-hint a,
+.kc-notice a {
+  color: var(--buy);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.accounts-toolbar .kc-link-button { min-height: 38px; padding: 0 14px; gap: 6px; }
+.kc-empty .kc-link-button { margin-top: 6px; }
+
 /* 托管角色卡片里的运行统计：收起一行摘要，展开看详情（击杀、道具、卡片装备、Zeny、经验）。 */
 .kc-run { display: grid; gap: 8px; }
 .kc-run .acc-divider { margin-bottom: 2px; }

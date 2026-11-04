@@ -131,6 +131,9 @@ const STOP_REASONS: Record<string, string> = {
   error: "托管遇到无法自动恢复的问题（常见原因是游戏账号或密码不正确），请检查后重新启动。",
 };
 
+/** 购买页入口。带 plan=hosting，购买页会直接勾选离线挂机且不额外买额度。 */
+const BUY_URL = "/ke/buy?plan=hosting";
+
 const AI_MODES: Record<string, string> = { auto: "自动挂机", manual: "手动", off: "已关闭" };
 
 function escapeHtml(value: string): string {
@@ -243,6 +246,16 @@ export function mountHostingPanel(
   container.innerHTML = `<div class="kc-hosting" data-kc-root></div>`;
   const root = container.querySelector<HTMLElement>("[data-kc-root]")!;
 
+  /** 曾经开通过、现在到期了。到期的用户该看到“续费”，从没开通过的看到“开通”。 */
+  function lapsed(eligibility: HostedEligibility): boolean {
+    return !eligibility.has_hosting && eligibility.hosting_expires_at !== null && eligibility.hosting_expires_at <= now();
+  }
+
+  /** 当前没有离线挂机资格时的资格信息；有资格或还没读到数据时为 null。 */
+  function unentitled(): HostedEligibility | null {
+    return view.kind === "ready" && !view.eligibility.has_hosting ? view.eligibility : null;
+  }
+
   function statTile(label: string, value: string, sub: string, tone: Tone | "" = ""): string {
     return `<div class="kc-stat${tone ? ` kc-stat--${tone}` : ""}"><span class="kc-stat-label">${label}</span><b class="kc-stat-value">${value}</b><span class="kc-stat-sub">${sub}</span></div>`;
   }
@@ -258,7 +271,9 @@ export function mountHostingPanel(
           expiresAt === null ? "" : `${formatDay(expiresAt)} 到期${days !== null && days <= 7 ? ` · 剩 ${days} 天` : ""}`,
           days !== null && days <= 7 ? "warn" : "good",
         )
-      : statTile("离线挂机", "未开通", "开通后才能托管", "idle");
+      : lapsed(eligibility)
+        ? statTile("离线挂机", "已到期", `<a href="${BUY_URL}">去续费 →</a>`, "warn")
+        : statTile("离线挂机", "未开通", `<a href="${BUY_URL}">去开通 →</a>`, "idle");
     const running = items.filter((item) => item.phase === "running").length;
     const attention = items.filter((item) => item.phase === "error" || item.phase === "backoff").length;
     return `<div class="kc-stats" role="list">
@@ -269,14 +284,15 @@ export function mountHostingPanel(
     </div>`;
   }
 
-  function upsellMarkup(): string {
+  function upsellMarkup(eligibility: HostedEligibility): string {
+    const renew = lapsed(eligibility);
     return `<aside class="kc-upsell" aria-labelledby="kc-upsell-title">
       <div class="kc-upsell-copy">
-        <p class="eyebrow">付费功能</p>
-        <h3 id="kc-upsell-title">离线挂机：关掉电脑，角色继续在服务器上打怪</h3>
+        <p class="eyebrow">${renew ? "已到期" : "付费功能"}</p>
+        <h3 id="kc-upsell-title">${renew ? "离线挂机已到期：续费后，角色继续在服务器上打怪" : "离线挂机：关掉电脑，角色继续在服务器上打怪"}</h3>
         <p>把角色交给服务器 24 小时挂机，断线自动重连、故障自动换机。购买时<b>自动包含</b>等时长的全平台脱机 KoreEngine。</p>
       </div>
-      <div class="kc-upsell-action"><b>¥50 <small>/ 月</small></b><a class="kc-link-button" href="/ke/buy">查看购买方案</a></div>
+      <div class="kc-upsell-action"><b>¥50 <small>/ 月</small></b><a class="kc-link-button" href="${BUY_URL}">${renew ? "立即续费" : "立即开通"}</a></div>
     </aside>`;
   }
 
@@ -382,7 +398,8 @@ export function mountHostingPanel(
     if (item.phase === "backoff" && item.retry_at !== null) {
       hint = `<p class="kc-hint kc-hint--warn"><i class="ph ph-clock-countdown" aria-hidden="true"></i>${escapeHtml(formatUntil(item.retry_at, nowMs))}自动重试。被其他设备顶下线时会等得更久（30 分钟起），避免互相抢号。</p>`;
     } else if (item.phase === "stopped" && item.stop_reason) {
-      hint = `<p class="kc-hint${item.stop_reason === "user" ? "" : " kc-hint--warn"}"><i class="ph ph-info" aria-hidden="true"></i>${escapeHtml(STOP_REASONS[item.stop_reason] ?? "托管已停止。")}</p>`;
+      const renewLink = item.stop_reason === "no-hosting-entitlement" && unentitled() ? ` <a href="${BUY_URL}">去续费 →</a>` : "";
+      hint = `<p class="kc-hint${item.stop_reason === "user" ? "" : " kc-hint--warn"}"><i class="ph ph-info" aria-hidden="true"></i><span>${escapeHtml(STOP_REASONS[item.stop_reason] ?? "托管已停止。")}${renewLink}</span></p>`;
     } else if (item.phase === "error") {
       hint = `<p class="kc-hint kc-hint--bad"><i class="ph ph-warning" aria-hidden="true"></i>${escapeHtml(STOP_REASONS.error!)}</p>`;
     }
@@ -415,8 +432,10 @@ export function mountHostingPanel(
       <h3>还没有托管角色</h3>
       <p>${eligibility.has_hosting
         ? "把用 KoreEngine 登录过的角色添加进来，再点「启动」，它就会在服务器上持续挂机。游戏密码加密保存在服务器，只用于托管登录。"
-        : "开通离线挂机后，就可以把角色交给服务器挂机。"}</p>
-      ${eligibility.has_hosting ? '<button type="button" data-kc-open-dialog><i class="ph ph-plus" aria-hidden="true"></i> 添加第一个托管角色</button>' : ""}
+        : lapsed(eligibility) ? "离线挂机已到期，续费后就可以继续把角色交给服务器挂机。" : "开通离线挂机后，就可以把角色交给服务器挂机。"}</p>
+      ${eligibility.has_hosting
+        ? '<button type="button" data-kc-open-dialog><i class="ph ph-plus" aria-hidden="true"></i> 添加第一个托管角色</button>'
+        : `<a class="kc-link-button" href="${BUY_URL}">${lapsed(eligibility) ? "续费离线挂机" : "开通离线挂机"}</a>`}
     </div>`;
   }
 
@@ -459,7 +478,8 @@ export function mountHostingPanel(
   }
 
   function render(): void {
-    const noticeMarkup = notice ? `<p class="accounts-status kc-notice${noticeTone ? ` is-${noticeTone}` : ""}" role="status" aria-live="polite">${escapeHtml(notice)}</p>` : '<p class="accounts-status kc-notice" role="status" aria-live="polite"></p>';
+    const buyAfterError = noticeTone === "error" && unentitled() ? ` <a href="${BUY_URL}">${lapsed(unentitled()!) ? "去续费" : "去开通"} →</a>` : "";
+    const noticeMarkup = notice ? `<p class="accounts-status kc-notice${noticeTone ? ` is-${noticeTone}` : ""}" role="status" aria-live="polite">${escapeHtml(notice)}${buyAfterError}</p>` : '<p class="accounts-status kc-notice" role="status" aria-live="polite"></p>';
     if (view.kind === "loading") {
       root.innerHTML = '<p class="acc-note kc-loading"><span class="account-spinner" aria-hidden="true"></span>正在读取托管状态…</p>';
       return;
@@ -481,12 +501,14 @@ export function mountHostingPanel(
     const canAdd = eligibility.eligible;
     root.innerHTML = `
       ${statsMarkup(eligibility, items)}
-      ${eligibility.has_hosting ? "" : upsellMarkup()}
+      ${eligibility.has_hosting ? "" : upsellMarkup(eligibility)}
       <div class="section-heading accounts-heading kc-heading">
         <div><p class="eyebrow">离线挂机</p><h2>托管角色</h2></div>
         <div class="accounts-toolbar">
           <button type="button" class="secondary-button" data-kc-reload><i class="ph ph-arrows-clockwise" aria-hidden="true"></i> 刷新</button>
-          <button type="button" data-kc-open-dialog ${canAdd ? "" : "disabled"} title="${canAdd ? "" : "开通离线挂机后才能添加"}"><i class="ph ph-plus" aria-hidden="true"></i> 添加角色</button>
+          ${eligibility.has_hosting
+            ? `<button type="button" data-kc-open-dialog ${canAdd ? "" : "disabled"} title="${canAdd ? "" : "实例额度不足，无法添加"}"><i class="ph ph-plus" aria-hidden="true"></i> 添加角色</button>`
+            : `<a class="kc-link-button" href="${BUY_URL}"><i class="ph ph-shopping-cart" aria-hidden="true"></i> ${lapsed(eligibility) ? "续费离线挂机" : "开通离线挂机"}</a>`}
         </div>
       </div>
       ${items.length > 0 ? `<div class="accounts-grid kc-grid" aria-live="polite">${items.map(cardMarkup).join("")}</div>` : emptyMarkup(eligibility)}
