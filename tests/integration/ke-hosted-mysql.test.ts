@@ -1,5 +1,6 @@
 // 托管（离线挂机）全部 SQL 的真实 MySQL 验证（迁移 028）。与 ke-mysql 共用 withAuthTestDatabase：
 // 需要 MYSQL_TEST_URL（库名以 _test 结尾、且不同于 MYSQL_URL）与 AUTH_TEST_DB_ALLOW_RESET=1，会清空并重建该库。
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import { digestToken } from '../../apps/worker/src/auth/crypto';
@@ -71,6 +72,58 @@ describe.skipIf(!runMysqlTests)('托管 × MySQL（迁移 028）', () => {
         "SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND TABLE_NAME = 'ke_instances' AND COLUMN_NAME = 'kick_reason'",
       );
       expect(Number(column!.n)).toBe(1);
+    });
+  }, 120_000);
+
+  it('迁移 029：订单明细允许 module:hosting；存量脱机账号按同一有效期窗口获赠离线挂机，且幂等', async () => {
+    await withAuthTestDatabase(async ({ database }) => {
+      const check = await database.first<{ check_clause: string }>(
+        "SELECT cc.CHECK_CLAUSE AS check_clause FROM information_schema.check_constraints cc WHERE cc.CONSTRAINT_SCHEMA = DATABASE() AND cc.CONSTRAINT_NAME = 'chk_commerce_order_items_product'",
+      );
+      expect(check!.check_clause).toContain('module:hosting');
+
+      const now = Date.now();
+      const day = 24 * 3600 * 1000;
+      const cutoff = 1793808000000;
+      const grant = async (user: number, quantity: number, startsAt: number, expiresAt: number, source: string, ref: string, createdAt: number, revoked: number | null = null) =>
+        database.run(
+          'INSERT INTO ke_entitlements (user_id, resource, quantity, starts_at, expires_at, source, source_ref, revoked_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [user, 'module:standalone', quantity, startsAt, expiresAt, source, ref, revoked, createdAt],
+        );
+      const buyer = await insertUser(database, 'buyer', 0, false);          // 付费脱机，截止前购买
+      const expired = await insertUser(database, 'expired', 0, false);      // 脱机已过期
+      const late = await insertUser(database, 'late', 0, false);            // 截止后才购买
+      const deducted = await insertUser(database, 'deducted', 0, false);    // 被管理员扣减到没有脱机
+      const revokedUser = await insertUser(database, 'revoked', 0, false);  // 流水被撤销
+      const signupOnly = await insertUser(database, 'signuponly', 0, false); // 只有注册赠送的脱机
+      await grant(buyer, 1, now - day, now + 20 * day, 'admin', 'buy-1', cutoff - 1);
+      await grant(expired, 1, now - 40 * day, now - 10 * day, 'admin', 'buy-2', cutoff - 1);
+      await grant(late, 1, now - day, now + 20 * day, 'admin', 'buy-3', cutoff + 1);
+      await grant(deducted, 1, now - day, now + 20 * day, 'admin', 'buy-4', cutoff - 1);
+      await grant(deducted, -1, now - day, now + 20 * day, 'admin', 'deduct-4', cutoff - 1);
+      await grant(revokedUser, 1, now - day, now + 20 * day, 'admin', 'buy-5', cutoff - 1, now - 1000);
+      await grant(signupOnly, 1, now - day, now + KE_PERMANENT_MS, 'signup', 'email-verified:module:standalone', cutoff - 1);
+
+      const migration = readFileSync(new URL('../../migrations/mysql/029_ke_hosting_product.sql', import.meta.url), 'utf8');
+      const insert = migration.slice(migration.indexOf('INSERT INTO ke_entitlements')).trim().replace(/;$/u, '');
+      await database.run(insert);
+      const hostingRows = async () => database.all<{ user_id: number; starts_at: number; expires_at: number; source: string; source_ref: string }>(
+        "SELECT user_id, starts_at, expires_at, source, source_ref FROM ke_entitlements WHERE resource = 'module:hosting' ORDER BY user_id",
+      );
+      const rows = await hostingRows();
+      expect(rows.map((row) => Number(row.user_id))).toEqual([buyer]);
+      expect(rows[0]).toMatchObject({ source: 'grandfather' });
+      expect(Number(rows[0]!.starts_at)).toBe(now - day);
+      expect(Number(rows[0]!.expires_at)).toBe(now + 20 * day);
+
+      // 幂等；脱机被延期后再执行会把赠送的到期时间跟上。
+      await database.run(insert);
+      expect((await hostingRows()).length).toBe(1);
+      await database.run("UPDATE ke_entitlements SET expires_at = ? WHERE user_id = ? AND resource = 'module:standalone'", [now + 50 * day, buyer]);
+      await database.run(insert);
+      const after = await hostingRows();
+      expect(after.length).toBe(1);
+      expect(Number(after[0]!.expires_at)).toBe(now + 50 * day);
     });
   }, 120_000);
 

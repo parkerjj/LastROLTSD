@@ -14,6 +14,7 @@ function testBindings(overrides: Record<string, unknown> = {}): AppEnv {
     COMMERCE_PRICING_VERSION: 'ke-commerce-2026-10-v1',
     COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slotstest',
     COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_offlinetest',
+    COMMERCE_STRIPE_PRODUCT_HOSTING_ID: 'prod_hostingtest',
     COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_alipaytest',
     COMMERCE_SITE_ORIGIN: 'https://staging.ltsd.example',
     ...overrides,
@@ -34,6 +35,10 @@ function mockStripe(overrides: {
     '/products/prod_offlinetest': {
       id: 'prod_offlinetest', object: 'product', active: true, livemode: false,
       metadata: { ltsd_commerce_product_key: 'module:standalone' }, ...overrides.products?.offline,
+    },
+    '/products/prod_hostingtest': {
+      id: 'prod_hostingtest', object: 'product', active: true, livemode: false,
+      metadata: { ltsd_commerce_product_key: 'module:hosting' }, ...overrides.products?.hosting,
     },
     '/payment_method_configurations/pmc_alipaytest': {
       id: 'pmc_alipaytest', object: 'payment_method_configuration', active: true, livemode: false,
@@ -63,6 +68,7 @@ describe('commerce deployment configuration preflight', () => {
       COMMERCE_STRIPE_ACCOUNT_ID: 'acct_live',
       COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slotslive',
       COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_offlinelive',
+      COMMERCE_STRIPE_PRODUCT_HOSTING_ID: 'prod_hostinglive',
       COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_live',
       COMMERCE_SITE_ORIGIN: 'https://ltsd.ro',
     } as never))).toBeNull();
@@ -97,6 +103,7 @@ describe('commerce deployment configuration preflight', () => {
       ENVIRONMENT: 'production', COMMERCE_STRIPE_LIVEMODE: 'true',
       COMMERCE_STRIPE_SECRET_KEY: 'sk_live_commercekey', COMMERCE_STRIPE_ACCOUNT_ID: 'acct_live',
       COMMERCE_STRIPE_PRODUCT_SLOTS_ID: 'prod_slotslive', COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: 'prod_offlinelive',
+      COMMERCE_STRIPE_PRODUCT_HOSTING_ID: 'prod_hostinglive',
       COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: 'pmc_live', COMMERCE_SITE_ORIGIN: 'https://ltsd.ro',
     } as never))).toMatchObject({ salesEnabled: true, livemode: true, stripeAccountId: 'acct_live' });
   });
@@ -115,6 +122,7 @@ describe('commerce deployment configuration preflight', () => {
     expect(vi.mocked(stripe.get).mock.calls.map(([path]) => path).sort()).toEqual([
       '/account',
       '/payment_method_configurations/pmc_alipaytest',
+      '/products/prod_hostingtest',
       '/products/prod_offlinetest',
       '/products/prod_slotstest',
     ]);
@@ -145,5 +153,11 @@ describe('commerce deployment configuration preflight', () => {
     });
 
     await expect(verifyStripeCommerceConfiguration(config, swappedProductKeys)).rejects.toThrow();
+    // 离线挂机的 Product 也必须带 module:hosting 标记，且处于启用状态。
+    await expect(verifyStripeCommerceConfiguration(config, mockStripe({
+      products: { hosting: { metadata: { ltsd_commerce_product_key: 'module:standalone' } } },
+    }))).rejects.toThrow();
+    await expect(verifyStripeCommerceConfiguration(config, mockStripe({ products: { hosting: { active: false } } })))
+      .rejects.toThrow();
   });
 });

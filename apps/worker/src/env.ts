@@ -16,7 +16,7 @@ export interface CommerceConfig {
   stripeAccountId: string;
   livemode: boolean;
   pricingVersion: string;
-  productIds: { slots: string; 'module:standalone': string };
+  productIds: { slots: string; 'module:standalone': string; 'module:hosting': string };
   paymentMethodConfigurationId: string;
   siteOrigin: string;
 }
@@ -65,6 +65,7 @@ export interface AppEnv extends AuthBindings, KeBindings {
   COMMERCE_PRICING_VERSION?: string | undefined;
   COMMERCE_STRIPE_PRODUCT_SLOTS_ID?: string | undefined;
   COMMERCE_STRIPE_PRODUCT_STANDALONE_ID?: string | undefined;
+  COMMERCE_STRIPE_PRODUCT_HOSTING_ID?: string | undefined;
   COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID?: string | undefined;
   COMMERCE_SITE_ORIGIN?: string | undefined;
 }
@@ -115,6 +116,7 @@ export function resolveAppEnv(bindings: Record<string, unknown>): AppEnv {
     COMMERCE_PRICING_VERSION: optionalString(bindings.COMMERCE_PRICING_VERSION),
     COMMERCE_STRIPE_PRODUCT_SLOTS_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_SLOTS_ID),
     COMMERCE_STRIPE_PRODUCT_STANDALONE_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID),
+    COMMERCE_STRIPE_PRODUCT_HOSTING_ID: optionalString(bindings.COMMERCE_STRIPE_PRODUCT_HOSTING_ID),
     COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID: optionalString(bindings.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID),
     COMMERCE_SITE_ORIGIN: optionalString(bindings.COMMERCE_SITE_ORIGIN),
     AUTH_ENABLED: typeof bindings.AUTH_ENABLED === 'string' ? bindings.AUTH_ENABLED : undefined,
@@ -164,6 +166,7 @@ export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
   const pricingVersion = env.COMMERCE_PRICING_VERSION;
   const slotsProductId = env.COMMERCE_STRIPE_PRODUCT_SLOTS_ID;
   const standaloneProductId = env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID;
+  const hostingProductId = env.COMMERCE_STRIPE_PRODUCT_HOSTING_ID;
   const paymentMethodConfigurationId = env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
   const siteOrigin = env.COMMERCE_SITE_ORIGIN;
 
@@ -174,7 +177,7 @@ export function resolveCommerceConfig(env: AppEnv): CommerceConfig | null {
     stripeAccountId: stripeAccountId!,
     livemode,
     pricingVersion: pricingVersion!,
-    productIds: { slots: slotsProductId!, 'module:standalone': standaloneProductId! },
+    productIds: { slots: slotsProductId!, 'module:standalone': standaloneProductId!, 'module:hosting': hostingProductId! },
     paymentMethodConfigurationId: paymentMethodConfigurationId!,
     siteOrigin: new URL(siteOrigin!).origin,
   };
@@ -213,6 +216,9 @@ export function commerceConfigIssueFields(env: AppEnv): string[] {
   }
   if (!env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID || !/^prod_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PRODUCT_STANDALONE_ID)) {
     issues.push('COMMERCE_STRIPE_PRODUCT_STANDALONE_ID');
+  }
+  if (!env.COMMERCE_STRIPE_PRODUCT_HOSTING_ID || !/^prod_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PRODUCT_HOSTING_ID)) {
+    issues.push('COMMERCE_STRIPE_PRODUCT_HOSTING_ID');
   }
   if (!env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID
     || !/^pmc_[A-Za-z0-9]+$/u.test(env.COMMERCE_STRIPE_PAYMENT_METHOD_CONFIGURATION_ID)) {

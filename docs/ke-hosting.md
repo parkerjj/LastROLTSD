@@ -10,7 +10,10 @@
 
 ## 规则摘要
 
-- **托管资格**：非 `signup` 来源的有效 `slots` 之和 ≥ 1 且拥有 `module:core`（管理员赠送也算）。**全有或全无**：失去资格后所有托管实例停止，一个都不保留，重新购买后不自动恢复。
+- **托管资格**：拥有有效的 `module:hosting`（付费功能“离线挂机”，50 元/月）且拥有 `module:core`。**全有或全无**：功能到期、退款或被撤销后所有托管实例停止，一个都不保留，重新购买后不自动恢复。实例额度（`slots`，含免费 1 个）只决定能托管几个，不决定有没有资格。
+- **离线挂机包含脱机版**：拥有 `module:hosting` 期间生效模块自动包含 `standalone`（`foldEntitlements` 里补上，不写赠送流水），到期/退款同步失效；已有的脱机时长不会因此额外延长。购买页上“离线挂机”与“脱机功能”不能同单购买（前者已包含后者）。
+- **存量赠送（迁移 029）**：2026-11-05 00:00（UTC+8）之前已购买过脱机功能的账号，对每条仍有效的非 signup 脱机流水复制同一有效期窗口，生成 `source='grandfather'` 的 `module:hosting` 流水；幂等，部署后可原样再执行一次（会把已赠送流水的到期时间跟上脱机的延期）。
+- **上线前置**：Stripe 里新建“离线挂机”Product（`metadata.ltsd_commerce_product_key=module:hosting`），并设置 Worker 变量 `COMMERCE_STRIPE_PRODUCT_HOSTING_ID`；缺少时商业化配置视为无效（与另外两个 Product 一样）。
 - **半自动也占额度**：服务端不再区分 `mode`，一律按 `auto` 持久化并计数。
 - **同角色续连**：同一用户重新开启同一角色时直接接管旧会话（`reason=character_takeover`），不提示实例超额。托管永不接管非托管会话：同角色有存活的非托管会话时 launch 返回 `KE_CHARACTER_IN_USE`。
 - **被踢原因**：`KE_INSTANCE_KICKED` 的 `error.action` 里带 `{"reason": "quota_kick" | "character_takeover" | "quota_shrunk"}`。

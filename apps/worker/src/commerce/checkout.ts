@@ -124,7 +124,7 @@ function validateCheckoutInput(input: CreateCheckoutSessionInput, dependencies: 
   const products = new Map<CommerceProductKey, string>();
   for (const item of input.lineItems) {
     const configuredProductId = products.get(item.productKey);
-    if ((item.productKey !== 'slots' && item.productKey !== 'module:standalone')
+    if ((item.productKey !== 'slots' && item.productKey !== 'module:standalone' && item.productKey !== 'module:hosting')
       || !/^prod_[A-Za-z0-9]+$/u.test(item.productId)
       || !Number.isSafeInteger(item.amountCents) || item.amountCents <= 0
       || !Number.isSafeInteger(item.quantity) || item.quantity < 1

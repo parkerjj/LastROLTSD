@@ -62,7 +62,7 @@ function dependencies(state = makeState(), overrides: Partial<QuoteDependencies>
     repository: makeRepository(state),
     pricingVersion: 'ke-commerce-test-v1',
     now: () => NOW,
-    productIds: { slots: 'prod_slots', 'module:standalone': 'prod_offline' },
+    productIds: { slots: 'prod_slots', 'module:standalone': 'prod_offline', 'module:hosting': 'prod_hosting' },
     ...overrides,
   };
 }
@@ -306,5 +306,68 @@ describe('authoritative commerce quotes', () => {
       userId: '42', selection: [selection('slot_add', 30, { quantity: 1 })], promotionCode: 'SPRING',
     }, deps)).rejects.toMatchObject({ code: 'COMMERCE_PROMOTION_INVALID' });
     expect(deps.repository.insertQuote).not.toHaveBeenCalled();
+  });
+});
+
+describe('离线挂机（module:hosting）报价', () => {
+  const hostingRow = (id: string, expiresInDays: bigint) => ({
+    id, unitId: null, resource: 'module:hosting', quantity: 1, startsAt: BigInt(NOW) - DAY_MS,
+    expiresAt: BigInt(NOW) + expiresInDays * DAY_MS, source: 'grandfather', sourceRef: 'standalone:203',
+  });
+
+  it('输入解析接受 hosting，且不接受多余字段', () => {
+    expect(parseQuoteInput({ selection: [{ type: 'hosting', term_days: 30 }] }).selection)
+      .toEqual([{ type: 'hosting', termDays: 30 }]);
+    expect(() => parseQuoteInput({ selection: [{ type: 'hosting', term_days: 30, quantity: 2 }] })).toThrow(QuoteInputError);
+  });
+
+  it('没有离线挂机时开通：按 50 元/月计价，到期为现在 + 时长，预览里同时具备脱机版', async () => {
+    const state = makeState({
+      entitlements: makeState().entitlements.filter((row) => row.resource !== 'module:standalone'),
+      effective: { slots: 2, modules: new Set(['core']) },
+    });
+    const quote = await createQuote({ userId: '42', selection: [selection('hosting', 30)] }, dependencies(state));
+
+    expect(quote.items).toHaveLength(1);
+    expect(quote.items[0]).toMatchObject({ productKey: 'module:hosting', operation: 'ADD', targetEntitlementId: null, rawCents: '5000', paidCents: '5000' });
+    expect(BigInt(quote.items[0]!.expectedExpiresAt)).toBe(BigInt(NOW) + 30n * DAY_MS);
+    expect(quote.accountPreview.after.effective.modules).toEqual(expect.arrayContaining(['hosting', 'standalone']));
+  });
+
+  it('已有离线挂机（含迁移赠送）时续期：顺延到现有到期日之后，并指向该流水', async () => {
+    const state = makeState({
+      entitlements: [...makeState().entitlements, hostingRow('301', 10n)],
+      effective: { slots: 2, modules: new Set(['core', 'standalone', 'hosting']) },
+    });
+    const quote = await createQuote({ userId: '42', selection: [selection('hosting', 90)] }, dependencies(state));
+
+    expect(quote.items[0]).toMatchObject({ productKey: 'module:hosting', operation: 'RENEW', targetEntitlementId: '301' });
+    expect(BigInt(quote.items[0]!.expectedExpiresAt)).toBe(BigInt(NOW) + 100n * DAY_MS);
+  });
+
+  it('不能与单独的脱机功能同单购买（离线挂机已包含脱机版，避免重复收费）', async () => {
+    await expect(createQuote({ userId: '42', selection: [selection('hosting', 30), selection('standalone', 30)] }, dependencies()))
+      .rejects.toMatchObject({ code: 'COMMERCE_SELECTION_INVALID' });
+  });
+
+  it('可以与实例额度同单购买', async () => {
+    const quote = await createQuote(
+      { userId: '42', selection: [selection('slot_add', 30, { quantity: 2 }), selection('hosting', 30)] },
+      dependencies(),
+    );
+    expect(quote.items.map((item) => item.productKey).sort()).toEqual(['module:hosting', 'slots', 'slots']);
+  });
+
+  it('统一到期会把离线挂机一并对齐', async () => {
+    const state = makeState({
+      entitlements: [...makeState().entitlements, hostingRow('301', 1n)],
+      effective: { slots: 2, modules: new Set(['core', 'standalone', 'hosting']) },
+    });
+    const quote = await createQuote({ userId: '42', selection: [selection('align_all_paid', 30)] }, dependencies(state));
+    const hosting = quote.items.find((item) => item.productKey === 'module:hosting');
+
+    expect(hosting).toMatchObject({ operation: 'RENEW', targetEntitlementId: '301' });
+    // 目标 = 最晚到期（20 天后的额度）+ 30 天。
+    expect(BigInt(hosting!.expectedExpiresAt)).toBe(BigInt(NOW) + 50n * DAY_MS);
   });
 });

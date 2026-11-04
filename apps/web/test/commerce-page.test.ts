@@ -208,6 +208,31 @@ describe('commerce purchase page', () => {
     ], undefined);
   });
 
+  it('离线挂机是独立的 50 元/月功能卡：选中后包含脱机功能，不再单独收脱机的钱', async () => {
+    const { root, api } = mount();
+    const hostingCard = root.querySelector('[data-product="hosting"]')!;
+    expect(hostingCard.textContent).toContain('离线挂机');
+    expect(hostingCard.textContent).toContain('¥50');
+    expect(hostingCard.textContent).toContain('自动包含');
+
+    const feature = root.querySelector<HTMLInputElement>('[name="feature-selected"]')!;
+    feature.checked = true;
+    dispatch(root, feature, 'change');
+    const hosting = root.querySelector<HTMLInputElement>('[name="hosting-selected"]')!;
+    hosting.checked = true;
+    dispatch(root, hosting, 'change');
+    // 选了离线挂机后，脱机功能开关被禁用并提示已包含。
+    expect(root.querySelector<HTMLInputElement>('[name="feature-selected"]')!.disabled).toBe(true);
+    expect(root.querySelector('[data-product="feature"]')!.textContent).toContain('已包含在本次选择的离线挂机中');
+
+    click(root, '[data-action="review"]');
+    await settle();
+    expect(api.quoteCommerceSelection).toHaveBeenCalledWith([
+      { type: 'slot_add', quantity: 1, termDays: 30 },
+      { type: 'hosting', termDays: 30 },
+    ], undefined);
+  });
+
   it('quotes the fixed 15/20/3-day alignment as 35/30/47 days for ¥155.33', async () => {
     const base = bootstrap();
     const aligned = quote({

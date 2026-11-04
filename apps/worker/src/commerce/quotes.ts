@@ -158,8 +158,10 @@ function isTermDays(value: number): value is CommerceTermDays {
 function validateSelection(selection: readonly QuoteSelection[]): void {
   if (!Array.isArray(selection) || selection.length < 1 || selection.length > 2) invalidSelection();
   const types = selection.map((item) => item?.type);
-  if (types.some((type) => !['slot_add', 'slot_renew', 'standalone', 'align_all_paid'].includes(type))
+  if (types.some((type) => !['slot_add', 'slot_renew', 'standalone', 'hosting', 'align_all_paid'].includes(type))
     || new Set(types).size !== types.length
+    // 离线挂机已包含脱机版，同一订单里不能再单独买脱机版（会重复计费）。
+    || (types.includes('hosting') && types.includes('standalone'))
     || types.filter((type) => type === 'slot_add' || type === 'slot_renew' || type === 'align_all_paid').length > 1
     || (types.includes('align_all_paid') && selection.length !== 1)) invalidSelection();
 
@@ -183,7 +185,7 @@ function validateSelection(selection: readonly QuoteSelection[]): void {
   }
 
   const requestedUnits = selection.reduce((total, item) => total + (item.type === 'slot_add' ? item.quantity : item.type === 'slot_renew' ? item.unitIds.length : 0), 0)
-    + Number(types.includes('standalone'));
+    + Number(types.includes('standalone')) + Number(types.includes('hosting'));
   if (requestedUnits > MAX_QUOTE_ITEMS) throw new CommerceQuoteError('COMMERCE_ITEM_LIMIT');
 }
 
@@ -199,6 +201,16 @@ function isPermanentGiftEntitlement(row: Pick<QuoteEntitlement, 'resource' | 'so
     || (row.resource === 'module:standalone' && row.source === 'signup' && row.sourceRef === 'email-verified:module:standalone');
 }
 
+/** 账号当前有效的付费模块流水（排除注册赠送），到期最晚的优先；用于判断“开通”还是“续期”。 */
+function currentPaidModule(state: QuoteAccountState, name: 'standalone' | 'hosting', now: bigint): QuoteEntitlement | undefined {
+  if (!state.effective.modules.has(name)) return undefined;
+  const resource = `module:${name}`;
+  return state.entitlements
+    .filter((row) => row.resource === resource && row.quantity > 0 && row.startsAt <= now && row.expiresAt > now
+      && !(row.source === 'signup' && row.sourceRef === `email-verified:${resource}`))
+    .sort((left, right) => left.expiresAt === right.expiresAt ? BigInt(left.id) < BigInt(right.id) ? -1 : 1 : left.expiresAt > right.expiresAt ? -1 : 1)[0];
+}
+
 function currentEntitlementPreview(state: QuoteAccountState): QuotePreviewEntitlement[] {
   const unitsByEntitlement = new Map(state.slotUnits.map((unit) => [unit.keEntitlementId, unit.unitId]));
   return state.entitlements.map((row) => ({
@@ -208,7 +220,7 @@ function currentEntitlementPreview(state: QuoteAccountState): QuotePreviewEntitl
     quantity: row.quantity,
     startsAt: String(row.startsAt),
     expiresAt: String(row.expiresAt),
-    productKey: row.resource === 'slots' || row.resource === 'module:standalone' ? row.resource : null,
+    productKey: row.resource === 'slots' || row.resource === 'module:standalone' || row.resource === 'module:hosting' ? row.resource : null,
     isGift: isPermanentGiftEntitlement(row),
   }));
 }
@@ -287,20 +299,18 @@ function buildPendingItems(
         add({ product, productKey: 'slots', operation: 'RENEW', targetUnitId: unit.unitId, targetEntitlementId: unit.keEntitlementId,
           durationMs: termMs, expectedStartsAt: unit.currentExpiresAt, expectedExpiresAt: unit.currentExpiresAt + termMs });
       }
-    } else if (choice.type === 'standalone') {
-      const product = productFor(products, 'module:standalone');
-      const current = state.effective.modules.has('standalone') ? state.entitlements.filter((row) => row.resource === 'module:standalone' && row.quantity > 0
-        && row.startsAt <= now && row.expiresAt > now && !(row.source === 'signup' && row.sourceRef === 'email-verified:module:standalone'))
-        .sort((left, right) => left.expiresAt === right.expiresAt ? BigInt(left.id) < BigInt(right.id) ? -1 : 1 : left.expiresAt > right.expiresAt ? -1 : 1)[0] : undefined;
-      add({ product, productKey: 'module:standalone', operation: current ? 'RENEW' : 'ADD',
+    } else if (choice.type === 'standalone' || choice.type === 'hosting') {
+      const key = choice.type === 'standalone' ? 'module:standalone' : 'module:hosting';
+      const product = productFor(products, key);
+      const current = currentPaidModule(state, choice.type, now);
+      add({ product, productKey: key, operation: current ? 'RENEW' : 'ADD',
         targetEntitlementId: current?.id ?? null, durationMs: termMs, expectedStartsAt: current?.expiresAt ?? now,
         expectedExpiresAt: (current?.expiresAt ?? now) + termMs });
     } else {
       const slots = state.slotUnits.filter((unit) => unit.currentQuantity > 0 && unit.currentStartsAt <= now && unit.currentExpiresAt > now);
-      const standalone = state.effective.modules.has('standalone') ? state.entitlements.filter((row) => row.resource === 'module:standalone' && row.quantity > 0
-        && row.startsAt <= now && row.expiresAt > now && !(row.source === 'signup' && row.sourceRef === 'email-verified:module:standalone'))
-        .sort((left, right) => left.expiresAt === right.expiresAt ? BigInt(left.id) < BigInt(right.id) ? -1 : 1 : left.expiresAt > right.expiresAt ? -1 : 1)[0] : undefined;
-      const expiries = [...slots.map((unit) => unit.currentExpiresAt), ...(standalone ? [standalone.expiresAt] : [])];
+      const standalone = currentPaidModule(state, 'standalone', now);
+      const hosting = currentPaidModule(state, 'hosting', now);
+      const expiries = [...slots.map((unit) => unit.currentExpiresAt), ...(standalone ? [standalone.expiresAt] : []), ...(hosting ? [hosting.expiresAt] : [])];
       if (expiries.length === 0) throw new CommerceQuoteError('COMMERCE_NO_CHARGEABLE_ITEMS');
       const latest = expiries.reduce((value, expiry) => expiry > value ? expiry : value);
       const earliest = expiries.reduce((value, expiry) => expiry < value ? expiry : value);
@@ -315,6 +325,11 @@ function buildPendingItems(
         const feature = productFor(products, 'module:standalone');
         add({ product: feature, productKey: 'module:standalone', operation: 'RENEW', targetEntitlementId: standalone.id,
           durationMs: target - standalone.expiresAt, expectedStartsAt: standalone.expiresAt, expectedExpiresAt: target });
+      }
+      if (hosting) {
+        const feature = productFor(products, 'module:hosting');
+        add({ product: feature, productKey: 'module:hosting', operation: 'RENEW', targetEntitlementId: hosting.id,
+          durationMs: target - hosting.expiresAt, expectedStartsAt: hosting.expiresAt, expectedExpiresAt: target });
       }
       if (!items.some((item) => item.durationMs > COMMERCE_MONTH_MS)) throw new CommerceQuoteError('COMMERCE_SELECTION_INVALID');
     }
@@ -352,7 +367,7 @@ function snapshotEntitlement(row: QuoteEntitlement): QuotePreviewEntitlement {
     quantity: row.quantity,
     startsAt: String(row.startsAt),
     expiresAt: String(row.expiresAt),
-    productKey: row.resource === 'slots' || row.resource === 'module:standalone' ? row.resource : null,
+    productKey: row.resource === 'slots' || row.resource === 'module:standalone' || row.resource === 'module:hosting' ? row.resource : null,
     isGift: isPermanentGiftEntitlement(row),
   };
 }
@@ -481,9 +496,12 @@ export async function createQuote(
       moduleQuantities.set(module, (moduleQuantities.get(module) ?? 0) + 1);
     }
   }
+  const afterModules = new Set([...moduleQuantities].filter(([, quantity]) => quantity > 0).map(([module]) => module));
+  // 离线挂机包含脱机版：与 foldEntitlements 的生效口径保持一致。
+  if (afterModules.has('hosting')) afterModules.add('standalone');
   const afterEffective = {
     slots: Math.max(0, signedSlots + addedSlots),
-    modules: [...moduleQuantities].filter(([, quantity]) => quantity > 0).map(([module]) => module).sort(),
+    modules: [...afterModules].sort(),
   };
   const createdAt = now;
   const expiresAt = now + QUOTE_TTL_MS;

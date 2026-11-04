@@ -337,7 +337,7 @@ function readQuoteItems(value: unknown, alignment: boolean | null): QuoteOrderIt
   return value.map((candidate, index) => {
     const item = asRecord(candidate);
     if (!item || item.ordinal !== index + 1
-      || (item.productKey !== 'slots' && item.productKey !== 'module:standalone')
+      || (item.productKey !== 'slots' && item.productKey !== 'module:standalone' && item.productKey !== 'module:hosting')
       || (item.operation !== 'ADD' && item.operation !== 'RENEW' && !(alignment === null && item.operation === 'ALIGN'))
       || ![70, 80, 100].includes(Number(item.discountPercent))) {
       throw new TypeError('invalid commerce quote item');
