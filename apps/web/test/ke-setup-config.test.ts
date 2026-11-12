@@ -203,10 +203,10 @@ describe('KE 按职业生成的配置合法性（无需游戏账号）', () => {
     for (const key of keys) expect(lines.some((line) => line.startsWith(`${key} `))).toBe(true);
   });
 
-  it('傻瓜配置生成的空闲瞬移等待是 0.8 秒（ai_teleport_idle），不是 KE 默认的 10 秒', () => {
+  it('傻瓜配置生成的空闲瞬移等待是 0.7 秒（ai_teleport_idle），不是 KE 默认的 10 秒', () => {
     const texts = controlTexts(controlDoc());
     const lines = (texts["timeouts.txt"] ?? "").split("\n");
-    expect(lines).toContain("ai_teleport_idle 0.8");
+    expect(lines).toContain("ai_teleport_idle 0.7");
     expect(lines).not.toContain("ai_teleport_idle 10");
   });
 

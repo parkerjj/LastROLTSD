@@ -31,6 +31,10 @@ worktrees/
 formal-ui-*.png
 lastro-ui-*.png
 lastro-ui-prototype.html
+# 本地截图与 AI 生成的 HTML 分享包，均不提交
+.screenshots/
+screenshots/
+.trae-html*/
 
 # Trae / AI 生成的临时文件
 .trae/

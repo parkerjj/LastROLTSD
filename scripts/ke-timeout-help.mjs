@@ -38,7 +38,7 @@ export const TIMEOUT_HELP = {
   ai_equip_giveup: { desc: '装备不上去多久放弃。', range: '1 ~ 4 秒' },
   ai_teleport: { desc: '瞬移动作的间隔。', range: '0.5 ~ 2 秒' },
   ai_teleport_away: { desc: '瞬移逃走后多久恢复。', range: '2 ~ 5 秒' },
-  ai_teleport_idle: { desc: '空闲瞬移的间隔。', range: '2 ~ 8 秒' },
+  ai_teleport_idle: { desc: '空闲瞬移的间隔。', range: '0.5 ~ 8 秒' },
   ai_teleport_portal: { desc: '过传送门瞬移的间隔。', range: '1 ~ 4 秒' },
   ai_teleport_hp: { desc: '低血瞬移的间隔。', range: '2 ~ 5 秒' },
   ai_teleport_safe_force: { desc: '安全区强制瞬移的间隔。', range: '60 ~ 180 秒' },
