@@ -1,4 +1,6 @@
 import type { ProfileInput, ProfileRepository, ProfileRow } from './profile-repository';
+import { applyConfigPatch } from './death/config-patch';
+import type { ConfigPatch } from './death/types';
 import { KeFailure } from './types';
 
 const MAX_PROFILE_BYTES = 512 * 1024;
@@ -27,6 +29,9 @@ export interface ProfileService {
   activate(userId: string, id: number): Promise<void>;
   remove(userId: string, id: number): Promise<void>;
   fetchActive(userId: string, aid: number, cid: number, nid: number): Promise<ActiveProfileResponse>;
+  /** 对角色当前 active 配置应用一个补丁（死亡报告的一键应用/撤销）；期望值不符抛 KE_CONFIG_CHANGED。 */
+  patchActive(userId: string, aid: number, cid: number, nid: number, patch: ConfigPatch, itemIdOf: (name: string) => number | null): Promise<{ revert: ConfigPatch; profileId: number; profileName: string }>;
+  activeName(userId: string, aid: number, cid: number, nid: number): Promise<string | null>;
 }
 
 function validateInput(input: ProfileInput): void {
@@ -157,6 +162,33 @@ export function createProfileService(repository: ProfileRepository, now: () => n
       const active = await repository.findActive(Number(userId), aid, cid, nid);
       if (active === null) throw new KeFailure('KE_PROFILE_NOT_FOUND', 404, '无 active profile');
       return { profile_id: active.id, name: active.name, files: filesOf(active) };
+    },
+
+    async activeName(userId, aid, cid, nid) {
+      const active = await repository.findActive(Number(userId), aid, cid, nid);
+      return active === null ? null : active.name;
+    },
+
+    async patchActive(userId, aid, cid, nid, patch, itemIdOf) {
+      const ownerId = Number(userId);
+      const timestamp = now();
+      return repository.transaction(async (tx) => {
+        await tx.lockUser(ownerId);
+        const active = await tx.findActive(ownerId, aid, cid, nid);
+        if (active === null) throw new KeFailure('KE_PROFILE_MISSING', 404, '这个角色还没有启用的配置');
+        const result = applyConfigPatch(filesOf(active), patch, itemIdOf);
+        const input = {
+          name: active.name,
+          config_text: result.files['config.txt'],
+          mon_control: patch.file === 'mon_control.txt' ? result.files['mon_control.txt'] : active.mon_control,
+          pickupitems: active.pickupitems,
+          items_control: active.items_control,
+          timeouts: active.timeouts,
+        };
+        validateInput(input);
+        await tx.update(active.id, input, timestamp);
+        return { revert: result.revert, profileId: active.id, profileName: active.name };
+      });
     },
   };
 }

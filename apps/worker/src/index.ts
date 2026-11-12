@@ -41,6 +41,7 @@ import { createActivityRepository } from './activity/repository';
 import { ACTIVITY_RETENTION_MS } from './activity/types';
 import { createKeRepository } from './ke/repository';
 import { runHostedTick } from './ke/hosted/cron';
+import { createDeathRepository } from './ke/death/repository';
 
 // Durable Object 类必须从入口模块导出，Wrangler 才能找到（绑定未启用时它不会被实例化）。
 export { AgentHub } from './ke/hosted/agent-hub';
@@ -134,6 +135,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
       adminAuthServices(database, env, wakeMail),
       createTransferService(createTransferRepository(database), createActivityRepository(database)),
       createAppFlagsAdmin(database),
+      (days) => createDeathRepository(database).stats(Date.now() - days * 24 * 3600 * 1000),
     );
     registerSearchRoute(app, repository, env.CURSOR_SECRET);
     registerOptionsRoute(app, repository);

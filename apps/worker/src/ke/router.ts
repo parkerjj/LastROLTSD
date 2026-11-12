@@ -30,6 +30,8 @@ import { createBuildRegistry } from './build-registry';
 import { createHostedRepository, type HostedRepository } from './hosted/repository';
 import { notifyAgents, connectAgent } from './hosted/agent-hub';
 import { registerHostedRoutes } from './hosted/router';
+import { createDeathRepository } from './death/repository';
+import { createDeathService, MAX_REPORT_BYTES, type DeathService } from './death/service';
 import type { HostedPrincipal } from './types';
 
 const GENERAL_JSON_LIMIT = 8 * 1024;
@@ -497,6 +499,112 @@ export function registerKeRoutes(
         userId: identity.userId, event: 'KE_HEARTBEAT', character: characterOf(report), ref: instanceId, requestId: requestId(c.req.raw),
       });
       return c.json(result, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  // —— 死亡报告 ——
+  const deathServiceFor = (handlers: NonNullable<ReturnType<typeof setup>>): DeathService | null => {
+    if (database === undefined) return null;
+    return createDeathService({
+      repository: createDeathRepository(database),
+      profiles: createProfileService(handlers.profileRepository, authRuntime.now),
+      now: authRuntime.now,
+    });
+  };
+  const notifyHosted = async (agentIds: string[]): Promise<void> => {
+    if (agentIds.length === 0 || !env.AGENT_HUB) return;
+    try {
+      await notifyAgents(env.AGENT_HUB, agentIds);
+    } catch (error) {
+      console.log(JSON.stringify({ event: 'hosted.notify_failed', error: String(error) }));
+    }
+  };
+  const DEATH_RATE = { scope: 'ke_death_report', limit: 10, windowMs: 60 * 1000 } as const;
+  const parseReportKey = (value: string): string => {
+    if (!/^[\w-]{1,64}$/u.test(value)) throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+    return value;
+  };
+  const parseHostedId = (value: string): string => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)) throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+    return value.toLowerCase();
+  };
+
+  // 托管 core 上报（实例身份）；脱机版不上传。
+  app.post('/api/v1/ke/instances/:id/death-reports', async (c: any) => {
+    const handlers = setup();
+    const death = handlers ? deathServiceFor(handlers) : null;
+    if (!handlers || !death) return unavailable(c);
+    try {
+      const identity = await instanceIdentity(handlers, c.req.raw);
+      const instanceId = parseHostedId(c.req.param('id'));
+      if (!identity.hosted || identity.hosted.instanceId !== instanceId) throw new KeFailure('KE_NOT_HOSTED', 403, '只有托管实例可以上传死亡报告');
+      await assertKeRateLimit(handlers, { kind: 'action', value: `ke-death:${instanceId}` }, DEATH_RATE, authRuntime.now);
+      const body = await readKeJson(c.req.raw, MAX_REPORT_BYTES + 1024);
+      const result = await death.ingest(identity.userId, instanceId, body.report);
+      return c.json(result, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  // 托管页（会话 cookie）：列表、详情、一键应用/撤销。
+  app.get('/api/v1/ke/hosted/:id/death-reports', async (c: any) => {
+    const handlers = setup();
+    const death = handlers ? deathServiceFor(handlers) : null;
+    if (!handlers || !death) return unavailable(c);
+    try {
+      const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
+      return c.json(await death.list(identity.userId, parseHostedId(c.req.param('id'))), 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.get('/api/v1/ke/hosted/:id/death-reports/:reportKey', async (c: any) => {
+    const handlers = setup();
+    const death = handlers ? deathServiceFor(handlers) : null;
+    if (!handlers || !death) return unavailable(c);
+    try {
+      const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
+      return c.json(await death.get(identity.userId, parseHostedId(c.req.param('id')), parseReportKey(c.req.param('reportKey'))), 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  app.post('/api/v1/ke/hosted/:id/death-reports/:reportKey/fixes/:fixId', async (c: any) => {
+    const handlers = setup();
+    const death = handlers ? deathServiceFor(handlers) : null;
+    if (!handlers || !death) return unavailable(c);
+    try {
+      assertTrustedWriteOrigin(c.req.raw, handlers.authConfig);
+      const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
+      if (body.action !== 'apply' && body.action !== 'undo') throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+      const identity = await createSessionService(handlers.authRepository, handlers.authConfig, authRuntime).authenticate(c.req.raw);
+      await assertKeRateLimit(handlers, { kind: 'session', value: identity.sessionToken }, { scope: 'ke_death_fix', limit: 60, windowMs: HOUR_MS }, authRuntime.now);
+      const fixId = c.req.param('fixId');
+      if (!/^f\d$/u.test(fixId)) throw new KeFailure('KE_BAD_REQUEST', 400, '请求字段无效');
+      const result = await death.applyFix(identity.userId, parseHostedId(c.req.param('id')), parseReportKey(c.req.param('reportKey')), fixId, body.action);
+      await notifyHosted(result.notify);
+      return c.json({ fixesState: result.fixesState }, 200, { 'cache-control': 'no-store' });
+    } catch (error) {
+      return routeFailure(c, error);
+    }
+  });
+
+  // 脱机 App（用户设备 token，不接受托管 token）：对角色当前配置应用补丁。
+  app.post('/api/v1/ke/profiles/active/patch', async (c: any) => {
+    const handlers = setup();
+    const death = handlers ? deathServiceFor(handlers) : null;
+    if (!handlers || !death) return unavailable(c);
+    try {
+      const identity = await bearerIdentity(handlers, c.req.raw);
+      const body = await readKeJson(c.req.raw, GENERAL_JSON_LIMIT);
+      const { aid, cid, nid } = parseCharacterReport(body);
+      await assertKeRateLimit(handlers, tokenSubject(identity), { scope: 'ke_profile_patch', limit: 60, windowMs: HOUR_MS }, authRuntime.now);
+      return c.json(await death.patchActive(identity.userId, aid, cid, nid, body.patch as never), 200, { 'cache-control': 'no-store' });
     } catch (error) {
       return routeFailure(c, error);
     }

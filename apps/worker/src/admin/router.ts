@@ -56,7 +56,7 @@ function accountText(value: unknown): string {
  * 管理员后台接口（/api/v1/admin/*）。顺序固定：先确认登录，再确认是管理员（不是 → 404，不暴露后台的存在），
  * 最后才对写操作校验 CSRF——这样普通用户永远只会看到 404。
  */
-export function registerAdminAccountRoutes(app: Hono<any>, service: AdminService, auth: AdminAuthServices | null, transfer: TransferService | null = null, appFlags: AppFlagsAdmin | null = null): void {
+export function registerAdminAccountRoutes(app: Hono<any>, service: AdminService, auth: AdminAuthServices | null, transfer: TransferService | null = null, appFlags: AppFlagsAdmin | null = null, deathStats: ((days: 7 | 30) => Promise<unknown>) | null = null): void {
   async function guarded(request: Request, write: boolean, work: (actor: Actor, id: string) => Promise<Response>): Promise<Response> {
     const id = requestId(request);
     if (!auth) return jsonError('auth_unavailable', '账号服务暂不可用', 503, id);
@@ -156,6 +156,13 @@ export function registerAdminAccountRoutes(app: Hono<any>, service: AdminService
     };
     return reply(await transfer.confirm(actor.id, request, id));
   }));
+
+  if (deathStats) {
+    app.get('/api/v1/admin/ke/death-stats', (c) => guarded(c.req.raw, false, async () => {
+      const days = c.req.query('days') === '30' ? 30 : 7;
+      return reply(await deathStats(days));
+    }));
+  }
 
   app.get('/api/v1/admin/audit', (c) => guarded(c.req.raw, false, async () => {
     const before = c.req.query('before');

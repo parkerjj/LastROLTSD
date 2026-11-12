@@ -5,6 +5,7 @@ import { logError } from '../../observability';
 import { resolveKeConfig } from '../config';
 import { createHostedRepository } from './repository';
 import { createHostedService } from './service';
+import { createDeathRepository } from '../death/repository';
 
 /**
  * 每 5 分钟：agent 故障转移（带熔断）、资格扫描、队列兜底调度、过期记录清理。
@@ -19,6 +20,8 @@ export async function runHostedTick(env: AppEnv, database: MysqlDatabase, now: (
     const service = createHostedService(createHostedRepository(database), keConfig, now, (event, detail) => {
       console.log(JSON.stringify({ event, ...detail }));
     });
+    // 死亡报告：每角色最近 100 条且不超过 90 天；失败不影响托管对账。
+    await createDeathRepository(database).prune(now()).catch((error: unknown) => logError('lastroweb.death_prune_failed', error, {}));
     const summary = await service.tick();
     if (summary.failedOver.length > 0 || summary.frozen !== 'none' || summary.enforced > 0 || summary.scheduled > 0) {
       console.log(JSON.stringify({ event: 'hosted.tick', ...summary }));
