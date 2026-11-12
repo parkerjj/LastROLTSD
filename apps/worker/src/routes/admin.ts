@@ -2,6 +2,7 @@ import type { Hono } from 'hono';
 import type { AppEnv } from '../env';
 import type { MarketRepository } from '../db/repository';
 import type { SnapshotRepository } from '../db/snapshot-repository';
+import { MARKET_RETENTION_DAYS, MARKET_RETENTION_MS } from '../domain/retention';
 
 const RETENTION_PREVIEW_LIMIT = 1000;
 
@@ -22,7 +23,7 @@ export function registerAdminRoutes(app: Hono<any>, env: AppEnv, repo: MarketRep
   app.get('/api/admin/retention-preview', async (c) => {
     const secret = c.req.header('x-admin-secret');
     if (!env.ADMIN_SECRET || !secret || secret !== env.ADMIN_SECRET) return c.json({ error: { code: 'not_found', message: 'Not found', request_id: crypto.randomUUID() } }, 404);
-    const before = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    const before = Date.now() - MARKET_RETENTION_MS;
     const scanLimit = RETENTION_PREVIEW_LIMIT + 1;
     const historyCount = repo.countExpiredHistory ? await repo.countExpiredHistory(before, scanLimit) : 0;
     const soldEventCount = repo.countExpiredSoldEvents ? await repo.countExpiredSoldEvents(before, scanLimit) : 0;
@@ -31,7 +32,7 @@ export function registerAdminRoutes(app: Hono<any>, env: AppEnv, repo: MarketRep
       historyTruncated: historyCount > RETENTION_PREVIEW_LIMIT,
       soldEvents: Math.min(soldEventCount, RETENTION_PREVIEW_LIMIT),
       soldEventsTruncated: soldEventCount > RETENTION_PREVIEW_LIMIT,
-      retentionDays: 180,
+      retentionDays: MARKET_RETENTION_DAYS,
     }, 200, { 'cache-control': 'no-store' });
   });
 }

@@ -308,7 +308,8 @@ describe('MySQL repository upload core', () => {
 
     expect(definitions.items.length).toBeGreaterThan(0);
     expect(db.sql).toHaveLength(2);
-    expect(db.sql.every((sql) => sql.includes('DELETE FROM listing_events') && /FROM \(\s*SELECT id FROM listing_events/u.test(sql))).toBe(true);
+    expect(db.sql.every((sql) => sql.includes('DELETE FROM listing_events') && sql.includes('ORDER BY observed_at, id LIMIT ?'))).toBe(true);
+    expect(db.values).toEqual([[100, 50], [100, 50]]);
     expect(db.sql.join('\n')).not.toContain('LIMIT ?1');
   });
 

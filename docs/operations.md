@@ -8,7 +8,13 @@ Monitor Worker request metrics and MySQL failures through Workers Logs. Metrics 
 
 `GET /api/health` always returns Worker metadata. It reports `db: "unconfigured"` locally when neither the selected Hyperdrive binding nor direct `MYSQL_URL` is available, `db: "ok"` only after MySQL `SELECT 1`, and `db: "error"` on a sanitized connection failure. It never returns host, username, password, or socket details. Explicit Hyperdrive mode requires its binding before the handler starts. Deployed environments default to Hyperdrive with SQL query caching disabled; see [Hyperdrive setup and rollback](hyperdrive.md).
 
-The daily retention trigger removes bounded old listing history and sold events; it does not delete current listings. Monitor MySQL disk, connection, query-latency, backup, and TLS-certificate health before expanding retention or upload volume. The Worker pool is intentionally bounded to two connections per isolate; account for Worker concurrency and VPS `max_connections` together.
+市场清理使用 `0 */6 * * *`，每天 UTC 00:00、06:00、12:00、18:00 执行，保留最近 30 天（固定 30 × 24 小时，严格早于截止时间才删除）。历史事件和销量事件分别每批 500 条、每次最多 20 批；留言限流桶仍保留 2 天。当前有效的商店和在售商品不按创建时间删除。
+
+每次最多处理 5 个采集源，按清理水位从旧到新轮转；在与上传共用的源锁内跳过存在 receiving/queued/running 完整快照的源。每源最多连续处理 20 批，各类每批最多 500 条旧快照商品引用、快照商店、终态上传回执、终态快照和失效商品/空店铺；每批单独提交并释放源锁，所有类别不足一批时提前停止。子表先清理，再删除没有子记录的父行；每商品最多 32 条 option 子记录一并删除。商品仍有历史事件或未完成/失败快照引用时保留；已完成快照不再阻挡旧失效商品清理。商店必须已失效、状态/库存最后观测及最后变化均早于截止时间、没有商品或未完成/失败快照引用。积压较大时跨多次任务逐步消化；观察 `lastroweb.market_retention` 的各表数量是否持续达到批量上限，再评估清理预算。
+
+`upload_batches.payload_json` 在 full 快照处理完成的同一事务内清空；其 hash、幂等键和响应回执保留 30 天，以处理客户端丢失响应后的重试。每个源最新的完整快照及其回执额外保留一份作为当前基线凭据。源的 `retention_cutoff_at` 是不可倒退的上传水位，过期 full/delta/heartbeat 返回 `422 snapshot_expired`、`retryable=false`、`action=new_snapshot`，避免回执清理后旧请求重新创建数据。现有每 5 分钟的 7 天 staging 清理继续独立运行。
+
+部署顺序：先通过现有 MySQL migration runner 应用 `031_market_retention.sql`（新增水位字段和时间索引），再部署 Worker。索引创建可能占用数据库资源，应按现有生产变更流程安排。回滚 Worker 不会恢复已清理数据；生产发布前保留数据库备份。本轮实现不改变账号、订单、权益及操作日志的保留策略。Monitor MySQL disk, connection, query-latency, backup, and TLS-certificate health. The Worker pool remains bounded to two connections per isolate.
 
 ## Account mail and cleanup
 

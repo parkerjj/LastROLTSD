@@ -1210,41 +1210,30 @@ export function createMysqlRepository(db: MysqlDatabase, cursorSecret = DEFAULT_
     },
     async deleteExpiredHistory(before, limit) {
       const result = await db.run(`DELETE FROM listing_events
-        WHERE id IN (
-          SELECT id FROM (
-            SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
-          ) AS expired_history
-        )`, [before, limit]);
+        WHERE observed_at < ? AND sold_quantity = 0 ORDER BY observed_at, id LIMIT ?`, [before, limit]);
       return result.affectedRows;
     },
     async deleteExpiredSoldEvents(before, limit) {
       const result = await db.run(`DELETE FROM listing_events
-        WHERE id IN (
-          SELECT id FROM (
-            SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
-          ) AS expired_sold_events
-        )`, [before, limit]);
+        WHERE observed_at < ? AND sold_quantity > 0 ORDER BY observed_at, id LIMIT ?`, [before, limit]);
       return result.affectedRows;
     },
     async countExpiredHistory(before, limit) {
       const row = await db.first<Row>(`SELECT COUNT(*) AS count FROM (
-        SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
+        SELECT id FROM listing_events WHERE observed_at < ? AND sold_quantity = 0 ORDER BY observed_at, id LIMIT ?
       ) AS expired_history`, [before, limit]);
       return Number(row?.count ?? 0);
     },
     async countExpiredSoldEvents(before, limit) {
       const row = await db.first<Row>(`SELECT COUNT(*) AS count FROM (
-        SELECT id FROM listing_events WHERE observed_at < ? ORDER BY observed_at, id LIMIT ?
+        SELECT id FROM listing_events WHERE observed_at < ? AND sold_quantity > 0 ORDER BY observed_at, id LIMIT ?
       ) AS expired_sold_events`, [before, limit]);
       return Number(row?.count ?? 0);
     },
     async deleteGuestbookRateBuckets(before, limit) {
       const boundedLimit = Math.min(500, Math.max(1, Math.trunc(limit)));
-      const result = await db.run(`DELETE FROM guestbook_rate_limits WHERE (rate_key, bucket_start) IN (
-        SELECT rate_key, bucket_start FROM (
-          SELECT rate_key, bucket_start FROM guestbook_rate_limits WHERE bucket_start < ? ORDER BY bucket_start LIMIT ?
-        ) AS expired_rate_buckets
-      )`, [before, boundedLimit]);
+      const result = await db.run(`DELETE FROM guestbook_rate_limits
+        WHERE bucket_start < ? ORDER BY bucket_start, rate_key LIMIT ?`, [before, boundedLimit]);
       return result.affectedRows;
     },
   } as MarketRepository;

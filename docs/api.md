@@ -2,6 +2,8 @@
 
 This document is the external contract for the OpenKore market adapter. The upload endpoint accepts only the approved protocol v2 contract. The server does not implement or accept an earlier upload protocol.
 
+市场历史保留最近 30 天。后台每 6 小时分批清理旧历史、失效店铺/商品、终态快照和上传回执；当前有效数据及处理中快照保留。full 处理完成后立即清空上传原文，轻量幂等回执保留 30 天，每源最新 full 凭据除外。清理水位之前的 `observed_at` 会返回 HTTP `422`、`error.code=snapshot_expired`、`retryable=false`、`action=new_snapshot`；采集端应放弃旧快照并重新完整采集。水位在源锁内检查，避免已清理的旧请求重放后重新写回数据。部署前需应用 migration `031_market_retention.sql`，详见 [运行说明](operations.md)。
+
 ## Account and authentication APIs
 
 Account authentication is enabled only when `AUTH_ENABLED=true` and its server configuration is valid. Account cookies and endpoints are separate from market upload credentials and game passwords. The account routes are:

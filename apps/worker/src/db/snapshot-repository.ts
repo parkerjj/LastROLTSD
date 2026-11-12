@@ -27,9 +27,15 @@ export function transactionView(tx: MysqlDatabase): MysqlDatabase {
 }
 
 export async function lockMarketSource(tx: MysqlDatabase, sourceId: string): Promise<MysqlRow> {
-  const source = await tx.first('SELECT id, last_full_snapshot_id, last_full_snapshot_at, active_full_snapshot_id FROM market_sources WHERE id = ? FOR UPDATE', [sourceId]);
+  const source = await tx.first('SELECT id, last_full_snapshot_id, last_full_snapshot_at, active_full_snapshot_id, retention_cutoff_at FROM market_sources WHERE id = ? FOR UPDATE', [sourceId]);
   if (!source) throw new IngestionError(503, 'storage_unavailable', 'Market source is unavailable', { retryable: true });
   return source;
+}
+
+export function assertUploadNotExpired(source: MysqlRow, observedAt: number): void {
+  if (observedAt < Number(source.retention_cutoff_at ?? 0)) {
+    throw new IngestionError(422, 'snapshot_expired', 'Snapshot predates the retained upload window', { action: 'new_snapshot' });
+  }
 }
 
 function toJob(row: MysqlRow): SnapshotJob {
@@ -44,7 +50,8 @@ function mismatch(message: string): IngestionError {
 
 export function createSnapshotRepository(db: MysqlDatabase) {
   const receive: FullReceiptStore['receive'] = async (input: FullPartReceipt) => db.transaction(async (tx) => {
-    await lockMarketSource(tx, input.sourceId);
+    const source = await lockMarketSource(tx, input.sourceId);
+    assertUploadNotExpired(source, Date.parse(input.request.observed_at));
     const { request } = input;
     const key = [input.sourceId, request.snapshot_id];
     const now = Date.now();
@@ -116,6 +123,7 @@ export function createSnapshotRepository(db: MysqlDatabase) {
         if (source.last_full_snapshot_at != null && Number(source.last_full_snapshot_at) >= Number(row.observed_at)) {
           await tx.run("UPDATE market_snapshots SET status = 'complete', completed_at = ?, lease_token = NULL, lease_until = NULL WHERE source_id = ? AND snapshot_id = ?", [now, candidate.sourceId, candidate.snapshotId]);
           await releaseSourceSnapshot(tx, candidate);
+          await clearSnapshotPayload(tx, candidate);
           return null;
         }
         // Keep ownership across all chunks, not just the current lease. An older
@@ -153,6 +161,7 @@ export function createSnapshotRepository(db: MysqlDatabase) {
         if (source.last_full_snapshot_at != null && Number(source.last_full_snapshot_at) >= job.observedAt) {
           await tx.run("UPDATE market_snapshots SET status = 'complete', completed_at = ?, lease_token = NULL, lease_until = NULL WHERE source_id = ? AND snapshot_id = ?", [now, job.sourceId, job.snapshotId]);
           await releaseSourceSnapshot(tx, job);
+          await clearSnapshotPayload(tx, job);
           return null;
         }
         const progress = await run(toJob(row), tx);
@@ -161,7 +170,10 @@ export function createSnapshotRepository(db: MysqlDatabase) {
           WHERE source_id = ? AND snapshot_id = ? AND lease_token = ? AND generation = ?`,
         [progress.stage, progress.cursor, progress.complete ? 'complete' : 'queued', now, progress.complete ? now : null,
           job.sourceId, job.snapshotId, job.leaseToken, job.generation]);
-        if (progress.complete) await releaseSourceSnapshot(tx, job);
+        if (progress.complete) {
+          await releaseSourceSnapshot(tx, job);
+          await clearSnapshotPayload(tx, job);
+        }
         logInfo('lastroweb.snapshot_chunk', { source_id: job.sourceId, snapshot_id: job.snapshotId,
           stage: job.stage, generation: job.generation, processed: progress.processed, next_stage: progress.stage });
         return progress.complete ? null : { sourceId: job.sourceId, snapshotId: job.snapshotId, generation: job.generation + 1 };
@@ -192,10 +204,11 @@ export function createSnapshotRepository(db: MysqlDatabase) {
     },
     async requeue(sourceId: string, snapshotId: string, now = Date.now()): Promise<boolean> {
       return db.transaction(async (tx) => {
-        await lockMarketSource(tx, sourceId);
+        const source = await lockMarketSource(tx, sourceId);
         const result = await tx.run(`UPDATE market_snapshots SET status = 'queued', attempts = 0, last_error = NULL,
           generation = generation + 1, lease_token = NULL, lease_until = NULL, available_at = ?
-          WHERE source_id = ? AND snapshot_id = ? AND status = 'failed' AND accepted_parts = part_count`, [now, sourceId, snapshotId]);
+          WHERE source_id = ? AND snapshot_id = ? AND status = 'failed' AND accepted_parts = part_count
+            AND observed_at >= ?`, [now, sourceId, snapshotId, Number(source.retention_cutoff_at ?? 0)]);
         return result.affectedRows === 1;
       });
     },
@@ -226,6 +239,10 @@ export function createSnapshotRepository(db: MysqlDatabase) {
 }
 
 export type SnapshotRepository = ReturnType<typeof createSnapshotRepository>;
+
+async function clearSnapshotPayload(tx: MysqlDatabase, message: SnapshotMessage): Promise<void> {
+  await tx.run('UPDATE upload_batches SET payload_json = NULL WHERE source_id = ? AND snapshot_id = ? AND payload_json IS NOT NULL LIMIT 64', [message.sourceId, message.snapshotId]);
+}
 
 async function releaseSourceSnapshot(tx: MysqlDatabase, message: SnapshotMessage): Promise<void> {
   await tx.run('UPDATE market_sources SET active_full_snapshot_id = NULL WHERE id = ? AND active_full_snapshot_id = ?', [message.sourceId, message.snapshotId]);

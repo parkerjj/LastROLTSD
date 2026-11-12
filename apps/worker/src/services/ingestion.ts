@@ -15,6 +15,7 @@ export interface StateBatchResult { processedListings: number; changedListings: 
 export interface ListingStateService { applyBatchObservations(source: AuthenticatedSource, session: ShopSessionRow, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; applyBatchObservationsBulk?(source: AuthenticatedSource, sessions: Map<number, ShopSessionRow>, observations: NormalizedObservation[], batchId: string, observedAt: number): Promise<StateBatchResult>; }
 export interface UploadResult extends UploadResultLike {}
 export type IngestionErrorCode =
+  | 'snapshot_expired'
   | 'idempotency_key_mismatch'
   | 'idempotency_key_reused'
   | 'batch_in_progress'

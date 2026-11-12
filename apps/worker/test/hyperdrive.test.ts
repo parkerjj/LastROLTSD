@@ -18,7 +18,7 @@ function pools(fail = false) {
   const query = vi.fn(async (sql: string, _values?: readonly unknown[]) => {
     if (fail) throw new Error('temporary:@/% secret');
     return [sql.trimStart().startsWith('SELECT')
-      ? sql.includes('SELECT 1') ? [{ healthy: 1 }] : []
+      ? /^SELECT 1\b/u.test(sql.trimStart()) ? [{ healthy: 1 }] : []
       : { affectedRows: 0, insertId: 0 }, []];
   });
   const execute = vi.fn(query);
@@ -138,7 +138,7 @@ describe('Hyperdrive connection selection', () => {
   it('uses Hyperdrive for scheduled jobs and releases the pool', async () => {
     const { createPool, end } = pools();
     const bindings = { MYSQL_CONNECTION_MODE: 'hyperdrive', HYPERDRIVE: hyperdrive };
-    await worker.scheduled({ cron: '0 3 * * *' } as ScheduledEvent, bindings);
+    await worker.scheduled({ cron: '0 */6 * * *' } as ScheduledEvent, bindings);
     expect(createPool).toHaveBeenCalledOnce();
     expect(createPool).toHaveBeenCalledWith(expect.objectContaining(hyperdrive));
     expect(end).toHaveBeenCalledOnce();

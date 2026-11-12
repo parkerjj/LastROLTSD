@@ -1,6 +1,6 @@
 import type { MysqlDatabase } from '../db/mysql-client';
 import { createMysqlRepository } from '../db/mysql-repository';
-import { createSnapshotRepository, lockMarketSource, transactionView } from '../db/snapshot-repository';
+import { assertUploadNotExpired, createSnapshotRepository, lockMarketSource, transactionView } from '../db/snapshot-repository';
 import type { AppEnv } from '../env';
 import type { UploadHandler } from '../routes/upload';
 import { receiveFullUpload } from './full-upload';
@@ -14,7 +14,8 @@ export function createUploadHandler(db: MysqlDatabase, env: AppEnv): UploadHandl
     if (request.snapshot_mode === 'full') return receiveFullUpload(source, request, key, snapshots, createSnapshotDispatcher(env, snapshots));
     return db.transaction(async (connection) => {
       const tx = transactionView(connection);
-      await lockMarketSource(tx, source.id);
+      const lockedSource = await lockMarketSource(tx, source.id);
+      assertUploadNotExpired(lockedSource, Date.parse(request.observed_at));
       if (await tx.first('SELECT snapshot_id FROM market_snapshots WHERE source_id = ? AND snapshot_id = ?', [source.id, request.snapshot_id])) {
         throw new IngestionError(422, 'idempotency_key_reused', 'Snapshot ID is already used by a full upload', { action: 'new_snapshot' });
       }

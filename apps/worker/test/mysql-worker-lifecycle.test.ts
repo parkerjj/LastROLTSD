@@ -21,6 +21,7 @@ function trackPools(fail = false) {
       async execute(sql: string) {
         if (pool.closed) throw new Error('connection belongs to a completed request');
         if (fail) throw new Error('database unavailable');
+        if (sql.startsWith('SELECT id FROM market_sources')) return [[], []];
         return [sql.startsWith('DELETE') ? { affectedRows: 0, insertId: 0 } : [{ healthy: 1 }], []];
       },
       async end() { pool.closeCalls += 1; pool.closed = true; },
@@ -136,7 +137,7 @@ describe('Worker MySQL connection ownership', () => {
 
   it.each([false, true])('closes scheduled job connections (query failure: %s)', async (fail) => {
     const pools = trackPools(fail);
-    const job = worker.scheduled({} as ScheduledEvent, bindings);
+    const job = worker.scheduled({ cron: '0 */6 * * *' } as ScheduledEvent, bindings);
     if (fail) await expect(job).rejects.toThrow('database operation failed');
     else await job;
     expect(pools).toHaveLength(1);

@@ -12,7 +12,9 @@ import { registerStatusRoute } from './routes/status';
 import { createListingStateService } from './services/state-transition';
 import { registerAdminRoutes } from './routes/admin';
 import { runRetention } from './services/retention';
-import { logError, recordMetric } from './observability';
+import { runMarketRetention } from './db/market-retention';
+import { MARKET_RETENTION_MS } from './domain/retention';
+import { logError, logInfo, recordMetric } from './observability';
 import { registerAssetRoute } from './routes/assets';
 import { withSearchCache } from './middleware/search-cache';
 import { registerCorsMiddleware, withCorsHeaders } from './middleware/cors';
@@ -363,7 +365,12 @@ export default {
             logError('lastroweb.activity_cleanup_failed', error, mysqlErrorContext(error));
           }
         }
-      } else await runRetention(Date.now(), {}, createMysqlRepository(database));
+      } else {
+        const now = Date.now();
+        const history = await runRetention(now, { chunkSize: 500 }, createMysqlRepository(database));
+        const market = await runMarketRetention(now, database);
+        logInfo('lastroweb.market_retention', { ...history, ...market, history_cutoff: now - MARKET_RETENTION_MS });
+      }
     } finally {
       await database.close();
     }
