@@ -84,4 +84,20 @@ describe('applyConfigPatch', () => {
     const patch: ConfigPatch = { op: 'setKey', file: 'config.txt', key: 'a', expected: '1', value: '2' };
     expect(applyConfigPatch(files('a 1\r\nb 2\r\n'), patch, itemIdOf).files['config.txt']).toBe('a 2\r\nb 2\r\n');
   });
+
+  it('rejects patches that could inject extra lines or blocks', () => {
+    const bad: ConfigPatch[] = [
+      { op: 'setKey', file: 'config.txt', key: 'a', expected: null, value: '1\nlockMap evil' },
+      { op: 'setKey', file: 'config.txt', key: 'a b', expected: null, value: '1' },
+      { op: 'upsertBlock', file: 'config.txt', block: 'buyAuto', selector: 'x {', itemId: null, expected: null, fields: [['a', '1']] },
+      { op: 'upsertBlock', file: 'config.txt', block: 'buyAuto', selector: 'x', itemId: null, expected: null, fields: [['npc', 'p }\nattackAuto 0']] },
+      { op: 'upsertBlock', file: 'config.txt', block: 'lockMap', selector: 'x', itemId: null, expected: null, fields: [['a', '1']] },
+      { op: 'upsertBlock', file: 'config.txt', block: 'buyAuto', selector: '601', itemId: 601, expected: {}, fields: null },
+      { op: 'upsertLine', file: 'mon_control.txt', first: 'a', expected: null, line: 'a 1\nall 1 1' },
+      { op: 'upsertLine', file: 'mon_control.txt', first: 'a', expected: null, line: 'b 1 1' },
+    ];
+    for (const patch of bad) {
+      expect(() => applyConfigPatch(files('buyAuto 601 {\n    minAmount 0\n}\n'), patch, itemIdOf), JSON.stringify(patch)).toThrow(KeFailure);
+    }
+  });
 });

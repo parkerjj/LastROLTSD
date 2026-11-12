@@ -1,6 +1,7 @@
 import { KeFailure } from '../types';
 import type { ProfileService } from '../profile-service';
 import type { DeathRepository, DeathRow } from './repository';
+import { assertSafePatch } from './config-patch';
 import type { ConfigPatch, DeathFix, FixesState } from './types';
 
 export const MAX_REPORT_BYTES = 256 * 1024;
@@ -15,6 +16,16 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const str = (value: unknown, max: number): string => (typeof value === 'string' && value.length <= max ? value : '');
 
 function validPatch(value: unknown): value is ConfigPatch {
+  if (!shapeOk(value)) return false;
+  try {
+    assertSafePatch(value as ConfigPatch);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function shapeOk(value: unknown): boolean {
   if (!isObject(value)) return false;
   const opt = (v: unknown) => v === null || typeof v === 'string';
   if (value.op === 'setKey') return value.file === 'config.txt' && typeof value.key === 'string' && opt(value.expected) && opt(value.value);

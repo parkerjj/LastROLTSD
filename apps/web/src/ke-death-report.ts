@@ -101,7 +101,9 @@ function esc(value: unknown): string {
 }
 
 const number = new Intl.NumberFormat("zh-CN");
-const fmt = (value: number): string => number.format(value);
+const fmt = (value: number): string => number.format(Number(value) || 0);
+/** 报告来自 core、可被篡改：所有进 HTML 的数字也要先转成数字再转义。 */
+const num = (value: unknown): string => esc(String(Number(value) || 0));
 
 /** "MM-DD HH:MM"（UTC+8，与脱机版 App 一致）。 */
 export function timeText(ms: number): string {
@@ -133,10 +135,10 @@ function statCards(list: DeathListResponse): string {
   const { stats } = list;
   const pct = stats.fixesTotal > 0 ? Math.round((stats.fixesApplied / stats.fixesTotal) * 100) : 0;
   return `<div class="kdr-stats">
-    <div class="kdr-stat"><span>近 7 天死亡</span><b class="is-bad">${stats.last7Days}<small>次</small></b>${dayBars(stats.perDay7)}</div>
-    <div class="kdr-stat"><span>最常被谁杀</span><b class="is-killer">${esc(stats.topKiller?.name ?? "—")}</b><small>${stats.topKiller ? `${stats.topKiller.count} 次` : ""}</small></div>
-    <div class="kdr-stat"><span>最常见原因</span><b class="is-warn">${esc(stats.topCause?.label ?? "—")}</b><small>${stats.topCause ? `${stats.topCause.count} 次` : ""}</small></div>
-    <div class="kdr-stat"><span>建议已应用</span><b class="is-good">${stats.fixesApplied}<small>/ ${stats.fixesTotal} 条</small></b><i class="kdr-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><u style="width:${pct}%"></u></i></div>
+    <div class="kdr-stat"><span>近 7 天死亡</span><b class="is-bad">${num(stats.last7Days)}<small>次</small></b>${dayBars(stats.perDay7)}</div>
+    <div class="kdr-stat"><span>最常被谁杀</span><b class="is-killer">${esc(stats.topKiller?.name ?? "—")}</b><small>${stats.topKiller ? `${num(stats.topKiller.count)} 次` : ""}</small></div>
+    <div class="kdr-stat"><span>最常见原因</span><b class="is-warn">${esc(stats.topCause?.label ?? "—")}</b><small>${stats.topCause ? `${num(stats.topCause.count)} 次` : ""}</small></div>
+    <div class="kdr-stat"><span>建议已应用</span><b class="is-good">${num(stats.fixesApplied)}<small>/ ${num(stats.fixesTotal)} 条</small></b><i class="kdr-meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${num(pct)}"><u style="width:${num(pct)}%"></u></i></div>
   </div>`;
 }
 
@@ -167,7 +169,7 @@ function detailMarkup(state: DeathDialogState): string {
   const line = report.hp.teleportHpLine ? `<line x1="0" x2="100" y1="${yOf(report.hp.teleportHpLine)}" y2="${yOf(report.hp.teleportHpLine)}" class="kdr-line"></line>` : "";
   return `
     <header class="kdr-verdict">
-      <span>${esc(timeText(report.atMs))} · ${esc(report.map.name)} (${report.map.x}, ${report.map.y}) · ${esc(AI_MODE[report.aiMode] ?? report.aiMode)}</span>
+      <span>${esc(timeText(report.atMs))} · ${esc(report.map.name)} (${num(report.map.x)}, ${num(report.map.y)}) · ${esc(AI_MODE[report.aiMode] ?? report.aiMode)}</span>
       <h3>${esc(report.summary.title)}${report.killer.damage > 0 ? `<small>致命一击 ${fmt(report.killer.damage)}</small>` : ""}</h3>
       <p>${esc(report.summary.reason)}</p>
     </header>
@@ -182,8 +184,8 @@ function detailMarkup(state: DeathDialogState): string {
         <div class="kdr-legend"><span>-15s</span><span class="is-warn">虚线：瞬移血线</span><span>死亡</span></div>
         <div class="kdr-legend2"><span><i class="is-potion"></i>吃药</span><span><i class="is-teleportFailed"></i>想瞬移，失败</span></div>
       </section>
-      <section class="kdr-card"><b>伤害来自</b>${report.sources.map((s) => `<div class="kdr-source"><div><span>${esc(s.name)}${s.count > 1 ? ` ×${s.count}` : ""}<small>${esc(s.skills.map((k) => `${k.name} ${k.hits}`).join(" · "))}</small></span><b>${fmt(s.damage)}</b></div><i class="kdr-meter is-hp"><u style="width:${Math.min(100, s.sharePct)}%"></u></i></div>`).join("")}
-        <div class="kdr-chips">${(report.state.statuses.length ? report.state.statuses.map((s) => `<span class="is-warn">${esc(s)}</span>`) : ["<span>无异常状态</span>"]).join("")}${report.state.weightPct != null ? `<span>负重 ${report.state.weightPct}%</span>` : ""}${report.state.consumables.map((c) => `<span class="${c.warn ? "is-warn" : ""}">${esc(c.name)} ×${c.amount}</span>`).join("")}</div>
+      <section class="kdr-card"><b>伤害来自</b>${report.sources.map((s) => `<div class="kdr-source"><div><span>${esc(s.name)}${s.count > 1 ? ` ×${num(s.count)}` : ""}<small>${esc(s.skills.map((k) => `${k.name} ${k.hits}`).join(" · "))}</small></span><b>${fmt(s.damage)}</b></div><i class="kdr-meter is-hp"><u style="width:${num(Math.min(100, Number(s.sharePct) || 0))}%"></u></i></div>`).join("")}
+        <div class="kdr-chips">${(report.state.statuses.length ? report.state.statuses.map((s) => `<span class="is-warn">${esc(s)}</span>`) : ["<span>无异常状态</span>"]).join("")}${report.state.weightPct != null ? `<span>负重 ${num(report.state.weightPct)}%</span>` : ""}${report.state.consumables.map((c) => `<span class="${c.warn ? "is-warn" : ""}">${esc(c.name)} ×${num(c.amount)}</span>`).join("")}</div>
       </section>
     </div>
     <section class="kdr-card"><b>KE 当时做了什么</b><ol class="kdr-timeline">${report.timeline.map((t) => `<li class="is-${esc(t.severity)}"><code>${esc(seconds(t.tMs))}</code><span>${esc(t.text)}</span></li>`).join("")}</ol></section>

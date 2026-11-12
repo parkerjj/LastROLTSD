@@ -61,6 +61,14 @@ describe("deathDialogMarkup", () => {
     expect(html).toContain("&lt;img");
   });
 
+  it("coerces every number in the report so a tampered report cannot inject markup", () => {
+    const evil = { ...REPORT, map: { name: "m", x: "<b onmouseover=1>" as unknown as number, y: 2 }, state: { ...REPORT.state, weightPct: "<i id=evil2>" as unknown as number, consumables: [{ name: "x", amount: "<u id=evil3>" as unknown as number, warn: false }] } };
+    const html = deathDialogMarkup(state({ detail: { report: evil, fixesState: {} } }));
+    expect(html).not.toContain("<b onmouseover");
+    expect(html).not.toContain("<i id=evil2>");
+    expect(html).not.toContain("<u id=evil3>");
+  });
+
   it("shows the conflict message in the fix area", () => {
     const html = deathDialogMarkup(state({ fixError: "配置已变化，请重新查看建议" }));
     expect(html).toContain("配置已变化，请重新查看建议");

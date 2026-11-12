@@ -61,6 +61,8 @@ export interface DeathRepository {
   stats(sinceMs: number): Promise<{ total: number; characters: number; topCause: string | null; rows: DeathStatsRow[] }>;
 }
 
+/** 列表不带完整报告（可达 256KB × 100 条）；只有详情接口才读 report_json。 */
+const LIST_COLUMNS = "id, user_id, hosted_instance_id, nid, aid, cid, report_key, died_at, map, killer_mob_id, killer_skill_id, killer_name, skill_name, cause, cause_label, fixes_total, fixes_applied, '' AS report_json, fixes_state_json";
 const COLUMNS = 'id, user_id, hosted_instance_id, nid, aid, cid, report_key, died_at, map, killer_mob_id, killer_skill_id, killer_name, skill_name, cause, cause_label, fixes_total, fixes_applied, report_json, fixes_state_json';
 
 const num = (value: unknown): number => (typeof value === 'number' ? value : Number(value));
@@ -97,7 +99,7 @@ export function createDeathRepository(db: MysqlDatabase): DeathRepository {
     },
 
     async list(instanceId, limit) {
-      const rows = await db.all<MysqlRow>(`SELECT ${COLUMNS} FROM ke_death_reports WHERE hosted_instance_id = ? ORDER BY died_at DESC LIMIT ${Math.trunc(limit)}`, [instanceId]);
+      const rows = await db.all<MysqlRow>(`SELECT ${LIST_COLUMNS} FROM ke_death_reports WHERE hosted_instance_id = ? ORDER BY died_at DESC LIMIT ${Math.trunc(limit)}`, [instanceId]);
       return rows.map(readRow);
     },
 

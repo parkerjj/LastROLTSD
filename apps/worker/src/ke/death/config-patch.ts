@@ -14,6 +14,33 @@ export interface PatchResult {
   revert: ConfigPatch;
 }
 
+const KEY = /^[A-Za-z0-9_]{1,64}$/u;
+const SAFE_BLOCKS = new Set(['buyAuto', 'useSelf_item']);
+/** 值里不允许换行 / 花括号 / 注释符：一个补丁只能改一行，不能借值写出新的行或块。 */
+const SAFE_TEXT = /^[^\r\n{}#]{0,200}$/u;
+const unsafe = () => new KeFailure('KE_BAD_REQUEST', 400, '补丁内容不安全，已拒绝');
+
+/** 补丁来自 core（可被篡改）或 App 请求：执行前严格检查，防止换行 / 花括号注入。 */
+export function assertSafePatch(patch: ConfigPatch): void {
+  const text = (value: string | null): void => { if (value !== null && !SAFE_TEXT.test(value)) throw unsafe(); };
+  if (patch.op === 'setKey') {
+    if (!KEY.test(patch.key)) throw unsafe();
+    text(patch.expected); text(patch.value);
+  } else if (patch.op === 'upsertLine') {
+    text(patch.first); text(patch.expected); text(patch.line);
+    if (patch.first.trim() === '' || /\s/u.test(patch.first)) throw unsafe();
+    if (patch.line !== null && patch.line.split(/\s+/u)[0] !== patch.first) throw unsafe();
+  } else {
+    if (!SAFE_BLOCKS.has(patch.block)) throw unsafe();
+    text(patch.selector);
+    if (patch.selector.trim() === '') throw unsafe();
+    for (const [key, value] of Object.entries(patch.expected ?? {})) { if (!KEY.test(key)) throw unsafe(); text(value); }
+    for (const [key, value] of patch.fields ?? []) { if (!KEY.test(key)) throw unsafe(); text(value); }
+    // 删除整块必须同时给出块里字段的期望值，不能空手删。
+    if (patch.fields === null && (patch.expected === null || Object.keys(patch.expected).length === 0)) throw unsafe();
+  }
+}
+
 const changed = () => new KeFailure('KE_CONFIG_CHANGED', 409, '配置已变化，请重新查看建议');
 
 interface Doc {
@@ -192,6 +219,7 @@ function applyUpsertBlock(
 }
 
 export function applyConfigPatch(files: ProfileFiles, patch: ConfigPatch, itemIdOf: (name: string) => number | null): PatchResult {
+  assertSafePatch(patch);
   const file = patch.file;
   if (file !== 'config.txt' && file !== 'mon_control.txt') throw new KeFailure('KE_BAD_REQUEST', 400, '不支持的配置文件');
   if (patch.op === 'upsertLine' && file !== 'mon_control.txt') throw new KeFailure('KE_BAD_REQUEST', 400, '补丁与文件不匹配');
