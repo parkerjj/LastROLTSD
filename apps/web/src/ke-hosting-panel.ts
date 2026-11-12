@@ -2,6 +2,7 @@
 // 只是接口的展示层：资格、额度、调度全部由服务端判定，页面不缓存也不推断这些结论。
 import type { AuthApiClient } from "./auth/api";
 import type { AuthStoreState } from "./auth/store";
+import { createDeathApi, deathDialogMarkup, type DeathApi, type DeathDialogState } from "./ke-death-report";
 
 export interface HostedItem {
   id: string;
@@ -56,6 +57,8 @@ export interface HostingApi {
   /** 让托管服务器重新拉取该角色在 LTSD 上保存的配置并 reload all（约 1～2 分钟生效）。 */
   syncConfig(id: string): Promise<void>;
   remove(id: string): Promise<void>;
+  /** 死亡报告（可选：没有这组接口时卡片上不显示「死亡记录」）。 */
+  deaths?: DeathApi;
 }
 
 export function createHostingApi(api: Pick<AuthApiClient, "sessionRead" | "sessionRequest">): HostingApi {
@@ -87,6 +90,7 @@ export function createHostingApi(api: Pick<AuthApiClient, "sessionRead" | "sessi
     async stop(id) { await api.sessionRequest<void>(path(id, "/stop"), "POST", {}); },
     async syncConfig(id) { await api.sessionRequest<void>(path(id, "/sync-config"), "POST", {}); },
     async remove(id) { await api.sessionRequest<void>(path(id), "DELETE"); },
+    deaths: createDeathApi(api),
   };
 }
 
@@ -250,6 +254,9 @@ export function mountHostingPanel(
   let dialogError = "";
   let dialogBusy = false;
   let loadSequence = 0;
+  /** 每个托管实例的死亡记录条数（只在读到后才显示按钮）。 */
+  const deathCounts = new Map<string, number>();
+  let deathDialog: DeathDialogState | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let pollCount = 0;
   let disposed = false;
@@ -431,12 +438,17 @@ export function mountHostingPanel(
     const toggle = running
       ? `${sync}<button type="button" class="acc-btn kc-btn-stop" data-kc-stop="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="停止托管 ${escapeHtml(item.char_name)}" title="停止"><i class="ph ph-stop-circle" aria-hidden="true"></i><span>停止</span></button>`
       : `<button type="button" class="acc-btn kc-btn-start" data-kc-start="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="启动托管 ${escapeHtml(item.char_name)}" title="启动"><i class="ph ph-play-circle" aria-hidden="true"></i><span>启动</span></button>`;
+    const deaths = deathCounts.get(item.id) ?? 0;
+    const deathButton = deaths > 0
+      ? `<button type="button" class="acc-btn acc-btn--wide kc-btn-deaths" data-kc-deaths="${escapeHtml(item.id)}" aria-label="查看 ${escapeHtml(item.char_name)} 的死亡记录" title="死亡记录"><i class="ph ph-skull" aria-hidden="true"></i><span>死亡记录</span><b class="kc-badge">${deaths}</b></button>`
+      : "";
     return `<article class="account-card kc-card kc-card--${meta.tone}" data-kc-card="${escapeHtml(item.id)}">
       <div class="acc-inner">
         <header class="acc-head"><div class="acc-who"><span class="acc-label">${escapeHtml(item.char_name)}</span><span class="acc-id"><span class="acc-server acc-server--${item.nid}" title="${escapeHtml(server.code)}">${escapeHtml(server.label)}</span></span></div><span class="kc-stamp kc-stamp--${meta.tone}"><i></i>${escapeHtml(meta.label)}</span></header>
         <div class="acc-body">${hint}${body}</div>
       </div>
       <footer class="acc-foot">${updated}<span class="acc-actions">
+        ${deathButton}
         ${toggle}
         ${removable ? `<button type="button" class="acc-btn acc-btn--danger${armed ? " is-armed" : ""}" data-kc-delete="${escapeHtml(item.id)}" ${busy ? "disabled" : ""} aria-label="删除托管 ${escapeHtml(item.char_name)}" title="删除">${armed ? "确认删除？" : '<i class="ph ph-trash" aria-hidden="true"></i>'}</button>` : ""}
       </span></footer>
@@ -531,7 +543,8 @@ export function mountHostingPanel(
       ${items.length > 0 ? `<div class="accounts-grid kc-grid" aria-live="polite">${items.map(cardMarkup).join("")}</div>` : emptyMarkup(eligibility)}
       ${noticeMarkup}
       <p class="kc-foot">状态随游戏进程的心跳（约每 5 分钟）更新；启动、停止过程中页面会自动刷新，其余时候需要最新状态请点「刷新」。</p>
-      ${dialogMarkup()}`;
+      ${dialogMarkup()}
+      ${deathDialog ? deathDialogMarkup(deathDialog) : ""}`;
   }
 
   async function load(silent = false): Promise<void> {
@@ -556,6 +569,85 @@ export function mountHostingPanel(
     }
     render();
     schedulePoll();
+    void refreshDeathCounts();
+  }
+
+  /** 读各个托管实例的死亡记录条数（失败或没有就不显示按钮）；有变化才重画，打开弹窗时不打扰。 */
+  async function refreshDeathCounts(): Promise<void> {
+    const deaths = api.deaths;
+    if (!deaths || view.kind !== "ready") return;
+    let changed = false;
+    await Promise.all(view.items.map(async (entry) => {
+      try {
+        const total = (await deaths.list(entry.id)).items.length;
+        if (deathCounts.get(entry.id) !== total) { deathCounts.set(entry.id, total); changed = true; }
+      } catch {
+        // 读不到就保持原样。
+      }
+    }));
+    if (changed && !disposed && !deathDialog && !dialogOpen) render();
+  }
+
+  async function openDeaths(instanceId: string): Promise<void> {
+    const deaths = api.deaths;
+    const entry = view.kind === "ready" ? view.items.find((candidate) => candidate.id === instanceId) : undefined;
+    if (!deaths || !entry) return;
+    deathDialog = { instanceId, charName: entry.char_name, loading: true, error: "", list: null, selectedKey: null, detail: null, fixBusy: null, fixError: "" };
+    render();
+    try {
+      const list = await deaths.list(instanceId);
+      if (!deathDialog || deathDialog.instanceId !== instanceId) return;
+      deathCounts.set(instanceId, list.items.length);
+      deathDialog = { ...deathDialog, loading: false, list };
+      render();
+      if (list.items[0]) await pickDeath(list.items[0].reportKey);
+    } catch (error) {
+      if (!deathDialog) return;
+      deathDialog = { ...deathDialog, loading: false, error: errorText(error, "读取死亡记录失败，请稍后重试") };
+      render();
+    }
+  }
+
+  async function pickDeath(reportKey: string): Promise<void> {
+    const deaths = api.deaths;
+    if (!deaths || !deathDialog) return;
+    const instanceId = deathDialog.instanceId;
+    deathDialog = { ...deathDialog, selectedKey: reportKey, detail: null, fixError: "" };
+    render();
+    try {
+      const detail = await deaths.get(instanceId, reportKey);
+      if (!deathDialog || deathDialog.selectedKey !== reportKey) return;
+      deathDialog = { ...deathDialog, detail };
+    } catch (error) {
+      if (!deathDialog) return;
+      deathDialog = { ...deathDialog, fixError: errorText(error, "读取这份报告失败，请稍后重试") };
+    }
+    render();
+  }
+
+  async function applyDeathFix(fixId: string, action: "apply" | "undo"): Promise<void> {
+    const deaths = api.deaths;
+    const dialog = deathDialog;
+    if (!deaths || !dialog || !dialog.selectedKey || !dialog.detail || dialog.fixBusy) return;
+    const reportKey = dialog.selectedKey;
+    deathDialog = { ...dialog, fixBusy: fixId, fixError: "" };
+    render();
+    try {
+      const fixesState = await deaths.fix(dialog.instanceId, reportKey, fixId, action);
+      if (!deathDialog || deathDialog.selectedKey !== reportKey || !deathDialog.detail) return;
+      deathDialog = { ...deathDialog, fixBusy: null, detail: { ...deathDialog.detail, fixesState } };
+      const list = await deaths.list(dialog.instanceId).catch(() => null);
+      if (list && deathDialog) deathDialog = { ...deathDialog, list };
+    } catch (error) {
+      if (!deathDialog) return;
+      deathDialog = { ...deathDialog, fixBusy: null, fixError: errorText(error, "应用失败，请稍后重试") };
+    }
+    render();
+  }
+
+  function closeDeaths(): void {
+    deathDialog = null;
+    render();
   }
 
   /** 有实例处于启动 / 停止过渡中时，隔几秒静默重新读取，直到全部落定。 */
@@ -569,7 +661,7 @@ export function mountHostingPanel(
     pollTimer = setTimeout(() => {
       pollTimer = null;
       // 添加对话框打开时重画会清掉正在输入的内容，先跳过这一次。
-      if (dialogOpen) schedulePoll(); else void load(true);
+      if (dialogOpen || deathDialog) schedulePoll(); else void load(true);
     }, pollMs);
   }
 
@@ -662,6 +754,23 @@ export function mountHostingPanel(
     if (start) { void act(start, () => api.start(start), "正在启动…", "已提交启动，托管服务器会在一分钟内接手。"); return; }
     const sync = pick("data-kc-sync");
     if (sync) { void act(sync, () => api.syncConfig(sync), "正在提交…", "已提交，托管服务器会在 1～2 分钟内拉取最新配置并重载。"); return; }
+    const deathsId = pick("data-kc-deaths");
+    if (deathsId) { void openDeaths(deathsId); return; }
+    if (deathDialog) {
+      const pickKey = pick("data-kc-death-pick");
+      if (pickKey) { void pickDeath(pickKey); return; }
+      const applyId = pick("data-kc-fix");
+      if (applyId) { void applyDeathFix(applyId, "apply"); return; }
+      const undoId = pick("data-kc-fix-undo");
+      if (undoId) { void applyDeathFix(undoId, "undo"); return; }
+      const copyId = pick("data-kc-fix-copy");
+      if (copyId) {
+        const text = deathDialog.detail?.report.fixes.find((fix) => fix.id === copyId)?.to ?? "";
+        void navigator.clipboard?.writeText(text).catch(() => undefined);
+        return;
+      }
+      if (target.closest("[data-kc-death-close]") || target.matches("[data-kc-death-overlay]")) { closeDeaths(); return; }
+    }
     const stop = pick("data-kc-stop");
     if (stop) { void act(stop, () => api.stop(stop), "正在停止…", "已提交停止，进程会先让角色正常下线。"); return; }
     const statsId = pick("data-kc-run");
@@ -695,6 +804,7 @@ export function mountHostingPanel(
     void submitDialog(form);
   };
   const onKey = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && deathDialog) { closeDeaths(); return; }
     if (event.key === "Escape" && dialogOpen && !dialogBusy) closeDialog();
   };
 

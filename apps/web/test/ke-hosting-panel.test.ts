@@ -1,4 +1,5 @@
 import { JSDOM } from "jsdom";
+import type { DeathApi, DeathReport } from "../src/ke-death-report";
 import { describe, expect, it, vi } from "vitest";
 import {
   mountHostingPanel,
@@ -367,5 +368,72 @@ describe("KE 监控台：离线挂机面板", () => {
     expect(root.textContent).not.toContain("暴力男团");
     expect(api.load).toHaveBeenCalledTimes(1);
     restore();
+  });
+
+  describe("死亡报告", () => {
+    const REPORT = {
+      reportVersion: 1, id: "22-1", atMs: Date.UTC(2026, 10, 12, 6, 3), aiMode: "auto", activity: "", character: { name: "暴力男团" },
+      map: { name: "pay_dun03", x: 1, y: 2 }, killer: { kind: "monster", name: "骷髅弓箭手", skillName: "二连矢", damage: 1284 },
+      summary: { title: "被 骷髅弓箭手 的「二连矢」打死", reason: "r" }, cause: "teleport_no_item", causeLabel: "瞬移失败", totalDamage: 10,
+      hp: { points: [{ tMs: -3000, pct: 60 }, { tMs: 0, pct: 0 }], marks: [] }, sources: [], timeline: [],
+      state: { statuses: [], consumables: [] }, log: [],
+      fixes: [{ id: "f1", title: "补翅膀", why: "w", from: "", to: "buyAuto x", patch: { op: "setKey" } }],
+    } as unknown as DeathReport;
+
+    function deaths(overrides: Partial<DeathApi> = {}): DeathApi {
+      return {
+        list: vi.fn(async () => ({
+          items: [{ reportKey: "22-1", diedAt: REPORT.atMs, map: "pay_dun03", killerName: "骷髅弓箭手", skillName: "二连矢", causeLabel: "瞬移失败", fixesTotal: 1, fixesApplied: 0 }],
+          stats: { last7Days: 1, perDay7: [0, 0, 0, 0, 0, 0, 1], topKiller: null, topCause: null, fixesApplied: 0, fixesTotal: 1 },
+          profileName: "挂机",
+        })),
+        get: vi.fn(async () => ({ report: REPORT, fixesState: {} })),
+        fix: vi.fn(async () => ({ f1: { status: "applied" as const, at: REPORT.atMs, revert: {} } })),
+        ...overrides,
+      };
+    }
+
+    it("没有死亡记录的卡片不显示「死亡记录」按钮", async () => {
+      const harness = setup();
+      harness.api.deaths = deaths({ list: vi.fn(async () => ({ items: [], stats: { last7Days: 0, perDay7: [0, 0, 0, 0, 0, 0, 0], topKiller: null, topCause: null, fixesApplied: 0, fixesTotal: 0 }, profileName: null })) });
+      await flush();
+      await flush();
+      expect(harness.root.querySelector("[data-kc-deaths]")).toBeNull();
+      harness.restore();
+    });
+
+    it("有记录时显示次数，点开后看到报告，点一键应用后变成已应用", async () => {
+      const harness = setup();
+      const api = deaths();
+      harness.api.deaths = api;
+      harness.emit({ status: "active", user: { id: "43" }, expiresAt: 0, mailAvailability: null } as never);
+      await flush(); await flush(); await flush();
+      const button = harness.root.querySelector("[data-kc-deaths]");
+      expect(button?.textContent).toContain("1");
+      click(harness.dom, "[data-kc-deaths]");
+      await flush(); await flush(); await flush();
+      expect(harness.root.textContent).toContain("被 骷髅弓箭手 的「二连矢」打死");
+      click(harness.dom, '[data-kc-fix="f1"]');
+      await flush(); await flush();
+      expect(api.fix).toHaveBeenCalledWith("i-1", "22-1", "f1", "apply");
+      expect(harness.root.textContent).toContain("已应用并重载");
+      click(harness.dom, "[data-kc-death-close]");
+      expect(harness.root.querySelector(".kdr")).toBeNull();
+      harness.restore();
+    });
+
+    it("配置已变化（409）时提示重新查看建议，且按钮仍可用", async () => {
+      const harness = setup();
+      harness.api.deaths = deaths({ fix: vi.fn(async () => { throw new Error("配置已变化，请重新查看建议"); }) });
+      harness.emit({ status: "active", user: { id: "44" }, expiresAt: 0, mailAvailability: null } as never);
+      await flush(); await flush(); await flush();
+      click(harness.dom, "[data-kc-deaths]");
+      await flush(); await flush(); await flush();
+      click(harness.dom, '[data-kc-fix="f1"]');
+      await flush(); await flush();
+      expect(harness.root.textContent).toContain("配置已变化，请重新查看建议");
+      expect(harness.root.querySelector('[data-kc-fix="f1"]')).not.toBeNull();
+      harness.restore();
+    });
   });
 });

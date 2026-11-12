@@ -6,6 +6,7 @@ import { siteNavMarkup, mountSiteNav } from "./nav";
 import { authApi, type AuthApiClient } from "./auth/api";
 import { authStore, type AuthStore } from "./auth/store";
 import { mountAdminTransfer, transferSectionMarkup } from "./admin-transfer";
+import { deathStatsSectionMarkup, mountDeathStats } from "./admin-death-stats";
 
 const ADMIN_LEVEL = 100;
 const AUDIT_PAGE_SIZE = 50;
@@ -189,6 +190,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
 
       <div id="adm-transfer">${transferSectionMarkup()}
       </div>
+      ${deathStatsSectionMarkup()}
 
       <section class="adm-card" aria-labelledby="adm-audit-title">
         <div class="adm-head">
@@ -254,6 +256,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
 
   const q = <T extends HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
   mountAdminTransfer(q<HTMLElement>("#adm-transfer"), { get: adminGet, auth });
+  const startDeathStats = mountDeathStats(q<HTMLElement>("#adm-death"), { get: adminGet });
   const status = q<HTMLElement>("#adm-status");
   const gate = q<HTMLElement>("#adm-gate");
   const main = q<HTMLElement>("#adm-main");
@@ -547,6 +550,7 @@ export function mountAdminPage(root: HTMLElement, deps: AdminPageDeps = {}): voi
         loadedFor = state.user.id;
         void search("");
         void loadFlags();
+        startDeathStats();
       }
       return;
     }
