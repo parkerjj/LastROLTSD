@@ -36,6 +36,12 @@ import {
   type ControlRow,
   type ControlSchema,
 } from "./ke-controls";
+import {
+  TIMEOUT_GROUPS,
+  TIMEOUT_META,
+  TIMEOUT_META_BY_KEY,
+  type TimeoutMeta,
+} from "./ke-timeouts";
 import { createProfileSharing } from "./profile-sharing";
 import type { ProfileSharingMetadata } from "../../worker/src/ke/shared-profile-types";
 import { isLocalDemoMode } from "./demo-mode";
@@ -1045,6 +1051,158 @@ export function mountKePage(root: HTMLElement): void {
     .ke-editor-foot { display: none; position: sticky; bottom: 0; z-index: 5; gap: 10px; padding: 12px 16px; background: rgba(247,243,234,.97); backdrop-filter: blur(10px); border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
 
     .ke-hint { margin: 14px 2px 0; color: var(--muted); font-size: .72rem; line-height: 1.7; white-space: pre-line; }
+
+    /* —— 超时分区：说明条 + 搜索筛选 + 常用卡片 + 分组清单 —— */
+    .ke-to {
+      --to-line: #e6dfd0;
+      --to-line-soft: #f0eadc;
+      --to-surface: #fffdf8;
+      --to-tint: #faf6ec;
+      --to-amber: #a9762a;
+      --to-amber-strong: #855a1b;
+      --to-amber-soft: #faf3e4;
+      --to-amber-line: #e7d6b5;
+      --to-focus: rgba(29, 51, 43, .14);
+      margin-top: 6px;
+    }
+    .ke-to-warn { display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; padding: 14px 16px; background: #fbf1df; border: 1px solid #eed7b3; border-left: 3px solid #b27a2a; border-radius: 10px; }
+    .ke-to-warn-icon { display: grid; place-items: center; flex: none; width: 20px; height: 20px; margin-top: 1px; color: #fff; background: #b27a2a; border-radius: 50%; font-size: .72rem; font-weight: 900; line-height: 1; }
+    .ke-to-warn b { display: block; color: #6b4a18; font-size: .78rem; font-weight: 800; }
+    .ke-to-warn p { max-width: 78ch; margin: 4px 0 0; color: #7c6748; font-size: .72rem; line-height: 1.7; }
+    .ke-to-warn p b { display: inline; color: #6b4a18; font-size: inherit; }
+    .ke-to-note { display: flex; align-items: flex-start; gap: 12px; margin-top: 10px; padding: 13px 15px; background: var(--to-tint); border: 1px solid var(--to-line-soft); border-radius: 10px; }
+    .ke-to-note-i { display: grid; place-items: center; flex: none; width: 18px; height: 18px; margin-top: 1px; color: var(--forest); border: 1px solid #cfc5b2; border-radius: 50%; font-family: Georgia, "Songti SC", serif; font-size: .68rem; font-style: italic; line-height: 1; }
+    .ke-to-note b { display: block; color: #33443b; font-size: .78rem; font-weight: 800; }
+    .ke-to-note p { max-width: 74ch; margin: 3px 0 0; color: var(--muted); font-size: .73rem; line-height: 1.7; }
+    .ke-to-note p b { display: inline; color: #33443b; font-size: inherit; }
+
+    .ke-to-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    .ke-to-search { position: relative; display: flex; align-items: center; flex: 1 1 240px; max-width: 400px; margin: 0; }
+    .ke-to-search svg { position: absolute; left: 11px; width: 14px; height: 14px; fill: none; stroke: #929a92; stroke-width: 1.8; pointer-events: none; }
+    .ke-to-search input { width: 100%; min-height: 36px; padding: 0 38px 0 32px; background: var(--to-surface); border: 1px solid #ddd4c2; border-radius: 7px; font-size: .76rem; transition: border-color .18s ease, box-shadow .18s ease; }
+    .ke-to-search input::placeholder { color: #a8a294; }
+    .ke-to-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+    .ke-to-search input:hover { border-color: #c6bfb0; }
+    .ke-to-search input:focus { outline: none; border-color: var(--forest); box-shadow: 0 0 0 3px var(--to-focus); }
+    .ke-to-search kbd { position: absolute; right: 9px; padding: 0 5px; color: #9b9488; background: #f6f1e6; border: 1px solid var(--to-line); border-radius: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .6rem; line-height: 1.6; }
+    .ke-to-tabs { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+    .ke-to-tab { position: relative; min-height: 32px; padding: 0 11px; color: var(--muted); background: transparent; border: 0; border-radius: 6px; font-size: .72rem; font-weight: 700; box-shadow: none; transition: color .18s ease, background-color .18s ease; }
+    .ke-to-tab:hover:not(:disabled) { color: #33443b; background: rgba(255, 253, 248, .8); }
+    .ke-to-tab.is-on { color: var(--forest); }
+    .ke-to-tab.is-on::after { position: absolute; right: 11px; bottom: 1px; left: 11px; height: 2px; content: ""; background: var(--forest); border-radius: 2px; }
+
+    .ke-to-sec { margin-top: 24px; }
+    .ke-to-sec-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 10px; }
+    .ke-to-sec-head h4 { margin: 0; color: var(--paper); font-size: .88rem; font-weight: 900; letter-spacing: .02em; }
+    .ke-to-sec-note { color: var(--muted); font-size: .68rem; }
+    .ke-to-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+    .ke-to-link { padding: 1px 0; color: var(--forest); background: transparent; border: 0; font-size: .68rem; font-weight: 800; box-shadow: none; }
+    .ke-to-link:hover:not(:disabled) { color: var(--forest); background: transparent; text-decoration: underline; text-underline-offset: 3px; }
+
+    .ke-to-core { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: var(--to-surface); border: 1px solid var(--to-line); border-radius: 10px; overflow: hidden; }
+    .ke-to-core-item { min-width: 0; padding: 14px 16px 13px; border-top: 1px solid var(--to-line-soft); transition: background-color .18s ease; }
+    .ke-to-core-item:nth-child(-n+2) { border-top: 0; }
+    .ke-to-core-item:nth-child(odd) { border-right: 1px solid var(--to-line-soft); }
+    .ke-to-core-item:hover { background: #fdfbf5; }
+    .ke-to-core-top { display: flex; align-items: center; gap: 8px; }
+    .ke-to-core-name { flex: 1; min-width: 0; color: var(--ink); font-size: .8rem; font-weight: 800; letter-spacing: -.005em; }
+    .ke-to-chg { display: none; flex: none; color: var(--to-amber-strong); font-size: .62rem; font-weight: 800; }
+    .is-changed .ke-to-chg { display: inline; }
+    .is-changed .ke-to-core-name, .is-changed .ke-to-pname { color: var(--to-amber-strong); }
+    .ke-to-core-desc { min-height: 2.4em; margin: 5px 0 9px; color: var(--muted); font-size: .71rem; line-height: 1.6; }
+    .ke-to-core-foot { display: flex; align-items: center; gap: 10px; }
+    .ke-to-scale { position: relative; flex: 1; height: 18px; cursor: pointer; touch-action: none; user-select: none; border-radius: 999px; }
+    .ke-to-scale::before { position: absolute; top: 50%; right: 0; left: 0; height: 3px; content: ""; background: #ece7db; border-radius: 999px; transform: translateY(-50%); }
+    .ke-to-scale:hover::before { background: #e4ded0; }
+    .ke-to-band { position: absolute; top: 50%; height: 3px; background: #dcc9a4; border-radius: 999px; transform: translateY(-50%); }
+    .ke-to-dot { position: absolute; top: 50%; width: 10px; height: 10px; margin-left: -5px; transform: translateY(-50%); background: #fff; border: 2px solid var(--forest); border-radius: 50%; box-shadow: 0 1px 3px rgba(29, 51, 43, .18); transition: left .2s cubic-bezier(.2, .7, .3, 1), transform .15s ease; }
+    .ke-to-scale:hover .ke-to-dot { transform: translateY(-50%) scale(1.12); }
+    .ke-to-scale.is-dragging { cursor: grabbing; }
+    .ke-to-scale.is-dragging .ke-to-dot { transform: translateY(-50%) scale(1.25); transition: transform .12s ease; }
+    .ke-to-scale:focus-visible { outline: 2px solid var(--forest); outline-offset: 2px; }
+    .ke-to-range { flex: none; color: #9b9488; font-size: .62rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    .ke-to-field { display: inline-flex; align-items: center; flex: none; height: 30px; padding: 0 8px; margin: 0; background: #fff; border: 1px solid #cfc5b2; border-radius: 7px; transition: border-color .18s ease, box-shadow .18s ease; }
+    .ke-to-field:hover { border-color: #bdb29e; }
+    .ke-to-field:focus-within { border-color: var(--forest); box-shadow: 0 0 0 3px var(--to-focus); }
+    .ke-editor .ke-to-field input { width: 46px; min-height: 0; padding: 0; color: var(--ink); background: transparent; border: 0; border-radius: 0; outline: 0; box-shadow: none; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .76rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; -moz-appearance: textfield; appearance: textfield; }
+    .ke-to-field input::-webkit-outer-spin-button, .ke-to-field input::-webkit-inner-spin-button { margin: 0; -webkit-appearance: none; }
+    .ke-to-field .ke-to-unit { margin-left: 2px; color: #9b9488; font-size: .62rem; }
+    .ke-to-param .ke-to-field { height: 28px; padding: 0 7px; }
+    .ke-editor .ke-to-param .ke-to-field input { width: 40px; font-size: .72rem; }
+
+    .ke-to-sheet { background: var(--to-surface); border: 1px solid var(--to-line); border-radius: 10px; overflow: hidden; }
+    .ke-to-group + .ke-to-group { border-top: 1px solid var(--to-line); }
+    .ke-to-group > summary { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; cursor: pointer; list-style: none; user-select: none; transition: background-color .18s ease; }
+    .ke-to-group > summary::-webkit-details-marker { display: none; }
+    .ke-to-group > summary:hover { background: #fbf8f1; }
+    .ke-to-group > summary:focus-visible { outline-offset: -3px; }
+    .ke-to-gi { flex: none; width: 18px; color: #b0a894; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .62rem; font-variant-numeric: tabular-nums; }
+    .ke-to-gn { flex: none; color: var(--ink); font-size: .78rem; font-weight: 800; }
+    .ke-to-gnote { min-width: 0; overflow: hidden; color: #9b9488; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-to-gmeta { display: flex; align-items: center; gap: 9px; margin-left: auto; flex: none; }
+    .ke-to-gcount { color: #9b9488; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .62rem; font-variant-numeric: tabular-nums; }
+    .ke-to-gchg { display: none; color: var(--to-amber-strong); font-size: .62rem; font-weight: 800; white-space: nowrap; }
+    .ke-to-gchg.is-on { display: inline; }
+    .ke-to-chev { flex: none; width: 7px; height: 7px; margin: 0 2px 4px 2px; border-right: 1.5px solid #98917f; border-bottom: 1.5px solid #98917f; transform: rotate(45deg); transition: transform .22s cubic-bezier(.2, .7, .3, 1); }
+    .ke-to-group[open] .ke-to-chev { margin-bottom: -4px; transform: rotate(225deg); }
+    .ke-to-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; padding: 0 16px 4px; animation: ke-to-reveal .24s cubic-bezier(.2, .7, .3, 1); }
+    @keyframes ke-to-reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    .ke-to-param { min-width: 0; padding: 12px 0 11px; border-top: 1px solid var(--to-line-soft); }
+    .ke-to-body .ke-to-param:nth-child(-n+2) { border-top: 0; }
+    .ke-to-prow { display: flex; align-items: flex-start; gap: 10px; }
+    .ke-to-pmain { flex: 1; min-width: 0; }
+    .ke-to-ptitle { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .ke-to-pname { overflow: hidden; color: var(--ink); font-size: .75rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-to-tag { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--to-amber-strong); font-size: .58rem; font-weight: 800; letter-spacing: .03em; }
+    .ke-to-tag::before { width: 3px; height: 3px; content: ""; background: var(--to-amber); border-radius: 50%; }
+    .ke-to-pdesc { margin: 3px 0 7px; color: var(--muted); font-size: .7rem; line-height: 1.6; }
+    .ke-to-pmeta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .ke-to-pmeta code { color: #9b9488; font-size: .6rem; letter-spacing: -.01em; }
+    .ke-to-prange { color: #9b9488; font-size: .62rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .ke-to-reset { margin-left: auto; padding: 0; color: #9b9488; background: transparent; border: 0; font-size: .62rem; font-weight: 600; box-shadow: none; opacity: 0; transition: color .18s ease, opacity .18s ease; }
+    .ke-to-param:hover .ke-to-reset, .ke-to-reset:focus-visible { opacity: 1; }
+    .ke-to-reset:hover:not(:disabled) { color: var(--to-amber-strong); background: transparent; }
+
+    .ke-to-empty { padding: 36px 12px; color: #9b9488; text-align: center; font-size: .72rem; }
+    .ke-to-empty[hidden] { display: none; }
+    .ke-to-foot { margin: 16px 0 0; color: #9b9488; font-size: .64rem; line-height: 1.6; }
+    .ke-to-foot code { color: var(--muted); }
+    .ke-to-add { margin-top: 14px; }
+    .ke-to-dirty { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 3px 10px; color: #855a1b; background: #faf3e4; border: 1px solid #e7d6b5; border-radius: 999px; font-size: .64rem; font-weight: 800; white-space: nowrap; }
+    .ke-to-dirty::before { width: 5px; height: 5px; content: ""; background: #a9762a; border-radius: 50%; }
+    .ke-to-dirty.is-clean { color: #9b9488; background: #f3efe5; border-color: #e4ddcd; }
+    .ke-to-dirty.is-clean::before { background: #c4bca9; }
+    .is-just-changed .ke-to-field { animation: ke-to-flash .7s cubic-bezier(.2, .7, .3, 1); }
+    @keyframes ke-to-flash { 0% { background: #faf3e4; border-color: #e7d6b5; } 100% { background: #fff; border-color: #cfc5b2; } }
+    .ke-to-toast { position: fixed; right: 24px; bottom: 24px; z-index: 40; padding: 9px 15px; color: #f7f3ea; background: #2c3b33; border-radius: 8px; box-shadow: 0 8px 24px rgba(34, 45, 39, .18); font-size: .72rem; opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .2s ease, transform .2s ease; }
+    .ke-to-toast.is-on { opacity: 1; transform: none; }
+
+    @media (max-width: 900px) {
+      .ke-to-core { grid-template-columns: 1fr; }
+      .ke-to-core-item:nth-child(n) { border-top: 1px solid var(--to-line-soft); border-right: 0; }
+      .ke-to-core-item:first-child { border-top: 0; }
+      .ke-to-body { grid-template-columns: 1fr; gap: 0; }
+      .ke-to-body .ke-to-param:nth-child(n) { border-top: 1px solid var(--to-line-soft); }
+      .ke-to-body .ke-to-param:first-child { border-top: 0; }
+    }
+    @media (max-width: 720px) {
+      .ke-to-gnote { display: none; }
+      .ke-to-warn { padding: 12px 13px; }
+      .ke-to-toolbar { gap: 8px; }
+      .ke-to-search { flex-basis: 100%; max-width: none; }
+      .ke-to-tabs { margin-left: 0; }
+      .ke-to-actions { margin-left: 0; }
+      .ke-to-core-desc { min-height: 0; }
+      .ke-to-toast { right: 16px; bottom: 16px; left: 16px; text-align: center; }
+    }
+    @media (hover: none) {
+      .ke-to-reset { opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ke-to-body, .is-just-changed .ke-to-field { animation: none !important; }
+      .ke-to-dot, .ke-to-chev, .ke-to-field, .ke-to-reset, .ke-to-tab, .ke-to-toast { transition: none !important; }
+    }
 
     @media (max-width: 1080px) {
       .ke-editor-body { grid-template-columns: 176px minmax(0, 1fr); }
@@ -3701,6 +3859,10 @@ export function mountKePage(root: HTMLElement): void {
   function renderControlsTab(entry: NavEntry): void {
     const schema = CONTROL_SCHEMAS.find((s) => s.file === entry.file)!;
     const rows = (controlDoc[schema.file] ??= []);
+    if (schema.file === "timeouts.txt") {
+      renderTimeoutsTab(schema, rows);
+      return;
+    }
 
     const tabHint = CONTROL_TAB_HINTS[schema.file];
     if (tabHint) {
@@ -3750,6 +3912,636 @@ export function mountKePage(root: HTMLElement): void {
       pickers[pickers.length - 1]?.focus();
     });
     tabPanels.appendChild(addBtn);
+  }
+
+  // —— 超时分区（69 项参数：常用卡片 + 按用途分组的完整清单） ——
+
+  /** 超时默认值：LastRO 调优值优先，其次 KE 自带默认值，最后用展示元数据兜底。 */
+  function timeoutDefault(key: string): string {
+    const override = TIMEOUT_DEFAULT_OVERRIDES[key];
+    if (override !== undefined) return override;
+    const info = options?.timeouts.find((item) => item.key === key);
+    if (info) return info.value;
+    const meta = TIMEOUT_META_BY_KEY.get(key);
+    return meta ? String(meta.def) : "";
+  }
+
+  /** 秒数展示：最多保留 3 位小数，去掉末尾多余的 0。 */
+  function fmtSeconds(value: string | number): string {
+    if (typeof value === "string" && value.trim() === "") return "";
+    const num = Number(value);
+    if (!Number.isFinite(num)) return String(value);
+    return String(Math.round(num * 1000) / 1000);
+  }
+
+  function timeoutValueChanged(row: ControlRow, key: string): boolean {
+    const raw = (row.values.value ?? "").trim();
+    const fallback = timeoutDefault(key);
+    if (raw === "") return true;
+    const num = Number(raw);
+    const def = Number(fallback);
+    if (Number.isFinite(num) && Number.isFinite(def)) {
+      return Math.abs(num - def) > 1e-9;
+    }
+    return raw !== fallback;
+  }
+
+  /** 常用卡片刻度条的右端：上限的 1.9 倍，足够覆盖合理范围又不至于太粗糙。 */
+  function timeoutScaleMax(meta: TimeoutMeta): number {
+    return Math.max(meta.hi * 1.9, 0.01);
+  }
+
+  /** 拖动刻度条时的吸附步长，随量程放大。 */
+  function timeoutScaleStep(max: number): number {
+    if (max <= 2.5) return 0.01;
+    if (max <= 8) return 0.05;
+    if (max <= 24) return 0.1;
+    return 0.5;
+  }
+
+  type TimeoutFilter = "all" | "common" | "changed";
+
+  function renderTimeoutsTab(schema: ControlSchema, rows: ControlRow[]): void {
+    // 补齐 69 项固定参数：缺少的行按默认值建立，保证清单完整、两个入口都能编辑。
+    const rowByKey = new Map<string, ControlRow>();
+    for (const row of rows) rowByKey.set(row.name, row);
+    for (const meta of TIMEOUT_META) {
+      if (rowByKey.has(meta.key)) continue;
+      const row: ControlRow = {
+        name: meta.key,
+        values: { value: timeoutDefault(meta.key) },
+      };
+      rows.push(row);
+      rowByKey.set(meta.key, row);
+    }
+    // 不在 69 项清单里的行（自定义键、重复键）仍然保留，用通用行编辑器展示。
+    const managed = new Set<ControlRow>();
+    for (const meta of TIMEOUT_META) managed.add(rowByKey.get(meta.key)!);
+    const extras = rows.filter((row) => !managed.has(row));
+
+    const wrap = document.createElement("div");
+    wrap.className = "ke-to";
+    tabPanels.appendChild(wrap);
+
+    const inputsByKey = new Map<string, HTMLInputElement[]>();
+    const cardByKey = new Map<string, HTMLElement>();
+    const paramByKey = new Map<string, HTMLElement>();
+    const scaleByKey = new Map<
+      string,
+      { el: HTMLElement; band: HTMLElement; dot: HTMLElement; meta: TimeoutMeta }
+    >();
+    const groupViews: {
+      el: HTMLDetailsElement;
+      metas: TimeoutMeta[];
+      changed: HTMLElement;
+    }[] = [];
+
+    let filter: TimeoutFilter = "all";
+    let keyword = "";
+
+    const flashHost = (key: string): void => {
+      const host = cardByKey.get(key) ?? paramByKey.get(key);
+      if (!host) return;
+      host.classList.remove("is-just-changed");
+      void host.offsetWidth;
+      host.classList.add("is-just-changed");
+    };
+
+    // 醒目提醒：数值不是越小越好
+    const warn = document.createElement("div");
+    warn.className = "ke-to-warn";
+    warn.setAttribute("role", "note");
+    warn.innerHTML = `
+      <span class="ke-to-warn-icon" aria-hidden="true">!</span>
+      <div>
+        <b>数值不是越小越好，调得太小可能被踢下线</b>
+        <p>超时越短，封包发送越频繁。数值压得过低容易被服务器判定为异常，导致角色被踢下线。请尽量让输入值保持在下方标注的<b>推荐区间</b>内，需要微调时小幅移动即可。</p>
+      </div>`;
+
+    // 说明条
+    const note = document.createElement("div");
+    note.className = "ke-to-note";
+    note.innerHTML = `
+      <span class="ke-to-note-i" aria-hidden="true">i</span>
+      <div>
+        <b>把它理解成「反应速度」</b>
+        <p><b>数值调小</b>：反应更快、动作更紧凑，但更吃 CPU，也可能操作太急。<b>数值调大</b>：更稳、更省资源，但看起来会迟钝。只有遇到「反应慢、卡住、太频繁」时，再动下面这几项。</p>
+      </div>`;
+
+    // 搜索 + 筛选
+    const toolbar = document.createElement("div");
+    toolbar.className = "ke-to-toolbar";
+    const search = document.createElement("label");
+    search.className = "ke-to-search";
+    search.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>`;
+    const searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.id = "ke-timeout-search";
+    searchInput.placeholder = "搜索中文名或参数名";
+    searchInput.autocomplete = "off";
+    searchInput.setAttribute("aria-label", "搜索超时参数");
+    search.append(searchInput);
+    const kbd = document.createElement("kbd");
+    kbd.textContent = "/";
+    search.appendChild(kbd);
+
+    const tabs = document.createElement("div");
+    tabs.className = "ke-to-tabs";
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "筛选超时参数");
+    const tabDefs: { id: TimeoutFilter; label: string }[] = [
+      { id: "all", label: "全部" },
+      { id: "common", label: "常用" },
+      { id: "changed", label: "已调整" },
+    ];
+    const tabButtons = new Map<TimeoutFilter, HTMLButtonElement>();
+    for (const def of tabDefs) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `ke-to-tab${def.id === "all" ? " is-on" : ""}`;
+      btn.textContent = def.label;
+      btn.setAttribute("aria-pressed", String(def.id === "all"));
+      btn.addEventListener("click", () => {
+        filter = def.id;
+        for (const [id, other] of tabButtons) {
+          const on = id === filter;
+          other.classList.toggle("is-on", on);
+          other.setAttribute("aria-pressed", String(on));
+        }
+        applyFilter();
+      });
+      tabButtons.set(def.id, btn);
+      tabs.appendChild(btn);
+    }
+    toolbar.append(search, tabs);
+
+    // 字段（常用卡片与清单行共用同一套输入同步）
+    const buildField = (meta: TimeoutMeta): HTMLElement => {
+      const row = rowByKey.get(meta.key)!;
+      const label = document.createElement("label");
+      label.className = "ke-to-field";
+      const input = document.createElement("input");
+      input.type = "number";
+      input.inputMode = "decimal";
+      input.step = "0.05";
+      input.min = "0";
+      input.value = fmtSeconds(row.values.value ?? "");
+      input.setAttribute("aria-label", `${meta.cn}（秒）`);
+      const unit = document.createElement("span");
+      unit.className = "ke-to-unit";
+      unit.textContent = "s";
+      label.append(input, unit);
+      const list = inputsByKey.get(meta.key) ?? [];
+      list.push(input);
+      inputsByKey.set(meta.key, list);
+      input.addEventListener("input", () => {
+        row.values.value = normalizeFullWidth(input.value);
+        markDirty();
+        updatePreview();
+        flashHost(meta.key);
+        syncAll(false);
+        if (filter !== "all" || keyword !== "") applyFilter();
+      });
+      return label;
+    };
+
+    /** 刻度条拖动 / 键盘调整：按量程吸附后写回，与输入框走同一条同步链路。 */
+    const applyScaleValue = (meta: TimeoutMeta, next: number, flash: boolean): void => {
+      const row = rowByKey.get(meta.key)!;
+      const max = timeoutScaleMax(meta);
+      const step = timeoutScaleStep(max);
+      const clamped = Math.min(max, Math.max(0, next));
+      const snapped = Math.round(clamped / step) * step;
+      const nextValue = String(Math.round(snapped * 100) / 100);
+      if (row.values.value === nextValue) return;
+      row.values.value = nextValue;
+      markDirty();
+      updatePreview();
+      syncAll(false);
+      if (filter !== "all" || keyword !== "") applyFilter();
+      if (flash) flashHost(meta.key);
+    };
+
+    // 常用参数
+    const coreMetas = TIMEOUT_META.filter((meta) => meta.tier === "core");
+    const coreSection = document.createElement("section");
+    coreSection.className = "ke-to-sec";
+    const coreHead = document.createElement("div");
+    coreHead.className = "ke-to-sec-head";
+    coreHead.innerHTML = `<h4>常用参数</h4><span class="ke-to-sec-note">先看这 8 项，拖动刻度可快速调节</span>`;
+    const coreGrid = document.createElement("div");
+    coreGrid.className = "ke-to-core";
+    const coreActions = document.createElement("span");
+    coreActions.className = "ke-to-actions";
+    const viewAllBtn = document.createElement("button");
+    viewAllBtn.type = "button";
+    viewAllBtn.className = "ke-to-link";
+    viewAllBtn.textContent = "查看全部";
+    coreActions.appendChild(viewAllBtn);
+    coreHead.appendChild(coreActions);
+    for (const meta of coreMetas) {
+      const card = document.createElement("div");
+      card.className = "ke-to-core-item";
+      card.dataset.key = meta.key;
+      const top = document.createElement("div");
+      top.className = "ke-to-core-top";
+      const name = document.createElement("span");
+      name.className = "ke-to-core-name";
+      name.textContent = meta.cn;
+      const changed = document.createElement("span");
+      changed.className = "ke-to-chg";
+      changed.textContent = "已调整";
+      top.append(name, changed, buildField(meta));
+      const desc = document.createElement("p");
+      desc.className = "ke-to-core-desc";
+      desc.textContent = meta.desc;
+      const foot = document.createElement("div");
+      foot.className = "ke-to-core-foot";
+      const scale = document.createElement("span");
+      scale.className = "ke-to-scale";
+      scale.setAttribute("role", "slider");
+      scale.tabIndex = 0;
+      scale.setAttribute("aria-label", `${meta.cn} 快捷调节`);
+      scale.setAttribute("aria-valuemin", "0");
+      scale.title = "按住拖动调整数值，也可用左右方向键";
+      const band = document.createElement("i");
+      band.className = "ke-to-band";
+      const dot = document.createElement("i");
+      dot.className = "ke-to-dot";
+      scale.append(band, dot);
+      const setFromPointer = (clientX: number): void => {
+        const rect = scale.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        applyScaleValue(meta, ratio * timeoutScaleMax(meta), false);
+      };
+      scale.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        scale.focus({ preventScroll: true });
+        scale.setPointerCapture(event.pointerId);
+        scale.classList.add("is-dragging");
+        setFromPointer(event.clientX);
+      });
+      scale.addEventListener("pointermove", (event) => {
+        if (!scale.hasPointerCapture(event.pointerId)) return;
+        setFromPointer(event.clientX);
+      });
+      const endDrag = (event: PointerEvent): void => {
+        if (scale.hasPointerCapture(event.pointerId)) {
+          scale.releasePointerCapture(event.pointerId);
+        }
+        scale.classList.remove("is-dragging");
+      };
+      scale.addEventListener("pointerup", endDrag);
+      scale.addEventListener("pointercancel", endDrag);
+      scale.addEventListener("keydown", (event) => {
+        const max = timeoutScaleMax(meta);
+        const step = timeoutScaleStep(max);
+        const current = Number(rowByKey.get(meta.key)!.values.value) || 0;
+        let next: number;
+        if (event.key === "ArrowRight" || event.key === "ArrowUp") next = current + step;
+        else if (event.key === "ArrowLeft" || event.key === "ArrowDown") next = current - step;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = max;
+        else return;
+        event.preventDefault();
+        applyScaleValue(meta, next, true);
+        scale.focus();
+      });
+      const range = document.createElement("span");
+      range.className = "ke-to-range";
+      range.textContent = `建议 ${fmtSeconds(meta.lo)}–${fmtSeconds(meta.hi)} 秒`;
+      foot.append(scale, range);
+      card.append(top, desc, foot);
+      coreGrid.appendChild(card);
+      cardByKey.set(meta.key, card);
+      scaleByKey.set(meta.key, { el: scale, band, dot, meta });
+    }
+    coreSection.append(coreHead, coreGrid);
+
+    // 全部参数
+    const allSection = document.createElement("section");
+    allSection.className = "ke-to-sec";
+    const allHead = document.createElement("div");
+    allHead.className = "ke-to-sec-head";
+    allHead.innerHTML = `<h4>全部参数</h4><span class="ke-to-sec-note">按用途分组，含上方 8 项</span>`;
+    const allActions = document.createElement("span");
+    allActions.className = "ke-to-actions";
+    const resetAllBtn = document.createElement("button");
+    resetAllBtn.type = "button";
+    resetAllBtn.className = "ke-to-link";
+    resetAllBtn.textContent = "全部恢复默认";
+    const expandAllBtn = document.createElement("button");
+    expandAllBtn.type = "button";
+    expandAllBtn.className = "ke-to-link";
+    expandAllBtn.textContent = "全部展开";
+    allActions.append(resetAllBtn, expandAllBtn);
+    allHead.appendChild(allActions);
+
+    const sheet = document.createElement("div");
+    sheet.className = "ke-to-sheet";
+    TIMEOUT_GROUPS.forEach((group, index) => {
+      const metas = TIMEOUT_META.filter((meta) => meta.group === group.id);
+      const details = document.createElement("details");
+      details.className = "ke-to-group";
+      details.open = index < 2;
+      const summary = document.createElement("summary");
+      const gi = document.createElement("span");
+      gi.className = "ke-to-gi";
+      gi.textContent = String(index + 1).padStart(2, "0");
+      const gn = document.createElement("span");
+      gn.className = "ke-to-gn";
+      gn.textContent = group.name;
+      const gnote = document.createElement("span");
+      gnote.className = "ke-to-gnote";
+      gnote.textContent = group.note;
+      const gmeta = document.createElement("span");
+      gmeta.className = "ke-to-gmeta";
+      const gcount = document.createElement("span");
+      gcount.className = "ke-to-gcount";
+      gcount.textContent = `${metas.length} 项`;
+      const gchanged = document.createElement("span");
+      gchanged.className = "ke-to-gchg";
+      const chev = document.createElement("span");
+      chev.className = "ke-to-chev";
+      chev.setAttribute("aria-hidden", "true");
+      gmeta.append(gcount, gchanged);
+      summary.append(gi, gn, gnote, gmeta, chev);
+
+      const body = document.createElement("div");
+      body.className = "ke-to-body";
+      for (const meta of metas) {
+        const param = document.createElement("div");
+        param.className = "ke-to-param";
+        param.dataset.key = meta.key;
+        const prow = document.createElement("div");
+        prow.className = "ke-to-prow";
+        const pmain = document.createElement("div");
+        pmain.className = "ke-to-pmain";
+        const ptitle = document.createElement("div");
+        ptitle.className = "ke-to-ptitle";
+        const pname = document.createElement("span");
+        pname.className = "ke-to-pname";
+        pname.textContent = meta.cn;
+        ptitle.appendChild(pname);
+        if (meta.tier === "common") {
+          const tag = document.createElement("span");
+          tag.className = "ke-to-tag";
+          tag.textContent = "常用";
+          ptitle.appendChild(tag);
+        }
+        const pchanged = document.createElement("span");
+        pchanged.className = "ke-to-chg";
+        pchanged.textContent = "已调整";
+        ptitle.appendChild(pchanged);
+        const pdesc = document.createElement("p");
+        pdesc.className = "ke-to-pdesc";
+        pdesc.textContent = meta.desc;
+        const pmeta = document.createElement("div");
+        pmeta.className = "ke-to-pmeta";
+        const pkey = document.createElement("code");
+        pkey.textContent = meta.key;
+        const prange = document.createElement("span");
+        prange.className = "ke-to-prange";
+        prange.textContent = `建议 ${fmtSeconds(meta.lo)}–${fmtSeconds(meta.hi)} 秒`;
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.className = "ke-to-reset";
+        reset.textContent = "恢复默认";
+        reset.addEventListener("click", () => {
+          const row = rowByKey.get(meta.key)!;
+          row.values.value = timeoutDefault(meta.key);
+          markDirty();
+          updatePreview();
+          syncAll(true);
+          if (filter !== "all" || keyword !== "") applyFilter();
+          showToast(`「${meta.cn}」已恢复默认`);
+        });
+        pmeta.append(pkey, prange, reset);
+        pmain.append(ptitle, pdesc, pmeta);
+        prow.append(pmain, buildField(meta));
+        param.appendChild(prow);
+        body.appendChild(param);
+        paramByKey.set(meta.key, param);
+      }
+      details.append(summary, body);
+      details.addEventListener("toggle", syncExpandLabel);
+      sheet.appendChild(details);
+      groupViews.push({ el: details, metas, changed: gchanged });
+    });
+
+    const empty = document.createElement("div");
+    empty.className = "ke-to-empty";
+    empty.hidden = true;
+    empty.textContent = "没有匹配的参数，换个关键词试试。";
+
+    const footnote = document.createElement("p");
+    footnote.className = "ke-to-foot";
+    footnote.innerHTML = `这 69 项对应 OpenKore 的 <code>timeouts.txt</code>；带「常用」标记的更值得先了解，其余保持默认即可。`;
+
+    allSection.append(allHead, sheet, empty, footnote);
+
+    wrap.append(warn, note, toolbar, coreSection, allSection);
+
+    // 自定义 / 非常见参数：保留原有的新增、选择与删除能力。
+    if (extras.length > 0) {
+      const extraSection = document.createElement("section");
+      extraSection.className = "ke-to-sec";
+      const extraHead = document.createElement("div");
+      extraHead.className = "ke-to-sec-head";
+      extraHead.innerHTML = `<h4>额外参数</h4><span class="ke-to-sec-note">自定义键或非常见条目，会原样写入 timeouts.txt</span>`;
+      const extraList = document.createElement("div");
+      extraList.className = "ke-rule-list";
+      for (const row of extras) {
+        extraList.appendChild(renderRuleRow(schema, row, rows.indexOf(row)));
+      }
+      extraSection.append(extraHead, extraList);
+      wrap.appendChild(extraSection);
+    }
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "ke-block-add ke-to-add";
+    addBtn.textContent = "＋ 添加超时项";
+    addBtn.addEventListener("click", () => {
+      rows.push(newControlRow(schema));
+      markDirty();
+      renderActivePanel();
+      updateNavCounts();
+      updateSideStats();
+      const pickers = tabPanels.querySelectorAll<HTMLInputElement>(
+        ".ke-rule-row:last-child input",
+      );
+      pickers[pickers.length - 1]?.focus();
+    });
+    wrap.appendChild(addBtn);
+
+    const toast = document.createElement("div");
+    toast.className = "ke-to-toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    wrap.appendChild(toast);
+
+    // 标题旁的已调整计数
+    const dirtyBadge = document.createElement("span");
+    dirtyBadge.className = "ke-to-dirty";
+    tabPanels.querySelector<HTMLElement>(".ke-tab-head")?.appendChild(dirtyBadge);
+
+    let toastTimer = 0;
+    function showToast(text: string): void {
+      toast.textContent = text;
+      toast.classList.add("is-on");
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove("is-on"), 1800);
+    }
+
+    function syncAll(force: boolean): void {
+      let changedCount = 0;
+      for (const meta of TIMEOUT_META) {
+        const row = rowByKey.get(meta.key)!;
+        const isChanged = timeoutValueChanged(row, meta.key);
+        if (isChanged) changedCount += 1;
+        for (const input of inputsByKey.get(meta.key) ?? []) {
+          if (force || document.activeElement !== input) {
+            input.value = fmtSeconds(row.values.value ?? "");
+          }
+        }
+        cardByKey.get(meta.key)?.classList.toggle("is-changed", isChanged);
+        paramByKey.get(meta.key)?.classList.toggle("is-changed", isChanged);
+        const scale = scaleByKey.get(meta.key);
+        if (scale) {
+          const value = Number(row.values.value);
+          const current = Number.isFinite(value) ? value : 0;
+          const max = timeoutScaleMax(meta);
+          const ratio = Math.min(1, Math.max(0, current / max));
+          scale.band.style.left = `${(meta.lo / max) * 100}%`;
+          scale.band.style.width = `${((meta.hi - meta.lo) / max) * 100}%`;
+          scale.dot.style.left = `${ratio * 100}%`;
+          scale.el.setAttribute("aria-valuenow", fmtSeconds(current));
+          scale.el.setAttribute(
+            "aria-valuemax",
+            fmtSeconds(Math.max(max, current)),
+          );
+          scale.el.setAttribute(
+            "aria-valuetext",
+            `${fmtSeconds(current)} 秒，推荐 ${fmtSeconds(meta.lo)}–${fmtSeconds(meta.hi)} 秒`,
+          );
+        }
+      }
+      for (const view of groupViews) {
+        const count = view.metas.filter((meta) =>
+          timeoutValueChanged(rowByKey.get(meta.key)!, meta.key),
+        ).length;
+        view.changed.textContent = `已调整 ${count}`;
+        view.changed.classList.toggle("is-on", count > 0);
+      }
+      dirtyBadge.textContent =
+        changedCount > 0 ? `${changedCount} 项已调整` : "全部为默认值";
+      dirtyBadge.classList.toggle("is-clean", changedCount === 0);
+      syncExpandLabel();
+    }
+
+    function applyFilter(): void {
+      const query = keyword.trim().toLowerCase();
+      const matched = new Set<string>();
+      for (const meta of TIMEOUT_META) {
+        const hitKeyword =
+          query === "" ||
+          meta.cn.toLowerCase().includes(query) ||
+          meta.key.toLowerCase().includes(query) ||
+          meta.desc.toLowerCase().includes(query);
+        const hitFilter =
+          filter === "all" ||
+          (filter === "common" && (meta.tier === "core" || meta.tier === "common")) ||
+          (filter === "changed" &&
+            timeoutValueChanged(rowByKey.get(meta.key)!, meta.key));
+        if (hitKeyword && hitFilter) matched.add(meta.key);
+      }
+      for (const meta of TIMEOUT_META) {
+        const show = matched.has(meta.key);
+        const card = cardByKey.get(meta.key);
+        if (card) card.hidden = !show;
+        const param = paramByKey.get(meta.key);
+        if (param) param.hidden = !show;
+      }
+      for (const view of groupViews) {
+        const has = view.metas.some((meta) => matched.has(meta.key));
+        view.el.hidden = !has;
+        if (has && (query !== "" || filter === "changed")) view.el.open = true;
+      }
+      coreSection.hidden = !coreMetas.some((meta) => matched.has(meta.key));
+      empty.hidden = matched.size !== 0;
+      syncExpandLabel();
+    }
+
+    function syncExpandLabel(): void {
+      const visible = groupViews.filter((view) => !view.el.hidden);
+      const allOpen = visible.length > 0 && visible.every((view) => view.el.open);
+      expandAllBtn.textContent = allOpen ? "全部收起" : "全部展开";
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    viewAllBtn.addEventListener("click", () => {
+      for (const view of groupViews) {
+        if (!view.el.hidden) view.el.open = true;
+      }
+      syncExpandLabel();
+      allSection.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+
+    expandAllBtn.addEventListener("click", () => {
+      const visible = groupViews.filter((view) => !view.el.hidden);
+      const allOpen = visible.length > 0 && visible.every((view) => view.el.open);
+      for (const view of visible) view.el.open = !allOpen;
+      syncExpandLabel();
+    });
+
+    resetAllBtn.addEventListener("click", () => {
+      for (const meta of TIMEOUT_META) {
+        rowByKey.get(meta.key)!.values.value = timeoutDefault(meta.key);
+      }
+      markDirty();
+      updatePreview();
+      syncAll(true);
+      if (filter !== "all" || keyword !== "") applyFilter();
+      showToast("已恢复全部默认值");
+    });
+
+    searchInput.addEventListener("input", () => {
+      keyword = searchInput.value;
+      applyFilter();
+    });
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      searchInput.value = "";
+      keyword = "";
+      applyFilter();
+      searchInput.blur();
+    });
+
+    // 「/」聚焦搜索；离开分区后自动注销。
+    const onKeydown = (event: KeyboardEvent): void => {
+      if (!wrap.isConnected) {
+        document.removeEventListener("keydown", onKeydown);
+        return;
+      }
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      event.preventDefault();
+      searchInput.focus();
+    };
+    document.addEventListener("keydown", onKeydown);
+
+    syncAll(true);
+    applyFilter();
+    updateNavCounts();
+    updateSideStats();
   }
 
   function ruleNameField(schema: ControlSchema, row: ControlRow): HTMLElement {

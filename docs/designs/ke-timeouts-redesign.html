@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KE 配置 · 超时页改版预览</title>
+<style>
+  :root {
+    color-scheme: light;
+
+    /* 色彩：暖纸底色 + 森林绿主色，琥珀色只承担“已调整”语义 */
+    --canvas: #f2f0eb;
+    --surface: #ffffff;
+    --surface-subtle: #faf9f6;
+    --surface-tint: #f7f4ed;
+    --ink: #1c2621;
+    --ink-2: #3f4b44;
+    --muted: #5f6a63;
+    --meta: #7f8882;
+    --faint: #a8b0a9;
+    --line: #e5e1d8;
+    --line-strong: #d7d1c5;
+    --line-soft: #efebe3;
+    --forest: #1f4d3a;
+    --forest-hover: #183d2e;
+    --forest-soft: #eaf1ec;
+    --amber: #a9762a;
+    --amber-strong: #855a1b;
+    --amber-soft: #faf3e4;
+    --amber-line: #e7d6b5;
+    --focus: rgba(31, 77, 58, .16);
+
+    /* 间距 */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 24px;
+    --sp-6: 32px;
+    --sp-7: 48px;
+
+    /* 圆角与动效 */
+    --r-panel: 12px;
+    --r-control: 7px;
+    --r-tag: 4px;
+    --ease: cubic-bezier(.2, .7, .3, 1);
+    --dur: .18s;
+
+    --font-ui: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --shadow-pop: 0 8px 24px rgba(34, 45, 39, .10), 0 1px 2px rgba(34, 45, 39, .06);
+
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: var(--canvas);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    min-width: 320px;
+    margin: 0;
+    background: var(--canvas);
+  }
+  body::before {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    pointer-events: none;
+    content: "";
+    opacity: .5;
+    background-image: linear-gradient(rgba(63, 75, 68, .022) 1px, transparent 1px), linear-gradient(90deg, rgba(63, 75, 68, .018) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  code { font-family: var(--font-mono); }
+  b, strong { font-weight: 600; }
+
+  :focus-visible {
+    outline: 2px solid var(--forest);
+    outline-offset: 2px;
+    border-radius: var(--r-tag);
+  }
+
+  /* —— 顶栏 —— */
+  .appbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    width: calc(100% - 72px);
+    max-width: 1368px;
+    margin: 0 auto;
+    padding: 20px 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+  .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: #f4efe4;
+    background: var(--forest);
+    border-radius: 6px;
+    font-family: Georgia, "Songti SC", serif;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .brand-name { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+  .brand-sub { color: var(--meta); font-size: 11px; font-weight: 500; letter-spacing: .02em; }
+  .appbar-crumb { display: flex; align-items: center; gap: 8px; margin-left: var(--sp-2); color: var(--meta); font-size: 12px; }
+  .appbar-crumb span:last-child { color: var(--ink-2); font-weight: 600; }
+  .appbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .mock-tag {
+    margin-right: 4px;
+    padding: 3px 8px;
+    color: var(--meta);
+    border: 1px solid var(--line);
+    border-radius: var(--r-tag);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .04em;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--r-control);
+    font-size: 12.5px;
+    font-weight: 600;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease);
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { color: #f7f4ec; background: var(--forest); border-color: var(--forest); }
+  .btn-primary:hover { background: var(--forest-hover); border-color: var(--forest-hover); }
+  .btn-quiet { color: var(--ink-2); background: transparent; border-color: var(--line); }
+  .btn-quiet:hover { background: var(--surface); border-color: var(--line-strong); }
+
+  /* —— 编辑器骨架 —— */
+  .editor {
+    display: grid;
+    grid-template-columns: 212px minmax(0, 1fr) 320px;
+    width: calc(100% - 72px);
+    max-width: 1368px;
+    margin: 0 auto 48px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-panel);
+    box-shadow: 0 1px 2px rgba(34, 45, 39, .04);
+    overflow: hidden;
+  }
+
+  /* 左侧导航 */
+  .side-nav {
+    padding: 22px 12px;
+    background: var(--surface-subtle);
+    border-right: 1px solid var(--line);
+  }
+  .nav-group {
+    margin: 0;
+    padding: 14px 10px 6px;
+    color: var(--faint);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .08em;
+  }
+  .nav-group:first-child { padding-top: 0; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    color: var(--ink-2);
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  .nav-item::before {
+    width: 3px;
+    height: 3px;
+    content: "";
+    background: var(--line-strong);
+    border-radius: 50%;
+  }
+  .nav-item:hover { color: var(--ink); background: rgba(255, 255, 255, .75); }
+  .nav-item.is-active { color: var(--forest); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-weight: 600; }
+  .nav-item.is-active::before { background: var(--forest); }
+  .nav-count { margin-left: auto; color: var(--meta); font-family: var(--font-mono); font-size: 10px; }
+
+  /* 主内容 */
+  .content { min-width: 0; padding: 30px 34px 34px; }
+  .eyebrow {
+    margin: 0 0 6px;
+    color: var(--meta);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .1em;
+  }
+  .title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .content h1 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 26px;
+    font-weight: 650;
+    letter-spacing: -.025em;
+    line-height: 1.2;
+  }
+  .dirty-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--amber-strong);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .dirty-label::before { width: 5px; height: 5px; content: ""; background: var(--amber); border-radius: 50%; }
+  .dirty-label.is-clean { color: var(--meta); }
+  .dirty-label.is-clean::before { background: var(--line-strong); }
+  .lede { max-width: 62ch; margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+  /* 说明条 */
+  .note {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    margin-top: 22px;
+    padding: 16px 18px;
+    background: var(--surface-tint);
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+  }
+  .note-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    color: var(--forest);
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    font-family: Georgia, serif;
+    font-size: 11px;
+    font-style: italic;
+    line-height: 1;
+  }
+  .note b { display: block; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
+  .note p { margin: 3px 0 0; max-width: 74ch; color: var(--muted); font-size: 12px; line-height: 1.7; }
+  .note p b { display: inline; font-size: inherit; color: var(--ink-2); }
+
+  /* 工具栏 */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    flex-wrap: wrap;
+    margin-top: var(--sp-5);
+  }
+  .search { position: relative; flex: 1 1 260px; max-width: 420px; }
+  .search svg {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-50%);
+    fill: none;
+    stroke: var(--meta);
+    stroke-width: 1.8;
+  }
+  .search input {
+    width: 100%;
+    height: 38px;
+    padding: 0 40px 0 34px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-control);
+    font-size: 12.5px;
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  .search input::placeholder { color: var(--faint); }
+  .search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+  .search input:hover { border-color: var(--line-strong); }
+  .search input:focus { outline: none; border-color: var(--forest); box-shadow: 0 0 0 3px var(--focus); }
+  .search kbd {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    padding: 1px 5px;
+    color: var(--meta);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+  .tabs { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+  .tab {
+    position: relative;
+    min-height: 34px;
+    padding: 0 12px;
+    color: var(--meta);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  .tab:hover { color: var(--ink-2); background: var(--surface-subtle); }
+  .tab.is-on { color: var(--ink); font-weight: 600; }
+  .tab.is-on::after {
+    position: absolute;
+    right: 12px;
+    bottom: 2px;
+    left: 12px;
+    height: 2px;
+    content: "";
+    background: var(--forest);
+    border-radius: 2px;
+  }
+
+  /* 区块标题 */
+  .section { margin-top: 34px; }
+  .section-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .section-head h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .section-note { color: var(--meta); font-size: 11.5px; }
+  .section-action {
+    margin-left: auto;
+    padding: 2px 0;
+    color: var(--forest);
+    background: transparent;
+    border: 0;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .section-action:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* 常用参数：一张面板内的 2×4 属性矩阵 */
+  .core-sheet {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .core-item {
+    min-width: 0;
+    padding: 18px 20px 16px;
+    border-top: 1px solid var(--line-soft);
+    transition: background-color var(--dur) var(--ease);
+  }
+  .core-item:nth-child(-n+2) { border-top: 0; }
+  .core-item:nth-child(odd) { border-right: 1px solid var(--line-soft); }
+  .core-item:hover { background: #fcfbf8; }
+  .core-top { display: flex; align-items: center; gap: 10px; }
+  .core-title { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+  .core-name { color: var(--ink); font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+  .tag-common {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    color: var(--amber-strong);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    line-height: 16px;
+  }
+  .tag-common::before { width: 3px; height: 3px; content: ""; background: var(--amber); border-radius: 50%; }
+  .chg-label { display: none; flex: none; color: var(--amber-strong); font-size: 10px; font-weight: 600; }
+  .is-changed .chg-label { display: inline; }
+  .is-changed .core-name,
+  .is-changed .p-name { color: var(--amber-strong); }
+  .core-desc {
+    margin: 5px 0 11px;
+    min-height: 38px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .core-foot { display: flex; align-items: center; gap: 10px; }
+  .field {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    height: 32px;
+    padding: 0 9px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-control);
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  .field:hover { border-color: #c6bfb0; }
+  .field:focus-within { border-color: var(--forest); box-shadow: 0 0 0 3px var(--focus); }
+  .field input {
+    width: 48px;
+    padding: 0;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .field input::-webkit-outer-spin-button,
+  .field input::-webkit-inner-spin-button { margin: 0; -webkit-appearance: none; }
+  .field .unit { margin-left: 2px; color: var(--meta); font-size: 10px; }
+  .scale { position: relative; flex: 1; height: 3px; background: #eae5da; border-radius: 999px; }
+  .scale .band { position: absolute; top: 0; bottom: 0; background: #d8c9a8; border-radius: 999px; }
+  .scale .dot {
+    position: absolute;
+    top: 50%;
+    width: 9px;
+    height: 9px;
+    margin-left: -4.5px;
+    transform: translateY(-50%);
+    background: var(--surface);
+    border: 2px solid var(--forest);
+    border-radius: 50%;
+    transition: left .22s var(--ease);
+  }
+  .p-meta code { color: var(--meta); font-size: 9.5px; letter-spacing: -.01em; }
+  .core-range { flex: none; color: var(--meta); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* 全部参数：一张连续的分组清单 */
+  .sheet {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .group + .group { border-top: 1px solid var(--line); }
+  .group > summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 0 20px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: background-color var(--dur) var(--ease);
+  }
+  .group > summary::-webkit-details-marker { display: none; }
+  .group > summary:hover { background: var(--surface-subtle); }
+  .group > summary:focus-visible { outline-offset: -3px; }
+  .g-index { flex: none; width: 18px; color: var(--faint); font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .g-name { flex: none; color: var(--ink); font-size: 13px; font-weight: 600; }
+  .g-note { min-width: 0; color: var(--meta); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-meta { display: flex; align-items: center; gap: 10px; margin-left: auto; flex: none; }
+  .g-count { color: var(--meta); font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .g-changed { display: none; color: var(--amber-strong); font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .g-changed.is-on { display: inline; }
+  .g-chev {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    margin: 0 2px 4px 4px;
+    border-right: 1.5px solid var(--meta);
+    border-bottom: 1.5px solid var(--meta);
+    transform: rotate(45deg);
+    transition: transform .22s var(--ease);
+  }
+  .group[open] .g-chev { margin-bottom: -4px; transform: rotate(225deg); }
+  .g-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 36px;
+    padding: 0 20px 6px;
+    animation: reveal .24s var(--ease);
+  }
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: none; }
+  }
+  .param {
+    min-width: 0;
+    padding: 14px 0 13px;
+    border-top: 1px solid var(--line-soft);
+    transition: opacity var(--dur) var(--ease);
+  }
+  .g-body .param:nth-child(-n+2) { border-top: 0; }
+  .p-row { display: flex; align-items: flex-start; gap: 12px; }
+  .p-main { flex: 1; min-width: 0; }
+  .p-title { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .p-name { color: var(--ink); font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-desc { margin: 3px 0 8px; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+  .p-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .p-range { color: var(--meta); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .p-reset {
+    margin-left: auto;
+    padding: 0;
+    color: var(--meta);
+    background: transparent;
+    border: 0;
+    font-size: 10px;
+    font-weight: 500;
+    opacity: 0;
+    transition: color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+  }
+  .param:hover .p-reset,
+  .p-reset:focus-visible { opacity: 1; }
+  .p-reset:hover { color: var(--amber-strong); }
+  .param .field { height: 30px; padding: 0 8px; }
+  .param .field input { width: 42px; font-size: 12px; }
+
+  .empty { display: none; padding: 44px 12px; color: var(--meta); text-align: center; font-size: 12px; }
+  .empty.is-on { display: block; }
+  .footnote { margin: 22px 0 0; color: var(--meta); font-size: 10.5px; line-height: 1.65; }
+  .footnote code { color: var(--muted); }
+
+  /* 右侧预览 */
+  .preview-pane { min-width: 0; padding: 22px 20px; background: var(--surface-subtle); border-left: 1px solid var(--line); }
+  .preview-card { position: sticky; top: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .preview-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px 11px; border-bottom: 1px solid var(--line-soft); }
+  .file-name { color: var(--ink-2); font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+  .file-tag { margin-left: 6px; padding: 0 4px; color: var(--meta); border: 1px solid var(--line); border-radius: 3px; font-size: 9px; }
+  .sync-label { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: var(--meta); font-size: 9.5px; }
+  .sync-label i { width: 4px; height: 4px; background: var(--forest); border-radius: 50%; }
+  .code {
+    max-height: 404px;
+    margin: 0;
+    padding: 10px 8px 12px;
+    overflow: auto;
+    color: var(--ink-2);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.75;
+    font-variant-numeric: tabular-nums;
+    scrollbar-width: thin;
+  }
+  .line { display: flex; gap: 7px; padding: 0 6px; border-radius: 3px; }
+  .line i { flex: none; width: 15px; color: #c2b9ac; font-style: normal; text-align: right; }
+  .line code { flex: 1; min-width: 0; color: var(--ink-2); white-space: pre-wrap; word-break: break-all; }
+  .line b { flex: none; color: var(--ink); font-weight: 600; }
+  .line.is-changed { background: var(--amber-soft); }
+  .line.is-changed code,
+  .line.is-changed b { color: var(--amber-strong); }
+  .line.is-changed i { color: #c9a568; }
+  .preview-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 10px 14px;
+    color: var(--meta);
+    background: var(--surface-subtle);
+    border-top: 1px solid var(--line-soft);
+    font-size: 10px;
+  }
+  .preview-foot b { color: var(--ink-2); font-family: var(--font-mono); font-weight: 600; }
+  .foot-left { display: inline-flex; align-items: center; gap: 8px; }
+  .reset-all {
+    padding: 0 0 1px;
+    color: var(--meta);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    font-size: 10px;
+    font-weight: 500;
+    transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  .reset-all:hover { color: var(--amber-strong); border-bottom-color: var(--amber-line); }
+
+  /* 提示条 */
+  .toast {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 40;
+    padding: 10px 16px;
+    color: #f4efe4;
+    background: #26352e;
+    border-radius: 8px;
+    box-shadow: var(--shadow-pop);
+    font-size: 12px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(6px);
+    transition: opacity .2s var(--ease), transform .2s var(--ease);
+  }
+  .toast.is-on { opacity: 1; transform: none; }
+
+  /* 数值变更反馈 */
+  .just-changed .field { animation: flash .7s var(--ease); }
+  @keyframes flash {
+    0% { background: var(--amber-soft); border-color: var(--amber-line); }
+    100% { background: var(--surface); border-color: var(--line-strong); }
+  }
+
+  @media (max-width: 1280px) {
+    .editor { grid-template-columns: 204px minmax(0, 1fr); }
+    .preview-pane { grid-column: 1 / -1; padding: 20px 24px 24px; border-left: 0; border-top: 1px solid var(--line); }
+    .preview-card { position: static; max-width: 560px; margin: 0 auto; }
+    .code { max-height: 240px; }
+  }
+  @media (max-width: 960px) {
+    .appbar { width: calc(100% - 40px); padding: 16px 0; }
+    .appbar-crumb { display: none; }
+    .editor { width: calc(100% - 40px); grid-template-columns: 1fr; }
+    .side-nav { display: flex; gap: 4px; overflow-x: auto; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--line); scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent); }
+    .side-nav::-webkit-scrollbar { display: none; }
+    .nav-group { display: none; }
+    .nav-item { flex: none; padding: 6px 10px; }
+    .nav-item::before { display: none; }
+    .nav-item.is-active { box-shadow: inset 0 -2px 0 var(--forest), inset 0 0 0 1px var(--line); }
+    .content { padding: 24px 24px 28px; }
+  }
+  @media (max-width: 900px) {
+    .core-sheet { grid-template-columns: 1fr; }
+    .core-item { border-top: 1px solid var(--line-soft); }
+    .core-item:nth-child(-n+2) { border-top: 1px solid var(--line-soft); }
+    .core-item:first-child { border-top: 0; }
+    .core-item:nth-child(odd) { border-right: 0; }
+    .g-body { grid-template-columns: 1fr; gap: 0; }
+    .g-body .param { border-top: 1px solid var(--line-soft); }
+    .g-body .param:nth-child(2) { border-top: 1px solid var(--line-soft); }
+    .g-body .param:first-child { border-top: 0; }
+  }
+  @media (max-width: 720px) {
+    .appbar { width: calc(100% - 32px); padding: 14px 0; }
+    .brand-sub, .mock-tag, .appbar-actions .btn-quiet { display: none; }
+    .editor { width: calc(100% - 32px); }
+    .content { padding: 20px 16px 24px; }
+    .content h1 { font-size: 23px; }
+    .g-note { display: none; }
+    .toolbar { gap: 10px; }
+    .search { max-width: none; flex-basis: 100%; }
+    .tabs { margin-left: 0; }
+    .section-action { margin-left: 0; }
+    .preview-pane { padding: 16px; }
+    .toast { right: 16px; bottom: 16px; left: 16px; text-align: center; }
+  }
+
+  @media (hover: none) {
+    .p-reset { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="appbar">
+  <div class="brand">
+    <span class="brand-mark">L</span>
+    <span class="brand-name">LastRO</span>
+    <span class="brand-sub">KE 配置中心</span>
+  </div>
+  <div class="appbar-crumb"><span>配置方案</span><span>/</span><span>斐扬打波利</span></div>
+  <div class="appbar-actions">
+    <span class="mock-tag">设计预览</span>
+    <button class="btn btn-quiet" type="button">取消</button>
+    <button class="btn btn-primary" id="save" type="button">保存方案</button>
+  </div>
+</div>
+
+<section class="editor" aria-label="方案编辑器">
+  <nav class="side-nav" aria-label="配置分区">
+    <p class="nav-group">行为配置</p>
+    <a class="nav-item" href="#">基础</a>
+    <a class="nav-item" href="#">战斗</a>
+    <a class="nav-item" href="#">生存</a>
+    <a class="nav-item" href="#">拾取</a>
+    <a class="nav-item" href="#">跟随</a>
+    <a class="nav-item" href="#">补给</a>
+    <p class="nav-group">技能</p>
+    <a class="nav-item" href="#">技能规则</a>
+    <p class="nav-group">物品装备</p>
+    <a class="nav-item" href="#">物品使用</a>
+    <a class="nav-item" href="#">自动购买</a>
+    <a class="nav-item" href="#">自动取物</a>
+    <a class="nav-item" href="#">自动换装</a>
+    <p class="nav-group">规则表</p>
+    <a class="nav-item" href="#">怪物规则</a>
+    <a class="nav-item" href="#">拾取物品</a>
+    <a class="nav-item" href="#">物品规则</a>
+    <a class="nav-item is-active" href="#" aria-current="page">超时<span class="nav-count">69</span></a>
+  </nav>
+
+  <div class="content">
+    <header>
+      <p class="eyebrow">配置项 · 斐扬打波利</p>
+      <div class="title-row">
+        <h1>超时</h1>
+        <span class="dirty-label" id="dirty-label">2 项已调整</span>
+      </div>
+      <p class="lede">机器人做每件事的等待与重试节奏。没有遇到问题，就保持默认。</p>
+    </header>
+
+    <div class="note">
+      <span class="note-icon" aria-hidden="true">i</span>
+      <div>
+        <b>把它理解成「反应速度」</b>
+        <p><b>数值调小</b>：反应更快、动作更紧凑，但更吃 CPU，也可能操作太急。<b>数值调大</b>：更稳、更省资源，但看起来会迟钝。只有遇到「反应慢、卡住、太频繁」时，再动下面这几项。</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+        <input id="search" type="search" placeholder="搜索中文名或参数名" autocomplete="off" aria-label="搜索参数" />
+        <kbd>/</kbd>
+      </label>
+      <div class="tabs" role="group" aria-label="筛选参数">
+        <button class="tab is-on" data-filter="all" aria-pressed="true" type="button">全部</button>
+        <button class="tab" data-filter="common" aria-pressed="false" type="button">常用</button>
+        <button class="tab" data-filter="changed" aria-pressed="false" type="button">已调整</button>
+      </div>
+    </div>
+
+    <section class="section" aria-labelledby="core-title">
+      <div class="section-head">
+        <h2 id="core-title">常用参数</h2>
+        <span class="section-note">先看这 8 项，通常就够了</span>
+        <button class="section-action" id="view-all" type="button">查看全部</button>
+      </div>
+      <div class="core-sheet" id="core-grid"></div>
+    </section>
+
+    <section class="section" id="all-section" aria-labelledby="all-title">
+      <div class="section-head">
+        <h2 id="all-title">全部参数</h2>
+        <span class="section-note">按用途分组，含上方 8 项</span>
+        <button class="section-action" id="expand-all" type="button">全部展开</button>
+      </div>
+      <div class="sheet" id="groups"></div>
+      <div class="empty" id="empty">没有匹配的参数，换个关键词试试。</div>
+      <p class="footnote">这 69 项对应 OpenKore 的 <code>timeouts.txt</code>；带「常用」标记的更值得先了解，其余保持默认即可。</p>
+    </section>
+  </div>
+
+  <aside class="preview-pane">
+    <div class="preview-card">
+      <div class="preview-head">
+        <div><span class="file-name">timeouts.txt</span><span class="file-tag">只读</span></div>
+        <span class="sync-label"><i></i>实时同步</span>
+      </div>
+      <pre class="code" id="preview" aria-label="timeouts.txt 预览"></pre>
+      <div class="preview-foot">
+        <span class="foot-left">已调整 <b id="side-changed">2</b> 项<button class="reset-all" id="reset-all" type="button">恢复默认</button></span>
+        <span>保存后需重新激活</span>
+      </div>
+    </div>
+  </aside>
+</section>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+  // —— 分组与文案：可复用于正式实现 ——
+  const GROUPS = [
+    { id: "combat", name: "战斗与目标", note: "找怪、攻击节奏、卡住与放弃" },
+    { id: "teleport", name: "瞬移与逃生", note: "空闲 / 低血瞬移、逃生、传送门" },
+    { id: "move", name: "移动与寻路", note: "移动重试、卡住脱困、路线重算" },
+    { id: "pickup", name: "拾取", note: "捡东西的等待与放弃" },
+    { id: "skill", name: "技能 · 物品 · 装备", note: "技能、喝药、换装、物品转移" },
+    { id: "supply", name: "买卖 · 存仓 · 修理", note: "买 / 卖 / 存仓 / 推车 / 修理" },
+    { id: "npc", name: "NPC 对话", note: "与 NPC 对话的等待" },
+    { id: "misc", name: "恢复与其他", note: "复活、坐下、跟随与可达性预判" },
+  ];
+
+  // def = LastRO 方案预填默认值；lo/hi = 建议可调范围；tier: core / common / adv
+  const DATA = [
+    // 战斗与目标
+    { key: "ai_attack_auto", cn: "找怪频率", def: 0.4, lo: 0.2, hi: 1, g: "combat", tier: "core", desc: "每隔多久看一眼周围有没有能打的怪。调小反应更快，但更吃 CPU。" },
+    { key: "ai_attack_main", cn: "战斗思考间隔", def: 0.15, lo: 0.05, hi: 0.2, g: "combat", tier: "core", desc: "战斗逻辑多久跑一次。越小越跟手，CPU 占用也越高。" },
+    { key: "ai_attack", cn: "普攻间隔", def: 0.3, lo: 0.2, hi: 2, g: "combat", tier: "core", desc: "两次普通攻击之间至少隔多久。太小可能被判定攻击过快，太大打怪变慢。" },
+    { key: "ai_attack_giveup", cn: "放弃打不到的怪", def: 6, lo: 3, hi: 10, g: "combat", tier: "core", desc: "追一只怪这么久还没打到，就先放弃，去处理别的目标。" },
+    { key: "ai_attack_after_skill", cn: "技能后恢复普攻", def: 0.1, lo: 0.1, hi: 1, g: "combat", tier: "common", desc: "放完技能后等多久继续普攻。" },
+    { key: "ai_attack_unstuck", cn: "攻击卡住脱困", def: 2.75, lo: 2, hi: 5, g: "combat", tier: "common", desc: "攻击时卡住多久触发脱困动作。" },
+    { key: "ai_attack_waitAfterKill", cn: "击杀后停顿", def: 0, lo: 0, hi: 0.5, g: "combat", tier: "common", desc: "打死怪后如果没有下一个目标，先停多久。" },
+    { key: "ai_attack_failedLOS", cn: "无法靠近时忽略", def: 12, lo: 5, hi: 20, g: "combat", tier: "common", desc: "找不到路走到目标身边时，先忽略它多久。" },
+    { key: "ai_attack_unfail", cn: "失败目标重试", def: 12, lo: 5, hi: 20, g: "combat", tier: "adv", desc: "攻击失败后，隔多久重新尝试同一个目标。" },
+    { key: "ai_attack_allowed_waitForTarget", cn: "等待进入攻击范围", def: 0.3, lo: 0.2, hi: 0.5, g: "combat", tier: "adv", desc: "目标还没进入攻击范围时，最多再等多久。" },
+    // 瞬移与逃生
+    { key: "ai_teleport_idle", cn: "空闲瞬移间隔", def: 0.7, lo: 0.5, hi: 8, g: "teleport", tier: "core", desc: "没怪打、闲着的时候，隔多久自动瞬移一次。找怪或防卡点时常用。" },
+    { key: "ai_teleport_hp", cn: "低血瞬移间隔", def: 3, lo: 2, hi: 5, g: "teleport", tier: "core", desc: "HP 低于生存页阈值时，隔多久尝试瞬移逃走。" },
+    { key: "ai_teleport", cn: "瞬移动作间隔", def: 0.4, lo: 0.3, hi: 2, g: "teleport", tier: "common", desc: "两次瞬移动作之间至少隔多久。" },
+    { key: "ai_teleport_away", cn: "逃走后恢复", def: 3, lo: 2, hi: 5, g: "teleport", tier: "common", desc: "瞬移逃走后，隔多久恢复正常行动。" },
+    { key: "ai_teleport_retry", cn: "瞬移失败重试", def: 0.5, lo: 0.3, hi: 1, g: "teleport", tier: "adv", desc: "瞬移没成功时，隔多久再试一次。" },
+    { key: "ai_teleport_delay", cn: "瞬移后停顿", def: 0.2, lo: 0.2, hi: 1, g: "teleport", tier: "adv", desc: "瞬移落地后先等多久再继续动作。" },
+    { key: "ai_teleport_safe_force", cn: "安全区强制瞬移", def: 120, lo: 60, hi: 180, g: "teleport", tier: "adv", desc: "在安全区停留多久后强制瞬移离开。" },
+    { key: "ai_teleport_portal", cn: "过门瞬移间隔", def: 2, lo: 1, hi: 4, g: "teleport", tier: "adv", desc: "通过传送门时瞬移的间隔。" },
+    { key: "ai_portal_wait", cn: "过门确认等待", def: 0.5, lo: 0.3, hi: 1, g: "teleport", tier: "adv", desc: "进传送门后等多久确认已经过图。" },
+    { key: "ai_portal_give_up", cn: "过门放弃时间", def: 10, lo: 5, hi: 15, g: "teleport", tier: "adv", desc: "传送门一直没反应时，多久放弃。" },
+    // 移动与寻路
+    { key: "ai_move_retry", cn: "移动重发间隔", def: 0.3, lo: 0.2, hi: 1, g: "move", tier: "common", desc: "移动命令没进展时，隔多久重发一次。" },
+    { key: "ai_move_giveup", cn: "移动放弃时间", def: 1.2, lo: 1, hi: 5, g: "move", tier: "common", desc: "移动持续没进展多久后放弃当前目标。" },
+    { key: "ai_route_unstuck", cn: "走路卡住脱困", def: 2, lo: 1, hi: 5, g: "move", tier: "core", desc: "走路卡住多久后自动脱困并重算路线。" },
+    { key: "ai_route_calcRoute", cn: "路线重算间隔", def: 1, lo: 0.5, hi: 2, g: "move", tier: "adv", desc: "多久重新计算一次行走路线。" },
+    { key: "ai_route_escape", cn: "逃跑路线重算", def: 8, lo: 5, hi: 15, g: "move", tier: "adv", desc: "逃跑时多久重新计算一次路线。" },
+    { key: "ai_route_position_prediction_delay", cn: "位置预测延迟", def: 0.05, lo: 0.03, hi: 0.1, g: "move", tier: "adv", desc: "预测角色位置时的延迟补偿。" },
+    // 拾取
+    { key: "ai_items_take_delay", cn: "连续拾取间隔", def: 0.1, lo: 0.1, hi: 2, g: "pickup", tier: "common", desc: "捡完一件物品后，隔多久捡下一件。" },
+    { key: "ai_take_giveup", cn: "拾取放弃时间", def: 3, lo: 2, hi: 5, g: "pickup", tier: "common", desc: "一直捡不到时，多久放弃这件物品。" },
+    { key: "ai_items_take_start", cn: "开始拾取等待", def: 0, lo: 0, hi: 0.5, g: "pickup", tier: "adv", desc: "决定捡东西后，先等多久再动手。" },
+    { key: "ai_items_take_end", cn: "拾取收尾等待", def: 0.3, lo: 0.3, hi: 1, g: "pickup", tier: "adv", desc: "捡完东西后等多久再继续别的动作。" },
+    { key: "ai_items_gather_giveup", cn: "收集放弃时间", def: 3, lo: 2, hi: 5, g: "pickup", tier: "adv", desc: "捡不到无主物品时，多久放弃继续找。" },
+    // 技能 / 物品 / 装备
+    { key: "ai_skill_use", cn: "技能施放间隔", def: 0.5, lo: 0.5, hi: 1.5, g: "skill", tier: "common", desc: "连续放技能之间至少隔多久。" },
+    { key: "ai_item_use_auto", cn: "自动喝药间隔", def: 0.3, lo: 0.2, hi: 1, g: "skill", tier: "core", desc: "自动使用药水 / 消耗品的检查间隔。太小会频繁尝试喝药。" },
+    { key: "ai_skill_use_giveup", cn: "技能放弃时间", def: 1, lo: 0.5, hi: 2, g: "skill", tier: "adv", desc: "技能一直放不出来时，多久放弃。" },
+    { key: "ai_item_equip_auto", cn: "自动换装间隔", def: 0.75, lo: 0.5, hi: 1.5, g: "skill", tier: "adv", desc: "自动更换装备的检查间隔。" },
+    { key: "ai_equipAuto_skilluse_giveup", cn: "换装后技能放弃", def: 5, lo: 3, hi: 8, g: "skill", tier: "adv", desc: "换装后技能放不出来，多久放弃。" },
+    { key: "ai_equip_giveup", cn: "装备放弃时间", def: 2, lo: 1, hi: 4, g: "skill", tier: "adv", desc: "装备一直穿不上时，多久放弃。" },
+    { key: "ai_transfer_items", cn: "物品转移间隔", def: 0.15, lo: 0.1, hi: 0.3, g: "skill", tier: "adv", desc: "物品在角色和推车之间转移的间隔。" },
+    // 买卖 / 存仓 / 修理
+    { key: "ai_buyAuto", cn: "自动购买间隔", def: 15, lo: 5, hi: 30, g: "supply", tier: "common", desc: "自动购买流程多久检查一次。" },
+    { key: "ai_sellAuto", cn: "自动出售间隔", def: 0.2, lo: 0.2, hi: 4, g: "supply", tier: "common", desc: "自动出售流程多久检查一次。" },
+    { key: "ai_storageAuto", cn: "自动存仓间隔", def: 0.3, lo: 0.3, hi: 4, g: "supply", tier: "common", desc: "自动存仓流程多久检查一次。" },
+    { key: "ai_buyAuto_wait", cn: "购买流程等待", def: 2, lo: 1, hi: 4, g: "supply", tier: "adv", desc: "购买过程中每一步的等待时间。" },
+    { key: "ai_buyAuto_wait_giveup_npc", cn: "找不到购买 NPC 放弃", def: 15, lo: 10, hi: 20, g: "supply", tier: "adv", desc: "找不到购买 NPC 时，多久放弃。" },
+    { key: "ai_buyAuto_wait_before_buy", cn: "购买前等待", def: 2, lo: 1, hi: 4, g: "supply", tier: "adv", desc: "正式购买前等 NPC 多久。" },
+    { key: "ai_buyAuto_wait_after_packet_giveup", cn: "购买无响应放弃", def: 15, lo: 10, hi: 20, g: "supply", tier: "adv", desc: "购买请求没有回应时，多久放弃。" },
+    { key: "ai_buyAuto_wait_after_restart", cn: "重试购买等待", def: 2, lo: 1, hi: 4, g: "supply", tier: "adv", desc: "重新尝试购买前先等多久。" },
+    { key: "ai_sellAuto_wait_giveup_npc", cn: "找不到出售 NPC 放弃", def: 15, lo: 10, hi: 20, g: "supply", tier: "adv", desc: "找不到出售 NPC 时，多久放弃。" },
+    { key: "ai_sellAuto_wait_before_sell", cn: "出售前等待", def: 2, lo: 1, hi: 4, g: "supply", tier: "adv", desc: "正式出售前等 NPC 多久。" },
+    { key: "ai_sellAuto_wait_after_packet_giveup", cn: "出售无响应放弃", def: 15, lo: 10, hi: 20, g: "supply", tier: "adv", desc: "出售请求没有回应时，多久放弃。" },
+    { key: "ai_storageAuto_getAutoCheck", cn: "存仓时取物检查", def: 2, lo: 1, hi: 4, g: "supply", tier: "adv", desc: "存仓过程中检查取物的间隔。" },
+    { key: "ai_storageAuto_giveup", cn: "存仓放弃时间", def: 15, lo: 10, hi: 20, g: "supply", tier: "adv", desc: "存仓一直没有回应时，多久放弃。" },
+    { key: "ai_storageAuto_wait_before_action", cn: "存仓前等待", def: 2, lo: 1, hi: 4, g: "supply", tier: "adv", desc: "存仓动作开始前先等多久。" },
+    { key: "ai_cartAuto", cn: "推车操作间隔", def: 0.15, lo: 0.1, hi: 0.3, g: "supply", tier: "adv", desc: "自动使用手推车的间隔。" },
+    { key: "ai_cartAutoCheck", cn: "推车状态检查", def: 3, lo: 2, hi: 5, g: "supply", tier: "adv", desc: "检查推车状态的间隔。" },
+    { key: "ai_repair", cn: "自动修理间隔", def: 4, lo: 2, hi: 8, g: "supply", tier: "common", desc: "自动修理装备的检查间隔。" },
+    // NPC 对话
+    { key: "ai_route_npcTalk", cn: "找 NPC 对话超时", def: 10, lo: 5, hi: 15, g: "npc", tier: "adv", desc: "走到 NPC 旁开始对话的超时时间。" },
+    { key: "ai_npc_talk_wait_to_answer", cn: "等待 NPC 回复", def: 1.5, lo: 1, hi: 3, g: "npc", tier: "adv", desc: "发出对话后等 NPC 回复的时间。" },
+    { key: "ai_npc_talk_wait_after_close_to_cancel", cn: "关对话到取消", def: 0.5, lo: 0.3, hi: 1, g: "npc", tier: "adv", desc: "关闭对话框后到取消操作的等待。" },
+    { key: "ai_npc_talk_wait_after_cancel_to_destroy", cn: "取消到销毁对话", def: 0.5, lo: 0.3, hi: 1, g: "npc", tier: "adv", desc: "取消后到销毁对话框的等待。" },
+    { key: "ai_npc_talk_wait_before_continue", cn: "继续前等待", def: 0.7, lo: 0.5, hi: 1.5, g: "npc", tier: "adv", desc: "继续下一句对话前等多久。" },
+    // 恢复与其他
+    { key: "ai_dead_respawn", cn: "死亡后复活等待", def: 4, lo: 2, hi: 10, g: "misc", tier: "common", desc: "死亡后等多久回城复活。" },
+    { key: "ai_sit_idle", cn: "空闲坐下等待", def: 10, lo: 5, hi: 20, g: "misc", tier: "common", desc: "空闲多久后坐下回血 / 回蓝。" },
+    { key: "ai_sit", cn: "坐下 / 站起间隔", def: 1, lo: 0.5, hi: 2, g: "misc", tier: "adv", desc: "坐下和站起动作之间的间隔。" },
+    { key: "ai_stand_wait", cn: "站起等待", def: 0, lo: 0, hi: 1, g: "misc", tier: "adv", desc: "站起后先等多久再行动。" },
+    { key: "ai_sit_wait", cn: "坐下等待", def: 0, lo: 0, hi: 1, g: "misc", tier: "adv", desc: "坐下后先等多久再回血。" },
+    { key: "ai_safe_stand_up", cn: "安全站起间隔", def: 2, lo: 1, hi: 3, g: "misc", tier: "adv", desc: "确认安全后站起的间隔。" },
+    { key: "ai_follow_lost_end", cn: "跟丢后停止跟随", def: 10, lo: 5, hi: 20, g: "misc", tier: "adv", desc: "跟丢目标多久后停止跟随。" },
+    { key: "ai_future_reachability_lookup", cn: "可达性预判", def: 0.7, lo: 0.3, hi: 1, g: "misc", tier: "adv", desc: "预测目标位置是否可达的检查间隔。" },
+    { key: "meetingPosition_future_reachability_lookup", cn: "集合点可达性检查", def: 0.3, lo: 0.2, hi: 0.5, g: "misc", tier: "adv", desc: "队伍集合点的可达性检查间隔。" },
+  ];
+
+  const state = new Map(DATA.map((d) => [d.key, { value: d.def, changed: false }]));
+  const fmt = (n) => {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return "0";
+    return String(Math.round(num * 1000) / 1000);
+  };
+  const pad = (n) => String(n).padStart(2, "0");
+
+  function coreCard(d) {
+    return `
+      <div class="core-item" data-card="${d.key}">
+        <div class="core-top">
+          <div class="core-title">
+            <span class="core-name">${d.cn}</span>
+            <span class="chg-label">已调整</span>
+          </div>
+          <label class="field">
+            <input data-key="${d.key}" type="number" min="0" step="0.05" value="${fmt(d.def)}" aria-label="${d.cn}（秒）" />
+            <span class="unit">s</span>
+          </label>
+        </div>
+        <p class="core-desc">${d.desc}</p>
+        <div class="core-foot">
+          <span class="scale" aria-hidden="true"><i class="band"></i><i class="dot"></i></span>
+          <span class="core-range">建议 ${fmt(d.lo)}–${fmt(d.hi)} 秒</span>
+        </div>
+      </div>`;
+  }
+
+  function paramRow(d) {
+    return `
+      <div class="param" data-param="${d.key}">
+        <div class="p-row">
+          <div class="p-main">
+            <div class="p-title">
+              <span class="p-name">${d.cn}</span>
+              ${d.tier === "common" ? '<span class="tag-common">常用</span>' : ""}
+              <span class="chg-label">已调整</span>
+            </div>
+            <p class="p-desc">${d.desc}</p>
+            <div class="p-meta">
+              <code>${d.key}</code>
+              <span class="p-range">建议 ${fmt(d.lo)}–${fmt(d.hi)} 秒</span>
+              <button class="p-reset" data-reset="${d.key}" type="button">恢复默认</button>
+            </div>
+          </div>
+          <label class="field">
+            <input data-key="${d.key}" type="number" min="0" step="0.05" value="${fmt(d.def)}" aria-label="${d.cn}（秒）" />
+            <span class="unit">s</span>
+          </label>
+        </div>
+      </div>`;
+  }
+
+  function render() {
+    document.getElementById("core-grid").innerHTML = DATA.filter((d) => d.tier === "core").map(coreCard).join("");
+    document.getElementById("groups").innerHTML = GROUPS.map((g, index) => {
+      const rows = DATA.filter((d) => d.g === g.id);
+      return `
+        <details class="group" data-cat="${g.id}" ${index < 2 ? "open" : ""}>
+          <summary>
+            <span class="g-index">${pad(index + 1)}</span>
+            <span class="g-name">${g.name}</span>
+            <span class="g-note">${g.note}</span>
+            <span class="g-meta">
+              <span class="g-count">${rows.length} 项</span>
+              <span class="g-changed" data-cat-chg="${g.id}">已调整</span>
+            </span>
+            <span class="g-chev" aria-hidden="true"></span>
+          </summary>
+          <div class="g-body">${rows.map(paramRow).join("")}</div>
+        </details>`;
+    }).join("");
+    syncAll();
+  }
+
+  function syncAll(force = false) {
+    let changedCount = 0;
+    for (const [key, s] of state) {
+      if (s.changed) changedCount += 1;
+      document.querySelectorAll(`input[data-key="${key}"]`).forEach((el) => {
+        if (force || document.activeElement !== el) el.value = fmt(s.value);
+      });
+      document.querySelector(`[data-card="${key}"]`)?.classList.toggle("is-changed", s.changed);
+      document.querySelector(`[data-param="${key}"]`)?.classList.toggle("is-changed", s.changed);
+    }
+    for (const g of GROUPS) {
+      const n = DATA.filter((d) => d.g === g.id && state.get(d.key).changed).length;
+      const el = document.querySelector(`[data-cat-chg="${g.id}"]`);
+      if (el) {
+        el.textContent = `已调整 ${n}`;
+        el.classList.toggle("is-on", n > 0);
+      }
+    }
+    const dirty = document.getElementById("dirty-label");
+    dirty.textContent = changedCount ? `${changedCount} 项已调整` : "全部为默认值";
+    dirty.classList.toggle("is-clean", changedCount === 0);
+    document.getElementById("side-changed").textContent = String(changedCount);
+    document.querySelectorAll(".core-item").forEach((card) => {
+      const key = card.dataset.card;
+      const d = DATA.find((x) => x.key === key);
+      const val = Number(state.get(key).value);
+      const scaleMax = Math.max(d.hi * 1.9, val * 1.35, 0.01);
+      card.querySelector(".band").style.left = `${(d.lo / scaleMax) * 100}%`;
+      card.querySelector(".band").style.width = `${((d.hi - d.lo) / scaleMax) * 100}%`;
+      card.querySelector(".dot").style.left = `${Math.min(100, (val / scaleMax) * 100)}%`;
+    });
+    renderPreview();
+  }
+
+  function renderPreview() {
+    document.getElementById("preview").innerHTML = DATA.map((d, i) => {
+      const s = state.get(d.key);
+      return `<span class="line${s.changed ? " is-changed" : ""}"><i>${pad(i + 1)}</i><code>${d.key}</code><b>${fmt(s.value)}</b></span>`;
+    }).join("");
+  }
+
+  let toastTimer = 0;
+  function toast(text) {
+    const el = document.getElementById("toast");
+    el.textContent = text;
+    el.classList.add("is-on");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => el.classList.remove("is-on"), 1800);
+  }
+
+  document.addEventListener("input", (event) => {
+    const input = event.target.closest("input[data-key]");
+    if (!input) return;
+    const key = input.dataset.key;
+    const entry = DATA.find((d) => d.key === key);
+    const raw = Number(input.value);
+    if (!Number.isFinite(raw) || raw < 0) return;
+    const s = state.get(key);
+    s.value = raw;
+    s.changed = Math.abs(raw - entry.def) > 1e-9;
+    document.querySelectorAll(`input[data-key="${key}"]`).forEach((el) => {
+      if (el !== input) el.value = fmt(raw);
+    });
+    const host = input.closest(".core-item") || input.closest(".param");
+    if (host && s.changed) {
+      host.classList.remove("just-changed");
+      void host.offsetWidth;
+      host.classList.add("just-changed");
+    }
+    syncAll();
+    if (filter !== "all" || keyword) applyFilter();
+  });
+
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-reset]");
+    if (!btn) return;
+    const key = btn.dataset.reset;
+    const d = DATA.find((x) => x.key === key);
+    state.set(key, { value: d.def, changed: false });
+    syncAll(true);
+    if (filter !== "all" || keyword) applyFilter();
+    toast(`「${d.cn}」已恢复默认`);
+  });
+
+  document.getElementById("reset-all")?.addEventListener("click", () => {
+    for (const d of DATA) state.set(d.key, { value: d.def, changed: false });
+    syncAll(true);
+    if (filter !== "all" || keyword) applyFilter();
+    toast("已恢复全部默认值");
+  });
+
+  let filter = "all";
+  let keyword = "";
+  function applyFilter() {
+    const kw = keyword.trim().toLowerCase();
+    const matched = new Set();
+    for (const d of DATA) {
+      const s = state.get(d.key);
+      const hitKw = !kw || d.cn.toLowerCase().includes(kw) || d.key.toLowerCase().includes(kw) || d.desc.toLowerCase().includes(kw);
+      const hitFilter = filter === "all" || (filter === "common" && (d.tier === "core" || d.tier === "common")) || (filter === "changed" && s.changed);
+      if (hitKw && hitFilter) matched.add(d.key);
+    }
+    document.querySelectorAll("[data-param]").forEach((row) => {
+      row.hidden = !matched.has(row.dataset.param);
+    });
+    document.querySelectorAll("[data-card]").forEach((card) => {
+      card.hidden = !matched.has(card.dataset.card);
+    });
+    document.querySelectorAll(".group").forEach((cat) => {
+      const has = [...cat.querySelectorAll("[data-param]")].some((row) => !row.hidden);
+      cat.hidden = !has;
+      if (has && (kw || filter === "changed")) cat.open = true;
+    });
+    const coreVisible = [...document.querySelectorAll("[data-card]")].some((card) => !card.hidden);
+    document.querySelector(".core-sheet").closest(".section").hidden = !coreVisible;
+    document.getElementById("empty").classList.toggle("is-on", matched.size === 0);
+    syncExpandLabel();
+  }
+
+  document.getElementById("search").addEventListener("input", (event) => {
+    keyword = event.target.value;
+    applyFilter();
+  });
+  document.querySelectorAll(".tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle("is-on", on);
+        b.setAttribute("aria-pressed", String(on));
+      });
+      filter = btn.dataset.filter;
+      applyFilter();
+    });
+  });
+
+  function syncExpandLabel() {
+    const visible = [...document.querySelectorAll(".group")].filter((c) => !c.hidden);
+    const allOpen = visible.length > 0 && visible.every((c) => c.open);
+    document.getElementById("expand-all").textContent = allOpen ? "全部收起" : "全部展开";
+  }
+  document.getElementById("expand-all").addEventListener("click", () => {
+    const visible = [...document.querySelectorAll(".group")].filter((c) => !c.hidden);
+    const allOpen = visible.every((c) => c.open);
+    visible.forEach((c) => { c.open = !allOpen; });
+    syncExpandLabel();
+  });
+  document.querySelectorAll(".group").forEach((group) => {
+    group.addEventListener("toggle", syncExpandLabel);
+  });
+  document.getElementById("view-all").addEventListener("click", () => {
+    document.querySelectorAll(".group").forEach((c) => { if (!c.hidden) c.open = true; });
+    syncExpandLabel();
+    document.getElementById("all-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "/" && document.activeElement?.tagName !== "INPUT") {
+      event.preventDefault();
+      document.getElementById("search").focus();
+    }
+    if (event.key === "Escape" && document.activeElement?.id === "search") {
+      document.getElementById("search").value = "";
+      keyword = "";
+      applyFilter();
+      document.activeElement.blur();
+    }
+  });
+
+  document.getElementById("save").addEventListener("click", (event) => {
+    const btn = event.currentTarget;
+    const original = btn.textContent;
+    btn.textContent = "已保存";
+    toast("方案已保存（设计演示）");
+    window.setTimeout(() => { btn.textContent = original; }, 1400);
+  });
+
+  render();
+  applyFilter();
+  state.set("ai_teleport_idle", { value: 1.5, changed: true });
+  state.set("ai_attack_giveup", { value: 8, changed: true });
+  syncAll();
+  applyFilter();
+
+  function centerActiveNav() {
+    if (window.innerWidth > 960) return;
+    const nav = document.querySelector(".side-nav");
+    const active = nav?.querySelector(".nav-item.is-active");
+    if (!nav || !active) return;
+    nav.scrollLeft = active.offsetLeft - nav.clientWidth / 2 + active.offsetWidth / 2;
+  }
+  centerActiveNav();
+  window.addEventListener("resize", centerActiveNav);
+</script>
+</body>
+</html>
