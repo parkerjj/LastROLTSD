@@ -1475,13 +1475,13 @@ export const BLOCK_DEFS: BlockDef[] = [
       {
         key: "minAmount",
         label: "最小数量",
-        help: "库存低于这个数量就补货。",
+        help: "身上降到这个数量或更少时，专门回城去买。因为存仓、卖东西等别的原因回城时，不看这个数量，会顺路补到「最大数量」（和 OpenKore 一致）。",
         type: "int",
       },
       {
         key: "maxAmount",
         label: "最大数量",
-        help: "补货补到这个数量。",
+        help: "补货补到这个数量；身上已经达到或超过时不再购买。",
         type: "int",
       },
       {
