@@ -95,3 +95,17 @@ DO 内不使用任何定时器/alarm，保活用 `setWebSocketAutoResponse`（pi
 - 迁移 028 与托管全部 SQL 已在真实 MySQL 8.4 上验证（`tests/integration/ke-hosted-mysql.test.ts`，需要 `MYSQL_TEST_URL` 指向以 `_test` 结尾的库并设置 `AUTH_TEST_DB_ALLOW_RESET=1`）。生产库上线前仍应先在 staging 跑一遍迁移。
 - 既有的 `auth-account-flow` / `mysql-upload-*` 集成测试把 MySQL 版本钉死在 8.4.5，换版本会失败，与托管无关。
 - 30 天独占不续期、占槽窗口 10 分钟 < license 30 分钟：产品决定保持现状（见 KoreEngine 设计稿 6A.1）。
+
+## 死亡报告（迁移 032）
+
+托管 core 在角色死亡时上传一份结构化报告，用户在托管页「死亡记录」里看结论、HP 曲线和配置建议，并可「一键应用」。
+表 `ke_death_reports`：每角色最近 100 条且不超过 90 天（`runHostedTick` 顺带清理）；列表/统计只读索引列，完整报告在 `report_json`。
+
+- `POST /api/v1/ke/instances/:id/death-reports`：托管实例 Bearer；报告 ≤ 256 KiB，每实例每分钟 10 次，同一 `report_key` 幂等；非托管实例 403。
+- `GET /api/v1/ke/hosted/:id/death-reports[/:reportKey]`：会话；只能看自己的实例。
+- `POST /api/v1/ke/hosted/:id/death-reports/:reportKey/fixes/:fixId`：`{action: apply|undo}`，服务端对该角色当前启用的 profile 做行级补丁
+  （期望值不符返回 409 `KE_CONFIG_CHANGED`），并把 `config_sync_seq` 加 1、通知 agent 重载。
+- `POST /api/v1/ke/profiles/active/patch`：用户设备 token（不接受托管 token），给脱机 App 用。
+- `GET /api/v1/admin/ke/death-stats?days=7|30`：按 地图 × 怪物 × 技能 汇总，不含角色名。
+
+完整说明见 KoreEngine 仓库 `docs/death-report.md`。
