@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>角色名册优化 · 原型预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Noto+Serif+SC:wght@400;600;700;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+<style>
+  /* ====== 设计令牌（同步 ke-page 现有变量） ====== */
+  :root {
+    --forest: #1d332b;
+    --forest-deep: #172a23;
+    --forest-card: #f7f4ee;
+    --gold: #c69445;
+    --gold-soft: #f3e7d0;
+    --ink: #29362f;
+    --muted: #6d776f;
+    --line: #d1c7b6;
+    --line-light: #aa9d88;
+    --paper: #21362d;
+    --red-dark: #9a3d30;
+    --buy: #2c7a59;
+    --buy-soft: #e7f1eb;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Noto Serif SC", "Songti SC", "Microsoft YaHei", Georgia, serif;
+    background: #f4efe4;
+    color: var(--ink);
+    min-height: 100vh;
+  }
+
+  /* ====== 顶部工具条（原型控制） ====== */
+  .proto-toolbar {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 20px;
+    background: linear-gradient(180deg, #2b3a30, #1d332b);
+    color: #eccf97;
+    border-bottom: 2px solid var(--gold);
+    box-shadow: 0 4px 20px rgba(0,0,0,.15);
+  }
+  .proto-toolbar .proto-title {
+    font-family: "Cormorant Garamond", Georgia, serif;
+    font-size: 1.05rem; font-weight: 600; letter-spacing: .04em;
+    margin-right: 18px; padding-right: 18px;
+    border-right: 1px solid rgba(236,207,151,.25);
+  }
+  .proto-toolbar .proto-title em { color: var(--gold); font-style: normal; }
+  .proto-group { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
+  .proto-group label { font-size: .72rem; font-weight: 700; letter-spacing: .06em; color: rgba(236,207,151,.7); text-transform: uppercase; }
+  .proto-group input[type="range"] { width: 140px; accent-color: var(--gold); }
+  .proto-group .proto-count {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: .85rem; font-weight: 800;
+    color: var(--gold);
+    min-width: 3ch; text-align: right;
+  }
+  .proto-badge {
+    margin-left: auto; padding: 4px 10px;
+    font-size: .68rem; font-weight: 800; letter-spacing: .1em;
+    border-radius: 999px; border: 1px solid var(--gold);
+    background: rgba(198,148,69,.15); color: var(--gold);
+  }
+
+  /* ====== 页面主体（复刻 ke-page hero + command） ====== */
+  .page-width {
+    max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px;
+  }
+
+  .ke-hero { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 18px 28px; padding: 8px 0 22px; }
+  .ke-hero .eyebrow { margin: 0 0 9px; color: #a97b24; font-size: .66rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+  .ke-title { margin: 0; color: var(--forest-deep); font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: clamp(1.7rem, 3vw, 2.35rem); font-weight: 600; letter-spacing: .02em; line-height: 1.25; }
+  .ke-title em { color: #b84d3f; font-style: normal; }
+  .ke-hero-sub { max-width: 560px; margin: 9px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.75; }
+
+  /* ====== Passport + 名册两栏 ====== */
+  .ke-command { display: grid; grid-template-columns: 332px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+
+  /* --- Passport --- */
+  .ke-passport {
+    position: relative; overflow: hidden; display: flex; flex-direction: column;
+    padding: 22px 22px 20px; color: #f6efe2;
+    background:
+      radial-gradient(260px 200px at 105% -5%, rgba(198,148,69,.22), transparent 70%),
+      linear-gradient(155deg, #243e33 0%, #1a2e26 48%, #172a23 100%);
+    border: 1px solid rgba(198,148,69,.42); border-radius: 16px;
+    box-shadow: 0 24px 44px rgba(23,42,35,.3), inset 0 1px 0 rgba(255,248,238,.1);
+  }
+  .ke-passport::before, .ke-passport::after { content: ""; position: absolute; width: 24px; height: 24px; border: 1px solid rgba(198,148,69,.5); pointer-events: none; }
+  .ke-passport::before { top: 8px; left: 8px; border-right: 0; border-bottom: 0; border-top-left-radius: 7px; }
+  .ke-passport::after { bottom: 8px; right: 8px; border-left: 0; border-top: 0; border-bottom-right-radius: 7px; }
+
+  .ke-passport-label { margin: 0 0 2px; color: #d9b97f; font-size: .58rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+  .ke-char-current { display: flex; align-items: center; gap: 14px; }
+  .ke-char-avatar { position: relative; flex: none; display: grid; place-items: center; width: 66px; height: 66px; border-radius: 18px; background: rgba(255,248,238,.07); border: 1px solid rgba(198,148,69,.55); box-shadow: inset 0 0 0 4px rgba(198,148,69,.12); }
+  .ke-char-avatar::after { content: ""; position: absolute; inset: 5px; border: 1px dashed rgba(255,248,238,.16); border-radius: 13px; pointer-events: none; }
+  .ke-char-avatar-fallback { position: relative; z-index: 1; color: #f6efe2; font-family: Georgia, serif; font-size: 1.35rem; font-weight: 900; }
+  .ke-char-live { position: absolute; top: -2px; right: -2px; z-index: 2; width: 11px; height: 11px; background: var(--gold); border: 2px solid #1b2f27; border-radius: 50%; animation: ke-pulse 2.4s ease-in-out infinite; }
+  .ke-char-main { min-width: 0; display: grid; gap: 2px; }
+  .ke-char-name { min-width: 0; color: #fbf5e9; font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.42rem; font-weight: 600; letter-spacing: .02em; line-height: 1.3; }
+  .ke-char-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+
+  .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: .62rem; font-weight: 700; }
+  .ke-chip--job { color: #eccf97; background: rgba(198,148,69,.14); border: 1px solid rgba(198,148,69,.45); }
+
+  .ke-passport-stats { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 20px; padding: 12px 0; border-top: 1px dashed rgba(246,239,226,.18); border-bottom: 1px dashed rgba(246,239,226,.18); }
+  .ke-p-stat { display: grid; gap: 1px; padding: 0 8px; }
+  .ke-p-stat + .ke-p-stat { border-left: 1px solid rgba(246,239,226,.12); }
+  .ke-p-stat b { color: #fbf5e9; font-family: Georgia, serif; font-size: 1.35rem; font-weight: 600; line-height: 1.15; }
+  .ke-p-stat.is-hot b { color: #eccf97; }
+  .ke-p-stat span { color: rgba(246,239,226,.48); font-size: .56rem; font-weight: 700; letter-spacing: .14em; }
+
+  .ke-passport-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; }
+  .ke-passport-new { flex: 1; min-height: 40px; color: #24180a; background: linear-gradient(180deg, #d2a153, #c69445); border: 1px solid #b58436; border-radius: 9px; font-weight: 800; box-shadow: 0 8px 16px rgba(198,148,69,.26); cursor: pointer; }
+  .ke-passport-hall { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 14px; color: #efe4cf; background: rgba(255,248,238,.04); border: 1px solid rgba(246,239,226,.24); border-radius: 9px; font-size: .76rem; font-weight: 700; white-space: nowrap; text-decoration: none; cursor: pointer; }
+
+  /* --- 名册 --- */
+  .ke-roster {
+    display: flex; flex-direction: column; min-width: 0; padding: 20px 20px 14px;
+    background: #fffdf8; border: 1px solid #cfc0a8; border-radius: 16px;
+    box-shadow: 0 14px 30px rgba(74,57,35,.08);
+  }
+  .ke-roster-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; }
+  .ke-roster-title .eyebrow { margin: 0 0 5px; color: #a97b24; font-size: .58rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+  .ke-roster-title h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--forest-deep); font-family: Georgia, "Songti SC", "Microsoft YaHei", serif; font-size: 1.25rem; font-weight: 600; }
+  .ke-count-pill {
+    display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 9px;
+    color: #a97b24; background: var(--gold-soft); border: 1px solid #e1cb94; border-radius: 999px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .68rem; font-weight: 800;
+  }
+  .ke-count-pill i { font-style: normal; }
+
+  .ke-roster-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ke-roster-search {
+    display: flex; align-items: center; gap: 7px; width: 212px; height: 34px; padding: 0 11px;
+    background: #fbf7ef; border: 1px solid #e2d7c4; border-radius: 9px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .ke-roster-search:focus-within { background: #fffdf8; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+  .ke-roster-search svg { flex: none; width: 14px; height: 14px; stroke: #949d96; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+  .ke-roster-search input { width: 100%; min-width: 0; height: 30px; min-height: 0; padding: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: .75rem; font-family: inherit; }
+  .ke-roster-search input::placeholder { color: #949d96; }
+
+  /* 排序下拉（新增控件） */
+  .ke-sort-select {
+    position: relative; height: 34px;
+  }
+  .ke-sort-select select {
+    appearance: none; -webkit-appearance: none;
+    height: 34px; padding: 0 28px 0 11px;
+    font-family: inherit; font-size: .74rem; font-weight: 700;
+    color: var(--forest); background: #fbf7ef;
+    border: 1px solid #e2d7c4; border-radius: 9px;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .ke-sort-select select:hover { border-color: #cfc0a8; }
+  .ke-sort-select select:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+  .ke-sort-select::after {
+    content: "▾"; position: absolute; right: 9px; top: 50%; transform: translateY(-55%);
+    color: #949d96; font-size: .72rem; pointer-events: none;
+  }
+
+  /* 分组模式开关 */
+  .ke-group-toggle {
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px;
+    font-family: inherit; font-size: .74rem; font-weight: 700;
+    color: var(--forest); background: #fbf7ef;
+    border: 1px solid #e2d7c4; border-radius: 9px; cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .ke-group-toggle:hover { border-color: #cfc0a8; background: #fffdf8; }
+  .ke-group-toggle i { font-size: .85rem; color: var(--gold); }
+
+  /* ====== 角色卡片（和现有一致） ====== */
+  .ke-char-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); gap: 8px; margin-top: 14px; }
+  .ke-char-card-chip {
+    position: relative; display: flex; align-items: center; gap: 9px; min-height: 55px; padding: 0 10px;
+    text-align: left; cursor: pointer;
+    background: #fffdf8; border: 1px solid #e6dccb; border-radius: 9px;
+    transition: transform .14s, border-color .14s, background .14s, box-shadow .14s;
+    font-family: inherit;
+  }
+  .ke-char-card-chip:hover:not(:disabled) { transform: translateY(-2px); background: #fffaf0; border-color: #cfc0a8; box-shadow: 0 8px 16px rgba(74,57,35,.08); }
+  .ke-char-card-chip.is-active { background: #fff8e8; border-color: var(--gold); box-shadow: 0 0 0 1px rgba(198,148,69,.42); }
+  .ke-char-card-chip.is-active::before { content: ""; position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; background: var(--gold); border-radius: 0 3px 3px 0; }
+  .ke-char-card-chip.is-live::after {
+    content: ""; position: absolute; top: 8px; right: 8px; width: 6px; height: 6px;
+    background: var(--gold); border-radius: 50%; box-shadow: 0 0 0 2px #fffdf8;
+    animation: ke-pulse 2.4s ease-in-out infinite;
+  }
+  .ke-char-card-chip.is-active.is-live::after { display: none; }
+  .ke-char-card-iconbox {
+    flex: none; display: grid; place-items: center; width: 34px; height: 34px;
+    background: #f7f1e5; border: 1px solid #ecdfc9; border-radius: 8px; overflow: hidden;
+  }
+  .ke-char-card-chip.is-active .ke-char-card-iconbox { background: #f6ead2; border-color: #ddc79c; }
+  .ke-char-card-icon-fallback {
+    display: grid; place-items: center; width: 27px; height: 27px;
+    color: var(--forest); font-family: Georgia, serif; font-size: .8rem; font-weight: 900;
+  }
+  .ke-char-card-info { display: grid; gap: 0; min-width: 0; }
+  .ke-char-card-name { overflow: hidden; color: #172a23; font-size: .78rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .ke-char-card-job { color: var(--muted); font-size: .63rem; font-weight: 600; letter-spacing: .02em; }
+  .ke-char-card-flag {
+    position: absolute; top: 4px; right: 5px; padding: 0 5px;
+    color: #2b1c06; background: var(--gold); border-radius: 999px;
+    font-size: .5rem; font-weight: 800; letter-spacing: .06em;
+  }
+
+  /* ====== 分组模式（方案 A 核心新增） ====== */
+  .ke-roster-group { margin-top: 14px; }
+  .ke-roster-group-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: linear-gradient(90deg, rgba(29,51,43,.06) 0%, rgba(29,51,43,.02) 60%, transparent 100%);
+    border-left: 3px solid var(--gold);
+    border-radius: 6px;
+    margin-bottom: 2px;
+  }
+  .ke-roster-group-icon {
+    flex: none; width: 30px; height: 30px;
+    display: grid; place-items: center;
+    background: var(--gold-soft); border: 1px solid #e1cb94; border-radius: 7px;
+    font-size: 1rem;
+  }
+  .ke-roster-group-icon.is-knight { background: #fde8e4; border-color: #f0b8ac; }
+  .ke-roster-group-icon.is-mage { background: #e4edfd; border-color: #a8c4f0; }
+  .ke-roster-group-icon.is-archer { background: #e7f3de; border-color: #a4cf87; }
+  .ke-roster-group-icon.is-acolyte { background: #fff4d6; border-color: #e8ce80; }
+  .ke-roster-group-icon.is-merchant { background: #fce6d4; border-color: #eab48b; }
+  .ke-roster-group-icon.is-thief { background: #e8e0f0; border-color: #c1b2d4; }
+  .ke-roster-group-icon.is-novice { background: #f0ebe4; border-color: #d4c7b2; }
+  .ke-roster-group-icon.is-other { background: #e0eced; border-color: #a3c4c6; }
+
+  .ke-roster-group-title {
+    font-family: "Noto Serif SC", serif;
+    color: var(--forest-deep);
+    font-size: .86rem; font-weight: 700;
+    letter-spacing: .04em;
+  }
+  .ke-roster-group-sub {
+    color: var(--muted); font-size: .68rem; font-weight: 600;
+    margin-left: 2px;
+  }
+  .ke-roster-group-count {
+    margin-left: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .7rem; font-weight: 800;
+    color: var(--gold);
+    padding: 1px 8px;
+    background: var(--gold-soft); border: 1px solid #e1cb94;
+    border-radius: 999px;
+  }
+  .ke-roster-group-chev {
+    flex: none; width: 22px; height: 22px;
+    display: grid; place-items: center;
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--muted); font-size: .8rem;
+    transition: transform .18s ease, color .15s;
+  }
+  .ke-roster-group-chev:hover { color: var(--forest); }
+  .ke-roster-group-head.is-collapsed .ke-roster-group-chev { transform: rotate(-90deg); }
+  .ke-roster-group-head.is-collapsed + .ke-roster-group-body { display: none; }
+
+  /* 分组内的 grid 更紧凑一点 */
+  .ke-roster-group-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
+    gap: 8px;
+    padding: 8px 6px 4px;
+    animation: group-fade .25s ease;
+  }
+
+  .ke-roster-note { display: flex; align-items: center; gap: 8px; margin: 13px 0 0; color: var(--muted); font-size: .64rem; }
+  .ke-roster-note::before { content: ""; width: 14px; height: 1px; background: var(--line); }
+
+  .ke-roster-empty { grid-column: 1 / -1; padding: 22px; color: var(--muted); border: 1px dashed #e2d7c4; border-radius: 10px; text-align: center; font-size: .76rem; }
+
+  .proto-hidden { display: none !important; }
+
+  /* ====== 动画 ====== */
+  @keyframes ke-pulse { 50% { opacity: .35; } }
+  @keyframes group-fade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ====== 响应式 ====== */
+  @media (max-width: 900px) {
+    .ke-command { grid-template-columns: 1fr; }
+    .ke-roster-head { align-items: flex-start; }
+    .ke-roster-search { width: 100%; }
+  }
+  @media (max-width: 520px) {
+    .ke-char-strip, .ke-roster-group-body { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== 原型控制条 ===== -->
+<div class="proto-toolbar">
+  <span class="proto-title">冒险者名册 · <em>分组方案 A</em></span>
+  <div class="proto-group">
+    <label>角色数量</label>
+    <input type="range" id="charCount" min="3" max="206" value="206" />
+    <span class="proto-count" id="charCountVal">206</span>
+  </div>
+  <div class="proto-group" style="margin-left:14px">
+    <label>阈值</label>
+    <span class="proto-count">20</span>
+  </div>
+  <span class="proto-badge" id="modeBadge">分组模式</span>
+</div>
+
+<div class="page-width">
+  <!-- Hero -->
+  <section class="ke-hero" aria-labelledby="ke-title">
+    <div class="ke-hero-main">
+      <p class="eyebrow">KoreEngine · 自动挂机配置</p>
+      <h1 class="ke-title" id="ke-title">挂机配置<em>工作台</em></h1>
+      <p class="ke-hero-sub">为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理，激活其中一套即刻生效。</p>
+    </div>
+  </section>
+
+  <!-- Passport + 名册 -->
+  <section class="ke-command" aria-label="当前角色">
+    <!-- Passport（左侧不变） -->
+    <div class="ke-passport">
+      <div class="ke-char-current">
+        <div class="ke-char-avatar">
+          <span class="ke-char-avatar-fallback">骑</span>
+          <span class="ke-char-live" aria-hidden="true"></span>
+        </div>
+        <div class="ke-char-main">
+          <p class="ke-passport-label">当前角色 · Current</p>
+          <div class="ke-char-name"><span id="demo-current-name">本子骑8</span></div>
+          <div class="ke-char-meta">
+            <span class="ke-chip ke-chip--job">骑士领主 · Lv.99</span>
+          </div>
+        </div>
+      </div>
+      <div class="ke-passport-stats">
+        <div class="ke-p-stat"><b id="demo-profiles">3</b><span>配置方案</span></div>
+        <div class="ke-p-stat is-hot"><b id="demo-active">1</b><span>使用中</span></div>
+        <div class="ke-p-stat"><b id="demo-chars">0</b><span>已绑定角色</span></div>
+      </div>
+      <div class="ke-passport-actions">
+        <button class="ke-passport-new" type="button">＋ 新建方案</button>
+        <a class="ke-passport-hall" href="#">配置大厅 →</a>
+      </div>
+    </div>
+
+    <!-- 名册（右侧 · 原型区域） -->
+    <div class="ke-roster">
+      <div class="ke-roster-head">
+        <div class="ke-roster-title">
+          <p class="eyebrow">02 · 冒险者名册</p>
+          <h2>全部角色 <span class="ke-count-pill"><i id="roster-count">0</i><span id="roster-total">/ 0</span></span></h2>
+        </div>
+        <div class="ke-roster-controls">
+          <!-- 搜索框 -->
+          <div class="ke-roster-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+            <input id="roster-filter" type="search" placeholder="搜索角色名 / 职业" autocomplete="off" />
+          </div>
+          <!-- 排序下拉（新增） -->
+          <div class="ke-sort-select">
+            <select id="roster-sort">
+              <option value="recent">最近在线优先</option>
+              <option value="name-asc">名字 A → ん</option>
+              <option value="name-desc">名字 ん → A</option>
+              <option value="job-series">按职业系内进阶</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 平铺视图（< 20 角色） ===== -->
+      <div class="ke-char-strip" id="roster-flat"></div>
+
+      <!-- ===== 分组视图（>= 20 角色） ===== -->
+      <div id="roster-groups"></div>
+
+      <p class="ke-roster-note" id="roster-note">—</p>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ===== 职业系分组（从 ke-jobs.ts 的 JOB_SERIES 派生） ===== */
+const SERIES_DEF = [
+  { key: "knight",    name: "骑士系",   sub: "剑士 → 骑士 / 十字军 → 高阶二转",   icon: "⚔", jobs: [1,7,13,14,21,4002,4008,4014,4015,4022,4054,4060,4066,4073,4080,4081,4082,4083,4088,4089,4090,4091,4092,4093,4094,4095,4096,4102,4109,4110,4252,4258] },
+  { key: "mage",      name: "法系",     sub: "魔法师 → 巫师 / 贤者 → 高阶二转",   icon: "✦", jobs: [2,9,16,4003,4010,4017,4055,4061,4067,4074,4097,4103,4255,4261] },
+  { key: "archer",    name: "远程系",   sub: "弓箭手 → 猎人 / 诗人 / 舞娘 → 高阶", icon: "🏹", jobs: [3,11,19,20,4004,4012,4020,4021,4056,4062,4068,4069,4075,4076,4084,4085,4098,4104,4105,4111,4257,4263,4264] },
+  { key: "acolyte",   name: "服侍系",   sub: "服侍 → 牧师 / 武僧 → 高阶二转",     icon: "✝", jobs: [4,8,15,4005,4009,4016,4057,4063,4070,4077,4099,4106,4256,4262] },
+  { key: "merchant",  name: "商队系",   sub: "商人 → 铁匠 / 炼金术士 → 高阶",     icon: "⚒", jobs: [5,10,18,4006,4011,4019,4058,4064,4071,4078,4086,4087,4100,4107,4112,4253,4259] },
+  { key: "thief",     name: "盗贼系",   sub: "盗贼 → 刺客 / 流氓 → 高阶二转",     icon: "🗡", jobs: [6,12,17,4007,4013,4018,4059,4065,4072,4079,4101,4108,4254,4260] },
+  { key: "novice",    name: "初心者",   sub: "初心者 / 超级初心者",               icon: "❀", jobs: [0,23] },
+  { key: "other",     name: "独立职业", sub: "神枪手 / 忍者 / 拳圣 / 召唤师…",    icon: "✿", jobs: [24,25,4046,4047,4048,4049,4211,4212,4215,4218,4239,4240,4241,4242,4243,4244] },
+];
+
+// job_id → series key 的反向映射
+const JOB_TO_SERIES = new Map();
+for (const s of SERIES_DEF) for (const j of s.jobs) JOB_TO_SERIES.set(j, s.key);
+
+// 完整中文职业名（常用 ones）
+const JOB_ZH = {
+  0:"初心者",1:"剑士",2:"魔法师",3:"弓箭手",4:"服侍",5:"商人",6:"盗贼",
+  7:"骑士",8:"牧师",9:"巫师",10:"铁匠",11:"猎人",12:"刺客",13:"骑乘骑士",
+  14:"十字军",15:"武僧",16:"贤者",17:"流氓",18:"炼金术士",19:"吟游诗人",20:"舞娘",
+  23:"超级初心者",24:"神枪手",25:"忍者",
+  4002:"高阶剑士",4003:"高阶魔法师",4004:"高阶弓箭手",4005:"高阶服侍",4006:"高阶商人",4007:"高阶盗贼",
+  4008:"骑士领主",4009:"主教",4010:"大法师",4011:"机甲师",4012:"神射手",4013:"影十字",
+  4014:"符文骑士",4015:"圣殿骑士",4016:"武术宗师",4017:"元素支配者",4018:"深渊追迹者",4019:"生物学家",
+  4020:"游唱诗人",4021:"游侠舞者",
+  4046:"拳圣",4047:"星帝",4048:"至高拳圣",4049:"灵魂收割者",
+  4054:"符文骑士",4055:"大法师",4056:"风鹰",4057:"红衣主教",4058:"机甲师",4059:"影十字",4060:"龙骑士",
+  4061:"大法师",4062:"风鹰",4063:"红衣主教",4064:"机甲师",4065:"影十字",4066:"帝国卫士",4067:"元素大师",4068:"宫廷乐师",4069:"游侠舞者",4070:"十字驱魔师",4071:"生物学家",4072:"深渊追迹者",4073:"帝国卫士",4074:"元素大师",4075:"宫廷乐师",4076:"游侠舞者",4077:"十字驱魔师",4078:"生物学家",4079:"深渊追迹者",
+  4080:"龙骑士",4081:"符文骑士",4082:"帝国卫士",4083:"帝国卫士",4084:"风鹰",4085:"风鹰",4086:"机甲师",4087:"机甲师",4088:"龙骑士",4089:"龙骑士",4090:"符文骑士",4091:"符文骑士",4092:"龙骑士",4093:"龙骑士",4094:"符文骑士",4095:"符文骑士",4096:"龙骑士",
+  4097:"大法师",4098:"风鹰",4099:"红衣主教",4100:"机甲师",4101:"影十字",4102:"帝国卫士",4103:"元素大师",4104:"宫廷乐师",4105:"游侠舞者",4106:"十字驱魔师",4107:"生物学家",4108:"深渊追迹者",4109:"符文骑士",4110:"帝国卫士",4111:"风鹰",4112:"机甲师",
+  4211:"影狼",4212:"胧",4215:"叛乱者",4218:"召唤师",
+  4239:"至高拳圣",4240:"至高灵术师",4241:"至高拳圣",4242:"至高灵术师",4243:"至高拳圣",4244:"至高灵术师",
+  4252:"龙骑士",4253:"机甲师",4254:"影十字",4255:"大法师",4256:"红衣主教",4257:"风鹰",4258:"帝国卫士",4259:"生物学家",4260:"深渊追迹者",4261:"元素大师",4262:"十字驱魔师",4263:"宫廷乐师",4264:"游侠舞者",
+};
+
+// 名字池
+const NAME_PREFIX = ["本子","任务","弓手","商人","剑士","巫师","牧师","猎人","骑士","刺客","武僧","铁匠","炼金","贤者","流氓","诗人","舞娘","初心","超级","神枪","忍者","拳圣","元素","游侠","影子","龙纹","风语","烈焰","寒冰","雷电","大地"];
+const NAME_SUFFIX = ["1","2","3","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","阿强","小明","阿虎","小花","老李","王大","张二","三刀","五杀","七七","八八","九九","aa","bb","cc"];
+
+// 地图池
+const MAPS = ["prontera","gef_fild02","pay_fild01","pay_fild08","prt_fild05","prt_fild08","moc_fild12","moc_fild17","cmd_fild02","cmd_fild07","cmd_fild09","einbroch","lhz_fild01","spl_fild01","rachel","ve_fild01"];
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rnd(a,b) { return Math.floor(Math.random()*(b-a+1))+a; }
+
+/* ===== 生成模拟数据 ===== */
+function buildCharacters(count) {
+  const chars = [];
+  const now = Date.now();
+
+  // 先确保每个职业系至少有几个代表
+  const seeds = [
+    {name:"本子骑8", job:4008}, {name:"本子骑1", job:7}, {name:"本子骑2", job:4054}, {name:"本子骑3", job:1},
+    {name:"本子法1", job:9}, {name:"本子法2", job:4010}, {name:"本子法3", job:4055}, {name:"本子法4", job:2},
+    {name:"本子弓1", job:11}, {name:"本子弓2", job:4012}, {name:"本子弓3", job:3}, {name:"本子弓4", job:4056},
+    {name:"本子牧1", job:8}, {name:"本子牧2", job:4009}, {name:"本子牧3", job:4057},
+    {name:"本子商1", job:10}, {name:"本子商2", job:4011}, {name:"本子商3", job:4058}, {name:"本子商4", job:5},
+    {name:"本子刺1", job:12}, {name:"本子刺2", job:4013}, {name:"本子刺3", job:4059},
+  ];
+  for (const s of seeds) {
+    if (chars.length >= count) break;
+    chars.push({
+      char_name: s.name, job_id: s.job,
+      map_name: pick(MAPS),
+      last_seen_at: now - rnd(0, 120) * 60_000,
+      base_level: rnd(1,99),
+    });
+  }
+  // 补齐
+  const usedNames = new Set(chars.map(c => c.char_name));
+  const allJobIds = SERIES_DEF.flatMap(s => s.jobs);
+  while (chars.length < count) {
+    let name, tries = 0;
+    do { name = pick(NAME_PREFIX) + pick(NAME_SUFFIX); tries++; } while (usedNames.has(name) && tries < 10);
+    if (tries >= 10) name = pick(NAME_PREFIX) + Math.floor(Math.random()*999);
+    usedNames.add(name);
+    chars.push({
+      char_name: name,
+      job_id: pick(allJobIds),
+      map_name: pick(MAPS),
+      last_seen_at: now - rnd(0, 43200) * 60_000,
+      base_level: rnd(1,99),
+    });
+  }
+  return chars;
+}
+
+/* ===== 状态 ===== */
+let currentCount = 206;
+let threshold = 20;
+let sortMode = "recent";
+let filterTerm = "";
+
+const $ = sel => document.querySelector(sel);
+const charCountSlider = $("#charCount");
+const charCountVal = $("#charCountVal");
+const rosterFilter = $("#roster-filter");
+const rosterSort = $("#roster-sort");
+const rosterFlat = $("#roster-flat");
+const rosterGroups = $("#roster-groups");
+const rosterCount = $("#roster-count");
+const rosterTotal = $("#roster-total");
+const rosterNote = $("#roster-note");
+const modeBadge = $("#modeBadge");
+const demoChars = $("#demo-chars");
+
+charCountSlider.addEventListener("input", () => {
+  currentCount = parseInt(charCountSlider.value, 10);
+  charCountVal.textContent = currentCount;
+  render();
+});
+rosterFilter.addEventListener("input", () => { filterTerm = rosterFilter.value.trim().toLowerCase(); render(); });
+rosterSort.addEventListener("change", () => { sortMode = rosterSort.value; render(); });
+
+/* ===== 排序 ===== */
+function sortChars(chars) {
+  const arr = [...chars];
+  switch (sortMode) {
+    case "name-asc":  arr.sort((a,b) => a.char_name.localeCompare(b.char_name, "zh")); break;
+    case "name-desc": arr.sort((a,b) => b.char_name.localeCompare(a.char_name, "zh")); break;
+    case "job-series":
+      arr.sort((a,b) => {
+        const sa = JOB_TO_SERIES.get(a.job_id) ?? "zzz";
+        const sb = JOB_TO_SERIES.get(b.job_id) ?? "zzz";
+        if (sa !== sb) return SERIES_DEF.findIndex(s => s.key === sa) - SERIES_DEF.findIndex(s => s.key === sb);
+        return (b.base_level||0) - (a.base_level||0);
+      });
+      break;
+    case "recent":
+    default:
+      arr.sort((a,b) => b.last_seen_at - a.last_seen_at);
+  }
+  return arr;
+}
+
+/* ===== 过滤 ===== */
+function filterChars(chars) {
+  if (!filterTerm) return chars;
+  return chars.filter(c => {
+    if (c.char_name.toLowerCase().includes(filterTerm)) return true;
+    const jobName = JOB_ZH[c.job_id] || "";
+    if (jobName.toLowerCase().includes(filterTerm)) return true;
+    return false;
+  });
+}
+
+/* ===== 渲染卡片 ===== */
+function cardChip(c, isCurrent, isLive) {
+  const name = c.char_name;
+  const job = JOB_ZH[c.job_id] || "未知";
+  const initial = name.slice(0, 1);
+  const liveClass = isLive ? " is-live" : "";
+  const activeClass = isCurrent ? " is-active" : "";
+  const flag = isCurrent ? '<span class="ke-char-card-flag">当前</span>' : '';
+  const now = Date.now();
+  const isLiveNow = c.last_seen_at > now - 5 * 60_000;
+  return `
+    <button type="button" class="ke-char-card-chip${activeClass}${isLiveNow ? ' is-live' : ''}">
+      <span class="ke-char-card-iconbox">
+        <span class="ke-char-card-icon-fallback">${initial}</span>
+      </span>
+      <span class="ke-char-card-info">
+        <span class="ke-char-card-name">${name}</span>
+        <span class="ke-char-card-job">${job} · Lv.${c.base_level}</span>
+      </span>
+      ${flag}
+    </button>
+  `;
+}
+
+/* ===== 渲染主函数 ===== */
+function render() {
+  // 更新 passport 数字
+  const allChars = buildCharacters(currentCount);
+  $("#demo-chars").textContent = allChars.length;
+  $("#roster-total").textContent = `/ ${allChars.length}`;
+
+  // 过滤 + 排序
+  let visible = filterChars(allChars);
+  visible = sortChars(visible);
+  rosterCount.textContent = visible.length;
+
+  const mode = currentCount >= threshold && !filterTerm ? "groups" : "flat";
+  const currentName = "本子骑8";
+
+  // 模式徽章
+  if (currentCount < threshold) {
+    modeBadge.textContent = "平铺模式（< " + threshold + "）";
+  } else if (filterTerm) {
+    modeBadge.textContent = "搜索中 · 强制平铺";
+  } else {
+    modeBadge.textContent = "分组模式（" + currentCount + " 角色）";
+  }
+
+  // 清空
+  rosterFlat.innerHTML = "";
+  rosterGroups.innerHTML = "";
+
+  if (visible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ke-roster-empty";
+    empty.style.gridColumn = "1 / -1";
+    empty.textContent = `没有匹配「${filterTerm}」的角色`;
+    rosterFlat.appendChild(empty);
+    rosterFlat.style.display = "grid";
+    rosterGroups.style.display = "none";
+    rosterNote.textContent = "";
+    return;
+  }
+
+  if (mode === "flat") {
+    rosterFlat.style.display = "grid";
+    rosterGroups.style.display = "none";
+    rosterFlat.innerHTML = visible.map(c => cardChip(c, c.char_name === currentName)).join("");
+    if (filterTerm) {
+      rosterNote.textContent = `搜索匹配 ${visible.length} / ${allChars.length} 名角色 · 清空搜索显示全部`;
+    } else {
+      rosterNote.textContent = `全部 ${allChars.length} 名角色已平铺展示 · 点击任意卡片切换当前角色`;
+    }
+  } else {
+    rosterFlat.style.display = "none";
+    rosterGroups.style.display = "block";
+
+    // 按 series 分组
+    const bySeries = new Map();
+    for (const c of visible) {
+      const sk = JOB_TO_SERIES.get(c.job_id) ?? "other";
+      if (!bySeries.has(sk)) bySeries.set(sk, []);
+      bySeries.get(sk).push(c);
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const seriesDef of SERIES_DEF) {
+      const groupChars = bySeries.get(seriesDef.key);
+      if (!groupChars || groupChars.length === 0) continue;
+
+      const section = document.createElement("div");
+      section.className = "ke-roster-group";
+      section.innerHTML = `
+        <div class="ke-roster-group-head">
+          <span class="ke-roster-group-icon is-${seriesDef.key}">${seriesDef.icon}</span>
+          <span class="ke-roster-group-title">${seriesDef.name}</span>
+          <span class="ke-roster-group-sub">${seriesDef.sub}</span>
+          <span class="ke-roster-group-count">${groupChars.length}</span>
+          <button type="button" class="ke-roster-group-chev" title="折叠 / 展开">▾</button>
+        </div>
+        <div class="ke-roster-group-body">
+          ${groupChars.map(c => cardChip(c, c.char_name === currentName)).join("")}
+        </div>
+      `;
+      // 折叠
+      section.querySelector(".ke-roster-group-chev").addEventListener("click", (e) => {
+        e.currentTarget.closest(".ke-roster-group-head").classList.toggle("is-collapsed");
+      });
+      frag.appendChild(section);
+    }
+
+    // 兜底：未知职业
+    const unknown = bySeries.get("__unknown__") || [];
+    if (unknown.length > 0) {
+      const section = document.createElement("div");
+      section.className = "ke-roster-group";
+      section.innerHTML = `
+        <div class="ke-roster-group-head">
+          <span class="ke-roster-group-icon">?</span>
+          <span class="ke-roster-group-title">未知职业</span>
+          <span class="ke-roster-group-sub">职业 ID 未识别</span>
+          <span class="ke-roster-group-count">${unknown.length}</span>
+          <button type="button" class="ke-roster-group-chev">▾</button>
+        </div>
+        <div class="ke-roster-group-body">
+          ${unknown.map(c => cardChip(c, c.char_name === currentName)).join("")}
+        </div>
+      `;
+      frag.appendChild(section);
+    }
+
+    rosterGroups.appendChild(frag);
+    rosterNote.textContent = `全部 ${allChars.length} 名角色 · 共 ${bySeries.size} 个职业系分组 · 可按折叠箭头收起`;
+  }
+}
+
+/* ===== 启动 ===== */
+render();
+</script>
+
+</body>
+</html>

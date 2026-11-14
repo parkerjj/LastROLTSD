@@ -1155,7 +1155,10 @@ describe("ke page", () => {
     expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(3);
     expect(vi.mocked(fetch).mock.calls.some(([path]) => path === '/api/v1/ke/characters')).toBe(false);
 
-    chips[1]!.click();
+    // 用 data-key 定位"初心者小明"，避免依赖排序后的 DOM 位置
+    const ming = root.querySelector<HTMLButtonElement>('.ke-char-card-chip[data-key="1000001:2000002:3000002"]');
+    expect(ming).not.toBeNull();
+    ming!.click();
     await wait(10);
     expect(root.querySelector<HTMLElement>('#ke-char-name')!.textContent).toBe('初心者小明');
     expect(root.querySelectorAll('.ke-profile-card')).toHaveLength(0);

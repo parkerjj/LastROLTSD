@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>复制弹框优化 · 原型预览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Noto+Serif+SC:wght@400;600;700;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --forest: #1d332b;
+    --forest-deep: #172a23;
+    --gold: #c69445;
+    --gold-soft: #f3e7d0;
+    --ink: #29362f;
+    --muted: #6d776f;
+    --line: #d1c7b6;
+    --line-light: #aa9d88;
+    --paper: #f7f4ee;
+    --buy: #2c7a59;
+    --buy-soft: #e7f1eb;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Noto Serif SC", "Songti SC", "Microsoft YaHei", Georgia, serif;
+    background: #eee5d4;
+    color: var(--ink);
+    min-height: 100vh;
+    /* 背景纹理 */
+    background-image:
+      radial-gradient(ellipse at 20% 10%, rgba(29,51,43,.07), transparent 55%),
+      radial-gradient(ellipse at 80% 90%, rgba(198,148,69,.08), transparent 55%);
+  }
+
+  /* ===== 模拟 ke-page 场景的页面 ===== */
+  .mock-page {
+    max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px;
+  }
+  .mock-hero h1 { margin: 0; font-size: 1.8rem; color: var(--forest-deep); font-weight: 600; }
+  .mock-hero p { color: var(--muted); margin: 4px 0 20px; }
+  .mock-profiles {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px; margin-bottom: 20px;
+  }
+  .mock-profile-card {
+    padding: 14px; background: #fffdf8; border: 1px solid var(--line); border-radius: 10px;
+  }
+  .mock-profile-card h3 { margin: 0 0 2px; font-size: .88rem; color: var(--forest-deep); }
+  .mock-profile-card p { margin: 0 0 10px; font-size: .72rem; color: var(--muted); }
+  .mock-profile-card button {
+    font-family: inherit; font-size: .72rem; font-weight: 700; height: 28px; padding: 0 12px;
+    background: var(--gold-soft); color: var(--forest-deep); border: 1px solid #e1cb94; border-radius: 6px;
+    cursor: pointer;
+  }
+  .mock-profile-card button:hover { background: #efe1bf; }
+
+  /* ===== 原型控制条 ===== */
+  .proto-toolbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 20px;
+    background: linear-gradient(180deg, #2b3a30, #1d332b);
+    color: #eccf97; border-bottom: 2px solid var(--gold);
+  }
+  .proto-toolbar .title { font-family: "Cormorant Garamond", serif; font-size: 1rem; font-weight: 600; margin-right: 16px; padding-right: 16px; border-right: 1px solid rgba(236,207,151,.25); }
+  .proto-toolbar .title em { color: var(--gold); font-style: normal; }
+  .proto-group { display: flex; align-items: center; gap: 6px; }
+  .proto-group label { font-size: .68rem; font-weight: 700; letter-spacing: .08em; color: rgba(236,207,151,.7); }
+  .proto-group input[type="range"] { width: 100px; accent-color: var(--gold); }
+  .proto-group .count { font-family: ui-monospace, monospace; font-size: .82rem; font-weight: 800; color: var(--gold); min-width: 3ch; text-align: right; }
+
+  /* ===== 弹框覆盖层（模拟点击按钮后弹出） ===== */
+  .trigger-hint {
+    display: inline-block; padding: 6px 14px; margin-bottom: 8px;
+    font-size: .72rem; font-weight: 700; color: #5c4a2a;
+    background: #fff3d6; border: 1px dashed #d4a955; border-radius: 6px;
+  }
+
+  /* ===== 复制弹框（新版） ===== */
+  .copy-overlay {
+    position: fixed; inset: 0; z-index: 95;
+    display: grid; place-items: center; padding: 20px;
+    background: rgba(43,37,28,.45); backdrop-filter: blur(4px);
+    animation: fadein .18s ease;
+  }
+  .copy-dialog {
+    width: min(620px, 100%);
+    max-height: min(620px, calc(100vh - 40px));
+    display: grid; grid-template-rows: auto auto auto 1fr auto auto;
+    background: #fbf7ee; border: 1px solid #b9ab94; border-radius: 14px;
+    box-shadow: 0 32px 80px rgba(80,62,38,.3);
+    overflow: hidden;
+    animation: popin .22s cubic-bezier(.2,.9,.3,1.1);
+  }
+
+  /* 头部 */
+  .copy-head {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 20px 22px 14px;
+    background: linear-gradient(180deg, rgba(198,148,69,.06), transparent);
+    border-bottom: 1px solid rgba(185,171,148,.5);
+  }
+  .copy-head-icon {
+    flex: none; width: 40px; height: 40px;
+    display: grid; place-items: center;
+    background: var(--gold-soft); border: 1px solid #e1cb94; border-radius: 10px;
+    font-size: 1.15rem;
+  }
+  .copy-head-main { min-width: 0; }
+  .copy-head-title { margin: 0; color: var(--forest-deep); font-size: 1.05rem; font-weight: 800; letter-spacing: .02em; }
+  .copy-head-sub { margin: 5px 0 0; color: #4c5a50; font-size: .76rem; line-height: 1.65; }
+  .copy-head-sub .profile-ref {
+    display: inline-block; padding: 1px 7px; margin: 0 2px;
+    color: #7a5a18; background: var(--gold-soft); border: 1px solid #e1cb94; border-radius: 4px;
+    font-weight: 700; font-family: ui-monospace, monospace;
+  }
+  .copy-head-close {
+    flex: none; width: 28px; height: 28px;
+    display: grid; place-items: center;
+    background: transparent; border: 0; border-radius: 50%;
+    font-size: 1rem; color: var(--muted); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .copy-head-close:hover { background: rgba(0,0,0,.05); color: var(--forest); }
+
+  /* 工具栏（搜索 + 排序 + 已选统计） */
+  .copy-toolbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 12px 22px;
+    background: #fffdf8;
+    border-bottom: 1px solid rgba(185,171,148,.4);
+  }
+  .copy-search {
+    display: flex; align-items: center; gap: 7px;
+    flex: 1; min-width: 160px; height: 32px; padding: 0 10px;
+    background: #f7f1e5; border: 1px solid #e2d7c4; border-radius: 8px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .copy-search:focus-within { background: #fffdf8; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+  .copy-search svg { flex: none; width: 13px; height: 13px; stroke: #949d96; fill: none; stroke-width: 2; stroke-linecap: round; }
+  .copy-search input { width: 100%; height: 28px; padding: 0; border: 0; outline: 0; background: transparent; font-size: .73rem; font-family: inherit; color: var(--ink); }
+  .copy-search input::placeholder { color: #949d96; }
+
+  .copy-sort-wrap { position: relative; height: 32px; }
+  .copy-sort-wrap select {
+    appearance: none; -webkit-appearance: none;
+    height: 32px; padding: 0 26px 0 10px;
+    font-family: inherit; font-size: .72rem; font-weight: 700;
+    color: var(--forest); background: #f7f1e5; border: 1px solid #e2d7c4; border-radius: 8px;
+    cursor: pointer;
+  }
+  .copy-sort-wrap select:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+  .copy-sort-wrap::after {
+    content: "▾"; position: absolute; right: 7px; top: 50%; transform: translateY(-55%);
+    color: #949d96; font-size: .7rem; pointer-events: none;
+  }
+
+  /* 列表主体 */
+  .copy-body {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #cfc0a8 transparent;
+  }
+  .copy-body::-webkit-scrollbar { width: 7px; }
+  .copy-body::-webkit-scrollbar-thumb { background: #cfc0a8; border-radius: 4px; }
+  .copy-body::-webkit-scrollbar-track { background: transparent; }
+
+  /* —— 平铺（小角色数）—— */
+  .copy-flat {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 7px; padding: 14px 22px;
+  }
+
+  /* —— 分组（大角色数）—— */
+  .copy-groups { padding: 14px 22px 6px; display: grid; gap: 2px; }
+  .copy-group-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    background: linear-gradient(90deg, rgba(29,51,43,.05) 0%, transparent 80%);
+    border-left: 3px solid var(--gold); border-radius: 4px;
+    font-size: .72rem;
+  }
+  .copy-group-icon {
+    flex: none; width: 22px; height: 22px;
+    border: 1px solid; border-radius: 5px;
+  }
+  .copy-group-icon.is-knight   { background: #fde8e4; border-color: #f0b8ac; }
+  .copy-group-icon.is-mage     { background: #e4edfd; border-color: #a8c4f0; }
+  .copy-group-icon.is-archer   { background: #e7f3de; border-color: #a4cf87; }
+  .copy-group-icon.is-acolyte  { background: #fff4d6; border-color: #e8ce80; }
+  .copy-group-icon.is-merchant { background: #fce6d4; border-color: #eab48b; }
+  .copy-group-icon.is-thief    { background: #e8e0f0; border-color: #c1b2d4; }
+  .copy-group-icon.is-novice   { background: #f0ebe4; border-color: #d4c7b2; }
+  .copy-group-icon.is-other    { background: #e0eced; border-color: #a3c4c6; }
+  .copy-group-title { color: var(--forest-deep); font-weight: 700; font-size: .76rem; }
+  .copy-group-sub { color: var(--muted); font-weight: 500; font-size: .64rem; }
+  .copy-group-count {
+    margin-left: auto; font-family: ui-monospace, monospace; font-weight: 800;
+    font-size: .66rem; color: var(--gold);
+    padding: 0 7px; background: var(--gold-soft); border-radius: 999px;
+  }
+  .copy-group-chev {
+    flex: none; width: 20px; height: 20px;
+    display: grid; place-items: center;
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--muted); font-size: .7rem;
+    transition: transform .18s;
+  }
+  .copy-group-head.is-collapsed .copy-group-chev { transform: rotate(-90deg); }
+  .copy-group-head.is-collapsed + .copy-group-body { display: none; }
+
+  .copy-group-body {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 7px; padding: 8px 4px;
+  }
+
+  /* —— 角色卡（弹框内）—— */
+  .copy-char {
+    position: relative;
+    display: flex; align-items: center; gap: 9px;
+    width: 100%; padding: 9px 10px;
+    color: var(--ink); background: #fffdf8;
+    border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; text-align: left; cursor: pointer;
+    transition: transform .12s, border-color .12s, background .12s, box-shadow .12s;
+  }
+  .copy-char:hover:not(:disabled) { border-color: #cfc0a8; background: #fff6e6; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(80,62,38,.06); }
+  .copy-char.is-source { opacity: .5; cursor: not-allowed; background: #f7f4ee; color: var(--muted); }
+  .copy-char.is-source:hover { transform: none; box-shadow: none; }
+  .copy-char.is-on { border-color: var(--buy); background: var(--buy-soft); box-shadow: 0 0 0 2px rgba(44,122,89,.18); }
+  .copy-char.is-on::before {
+    content: ""; position: absolute; top: 7px; right: 7px;
+    width: 18px; height: 18px;
+    background: var(--buy); border-radius: 50%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+    background-size: 11px 11px; background-position: center; background-repeat: no-repeat;
+  }
+  .copy-char-icon {
+    flex: none; width: 26px; height: 26px;
+    display: grid; place-items: center;
+    border-radius: 6px; overflow: hidden;
+  }
+  .copy-char-icon img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+  .copy-char-icon-fallback {
+    flex: none; width: 26px; height: 26px;
+    display: grid; place-items: center;
+    color: var(--forest); background: var(--paper); border: 1px solid var(--line-light);
+    border-radius: 6px; font-size: .78rem; font-weight: 800;
+  }
+  .copy-char-text { display: grid; gap: 0; min-width: 0; padding-right: 2px; }
+  .copy-char-name { overflow: hidden; color: var(--forest); font-size: .8rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+  .copy-char-job { color: var(--muted); font-size: .64rem; }
+
+  .copy-empty { padding: 24px; margin: 14px 22px; color: var(--muted); background: #fffdf8; border: 1px dashed var(--line-light); border-radius: 10px; text-align: center; font-size: .78rem; }
+
+  /* 底部：已选统计 + 操作 */
+  .copy-footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 22px;
+    background: linear-gradient(0deg, #f3ece0, #fbf7ee);
+    border-top: 1px solid rgba(185,171,148,.5);
+  }
+  .copy-selected-info { font-size: .74rem; color: var(--muted); }
+  .copy-selected-info b { color: var(--forest); font-weight: 800; font-family: ui-monospace, monospace; }
+  .copy-selected-info .sel-badge {
+    display: inline-block; margin-left: 3px; padding: 1px 7px;
+    color: var(--buy); background: var(--buy-soft); border: 1px solid rgba(44,122,89,.4);
+    border-radius: 999px; font-weight: 800; font-size: .68rem;
+  }
+  .copy-actions { display: flex; gap: 8px; }
+  .copy-actions button {
+    font-family: inherit; font-weight: 800; height: 34px; padding: 0 18px;
+    border-radius: 8px; font-size: .78rem; cursor: pointer;
+    transition: background .15s, box-shadow .15s;
+  }
+  .btn-ghost {
+    color: #6d776f; background: transparent;
+    border: 1px solid var(--line);
+  }
+  .btn-ghost:hover { background: rgba(0,0,0,.03); }
+  .btn-primary {
+    color: #fbf5e9; background: linear-gradient(180deg, #c69445, #b07f36);
+    border: 1px solid #a7742b;
+    box-shadow: 0 4px 10px rgba(198,148,69,.28);
+  }
+  .btn-primary:hover:not(:disabled) { background: linear-gradient(180deg, #d09d4c, #b58339); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+
+  /* 动画 */
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes popin { from { opacity: 0; transform: scale(.92) translateY(6px); } to { opacity: 1; transform: none; } }
+
+  @media (max-width: 540px) {
+    .copy-dialog { width: 100%; max-height: 100%; border-radius: 0; }
+    .copy-flat, .copy-group-body { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 原型控制 -->
+<div class="proto-toolbar">
+  <span class="title">复制弹框 · <em>优化方案</em></span>
+  <div class="proto-group"><label>目标角色</label><input type="range" id="charCount" min="1" max="200" value="200" /><span class="count" id="charCountVal">200</span></div>
+  <div class="proto-group"><label>阈值</label><span class="count">20</span></div>
+  <div style="margin-left:auto"><button style="background:#f3e7d0;color:#5c4a2a;border:1px solid #d4a955;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:inherit;font-weight:700;font-size:.72rem" onclick="toggleDialog()">重新打开弹框</button></div>
+</div>
+
+<div class="mock-page">
+  <div class="mock-hero">
+    <h1>挂机配置工作台</h1>
+    <p>为每个角色保存多套挂机方案：路线、战斗、补给与规则表分开管理。</p>
+  </div>
+
+  <div class="mock-profiles">
+    <div class="mock-profile-card">
+      <h3>十字挂草魂</h3>
+      <p>骑士领主 · 本子骑8</p>
+      <button onclick="toggleDialog()">复制到其他角色 →</button>
+    </div>
+    <div class="mock-profile-card">
+      <h3>日常商人 01</h3>
+      <p>机甲师 · 本子商1</p>
+      <button onclick="toggleDialog()">复制到其他角色 →</button>
+    </div>
+    <div class="mock-profile-card">
+      <h3>元素刷花场</h3>
+      <p>元素支配者 · 本子法2</p>
+      <button onclick="toggleDialog()">复制到其他角色 →</button>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:.76rem">↑ 点击任一「复制到其他角色」按钮，弹出优化后的复制弹框原型</p>
+</div>
+
+<!-- 复制弹框（默认显示） -->
+<div class="copy-overlay" id="copyOverlay">
+  <section class="copy-dialog" role="dialog" aria-modal="true">
+    <!-- 头部 -->
+    <div class="copy-head">
+      <div class="copy-head-icon">📋</div>
+      <div class="copy-head-main">
+        <h2 class="copy-head-title">复制方案到其他角色</h2>
+        <p class="copy-head-sub">把<span class="profile-ref">十字挂草魂</span>完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。</p>
+      </div>
+      <button class="copy-head-close" aria-label="关闭">✕</button>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="copy-toolbar">
+      <label class="copy-search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+        <input type="search" id="copyFilter" placeholder="搜索角色名 / 职业" autocomplete="off" />
+      </label>
+      <div class="copy-sort-wrap">
+        <select id="copySort">
+          <option value="recent">最近在线优先</option>
+          <option value="name-asc">名字 A → ん</option>
+          <option value="name-desc">名字 ん → A</option>
+          <option value="job-series">职业系内进阶</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 列表主体（扁平或分组，由 JS 切换） -->
+    <div class="copy-body">
+      <div class="copy-flat" id="copyFlat" hidden></div>
+      <div class="copy-groups" id="copyGroups" hidden></div>
+      <div class="copy-empty" id="copyEmpty" hidden></div>
+    </div>
+
+    <!-- 底部 -->
+    <div class="copy-footer">
+      <div class="copy-selected-info">
+        共 <b id="copyTotal">0</b> 名可选角色 · 已选 <b id="copySelectedCount">0</b>
+      </div>
+      <div class="copy-actions">
+        <button class="btn-ghost" id="copyCancel">取消</button>
+        <button class="btn-primary" id="copyConfirm" disabled>确认复制</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ===== 数据 & 配置 ===== */
+const SERIES_DEF = [
+  { key: "knight",   name: "骑士系",   sub: "剑士 → 骑士 / 十字军 → 高阶",   jobs: [1,7,13,14,4002,4008,4014,4015,4054,4060,4066,4073,4080,4081,4082,4083,4088,4089,4090,4091,4092,4093,4094,4095,4096,4102,4109,4110,4252,4258] },
+  { key: "mage",     name: "法系",     sub: "魔法师 → 巫师 / 贤者 → 高阶",   jobs: [2,9,16,4003,4010,4017,4055,4061,4067,4074,4097,4103,4255,4261] },
+  { key: "archer",   name: "远程系",   sub: "弓箭手 → 猎人 / 诗人 / 舞娘",   jobs: [3,11,19,20,4004,4012,4020,4021,4056,4062,4068,4069,4075,4076,4084,4085,4098,4104,4105,4111,4257,4263,4264] },
+  { key: "acolyte",  name: "服侍系",   sub: "服侍 → 牧师 / 武僧 → 高阶",     jobs: [4,8,15,4005,4009,4016,4057,4063,4070,4077,4099,4106,4256,4262] },
+  { key: "merchant", name: "商队系",   sub: "商人 → 铁匠 / 炼金 → 高阶",     jobs: [5,10,18,4006,4011,4019,4058,4064,4071,4078,4086,4087,4100,4107,4112,4253,4259] },
+  { key: "thief",    name: "盗贼系",   sub: "盗贼 → 刺客 / 流氓 → 高阶",     jobs: [6,12,17,4007,4013,4018,4059,4065,4072,4079,4101,4108,4254,4260] },
+  { key: "novice",   name: "初心者",   sub: "初心者 / 超级初心者",           jobs: [0,23] },
+  { key: "other",    name: "独立职业", sub: "神枪手 / 忍者 / 拳圣 / 召唤师", jobs: [24,25,4046,4047,4048,4049,4211,4212,4215,4218,4239,4240,4241,4242,4243,4244] },
+];
+const JOB_TO_SERIES = new Map();
+for (const s of SERIES_DEF) for (const j of s.jobs) JOB_TO_SERIES.set(j, s.key);
+
+const JOB_ZH = {
+  0:"初心者",1:"剑士",2:"魔法师",3:"弓箭手",4:"服侍",5:"商人",6:"盗贼",
+  7:"骑士",8:"牧师",9:"巫师",10:"铁匠",11:"猎人",12:"刺客",13:"骑乘骑士",
+  14:"十字军",15:"武僧",16:"贤者",17:"流氓",18:"炼金术士",19:"吟游诗人",20:"舞娘",
+  23:"超级初心者",24:"神枪手",25:"忍者",
+  4002:"高阶剑士",4003:"高阶魔法师",4004:"高阶弓箭手",4005:"高阶服侍",4006:"高阶商人",4007:"高阶盗贼",
+  4008:"骑士领主",4009:"主教",4010:"大法师",4011:"机甲师",4012:"神射手",4013:"影十字",
+  4014:"符文骑士",4015:"圣殿骑士",4016:"武术宗师",4017:"元素支配者",4018:"深渊追迹者",4019:"生物学家",
+  4020:"游唱诗人",4021:"游侠舞者",
+  4046:"拳圣",4047:"星帝",4048:"至高拳圣",4049:"灵魂收割者",
+};
+const NAME_PREFIX = ["本子","任务","弓手","商人","剑士","巫师","牧师","猎人","骑士","刺客","武僧","铁匠","炼金","贤者","流氓","诗人","舞娘","初心","超级","神枪","忍者","拳圣","元素","游侠","影子","龙纹","风语","烈焰","寒冰","雷电","大地"];
+const NAME_SUFFIX = ["1","2","3","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","阿强","小明","阿虎","小花","老李","王大","张二","三刀","五杀","aa","bb","cc"];
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rnd(a,b) { return Math.floor(Math.random()*(b-a+1))+a; }
+
+function buildChars(count) {
+  const chars = [];
+  const now = Date.now();
+  const seeds = [
+    {name:"本子骑8", job:4008}, {name:"本子骑1", job:7}, {name:"本子骑2", job:4054}, {name:"本子骑3", job:1},
+    {name:"本子法1", job:9}, {name:"本子法2", job:4010}, {name:"本子弓1", job:11}, {name:"本子弓2", job:4012},
+    {name:"本子牧1", job:8}, {name:"本子商1", job:10}, {name:"本子商2", job:4011},
+    {name:"本子刺1", job:12}, {name:"初心者小明", job:0}, {name:"神枪手阿牛", job:24},
+  ];
+  for (const s of seeds) {
+    if (chars.length >= count) break;
+    chars.push({ aid:1001, cid:1, nid:2000000+chars.length, char_name:s.name, job_id:s.job, last_seen_at: now - rnd(0, 43200)*60000 });
+  }
+  const used = new Set(chars.map(c => c.char_name));
+  const allJobs = SERIES_DEF.flatMap(s => s.jobs);
+  while (chars.length < count) {
+    let n, tries = 0;
+    do { n = pick(NAME_PREFIX) + pick(NAME_SUFFIX); tries++; } while (used.has(n) && tries < 10);
+    if (tries >= 10) n = pick(NAME_PREFIX) + Math.floor(Math.random()*999);
+    used.add(n);
+    chars.push({ aid:1001, cid:1, nid:2000000+chars.length, char_name:n, job_id:pick(allJobs), last_seen_at: now - rnd(0, 43200)*60000 });
+  }
+  return chars;
+}
+
+/* ===== 状态 ===== */
+let totalCount = 200;
+const THRESHOLD = 20;
+let filterTerm = "";
+let sortMode = "recent";
+let selectedKey = null;
+const collapsed = new Set();
+
+const OVERLAY = document.getElementById("copyOverlay");
+const charCountSlider = document.getElementById("charCount");
+const charCountVal = document.getElementById("charCountVal");
+const filterInput = document.getElementById("copyFilter");
+const sortSelect = document.getElementById("copySort");
+const flat = document.getElementById("copyFlat");
+const groups = document.getElementById("copyGroups");
+const empty = document.getElementById("copyEmpty");
+const totalSpan = document.getElementById("copyTotal");
+const selSpan = document.getElementById("copySelectedCount");
+const confirmBtn = document.getElementById("copyConfirm");
+const cancelBtn = document.getElementById("copyCancel");
+const closeBtn = document.querySelector(".copy-head-close");
+
+charCountSlider.addEventListener("input", () => {
+  totalCount = parseInt(charCountSlider.value, 10);
+  charCountVal.textContent = totalCount;
+  selectedKey = null;
+  render();
+});
+filterInput.addEventListener("input", () => { filterTerm = filterInput.value.trim().toLowerCase(); render(); });
+sortSelect.addEventListener("change", () => { sortMode = sortSelect.value; render(); });
+flat.addEventListener("click", (e) => charClick(e));
+groups.addEventListener("click", (e) => {
+  const chev = e.target.closest("[data-series-chev]");
+  if (chev) {
+    const head = chev.closest(".copy-group-head");
+    const key = head.dataset.series;
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    render();
+    return;
+  }
+  charClick(e);
+});
+cancelBtn.addEventListener("click", () => { OVERLAY.style.display = "none"; });
+closeBtn.addEventListener("click", () => { OVERLAY.style.display = "none"; });
+
+function charClick(e) {
+  const btn = e.target.closest(".copy-char");
+  if (!btn || btn.classList.contains("is-source")) return;
+  const key = btn.dataset.key;
+  selectedKey = selectedKey === key ? null : key;
+  render();
+}
+
+function sortChars(chars) {
+  const arr = [...chars];
+  switch (sortMode) {
+    case "name-asc":  arr.sort((a,b) => a.char_name.localeCompare(b.char_name, "zh")); break;
+    case "name-desc": arr.sort((a,b) => b.char_name.localeCompare(a.char_name, "zh")); break;
+    case "job-series":
+      arr.sort((a,b) => {
+        const sa = JOB_TO_SERIES.get(a.job_id) ?? "zzz";
+        const sb = JOB_TO_SERIES.get(b.job_id) ?? "zzz";
+        if (sa !== sb) return SERIES_DEF.findIndex(s => s.key === sa) - SERIES_DEF.findIndex(s => s.key === sb);
+        return (b.job_id || -1) - (a.job_id || -1);
+      });
+      break;
+    default: arr.sort((a,b) => b.last_seen_at - a.last_seen_at);
+  }
+  return arr;
+}
+
+function makeChar(c, isSource, isOn) {
+  const key = `${c.aid}:${c.cid}:${c.nid}`;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `copy-char${isSource ? " is-source" : ""}${isOn ? " is-on" : ""}`;
+  btn.dataset.key = key;
+  btn.disabled = isSource;
+  const iconBox = document.createElement("span");
+  iconBox.className = c.job_id % 2 === 0 ? "copy-char-icon-fallback" : "copy-char-icon";
+  // 用名字首字作为 fallback（原型里没有真实图标）
+  const fb = document.createElement("span");
+  fb.textContent = c.char_name.slice(0, 1);
+  fb.style.cssText = c.job_id % 2 === 0 ? "" : "display:grid;place-items:center;width:22px;height:22px;color:#1d332b;background:#f7f4ee;border:1px solid var(--line-light);border-radius:5px;font-size:.72rem;font-weight:800;";
+  iconBox.appendChild(fb);
+  btn.appendChild(iconBox);
+  const text = document.createElement("span");
+  text.className = "copy-char-text";
+  const name = document.createElement("span");
+  name.className = "copy-char-name"; name.textContent = c.char_name;
+  const job = document.createElement("span");
+  job.className = "copy-char-job"; job.textContent = JOB_ZH[c.job_id] || "未知";
+  text.append(name, job);
+  btn.appendChild(text);
+  return btn;
+}
+
+function render() {
+  const all = buildChars(totalCount);
+  // 模拟：第一个种子角色是当前角色（要排除）
+  const sourceKey = "1001:1:2000000";
+  const sourceName = "本子骑8";
+  const others = all.filter(c => `${c.aid}:${c.cid}:${c.nid}` !== sourceKey);
+
+  const filtered = others.filter(c => {
+    if (!filterTerm) return true;
+    return c.char_name.toLowerCase().includes(filterTerm) || (JOB_ZH[c.job_id] || "").toLowerCase().includes(filterTerm);
+  });
+  const matched = sortChars(filtered);
+
+  totalSpan.textContent = others.length;
+  selSpan.textContent = selectedKey ? 1 : 0;
+  confirmBtn.disabled = !selectedKey;
+
+  // 空状态
+  if (matched.length === 0) {
+    flat.hidden = true; groups.hidden = true;
+    empty.hidden = false;
+    empty.textContent = filterTerm ? `没有匹配「${filterTerm}」的角色` : "当前账号没有其他已绑定角色";
+    return;
+  }
+  empty.hidden = true;
+
+  const useGroups = others.length >= THRESHOLD && !filterTerm;
+
+  if (!useGroups) {
+    flat.hidden = false; groups.hidden = true;
+    flat.replaceChildren();
+    for (const c of matched) {
+      flat.appendChild(makeChar(c, false, selectedKey === `${c.aid}:${c.cid}:${c.nid}`));
+    }
+  } else {
+    flat.hidden = true; groups.hidden = false;
+    groups.replaceChildren();
+    const bySeries = new Map();
+    for (const c of matched) {
+      const sk = JOB_TO_SERIES.get(c.job_id) ?? "__other__";
+      const bucket = bySeries.get(sk);
+      if (bucket) bucket.push(c); else bySeries.set(sk, [c]);
+    }
+    const frag = document.createDocumentFragment();
+    for (const sg of SERIES_DEF) {
+      const groupChars = bySeries.get(sg.key);
+      if (!groupChars || groupChars.length === 0) continue;
+      const section = document.createElement("section");
+      const isCollapsed = collapsed.has(sg.key);
+      section.innerHTML = `
+        <div class="copy-group-head${isCollapsed ? " is-collapsed" : ""}" data-series="${sg.key}">
+          <span class="copy-group-icon is-${sg.key}"></span>
+          <span class="copy-group-title">${sg.name}</span>
+          <span class="copy-group-sub">${sg.sub}</span>
+          <span class="copy-group-count">${groupChars.length}</span>
+          <button type="button" class="copy-group-chev" data-series-chev aria-label="折叠 / 展开">▾</button>
+        </div>
+        <div class="copy-group-body">
+          ${groupChars.map(c => {
+            const k = `${c.aid}:${c.cid}:${c.nid}`;
+            return `<button type="button" class="copy-char${selectedKey===k?' is-on':''}" data-key="${k}">
+              <span class="copy-char-icon-fallback">${c.char_name.slice(0,1)}</span>
+              <span class="copy-char-text">
+                <span class="copy-char-name">${c.char_name}</span>
+                <span class="copy-char-job">${JOB_ZH[c.job_id] || "未知"}</span>
+              </span>
+            </button>`;
+          }).join("")}
+        </div>
+      `;
+      frag.appendChild(section);
+    }
+    groups.appendChild(frag);
+  }
+}
+
+function toggleDialog() {
+  OVERLAY.style.display = (OVERLAY.style.display === "none") ? "grid" : "none";
+}
+
+render();
+// 默认显示弹框
+</script>
+</body>
+</html>
