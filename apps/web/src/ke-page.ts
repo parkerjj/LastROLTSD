@@ -3442,10 +3442,10 @@ export function mountKePage(root: HTMLElement): void {
       copyGroups.hidden = false;
       copyGroups.replaceChildren();
 
-      // 按职业系归类
+      // 按职业系归类（与名册保持一致，未识别的放入 __unknown__）
       const bySeries = new Map<string, KeCharacter[]>();
       for (const c of matched) {
-        const sk = JOB_TO_SERIES.get(c.job_id ?? -1) ?? "__other__";
+        const sk = c.job_id !== null ? (JOB_TO_SERIES.get(c.job_id) ?? "__unknown__") : "__unknown__";
         const bucket = bySeries.get(sk);
         if (bucket) bucket.push(c);
         else bySeries.set(sk, [c]);
@@ -3472,6 +3472,33 @@ export function mountKePage(root: HTMLElement): void {
           const body = document.createElement("div");
           body.className = "ke-copy-group-body";
           for (const c of groupChars) {
+            const key = `${c.aid}:${c.cid}:${c.nid}`;
+            body.appendChild(makeCopyCharCard(c, key === sourceKey, copyTargetKey === key));
+          }
+          section.appendChild(body);
+        }
+        frag.appendChild(section);
+      }
+      // 未知职业兜底（和名册一致）
+      const unknownChars = bySeries.get("__unknown__");
+      if (unknownChars && unknownChars.length > 0) {
+        const isCollapsed = copyCollapsed.has("__unknown__");
+        const section = document.createElement("section");
+        const head = document.createElement("div");
+        head.className = `ke-copy-group-head${isCollapsed ? " is-collapsed" : ""}`;
+        head.dataset.series = "__unknown__";
+        head.innerHTML = `
+          <span class="ke-copy-group-icon"></span>
+          <span class="ke-copy-group-title">未知职业</span>
+          <span class="ke-copy-group-sub">职业 ID 未识别</span>
+          <span class="ke-copy-group-count">${unknownChars.length}</span>
+          <button type="button" class="ke-copy-group-chev" data-series-chev aria-label="折叠 / 展开 未知职业">▾</button>
+        `;
+        section.appendChild(head);
+        if (!isCollapsed) {
+          const body = document.createElement("div");
+          body.className = "ke-copy-group-body";
+          for (const c of unknownChars) {
             const key = `${c.aid}:${c.cid}:${c.nid}`;
             body.appendChild(makeCopyCharCard(c, key === sourceKey, copyTargetKey === key));
           }
@@ -3510,7 +3537,7 @@ export function mountKePage(root: HTMLElement): void {
     copyFilterInput.value = "";
     copySortSelect.value = "recent";
     // 把源方案名高亮显示在头部描述里
-    copySub.innerHTML = `把<span class="profile-ref">${profile.name}</span>完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。`;
+    copySub.innerHTML = `把<span class="profile-ref">${escapeHtml(profile.name)}</span>完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。`;
     renderCopyTargets();
     copyOverlay.hidden = false;
     copyCancel.focus();
