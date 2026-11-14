@@ -538,6 +538,39 @@ const CONTROL_TAB_HINTS: Record<string, string> = {
 // 下拉列表最多渲染的条目数（超过时底部提示用户直接输入文字过滤）。
 const PICKER_LIMIT = 100;
 
+// ===== 角色名册：职业系分组 =====
+// 角色数量 >= 该阈值时自动切换为分组视图；否则保持原有平铺。
+const ROSTER_GROUP_THRESHOLD = 20;
+
+// 职业系分组定义。每个 series 的 jobs 是该系列覆盖的全部 job_id（含高阶转职）。
+interface JobSeriesGroup {
+  key: string;
+  name: string;
+  sub: string;
+  jobs: number[];
+}
+const JOB_SERIES_GROUPS: JobSeriesGroup[] = [
+  { key: "knight",   name: "骑士系", sub: "剑士 → 骑士 / 十字军 → 高阶二转",   jobs: [1,7,13,14,21,162,168,169,174,175,4002,4008,4009,4014,4015,4022,4054,4060,4066,4073,4080,4081,4082,4083,4088,4089,4090,4091,4092,4093,4094,4095,4096,4102,4109,4110,4252,4258] },
+  { key: "mage",     name: "法系",   sub: "魔法师 → 巫师 / 贤者 → 高阶二转",   jobs: [2,9,16,163,170,177,4003,4010,4017,4055,4061,4067,4074,4097,4103,4255,4261] },
+  { key: "archer",   name: "远程系", sub: "弓箭手 → 猎人 / 诗人 / 舞娘 → 高阶", jobs: [3,11,19,20,164,172,180,181,4004,4012,4020,4021,4056,4062,4068,4069,4075,4076,4084,4085,4098,4104,4105,4111,4257,4263,4264] },
+  { key: "acolyte",  name: "服侍系", sub: "服侍 → 牧师 / 武僧 → 高阶二转",     jobs: [4,8,15,165,169,176,4005,4009,4016,4057,4063,4070,4077,4099,4106,4256,4262] },
+  { key: "merchant", name: "商队系", sub: "商人 → 铁匠 / 炼金术士 → 高阶",     jobs: [5,10,18,166,171,179,4006,4011,4019,4058,4064,4071,4078,4086,4087,4100,4107,4112,4253,4259] },
+  { key: "thief",    name: "盗贼系", sub: "盗贼 → 刺客 / 流氓 → 高阶二转",     jobs: [6,12,17,167,173,178,4007,4013,4018,4059,4065,4072,4079,4101,4108,4254,4260] },
+  { key: "novice",   name: "初心者", sub: "初心者 / 超级初心者",               jobs: [0,23,161,4001,4045,4190,4191] },
+  { key: "other",    name: "独立职业", sub: "神枪手 / 忍者 / 拳圣 / 召唤师…",  jobs: [24,25,4046,4047,4048,4049,4211,4212,4215,4218,4239,4240,4241,4242,4243,4244] },
+];
+const JOB_TO_SERIES = new Map<number, string>();
+for (const s of JOB_SERIES_GROUPS) for (const j of s.jobs) JOB_TO_SERIES.set(j, s.key);
+
+// 排序模式：最近在线（默认）、名字升序、名字降序、职业系内进阶（高阶在前）
+type RosterSortMode = "recent" | "name-asc" | "name-desc" | "job-series";
+const ROSTER_SORT_OPTIONS: { value: RosterSortMode; label: string }[] = [
+  { value: "recent",     label: "最近在线优先" },
+  { value: "name-asc",   label: "名字 A → ん" },
+  { value: "name-desc",  label: "名字 ん → A" },
+  { value: "job-series", label: "按职业系内进阶" },
+];
+
 /** block 类分区（技能规则 / 物品使用 / 自动购买 / 自动取物 / 自动换装）顶部的简易教程。 */
 const BLOCK_TAB_HINTS: Record<string, string> = {
   skills: [
@@ -616,6 +649,8 @@ export function mountKePage(root: HTMLElement): void {
   let advancedEdit = false;
   let previewTyping = false;
   let charFilter = "";
+  let rosterSort: RosterSortMode = "recent";
+  const collapsedSeries = new Set<string>(); // 分组视图中被折叠的 series key
   let demoProfiles: ProfileDetail[] = [];
   const expandedBlocks = new WeakSet<BlockValue>();
 
@@ -677,12 +712,20 @@ export function mountKePage(root: HTMLElement): void {
             <p class="eyebrow">02 · 冒险者名册</p>
             <h2>全部角色 <span class="ke-count-pill"><i id="ke-roster-count">0</i><span id="ke-roster-total">/ 0</span></span></h2>
           </div>
-          <label class="ke-roster-search">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
-            <input id="ke-roster-filter" type="search" placeholder="搜索角色名 / 职业" aria-label="搜索角色" autocomplete="off" />
-          </label>
+          <div class="ke-roster-controls">
+            <label class="ke-roster-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+              <input id="ke-roster-filter" type="search" placeholder="搜索角色名 / 职业" aria-label="搜索角色" autocomplete="off" />
+            </label>
+            <div class="ke-sort-select">
+              <select id="ke-roster-sort" aria-label="角色排序">
+                ${ROSTER_SORT_OPTIONS.map(o => `<option value="${o.value}"${o.value === "recent" ? " selected" : ""}>${o.label}</option>`).join("")}
+              </select>
+            </div>
+          </div>
         </div>
         <div class="ke-char-strip" id="ke-char-strip" aria-label="切换角色"></div>
+        <div class="ke-roster-groups" id="ke-roster-groups" hidden></div>
         <p class="ke-roster-note" id="ke-roster-note"></p>
       </div>
     </section>
@@ -841,6 +884,72 @@ export function mountKePage(root: HTMLElement): void {
     .ke-roster-note { display: flex; align-items: center; gap: 8px; margin: 13px 0 0; color: var(--muted); font-size: .64rem; }
     .ke-roster-note::before { content: ""; width: 14px; height: 1px; background: #cfc0a8; }
     .ke-roster-empty { grid-column: 1 / -1; padding: 22px; color: var(--muted); border: 1px dashed #e2d7c4; border-radius: 10px; text-align: center; font-size: .76rem; }
+
+    /* —— 排序下拉 —— */
+    .ke-sort-select { position: relative; height: 34px; }
+    .ke-sort-select select {
+      appearance: none; -webkit-appearance: none;
+      height: 34px; padding: 0 28px 0 11px;
+      font-family: inherit; font-size: .74rem; font-weight: 700;
+      color: var(--forest); background: #fbf7ef;
+      border: 1px solid #e2d7c4; border-radius: 9px;
+      cursor: pointer; transition: border-color .15s, box-shadow .15s;
+    }
+    .ke-sort-select select:hover { border-color: #cfc0a8; }
+    .ke-sort-select select:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+    .ke-sort-select::after {
+      content: "▾"; position: absolute; right: 9px; top: 50%; transform: translateY(-55%);
+      color: #949d96; font-size: .72rem; pointer-events: none;
+    }
+    .ke-roster-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* —— 分组视图 —— */
+    .ke-roster-groups { margin-top: 14px; display: grid; gap: 0; }
+    .ke-roster-group { display: grid; }
+    .ke-roster-group-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px;
+      background: linear-gradient(90deg, rgba(29,51,43,.06) 0%, rgba(29,51,43,.02) 60%, transparent 100%);
+      border-left: 3px solid var(--gold);
+      border-radius: 6px;
+      margin-bottom: 2px;
+      cursor: default;
+    }
+    .ke-roster-group-icon {
+      flex: none; width: 28px; height: 28px;
+      display: grid; place-items: center;
+      border: 1px solid; border-radius: 7px;
+    }
+    .ke-roster-group-icon.is-knight   { background: #fde8e4; border-color: #f0b8ac; }
+    .ke-roster-group-icon.is-mage     { background: #e4edfd; border-color: #a8c4f0; }
+    .ke-roster-group-icon.is-archer   { background: #e7f3de; border-color: #a4cf87; }
+    .ke-roster-group-icon.is-acolyte  { background: #fff4d6; border-color: #e8ce80; }
+    .ke-roster-group-icon.is-merchant { background: #fce6d4; border-color: #eab48b; }
+    .ke-roster-group-icon.is-thief    { background: #e8e0f0; border-color: #c1b2d4; }
+    .ke-roster-group-icon.is-novice   { background: #f0ebe4; border-color: #d4c7b2; }
+    .ke-roster-group-icon.is-other    { background: #e0eced; border-color: #a3c4c6; }
+    .ke-roster-group-title { color: var(--forest-deep); font-size: .86rem; font-weight: 700; letter-spacing: .04em; }
+    .ke-roster-group-sub { color: var(--muted); font-size: .68rem; font-weight: 600; }
+    .ke-roster-group-count {
+      margin-left: auto; font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-size: .7rem; font-weight: 800; color: var(--gold);
+      padding: 1px 8px; background: var(--gold-soft, #f3e7d0); border: 1px solid #e1cb94;
+      border-radius: 999px;
+    }
+    .ke-roster-group-chev {
+      flex: none; width: 22px; height: 22px;
+      display: grid; place-items: center;
+      background: transparent; border: 0; cursor: pointer;
+      color: var(--muted); font-size: .8rem;
+      transition: transform .18s ease, color .15s;
+    }
+    .ke-roster-group-chev:hover { color: var(--forest); }
+    .ke-roster-group-head.is-collapsed .ke-roster-group-chev { transform: rotate(-90deg); }
+    .ke-roster-group-head.is-collapsed + .ke-roster-group-body { display: none; }
+    .ke-roster-group-body {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); gap: 8px;
+      padding: 8px 6px 6px;
+    }
 
     .ke-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: .62rem; font-weight: 700; }
     .ke-chip--job { color: #eccf97; background: rgba(198,148,69,.14); border: 1px solid rgba(198,148,69,.45); }
@@ -1239,7 +1348,9 @@ export function mountKePage(root: HTMLElement): void {
     @media (max-width: 520px) {
       .ke-profile-grid { grid-template-columns: 1fr; }
       .ke-field-name { min-width: 100%; }
-      .ke-char-strip { grid-template-columns: 1fr 1fr; }
+      .ke-char-strip, .ke-roster-group-body { grid-template-columns: 1fr 1fr; }
+      .ke-roster-group-head { flex-wrap: wrap; }
+      .ke-roster-group-sub { display: none; }
     }
     @media (prefers-reduced-motion: reduce) {
       .ke-badge-live i, .ke-char-live, .ke-char-card-chip.is-live::after,
@@ -1270,25 +1381,172 @@ export function mountKePage(root: HTMLElement): void {
     .ke-preset-no { border: 1px solid var(--line-light); background: var(--cream); color: var(--muted); }
     .ke-preset-no:hover:not(:disabled) { color: var(--red-dark); background: #f7f3ea; border-color: var(--red-dark); }
 
-    /* 复制方案到其他角色：轻量弹窗，列出当前账号的其它角色 */
-    .ke-copy-overlay { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(43,37,28,.45); backdrop-filter: blur(3px); }
+    /* ===== 复制方案弹框（新版：分组 + 搜索 + 排序 + 折叠） ===== */
+    .ke-copy-overlay {
+      position: fixed; inset: 0; z-index: 95;
+      display: grid; place-items: center; padding: 20px;
+      background: rgba(43,37,28,.45); backdrop-filter: blur(4px);
+      animation: ke-fadein .18s ease;
+    }
     .ke-copy-overlay[hidden] { display: none; }
-    .ke-copy-dialog { display: grid; gap: 12px; width: min(460px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 16px 18px 14px; background: #f7f3ea; border: 1px solid #b9ab94; border-radius: 12px; box-shadow: 0 26px 60px rgba(80,62,38,.25); }
-    .ke-copy-title { margin: 0; color: var(--forest); font-size: .95rem; font-weight: 800; text-align: center; }
-    .ke-copy-sub { margin: 0; color: #4c5a50; font-size: .78rem; line-height: 1.65; }
-    .ke-copy-list { display: grid; gap: 6px; max-height: 280px; overflow-y: auto; }
-    .ke-copy-char { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; color: var(--ink); background: #fffdf8; border: 1px solid var(--line); border-radius: 8px; font: inherit; text-align: left; box-shadow: none; cursor: pointer; }
-    .ke-copy-char:hover:not(:disabled) { border-color: var(--line-light); background: #fff6e6; }
-    .ke-copy-char.is-on { border-color: var(--buy); background: var(--cream); box-shadow: 0 0 0 2px var(--buy-soft); }
-    .ke-copy-char-icon { width: 22px; height: 22px; flex: none; object-fit: contain; image-rendering: pixelated; }
-    .ke-copy-char-icon-fallback { display: grid; place-items: center; width: 22px; height: 22px; flex: none; color: var(--forest); background: var(--cream); border: 1px solid var(--line-light); border-radius: 5px; font-size: .7rem; font-weight: 800; }
-    .ke-copy-char-text { display: grid; gap: 1px; min-width: 0; }
-    .ke-copy-char-name { overflow: hidden; color: var(--forest); font-size: .82rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
-    .ke-copy-char-job { color: var(--muted); font-size: .7rem; }
-    .ke-copy-empty { padding: 16px; color: var(--muted); background: #fffdf8; border: 1px dashed var(--line-light); border-radius: 8px; font-size: .8rem; text-align: center; }
-    .ke-copy-error { margin: 0; color: var(--red-dark); font-size: .76rem; font-weight: 700; }
+    .ke-copy-dialog {
+      width: min(620px, 100%);
+      max-height: min(620px, calc(100vh - 40px));
+      display: grid; grid-template-rows: auto auto auto 1fr auto auto;
+      background: #fbf7ee; border: 1px solid #b9ab94; border-radius: 14px;
+      box-shadow: 0 32px 80px rgba(80,62,38,.3);
+      overflow: hidden;
+      animation: ke-popin .22s cubic-bezier(.2,.9,.3,1.1);
+    }
+    /* 头部 */
+    .ke-copy-head {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 18px 20px 12px;
+      background: linear-gradient(180deg, rgba(198,148,69,.06), transparent);
+      border-bottom: 1px solid rgba(185,171,148,.5);
+    }
+    .ke-copy-head-icon {
+      flex: none; width: 38px; height: 38px;
+      display: grid; place-items: center;
+      background: var(--gold-soft); border: 1px solid #e1cb94; border-radius: 10px;
+      font-size: 1.1rem;
+    }
+    .ke-copy-head-main { min-width: 0; }
+    .ke-copy-title { margin: 0; color: var(--forest-deep); font-size: 1.02rem; font-weight: 800; letter-spacing: .02em; }
+    .ke-copy-sub { margin: 4px 0 0; color: #4c5a50; font-size: .74rem; line-height: 1.65; }
+    .ke-copy-sub .profile-ref {
+      display: inline-block; padding: 0 6px; margin: 0 2px;
+      color: #7a5a18; background: var(--gold-soft); border: 1px solid #e1cb94; border-radius: 4px;
+      font-weight: 700; font-family: ui-monospace, Consolas, monospace;
+    }
+    /* 工具栏 */
+    .ke-copy-toolbar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 20px;
+      background: #fffdf8;
+      border-bottom: 1px solid rgba(185,171,148,.4);
+    }
+    .ke-copy-search {
+      display: flex; align-items: center; gap: 6px;
+      flex: 1; min-width: 150px; height: 32px; padding: 0 10px;
+      background: #f7f1e5; border: 1px solid #e2d7c4; border-radius: 8px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .ke-copy-search:focus-within { background: #fffdf8; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+    .ke-copy-search svg { flex: none; width: 13px; height: 13px; stroke: #949d96; fill: none; stroke-width: 2; stroke-linecap: round; }
+    .ke-copy-search input { width: 100%; height: 28px; padding: 0; border: 0; outline: 0; background: transparent; font-size: .73rem; font-family: inherit; color: var(--ink); }
+    .ke-copy-search input::placeholder { color: #949d96; }
+    .ke-copy-sort { position: relative; height: 32px; }
+    .ke-copy-sort select {
+      appearance: none; -webkit-appearance: none;
+      height: 32px; padding: 0 26px 0 10px;
+      font-family: inherit; font-size: .72rem; font-weight: 700;
+      color: var(--forest); background: #f7f1e5; border: 1px solid #e2d7c4; border-radius: 8px;
+      cursor: pointer;
+    }
+    .ke-copy-sort select:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,148,69,.14); }
+    .ke-copy-sort::after {
+      content: "▾"; position: absolute; right: 7px; top: 50%; transform: translateY(-55%);
+      color: #949d96; font-size: .7rem; pointer-events: none;
+    }
+    /* 列表主体 */
+    .ke-copy-body {
+      overflow-y: auto; scrollbar-width: thin; scrollbar-color: #cfc0a8 transparent;
+    }
+    .ke-copy-body::-webkit-scrollbar { width: 7px; }
+    .ke-copy-body::-webkit-scrollbar-thumb { background: #cfc0a8; border-radius: 4px; }
+    .ke-copy-body::-webkit-scrollbar-track { background: transparent; }
+    /* 平铺 */
+    .ke-copy-flat { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 7px; padding: 14px 20px; }
+    /* 分组 */
+    .ke-copy-groups { padding: 12px 20px 4px; display: grid; gap: 2px; }
+    .ke-copy-group-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px;
+      background: linear-gradient(90deg, rgba(29,51,43,.05) 0%, transparent 80%);
+      border-left: 3px solid var(--gold); border-radius: 4px;
+    }
+    .ke-copy-group-icon { flex: none; width: 22px; height: 22px; border: 1px solid; border-radius: 5px; }
+    .ke-copy-group-icon.is-knight   { background: #fde8e4; border-color: #f0b8ac; }
+    .ke-copy-group-icon.is-mage     { background: #e4edfd; border-color: #a8c4f0; }
+    .ke-copy-group-icon.is-archer   { background: #e7f3de; border-color: #a4cf87; }
+    .ke-copy-group-icon.is-acolyte  { background: #fff4d6; border-color: #e8ce80; }
+    .ke-copy-group-icon.is-merchant { background: #fce6d4; border-color: #eab48b; }
+    .ke-copy-group-icon.is-thief    { background: #e8e0f0; border-color: #c1b2d4; }
+    .ke-copy-group-icon.is-novice   { background: #f0ebe4; border-color: #d4c7b2; }
+    .ke-copy-group-icon.is-other    { background: #e0eced; border-color: #a3c4c6; }
+    .ke-copy-group-title { color: var(--forest-deep); font-weight: 700; font-size: .76rem; }
+    .ke-copy-group-sub { color: var(--muted); font-weight: 500; font-size: .63rem; }
+    .ke-copy-group-count {
+      margin-left: auto; font-family: ui-monospace, monospace; font-weight: 800;
+      font-size: .66rem; color: var(--gold);
+      padding: 0 7px; background: var(--gold-soft); border-radius: 999px;
+    }
+    .ke-copy-group-chev {
+      flex: none; width: 20px; height: 20px;
+      display: grid; place-items: center;
+      background: transparent; border: 0; cursor: pointer;
+      color: var(--muted); font-size: .7rem;
+      transition: transform .18s;
+    }
+    .ke-copy-group-head.is-collapsed .ke-copy-group-chev { transform: rotate(-90deg); }
+    .ke-copy-group-head.is-collapsed + .ke-copy-group-body { display: none; }
+    .ke-copy-group-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 7px; padding: 8px 4px; }
+    /* 角色卡 */
+    .ke-copy-char {
+      position: relative;
+      display: flex; align-items: center; gap: 9px;
+      width: 100%; padding: 8px 10px;
+      color: var(--ink); background: #fffdf8;
+      border: 1px solid var(--line); border-radius: 8px;
+      font: inherit; text-align: left; cursor: pointer;
+      transition: transform .12s, border-color .12s, background .12s, box-shadow .12s;
+    }
+    .ke-copy-char:hover:not(:disabled) { border-color: #cfc0a8; background: #fff6e6; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(80,62,38,.06); }
+    .ke-copy-char.is-source { opacity: .55; cursor: not-allowed; background: #f7f4ee; color: var(--muted); }
+    .ke-copy-char.is-source:hover { transform: none; box-shadow: none; }
+    .ke-copy-char.is-on { border-color: var(--buy); background: #e7f1eb; box-shadow: 0 0 0 2px rgba(44,122,89,.18); }
+    .ke-copy-char.is-on::before {
+      content: ""; position: absolute; top: 6px; right: 6px; z-index: 2;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--buy);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
+      background-size: 10px 10px; background-position: center; background-repeat: no-repeat;
+      box-shadow: 0 0 0 2px #fffdf8;
+    }
+    .ke-copy-char-icon { flex: none; width: 24px; height: 24px; object-fit: contain; image-rendering: pixelated; border-radius: 5px; overflow: hidden; }
+    .ke-copy-char-icon-fallback {
+      flex: none; width: 24px; height: 24px;
+      display: grid; place-items: center;
+      color: var(--forest); background: #f7f4ee; border: 1px solid var(--line-light);
+      border-radius: 5px; font-size: .72rem; font-weight: 800;
+    }
+    .ke-copy-char-text { display: grid; gap: 0; min-width: 0; padding-right: 2px; }
+    .ke-copy-char-name { overflow: hidden; color: var(--forest); font-size: .78rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .ke-copy-char-job { color: var(--muted); font-size: .62rem; }
+    /* 空态 + 错误 */
+    .ke-copy-empty { padding: 20px; margin: 14px 20px; color: var(--muted); background: #fffdf8; border: 1px dashed var(--line-light); border-radius: 10px; font-size: .78rem; text-align: center; }
+    .ke-copy-error { margin: 0; padding: 0 20px; color: var(--red-dark); font-size: .74rem; font-weight: 700; }
     .ke-copy-error[hidden] { display: none; }
-    .ke-copy-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    /* 底部 */
+    .ke-copy-footer {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 12px 20px;
+      background: linear-gradient(0deg, #f3ece0, #fbf7ee);
+      border-top: 1px solid rgba(185,171,148,.5);
+    }
+    .ke-copy-info { font-size: .72rem; color: var(--muted); }
+    .ke-copy-info b { color: var(--forest); font-weight: 800; font-family: ui-monospace, Consolas, monospace; }
+    .ke-copy-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .ke-copy-actions .ke-btn-ghost,
+    .ke-copy-actions .ke-btn-primary { height: 34px; padding: 0 18px; font-size: .78rem; }
+    @media (max-width: 540px) {
+      .ke-copy-dialog { width: 100%; max-height: 100%; border-radius: 0; }
+      .ke-copy-flat, .ke-copy-group-body { grid-template-columns: 1fr; }
+      .ke-copy-group-sub { display: none; }
+    }
+    @keyframes ke-fadein { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes ke-popin { from { opacity: 0; transform: scale(.92) translateY(6px); } to { opacity: 1; transform: none; } }
   </style>
   `;
 
@@ -1303,9 +1561,11 @@ export function mountKePage(root: HTMLElement): void {
   const charName = root.querySelector<HTMLElement>("#ke-char-name")!;
   const jobChip = root.querySelector<HTMLElement>("#ke-char-job")!;
   const charMeta = root.querySelector<HTMLElement>("#ke-char-meta")!;
-  const charStrip = root.querySelector<HTMLElement>("#ke-char-strip")!;
   const charWm = root.querySelector<HTMLImageElement>("#ke-passport-wm")!;
   const rosterFilter = root.querySelector<HTMLInputElement>("#ke-roster-filter")!;
+  const rosterSortSelect = root.querySelector<HTMLSelectElement>("#ke-roster-sort")!;
+  const charStripFlat = root.querySelector<HTMLElement>("#ke-char-strip")!;
+  const rosterGroups = root.querySelector<HTMLElement>("#ke-roster-groups")!;
   const rosterCount = root.querySelector<HTMLElement>("#ke-roster-count")!;
   const rosterTotal = root.querySelector<HTMLElement>("#ke-roster-total")!;
   const rosterNote = root.querySelector<HTMLElement>("#ke-roster-note")!;
@@ -1339,6 +1599,20 @@ export function mountKePage(root: HTMLElement): void {
 
   rosterFilter.addEventListener("input", () => {
     charFilter = rosterFilter.value;
+    renderCharacterStrip();
+  });
+  rosterSortSelect.addEventListener("change", () => {
+    rosterSort = rosterSortSelect.value as RosterSortMode;
+    renderCharacterStrip();
+  });
+  rosterGroups.addEventListener("click", (ev) => {
+    const target = (ev.target as Element)?.closest?.("[data-series-chev]");
+    if (!target) return;
+    const groupHead = target.closest<HTMLElement>(".ke-roster-group-head");
+    const key = groupHead?.dataset.series;
+    if (!key) return;
+    if (collapsedSeries.has(key)) collapsedSeries.delete(key);
+    else collapsedSeries.add(key);
     renderCharacterStrip();
   });
   passportNew.addEventListener("click", () => {
@@ -1380,83 +1654,221 @@ export function mountKePage(root: HTMLElement): void {
   }
 
   /** char_name / map_name / job_id 由 KE 客户端自报或 RO 配置，必须纯文本写入。 */
+
+  // —— 卡片渲染辅助：创建一张角色卡片 button，平铺和分组视图共用 ——
+  function makeCharChip(c: KeCharacter, isCurrent: boolean): HTMLButtonElement {
+    const key = `${c.aid}:${c.cid}:${c.nid}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `ke-char-card-chip${isCurrent ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
+    btn.dataset.key = key;
+    btn.setAttribute("aria-pressed", isCurrent ? "true" : "false");
+    // 职业图标
+    const iconBox = document.createElement("span");
+    iconBox.className = "ke-char-card-iconbox";
+    const src = iconSrc(c.job_id);
+    if (src) {
+      const icon = document.createElement("img");
+      icon.alt = "";
+      icon.className = "ke-char-card-icon";
+      icon.src = src;
+      iconBox.appendChild(icon);
+    } else {
+      const fallback = document.createElement("span");
+      fallback.className = "ke-char-card-icon-fallback";
+      fallback.textContent = c.char_name.slice(0, 1) || "?";
+      iconBox.appendChild(fallback);
+    }
+    btn.appendChild(iconBox);
+    // 信息
+    const info = document.createElement("span");
+    info.className = "ke-char-card-info";
+    const name = document.createElement("span");
+    name.className = "ke-char-card-name";
+    name.textContent = c.char_name;
+    const job = document.createElement("span");
+    job.className = "ke-char-card-job";
+    job.textContent = jobLabelOf(c);
+    info.append(name, job);
+    btn.appendChild(info);
+    if (isCurrent) {
+      const flag = document.createElement("span");
+      flag.className = "ke-char-card-flag";
+      flag.textContent = "当前";
+      btn.appendChild(flag);
+    }
+    btn.addEventListener("click", () => {
+      if (!confirmDiscard()) return;
+      selectedKey = key;
+      const sel = selectedCharacter();
+      selectedJobId = sel?.job_id ?? null;
+      hideForm();
+      renderCharCard();
+      renderCharacterStrip();
+      void reloadProfiles();
+    });
+    return btn;
+  }
+
+  // —— 排序：根据 rosterSort 对角色数组排序（返回新数组） ——
+  function sortChars(chars: KeCharacter[]): KeCharacter[] {
+    const arr = [...chars];
+    switch (rosterSort) {
+      case "name-asc":
+        arr.sort((a, b) => a.char_name.localeCompare(b.char_name, "zh"));
+        break;
+      case "name-desc":
+        arr.sort((a, b) => b.char_name.localeCompare(a.char_name, "zh"));
+        break;
+      case "job-series":
+        arr.sort((a, b) => {
+          const skA = JOB_TO_SERIES.get(a.job_id ?? -1) ?? "zzz";
+          const skB = JOB_TO_SERIES.get(b.job_id ?? -1) ?? "zzz";
+          if (skA !== skB) {
+            const idxA = JOB_SERIES_GROUPS.findIndex((s) => s.key === skA);
+            const idxB = JOB_SERIES_GROUPS.findIndex((s) => s.key === skB);
+            return idxA - idxB;
+          }
+          // 组内：高阶转职在前（job_id 大的通常更进阶），然后最近在线
+          const jA = a.job_id ?? -1;
+          const jB = b.job_id ?? -1;
+          if (jA !== jB) return jB - jA;
+          return b.last_seen_at - a.last_seen_at;
+        });
+        break;
+      case "recent":
+      default:
+        arr.sort((a, b) => b.last_seen_at - a.last_seen_at);
+    }
+    return arr;
+  }
+
   function renderCharacterStrip(): void {
-    charStrip.replaceChildren();
+    const totalCount = characters.length;
     const term = charFilter.trim().toLowerCase();
-    const matched = characters.filter(
+    const filtered = characters.filter(
       (c) =>
         term === "" ||
         c.char_name.toLowerCase().includes(term) ||
         jobLabelOf(c).toLowerCase().includes(term),
     );
+    const matched = sortChars(filtered);
     rosterCount.textContent = String(matched.length);
-    rosterTotal.textContent = `/ ${characters.length}`;
-    rosterNote.textContent =
-      term === ""
-        ? `全部 ${characters.length} 名角色已平铺展示 · 点击任意卡片切换当前角色`
-        : `匹配 ${matched.length} / ${characters.length} 名角色 · 清空搜索显示全部`;
+    rosterTotal.textContent = `/ ${totalCount}`;
+
+    // 空状态
     if (matched.length === 0) {
+      charStripFlat.hidden = false;
+      rosterGroups.hidden = true;
+      charStripFlat.replaceChildren();
+      rosterNote.textContent = "";
       const empty = document.createElement("div");
       empty.className = "ke-roster-empty";
-      empty.textContent = `没有匹配「${charFilter.trim()}」的角色，试试职业名（如「猎人」）`;
-      charStrip.appendChild(empty);
+      empty.textContent = term === ""
+        ? "还没有绑定的角色，先去游戏里登录一下吧"
+        : `没有匹配「${charFilter.trim()}」的角色，试试职业名（如「猎人」）`;
+      charStripFlat.appendChild(empty);
       return;
     }
+
+    // 模式判定：有搜索词时强制平铺；角色数 >= 阈值 且无搜索词时用分组
+    const useGroups = totalCount >= ROSTER_GROUP_THRESHOLD && term === "";
     const currentKey = selectedKey;
-    matched.forEach((c) => {
-      const key = `${c.aid}:${c.cid}:${c.nid}`;
-      const isCurrent = key === currentKey;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = `ke-char-card-chip${isCurrent ? " is-active" : ""}${c.last_seen_at > Date.now() - 5 * 60_000 ? " is-live" : ""}`;
-      btn.dataset.key = key;
-      btn.setAttribute("aria-pressed", isCurrent ? "true" : "false");
-      // 职业图标（只有没图标时才 fallback 字首）
-      const iconBox = document.createElement("span");
-      iconBox.className = "ke-char-card-iconbox";
-      const src = iconSrc(c.job_id);
-      if (src) {
-        const icon = document.createElement("img");
-        icon.alt = "";
-        icon.className = "ke-char-card-icon";
-        icon.src = src;
-        iconBox.appendChild(icon);
-      } else {
-        const fallback = document.createElement("span");
-        fallback.className = "ke-char-card-icon-fallback";
-        fallback.textContent = c.char_name.slice(0, 1) || "?";
-        iconBox.appendChild(fallback);
+
+    if (!useGroups) {
+      // ===== 平铺视图 =====
+      rosterGroups.replaceChildren(); rosterGroups.hidden = true;
+      charStripFlat.hidden = false;
+      charStripFlat.replaceChildren();
+      for (const c of matched) {
+        charStripFlat.appendChild(makeCharChip(c, `${c.aid}:${c.cid}:${c.nid}` === currentKey));
       }
-      btn.appendChild(iconBox);
-      // 信息
-      const info = document.createElement("span");
-      info.className = "ke-char-card-info";
-      const name = document.createElement("span");
-      name.className = "ke-char-card-name";
-      name.textContent = c.char_name;
-      const job = document.createElement("span");
-      job.className = "ke-char-card-job";
-      job.textContent = jobLabelOf(c);
-      info.append(name, job);
-      btn.appendChild(info);
-      if (isCurrent) {
-        const flag = document.createElement("span");
-        flag.className = "ke-char-card-flag";
-        flag.textContent = "当前";
-        btn.appendChild(flag);
+      rosterNote.textContent =
+        term === ""
+          ? `全部 ${totalCount} 名角色已平铺展示 · 点击任意卡片切换当前角色`
+          : `匹配 ${matched.length} / ${totalCount} 名角色 · 清空搜索显示全部`;
+    } else {
+      // ===== 分组视图 =====
+      charStripFlat.replaceChildren(); charStripFlat.hidden = true;
+      rosterGroups.hidden = false;
+      rosterGroups.replaceChildren();
+
+      // 按 series 归类
+      const bySeries = new Map<string, KeCharacter[]>();
+      const unknown: KeCharacter[] = [];
+      for (const c of matched) {
+        const sk = c.job_id !== null ? (JOB_TO_SERIES.get(c.job_id) ?? "__unknown__") : "__unknown__";
+        if (sk === "__unknown__") unknown.push(c);
+        else {
+          const bucket = bySeries.get(sk);
+          if (bucket) bucket.push(c);
+          else bySeries.set(sk, [c]);
+        }
       }
-      btn.addEventListener("click", () => {
-        if (!confirmDiscard()) return;
-        selectedKey = key;
-        const sel = selectedCharacter();
-        selectedJobId = sel?.job_id ?? null;
-        hideForm();
-        renderCharCard();
-        renderCharacterStrip(); // 刷新 active 状态
-        void reloadProfiles();
-      });
-      charStrip.appendChild(btn);
-    });
+
+      const frag = document.createDocumentFragment();
+      let visibleSeriesCount = 0;
+      for (const sg of JOB_SERIES_GROUPS) {
+        const groupChars = bySeries.get(sg.key);
+        if (!groupChars || groupChars.length === 0) continue;
+        visibleSeriesCount++;
+        const isCollapsed = collapsedSeries.has(sg.key);
+        const section = document.createElement("section");
+        section.className = "ke-roster-group";
+        const head = document.createElement("div");
+        head.className = `ke-roster-group-head${isCollapsed ? " is-collapsed" : ""}`;
+        head.dataset.series = sg.key;
+        head.innerHTML = `
+          <span class="ke-roster-group-icon is-${sg.key}"></span>
+          <span class="ke-roster-group-title">${sg.name}</span>
+          <span class="ke-roster-group-sub">${sg.sub}</span>
+          <span class="ke-roster-group-count">${groupChars.length}</span>
+          <button type="button" class="ke-roster-group-chev" data-series-chev aria-label="折叠 / 展开 ${sg.name}">▾</button>
+        `;
+        section.appendChild(head);
+        if (!isCollapsed) {
+          const body = document.createElement("div");
+          body.className = "ke-roster-group-body";
+          for (const c of groupChars) {
+            body.appendChild(makeCharChip(c, `${c.aid}:${c.cid}:${c.nid}` === currentKey));
+          }
+          section.appendChild(body);
+        }
+        frag.appendChild(section);
+      }
+
+      // 未知职业兜底
+      if (unknown.length > 0) {
+        const section = document.createElement("section");
+        section.className = "ke-roster-group";
+        const isCollapsed = collapsedSeries.has("__unknown__");
+        const head = document.createElement("div");
+        head.className = `ke-roster-group-head${isCollapsed ? " is-collapsed" : ""}`;
+        head.dataset.series = "__unknown__";
+        head.innerHTML = `
+          <span class="ke-roster-group-icon"></span>
+          <span class="ke-roster-group-title">未知职业</span>
+          <span class="ke-roster-group-sub">职业 ID 未识别</span>
+          <span class="ke-roster-group-count">${unknown.length}</span>
+          <button type="button" class="ke-roster-group-chev" data-series-chev aria-label="折叠 / 展开 未知职业">▾</button>
+        `;
+        section.appendChild(head);
+        if (!isCollapsed) {
+          const body = document.createElement("div");
+          body.className = "ke-roster-group-body";
+          for (const c of unknown) {
+            body.appendChild(makeCharChip(c, `${c.aid}:${c.cid}:${c.nid}` === currentKey));
+          }
+          section.appendChild(body);
+        }
+        frag.appendChild(section);
+        visibleSeriesCount++;
+      }
+
+      rosterGroups.appendChild(frag);
+      rosterNote.textContent =
+        `全部 ${totalCount} 名角色 · 共 ${visibleSeriesCount} 个职业系分组 · 点击行尾箭头可折叠收起`;
+    }
   }
 
   // —— 状态徽章 / 预览 / 统计 ——
@@ -2866,19 +3278,52 @@ export function mountKePage(root: HTMLElement): void {
   copyOverlay.hidden = true;
   copyOverlay.innerHTML = `
     <section class="ke-copy-dialog" role="dialog" aria-modal="true" aria-labelledby="ke-copy-title">
-      <h2 class="ke-copy-title" id="ke-copy-title">复制方案到其他角色</h2>
-      <p class="ke-copy-sub" id="ke-copy-sub"></p>
-      <div class="ke-copy-list" id="ke-copy-list" role="list"></div>
+      <!-- 头部 -->
+      <div class="ke-copy-head">
+        <div class="ke-copy-head-icon">📋</div>
+        <div class="ke-copy-head-main">
+          <h2 class="ke-copy-title" id="ke-copy-title">复制方案到其他角色</h2>
+          <p class="ke-copy-sub" id="ke-copy-sub"></p>
+        </div>
+      </div>
+      <!-- 工具栏 -->
+      <div class="ke-copy-toolbar">
+        <label class="ke-copy-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>
+          <input id="ke-copy-filter" type="search" placeholder="搜索角色名 / 职业" aria-label="搜索角色" autocomplete="off" />
+        </label>
+        <div class="ke-copy-sort">
+          <select id="ke-copy-sort" aria-label="角色排序">
+            ${ROSTER_SORT_OPTIONS.map((o) => `<option value="${o.value}"${o.value === "recent" ? " selected" : ""}>${o.label}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <!-- 主体 -->
+      <div class="ke-copy-body">
+        <div class="ke-copy-flat" id="ke-copy-flat" hidden></div>
+        <div class="ke-copy-groups" id="ke-copy-groups" hidden></div>
+        <div class="ke-copy-empty" id="ke-copy-empty" hidden></div>
+      </div>
       <p class="ke-copy-error" id="ke-copy-error" role="alert" hidden></p>
-      <div class="ke-copy-actions">
-        <button type="button" class="ke-btn-ghost" id="ke-copy-cancel">取消</button>
-        <button type="button" class="ke-btn-primary" id="ke-copy-confirm">确认复制</button>
+      <!-- 底部 -->
+      <div class="ke-copy-footer">
+        <div class="ke-copy-info">共 <b id="ke-copy-total">0</b> 名可选角色 · 已选 <b id="ke-copy-selected">0</b></div>
+        <div class="ke-copy-actions">
+          <button type="button" class="ke-btn-ghost" id="ke-copy-cancel">取消</button>
+          <button type="button" class="ke-btn-primary" id="ke-copy-confirm" disabled>确认复制</button>
+        </div>
       </div>
     </section>`;
   root.appendChild(copyOverlay);
-  const copyList = copyOverlay.querySelector<HTMLElement>("#ke-copy-list")!;
+  const copyFlat = copyOverlay.querySelector<HTMLElement>("#ke-copy-flat")!;
+  const copyGroups = copyOverlay.querySelector<HTMLElement>("#ke-copy-groups")!;
+  const copyEmpty = copyOverlay.querySelector<HTMLElement>("#ke-copy-empty")!;
+  const copyFilterInput = copyOverlay.querySelector<HTMLInputElement>("#ke-copy-filter")!;
+  const copySortSelect = copyOverlay.querySelector<HTMLSelectElement>("#ke-copy-sort")!;
   const copySub = copyOverlay.querySelector<HTMLElement>("#ke-copy-sub")!;
   const copyError = copyOverlay.querySelector<HTMLElement>("#ke-copy-error")!;
+  const copyTotal = copyOverlay.querySelector<HTMLElement>("#ke-copy-total")!;
+  const copySelected = copyOverlay.querySelector<HTMLElement>("#ke-copy-selected")!;
   const copyCancel =
     copyOverlay.querySelector<HTMLButtonElement>("#ke-copy-cancel")!;
   const copyConfirm =
@@ -2886,66 +3331,182 @@ export function mountKePage(root: HTMLElement): void {
   let copySourceId: number | null = null;
   let copyTargetKey: string | null = null;
   let copyTrigger: HTMLElement | null = null;
+  let copyFilter = "";
+  let copySort: RosterSortMode = "recent";
+  const copyCollapsed = new Set<string>();
+
+  // 弹框内创建一张角色卡（平铺和分组视图共用）
+  function makeCopyCharCard(c: KeCharacter, isSource: boolean, isSelected: boolean): HTMLButtonElement {
+    const key = `${c.aid}:${c.cid}:${c.nid}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `ke-copy-char${isSource ? " is-source" : ""}${isSelected ? " is-on" : ""}`;
+    btn.dataset.key = key;
+    btn.disabled = isSource;
+    const src = iconSrc(c.job_id);
+    if (src) {
+      const icon = document.createElement("img");
+      icon.alt = "";
+      icon.className = "ke-copy-char-icon";
+      icon.src = src;
+      btn.appendChild(icon);
+    } else {
+      const fallback = document.createElement("span");
+      fallback.className = "ke-copy-char-icon-fallback";
+      fallback.textContent = c.char_name.slice(0, 1) || "?";
+      btn.appendChild(fallback);
+    }
+    const text = document.createElement("span");
+    text.className = "ke-copy-char-text";
+    const name = document.createElement("span");
+    name.className = "ke-copy-char-name";
+    name.textContent = c.char_name;
+    const job = document.createElement("span");
+    job.className = "ke-copy-char-job";
+    job.textContent =
+      options?.jobs_zh?.[String(c.job_id)] ??
+      options?.jobs[String(c.job_id)] ??
+      "未知职业";
+    text.append(name, job);
+    btn.appendChild(text);
+    btn.addEventListener("click", () => {
+      if (isSource) return;
+      // 再点同一张卡片 = 取消选择
+      copyTargetKey = copyTargetKey === key ? null : key;
+      copyConfirm.disabled = copyTargetKey === null;
+      copySelected.textContent = copyTargetKey !== null ? "1" : "0";
+      renderCopyTargets(); // 重渲以更新选中态
+    });
+    return btn;
+  }
+
+  // 排序（复用名册的排序逻辑）
+  function sortCopyTargets(chars: KeCharacter[]): KeCharacter[] {
+    return sortChars(chars); // 已有 sortChars 在名册那里定义了
+  }
 
   function renderCopyTargets(): void {
-    const ch = selectedCharacter();
-    copyTargetKey = null;
-    copyConfirm.disabled = true;
-    copyList.replaceChildren();
+    const currentCh = selectedCharacter();
+    const sourceKey = currentCh ? `${currentCh.aid}:${currentCh.cid}:${currentCh.nid}` : null;
+
     const others = characters.filter(
-      (c) =>
-        !ch || `${c.aid}:${c.cid}:${c.nid}` !== `${ch.aid}:${ch.cid}:${ch.nid}`,
+      (c) => sourceKey === null || `${c.aid}:${c.cid}:${c.nid}` !== sourceKey,
     );
+
+    copyTotal.textContent = String(others.length);
+    copySelected.textContent = copyTargetKey !== null ? "1" : "0";
+
+    // 空状态（没有其他角色）
     if (others.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "ke-copy-empty";
-      empty.textContent = "当前账号没有其他已绑定角色，暂时无处可复制。";
-      copyList.appendChild(empty);
+      copyFlat.hidden = true; copyFlat.replaceChildren();
+      copyGroups.hidden = true; copyGroups.replaceChildren();
+      copyEmpty.hidden = false;
+      copyEmpty.textContent = "当前账号没有其他已绑定角色，暂时无处可复制。";
       return;
     }
-    for (const c of others) {
-      const key = `${c.aid}:${c.cid}:${c.nid}`;
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "ke-copy-char";
-      row.setAttribute("role", "listitem");
-      row.dataset.key = key;
-      const src = iconSrc(c.job_id);
-      if (src) {
-        const icon = document.createElement("img");
-        icon.alt = "";
-        icon.className = "ke-copy-char-icon";
-        icon.src = src;
-        row.appendChild(icon);
-      } else {
-        const fallback = document.createElement("span");
-        fallback.className = "ke-copy-char-icon-fallback";
-        fallback.textContent = c.char_name.slice(0, 1) || "?";
-        row.appendChild(fallback);
+
+    // 搜索 + 排序
+    const term = copyFilter.trim().toLowerCase();
+    const filtered = others.filter((c) => {
+      if (!term) return true;
+      if (c.char_name.toLowerCase().includes(term)) return true;
+      const jobLabel = options?.jobs_zh?.[String(c.job_id)] ?? options?.jobs[String(c.job_id)] ?? "";
+      return jobLabel.toLowerCase().includes(term);
+    });
+    const matched = sortCopyTargets(filtered);
+
+    // 搜索无结果
+    if (matched.length === 0) {
+      copyFlat.hidden = true; copyFlat.replaceChildren();
+      copyGroups.hidden = true; copyGroups.replaceChildren();
+      copyEmpty.hidden = false;
+      copyEmpty.textContent = `没有匹配「${copyFilter.trim()}」的角色`;
+      return;
+    }
+    copyEmpty.hidden = true;
+
+    const useGroups = others.length >= ROSTER_GROUP_THRESHOLD && term === "";
+
+    if (!useGroups) {
+      // ===== 平铺视图 =====
+      copyGroups.hidden = true; copyGroups.replaceChildren();
+      copyFlat.hidden = false;
+      copyFlat.replaceChildren();
+      for (const c of matched) {
+        const key = `${c.aid}:${c.cid}:${c.nid}`;
+        copyFlat.appendChild(makeCopyCharCard(c, key === sourceKey, copyTargetKey === key));
       }
-      const text = document.createElement("span");
-      text.className = "ke-copy-char-text";
-      const name = document.createElement("span");
-      name.className = "ke-copy-char-name";
-      name.textContent = c.char_name;
-      const job = document.createElement("span");
-      job.className = "ke-copy-char-job";
-      job.textContent =
-        options?.jobs_zh?.[String(c.job_id)] ??
-        options?.jobs[String(c.job_id)] ??
-        "未知职业";
-      text.append(name, job);
-      row.appendChild(text);
-      row.addEventListener("click", () => {
-        copyTargetKey = key;
-        copyConfirm.disabled = false;
-        for (const item of Array.from(
-          copyList.querySelectorAll<HTMLElement>(".ke-copy-char"),
-        )) {
-          item.classList.toggle("is-on", item.dataset.key === key);
+    } else {
+      // ===== 分组视图 =====
+      copyFlat.hidden = true; copyFlat.replaceChildren();
+      copyGroups.hidden = false;
+      copyGroups.replaceChildren();
+
+      // 按职业系归类（与名册保持一致，未识别的放入 __unknown__）
+      const bySeries = new Map<string, KeCharacter[]>();
+      for (const c of matched) {
+        const sk = c.job_id !== null ? (JOB_TO_SERIES.get(c.job_id) ?? "__unknown__") : "__unknown__";
+        const bucket = bySeries.get(sk);
+        if (bucket) bucket.push(c);
+        else bySeries.set(sk, [c]);
+      }
+
+      const frag = document.createDocumentFragment();
+      for (const sg of JOB_SERIES_GROUPS) {
+        const groupChars = bySeries.get(sg.key);
+        if (!groupChars || groupChars.length === 0) continue;
+        const isCollapsed = copyCollapsed.has(sg.key);
+        const section = document.createElement("section");
+        const head = document.createElement("div");
+        head.className = `ke-copy-group-head${isCollapsed ? " is-collapsed" : ""}`;
+        head.dataset.series = sg.key;
+        head.innerHTML = `
+          <span class="ke-copy-group-icon is-${sg.key}"></span>
+          <span class="ke-copy-group-title">${sg.name}</span>
+          <span class="ke-copy-group-sub">${sg.sub}</span>
+          <span class="ke-copy-group-count">${groupChars.length}</span>
+          <button type="button" class="ke-copy-group-chev" data-series-chev aria-label="折叠 / 展开 ${sg.name}">▾</button>
+        `;
+        section.appendChild(head);
+        if (!isCollapsed) {
+          const body = document.createElement("div");
+          body.className = "ke-copy-group-body";
+          for (const c of groupChars) {
+            const key = `${c.aid}:${c.cid}:${c.nid}`;
+            body.appendChild(makeCopyCharCard(c, key === sourceKey, copyTargetKey === key));
+          }
+          section.appendChild(body);
         }
-      });
-      copyList.appendChild(row);
+        frag.appendChild(section);
+      }
+      // 未知职业兜底（和名册一致）
+      const unknownChars = bySeries.get("__unknown__");
+      if (unknownChars && unknownChars.length > 0) {
+        const isCollapsed = copyCollapsed.has("__unknown__");
+        const section = document.createElement("section");
+        const head = document.createElement("div");
+        head.className = `ke-copy-group-head${isCollapsed ? " is-collapsed" : ""}`;
+        head.dataset.series = "__unknown__";
+        head.innerHTML = `
+          <span class="ke-copy-group-icon"></span>
+          <span class="ke-copy-group-title">未知职业</span>
+          <span class="ke-copy-group-sub">职业 ID 未识别</span>
+          <span class="ke-copy-group-count">${unknownChars.length}</span>
+          <button type="button" class="ke-copy-group-chev" data-series-chev aria-label="折叠 / 展开 未知职业">▾</button>
+        `;
+        section.appendChild(head);
+        if (!isCollapsed) {
+          const body = document.createElement("div");
+          body.className = "ke-copy-group-body";
+          for (const c of unknownChars) {
+            const key = `${c.aid}:${c.cid}:${c.nid}`;
+            body.appendChild(makeCopyCharCard(c, key === sourceKey, copyTargetKey === key));
+          }
+          section.appendChild(body);
+        }
+        frag.appendChild(section);
+      }
+      copyGroups.appendChild(frag);
     }
   }
 
@@ -2953,6 +3514,12 @@ export function mountKePage(root: HTMLElement): void {
     copyOverlay.hidden = true;
     copySourceId = null;
     copyTargetKey = null;
+    copyError.hidden = true;
+    copyFilter = "";
+    copySort = "recent";
+    copyCollapsed.clear();
+    copyFilterInput.value = "";
+    copySortSelect.value = "recent";
     copyTrigger?.focus();
     copyTrigger = null;
   }
@@ -2960,8 +3527,17 @@ export function mountKePage(root: HTMLElement): void {
   function openCopyDialog(profile: ProfileSummary, trigger: HTMLElement): void {
     copySourceId = profile.id;
     copyTrigger = trigger;
+    copyTargetKey = null;
+    copyConfirm.disabled = true;
     copyError.hidden = true;
-    copySub.textContent = `把「${profile.name}」完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。`;
+    // 重置搜索/排序/折叠状态
+    copyFilter = "";
+    copySort = "recent";
+    copyCollapsed.clear();
+    copyFilterInput.value = "";
+    copySortSelect.value = "recent";
+    // 把源方案名高亮显示在头部描述里
+    copySub.innerHTML = `把<span class="profile-ref">${escapeHtml(profile.name)}</span>完整复制到所选角色名下，包括 config.txt 与全部规则文件；复制不会带走共享状态。`;
     renderCopyTargets();
     copyOverlay.hidden = false;
     copyCancel.focus();
@@ -2993,6 +3569,24 @@ export function mountKePage(root: HTMLElement): void {
     }
   }
 
+  copyFilterInput.addEventListener("input", () => {
+    copyFilter = copyFilterInput.value;
+    renderCopyTargets();
+  });
+  copySortSelect.addEventListener("change", () => {
+    copySort = copySortSelect.value as RosterSortMode;
+    renderCopyTargets();
+  });
+  copyGroups.addEventListener("click", (ev) => {
+    const target = (ev.target as Element)?.closest?.("[data-series-chev]");
+    if (!target) return;
+    const head = target.closest<HTMLElement>(".ke-copy-group-head");
+    const key = head?.dataset.series;
+    if (!key) return;
+    if (copyCollapsed.has(key)) copyCollapsed.delete(key);
+    else copyCollapsed.add(key);
+    renderCopyTargets();
+  });
   copyCancel.addEventListener("click", closeCopyDialog);
   copyConfirm.addEventListener("click", () => void confirmCopy());
   copyOverlay.addEventListener("mousedown", (event) => {
