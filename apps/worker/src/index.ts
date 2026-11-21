@@ -27,6 +27,7 @@ import { registerLastroAccountRoute } from './routes/lastro-accounts';
 import { registerMakingCookieRoute } from './routes/making-cookie';
 import { registerPresenceRoute } from './routes/presence';
 import { registerIwaRoutes } from './routes/iwa';
+import { registerNativeRoutes } from './routes/native';
 import { registerSponsorRoutes } from './routes/sponsors';
 import { authEnvResolutionFailureResponse, registerAuthRoutes } from './auth/router';
 import { registerKeRoutes } from './ke/router';
@@ -100,6 +101,7 @@ export function createApp(env: AppEnv, injectedDatabase?: MysqlDatabase, context
   registerMakingCookieRoute(app);
   registerPresenceRoute(app);
   registerIwaRoutes(app, env);
+  registerNativeRoutes(app);
   registerSponsorRoutes(app, env);
   const activity = database ? createActivityRecorder(createActivityRepository(database), env.ENVIRONMENT, Date.now, env.LTSD_PROXY_SHARED_SECRET, env.LTSD_PROXY_GEO_ENABLED === 'true') : NOOP_ACTIVITY_RECORDER;
   registerAuthRoutes(app, env, database, wakeMail ? { now: () => Date.now(), fetch: globalThis.fetch, wakeMail } : undefined, activity);

@@ -7,43 +7,39 @@ import { injectLegalLinksIntoFooters } from "./footer-links";
  * 正式页面：主导航「进阶客户端」入口即指向这里。
  */
 
-/**
- * IWA Update Manifest 的固定 URL——Chrome 会自动从中拉取最新 .swbn 并安装。
- * 发布新 client 时无需回来改这里——Chrome 直接读 updates.json 获取最新版本。
- */
-const IWA_UPDATE_MANIFEST_URL = "https://client.ltsd.ro/updates.json";
-/** 版本号加载前的占位显示；实际版本由 /api/v1/iwa/info 动态填入。 */
-const CLIENT_VERSION = "v0.1.0";
-/** 获取最新 Release 信息的端点，返回 { version, src }。 */
-const IWA_INFO_URL = "/api/v1/iwa/info";
+const NATIVE_VERSION = "1.1035.261121";
+const NATIVE_LATEST_URL = "/api/v1/native/latest";
+const NATIVE_LINUX_URL = "/api/v1/native/linux";
 
-interface InstallStep {
-  title: string;
-  body: string;
-  image?: string;
+interface NativeAsset {
+  url: string;
+  size?: number;
 }
 
-const INSTALL_STEPS: InstallStep[] = [
-  {
-    title: "开启 IWA 开发者模式",
-    body: `在地址栏依次打开 ${copyChipMarkup("chrome://flags/#enable-isolated-web-apps")}、${copyChipMarkup("chrome://flags/#enable-isolated-web-app-dev-mode")} ，将这两个开关都设为 <strong>Enabled</strong>，然后点击 <strong>Relaunch</strong> 重启 Chrome。只需设置一次。若找不到开关，或无法打开下方的安装设置页，请先通过 <strong>⋮ → 帮助 → 关于 Google Chrome</strong> 检查更新；也可前往 <a href="https://www.google.cn/chrome/" target="_blank" rel="noopener noreferrer">Chrome 中国官网</a>（${copyChipMarkup("https://www.google.cn/chrome/")}）下载并安装最新版（Chrome 154 或更新版本），重启浏览器后再试。`,
-    image: "/tutorial/iwa-step1-flags.png",
-  },
-  {
-    title: "打开 IWA 开发者页面安装",
-    body: `点击复制 ${copyChipMarkup("chrome://iwa-dev")} 或低版本Chrome入口 ${copyChipMarkup("chrome://web-app-internals")}，粘贴到 Chrome 地址栏后按回车，找到 <strong>Install IWA from Update Manifest</strong>，粘贴更新地址 ${copyChipMarkup(IWA_UPDATE_MANIFEST_URL)} 后点击安装。Chrome 会自动拉取最新安装包，无需手动下载。若该页面仍无法打开，请先按第一步更新 Chrome、确认开关已开启并重启。`,
-    image: "/tutorial/iwa-step2-iwadev.png",
-  },
-  {
-    title: "确认并启动",
-    body: "在安装向导中确认应用名称与版本后点击安装。完成后从开始菜单或应用列表打开「LRO 进阶客户端」，像原生程序一样独立窗口运行。",
-  },
-];
-
-/** chrome:// 地址无法作为超链接打开（浏览器安全策略），渲染为点击即复制的芯片按钮。 */
-function copyChipMarkup(text: string): string {
-  return `<button type="button" class="copy-chip" data-copy="${text}" aria-label="复制 ${text}"><code>${text}</code><span class="copy-hint" aria-hidden="true">复制</span></button>`;
+interface NativeManifest {
+  version?: string;
+  installers?: Record<string, NativeAsset>;
+  platforms?: Record<string, NativeAsset>;
 }
+
+const NATIVE_CAPABILITIES = [
+  {
+    title: "独立原生窗口",
+    body: "下载、安装、启动即可进入游戏，不需要浏览器、开发者开关或命令行。每个窗口都能独立登录账号。",
+  },
+  {
+    title: "三服与两种连接模式",
+    body: "三转、二转与 App 服使用同一个客户端。App 服支持 Direct TCP 直连，二转和三转使用官方传统连接。",
+  },
+  {
+    title: "本地账号与资源缓存",
+    body: "常用账号保存在本机，可按服务器 profile 管理；游戏资源缓存可在不同原生窗口之间复用。",
+  },
+  {
+    title: "签名自动更新",
+    body: "启动时自动检查新版本，运行期间每六小时再检查。更新包通过签名校验后，由你确认安装并重启。",
+  },
+] as const;
 
 const COMPARE_ROWS = [
   {
@@ -54,13 +50,13 @@ const COMPARE_ROWS = [
   {
     feature: "整体架构",
     oldClient: "十年前的祖传代码",
-    newClient: "复兴后现代客户端架构（基于Chrome IWA重新构建）",
+    newClient: "Tauri 原生桌面架构，独立窗口运行，无需浏览器安装环境",
     isNew: true,
   },
   {
     feature: "数据传输",
-    oldClient: "需经过WSS to TCP中转，延迟增加且不稳定",
-    newClient: "服务器直连，不经中转",
+    oldClient: "固定使用官方传统连接",
+    newClient: "App 服支持 Direct TCP 直连；二转、三转保留官方传统连接",
     isNew: true,
   },
   {
@@ -133,45 +129,12 @@ const COMPARE_ROWS = [
   },
 ] as const;
 
-const KNOWN_ISSUES = [
-  {
-    title: "NPC 对话选择空条目会掉线",
-    body: "与 NPC 对话时，如果未选中任何条目点击确定，会导致与服务器断开连接。请避免点击空白选项。",
-    status: "待修复",
-  },
-  {
-    title: "NPC 商店输入数字时容易失焦",
-    body: "与 NPC 交易购买输入数量时，输入框容易失去焦点，需要重新点击输入框。",
-    status: "待修复",
-  },
-  {
-    title: "铁匠精炼界面闪烁",
-    body: "铁匠精炼时 UI 会出现闪烁现象，但不影响精炼功能的正常使用。",
-    status: "不影响使用",
-  },
-  {
-    title: "文字乱码",
-    body: "一些不重要的地方文字可能会出现乱码，但都不影响使用。",
-    status: "不影响使用",
-  },
-] as const;
-
-function installStepsMarkup(): string {
-  return INSTALL_STEPS.map(
-    (step, index) => `
-      <article class="install-step">
-        <span class="step-number" aria-hidden="true">0${index + 1}</span>
-        <h3>${step.title}</h3>
-        <p>${step.body}</p>
-        ${
-          step.image
-            ? `
-        <button type="button" class="step-thumb" data-zoom="${step.image}" aria-label="点击放大查看 ${step.title} 操作示意图">
-          <img src="${step.image}" alt="${step.title}操作示意图" loading="lazy" />
-          <span class="step-zoom-hint" aria-hidden="true"><i class="ph ph-magnifying-glass-plus"></i></span>
-        </button>`
-            : ""
-        }
+function nativeCapabilitiesMarkup(): string {
+  return NATIVE_CAPABILITIES.map(
+    (capability, index) => `
+      <article class="native-capability">
+        <span class="native-capability-index" aria-hidden="true">0${index + 1}</span>
+        <div><h3>${capability.title}</h3><p>${capability.body}</p></div>
       </article>`,
   ).join("");
 }
@@ -187,17 +150,6 @@ function compareRowsMarkup(): string {
   ).join("");
 }
 
-function knownIssuesMarkup(): string {
-  return KNOWN_ISSUES.map(
-    (issue, index) => `
-      <li class="issue-item">
-        <span class="issue-index" aria-hidden="true">${index + 1}</span>
-        <div><h3>${issue.title}</h3><p>${issue.body}</p></div>
-        <span class="issue-status">${issue.status}</span>
-      </li>`,
-  ).join("");
-}
-
 export function mountClientPage(root: HTMLElement): void {
   document.title = "LRO 进阶客户端 · 露天商店.Ro";
   root.innerHTML = `
@@ -210,36 +162,70 @@ export function mountClientPage(root: HTMLElement): void {
     <main class="client-main page-width">
       <section class="client-hero" aria-labelledby="client-page-title">
         <div class="client-hero-copy">
-          <p class="eyebrow">LRO 进阶客户端 / ISOLATED WEB APP</p>
+          <p class="eyebrow">LRO 进阶客户端 / NATIVE DESKTOP</p>
           <h1 id="client-page-title">进阶<span>客户端</span></h1>
-          <p class="client-hero-subtitle">基于 Chrome IWA（Isolated Web App）技术打造的下一代 LastRO 客户端。以网页形态分发安装，以接近原生应用的体验运行——无限帧率、离线挂机、装备免鉴定，一切从这套全新的开源架构开始。</p>
+          <p class="client-hero-subtitle">LRO 进阶客户端原生桌面版。下载并安装后即可直接登录三转、二转和 App 服，支持多窗口、本地账号管理、资源缓存与签名自动更新，无需浏览器或开发者设置。</p>
           <div class="client-hero-meta">
-            <span class="meta-chip"><i class="ph ph-desktop" aria-hidden="true"></i>仅限电脑端</span>
-            <span class="meta-chip"><i class="ph ph-google-chrome-logo" aria-hidden="true"></i>Chrome 浏览器</span>
-            <span class="meta-chip"><i class="ph ph-browser" aria-hidden="true"></i>兼容 Edge</span>
+            <span class="meta-chip"><i class="ph ph-windows-logo" aria-hidden="true"></i>Windows</span>
+            <span class="meta-chip"><i class="ph ph-apple-logo" aria-hidden="true"></i>macOS</span>
+            <span class="meta-chip"><i class="ph ph-linux-logo" aria-hidden="true"></i>Linux</span>
             <span class="meta-chip"><i class="ph ph-git-fork" aria-hidden="true"></i>完全开源</span>
           </div>
         </div>
-        <aside class="client-download-card" aria-label="客户端版本信息">
-          <span class="download-kicker">当前版本</span>
-          <div class="download-version"><strong data-latest-version>${CLIENT_VERSION}</strong><span class="beta-tag">测试版</span></div>
-          <p class="download-desc">签名 Release（Chrome IWA）。当前为测试版框架，也是后续一切「黑科技」的基础。安装无需手动下载——Chrome 会自动拉取最新安装包。</p>
-          <div class="download-file-info"><span>签名 Release 版</span><span>Chrome IWA（.swbn）</span></div>
+        <aside class="client-download-card" aria-label="Native 客户端下载">
+          <div class="client-app-identity"><img src="/brand/LRO-Native.png" alt="LRO 进阶客户端图标" width="58" height="58" /><span>LRO 进阶客户端<small>原生桌面版</small></span></div>
+          <span class="download-kicker">当前 NATIVE 版本</span>
+          <div class="download-version"><strong data-native-version>v${NATIVE_VERSION}</strong><span class="beta-tag">NATIVE</span></div>
+          <p class="download-desc">独立安装包，启动后自动检查更新。Windows 使用当前用户 NSIS 安装，不需要管理员级手动配置。</p>
+          <a class="download-button" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-windows-x64-setup.exe" data-native-asset="windows-x86_64"><i class="ph ph-download-simple" aria-hidden="true"></i>下载 Windows 版</a>
+          <div class="download-file-info"><span>Windows x64 · NSIS</span><span data-native-size="windows-x86_64">27.9 MB</span></div>
+          <div class="download-alternatives"><a href="#download">macOS / Linux 下载</a><span>签名自动更新</span></div>
         </aside>
       </section>
 
       <section class="site-notice client-requirements" aria-label="环境要求">
-        <span class="notice-badge">环境要求</span>
-        <div class="notice-body"><p>本客户端<strong>仅支持电脑端</strong>：请使用桌面版 <strong>Google Chrome</strong> 浏览器安装（Microsoft Edge 也许可用，但我不用Windows，所以未完成Edge验证），暂不支持手机与平板（未来会加入，十一假期以后）。</p></div>
+        <span class="notice-badge">运行环境</span>
+        <div class="notice-body"><p>支持 <strong>Windows x64</strong>、<strong>macOS Universal</strong> 与 <strong>Linux x86_64 / aarch64</strong>。Windows 需要 WebView2；macOS 同时支持 Apple 芯片和 Intel Mac；Linux 提供 DEB 与 RPM 安装包。</p></div>
       </section>
 
-      <section class="client-section" aria-labelledby="install-title">
+      <section class="client-section native-download-section" id="download" aria-labelledby="download-title">
         <div class="section-heading">
-          <div><p class="eyebrow">INSTALL GUIDE</p><h2 id="install-title">三步完成安装</h2></div>
-          <p>按步骤操作即可，全程无需下载文件、无需命令行。Chrome 会通过更新地址自动拉取最新安装包。</p>
+          <div><p class="eyebrow">DOWNLOAD</p><h2 id="download-title">下载 Native 客户端</h2></div>
+          <p>选择对应系统的安装包。下载地址与版本号会自动同步官方 Native 发布清单。</p>
         </div>
-        <div class="install-steps">${installStepsMarkup()}</div>
-        <p class="install-note"><i class="ph ph-info" aria-hidden="true"></i><span>为什么需要开发者模式？Chrome 目前仅允许进入官方应用列表的 IWA 免开关直接安装；未入列的签名 Release 包（如本客户端）必须开启 Developer Mode 后才能安装。该开关为浏览器级设置，开启一次即可，不影响浏览器其他功能。</span></p>
+        <div class="native-download-grid">
+          <article class="native-platform-card">
+            <header class="native-platform-header"><i class="ph ph-windows-logo" aria-hidden="true"></i><div><h3>Windows</h3><p>x64 · NSIS 当前用户安装</p></div></header>
+            <p class="native-platform-description">适用于 Windows 电脑，运行需要 WebView2。下载后打开安装程序，按提示完成安装即可。</p>
+            <a class="download-button" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-windows-x64-setup.exe" data-native-asset="windows-x86_64"><i class="ph ph-download-simple" aria-hidden="true"></i>下载 Windows 版</a>
+            <div class="native-platform-foot"><span>EXE 安装包</span><span data-native-size="windows-x86_64">27.9 MB</span></div>
+          </article>
+          <article class="native-platform-card">
+            <header class="native-platform-header"><i class="ph ph-apple-logo" aria-hidden="true"></i><div><h3>macOS</h3><p>Universal · Apple 芯片与 Intel</p></div></header>
+            <p class="native-platform-description">同一个 DMG 支持两类 Mac。打开 DMG，将 LRO 进阶客户端拖入「应用程序」后启动。</p>
+            <a class="native-download-link native-download-primary" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-macos-universal.dmg" data-native-asset="darwin-universal"><span><i class="ph ph-download-simple" aria-hidden="true"></i>下载 macOS 版</span><small data-native-size="darwin-universal">64.6 MB</small></a>
+            <div class="native-platform-foot"><span>DMG 安装镜像</span><span>签名并公证</span></div>
+          </article>
+          <article class="native-platform-card">
+            <header class="native-platform-header"><i class="ph ph-linux-logo" aria-hidden="true"></i><div><h3>Linux</h3><p>x86_64 与 aarch64</p></div></header>
+            <p class="native-platform-description">按系统架构和发行版选择 DEB 或 RPM。安装与更新由系统软件包机制完成授权。</p>
+            <div class="native-download-actions">
+              <a class="native-download-link" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-linux-amd64.deb" data-native-asset="linux-x86_64-deb"><span>x86_64 · DEB</span><small data-native-size="linux-x86_64-deb">31.6 MB</small></a>
+              <a class="native-download-link" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-linux-x86_64.rpm" data-native-asset="linux-x86_64-rpm"><span>x86_64 · RPM</span><small data-native-size="linux-x86_64-rpm">31.6 MB</small></a>
+              <a class="native-download-link" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-linux-arm64.deb" data-native-asset="linux-aarch64-deb"><span>ARM64 · DEB</span><small data-native-size="linux-aarch64-deb">31.7 MB</small></a>
+              <a class="native-download-link" href="https://client.ltsd.ro/native/${NATIVE_VERSION}/LRO-Client-${NATIVE_VERSION}-linux-aarch64.rpm" data-native-asset="linux-aarch64-rpm"><span>ARM64 · RPM</span><small data-native-size="linux-aarch64-rpm">31.7 MB</small></a>
+            </div>
+          </article>
+        </div>
+        <p class="native-download-note"><i class="ph ph-shield-check" aria-hidden="true"></i><span>页面版本：<strong data-native-version>v${NATIVE_VERSION}</strong>。安装包来自 <code>client.ltsd.ro/native/</code>，客户端更新会验证 Tauri 签名与版本。</span></p>
+      </section>
+
+      <section class="client-section" aria-labelledby="native-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">NATIVE BY DESIGN</p><h2 id="native-title">打开客户端，剩下的交给它</h2></div>
+          <p>保留进阶客户端的玩法与体验，把安装、运行和更新收回到一个独立桌面程序中。</p>
+        </div>
+        <div class="native-capabilities">${nativeCapabilitiesMarkup()}</div>
       </section>
 
       <section class="client-section" aria-labelledby="compare-title">
@@ -259,18 +245,9 @@ export function mountClientPage(root: HTMLElement): void {
         <p class="compare-footnote">注：装备免鉴定指「使用放大镜前即可查看这是什么装备」；随机词条的生成时机仍然是使用放大镜时，因此仍需鉴定后才能装备该物品。</p>
       </section>
 
-      <section class="client-section" aria-labelledby="issues-title">
-        <div class="section-heading">
-          <div><p class="eyebrow">KNOWN ISSUES</p><h2 id="issues-title">已知问题</h2></div>
-          <p>当前为测试版框架，以下问题已确认存在，将在后续版本中修复。</p>
-        </div>
-        <ol class="issue-list">${knownIssuesMarkup()}
-        </ol>
-      </section>
-
       <section class="client-feedback" aria-label="问题反馈">
         <span class="feedback-badge">问题反馈</span>
-        <p>遇到未列出的问题？加入 QQ 交流群 <button type="button" class="qq-copy" data-copy="725955796" aria-label="复制QQ群号 725955796"><span>725955796</span><span class="copy-hint" aria-hidden="true">复制</span></button> 或前往<a class="feedback-link" href="/guestbook">玩家登记簿（露天商店留言簿）</a>留言反馈。</p>
+        <p>使用中遇到问题？加入 QQ 交流群 <button type="button" class="qq-copy" data-copy="725955796" aria-label="复制QQ群号 725955796"><span>725955796</span><span class="copy-hint" aria-hidden="true">复制</span></button> 或前往<a class="feedback-link" href="/guestbook">玩家登记簿（露天商店留言簿）</a>留言反馈。</p>
       </section>
     </main>
     <footer class="site-footer"><div class="page-width footer-inner"><div><a class="brand footer-brand" href="/"><span class="brand-mark brand-mark--logo"><img src="/brand/LTSD_128.png" alt="" width="46" height="46" /></span><span><strong>露天商店.Ro</strong><small>玩家交易资料站</small></span></a><p>让每一次摆摊，都更容易被找到。</p></div><div class="footer-links"><a href="/#search">搜索市场</a><a href="/accounts">KE 监控台</a><a href="/guestbook">玩家登记簿</a><a href="/updates">更新说明</a><a href="https://game.lastro.cn/?r=pc/news&nid=5" target="_blank" rel="noreferrer">LastRO 官网</a></div><small>资料来源于公开市场记录 · 仅供游戏内交易参考</small></div></footer>
@@ -324,78 +301,54 @@ export function mountClientPage(root: HTMLElement): void {
     });
   });
 
-  bindStepLightbox(root);
-
-  refreshLatestRelease(root);
+  refreshNativeReleases(root);
 }
 
-/** 点击步骤卡内的缩略图时，弹出全屏 lightbox 查看原图。 */
-function bindStepLightbox(root: HTMLElement): void {
-  const thumbs = root.querySelectorAll<HTMLButtonElement>(
-    ".step-thumb[data-zoom]",
-  );
-  if (thumbs.length === 0) return;
-
-  let overlay: HTMLDivElement | null = null;
-  let onKeyDown: ((e: KeyboardEvent) => void) | null = null;
-
-  const close = () => {
-    if (!overlay) return;
-    overlay.remove();
-    overlay = null;
-    document.body.style.overflow = "";
-    if (onKeyDown) {
-      window.removeEventListener("keydown", onKeyDown);
-      onKeyDown = null;
-    }
-  };
-
-  thumbs.forEach((thumb) => {
-    thumb.addEventListener("click", () => {
-      const src = thumb.dataset.zoom;
-      if (!src) return;
-      close();
-      overlay = document.createElement("div");
-      overlay.className = "step-lightbox";
-      overlay.setAttribute("role", "dialog");
-      overlay.setAttribute("aria-modal", "true");
-      overlay.innerHTML = `
-        <button type="button" class="step-lightbox-close" aria-label="关闭"><i class="ph ph-x" aria-hidden="true"></i></button>
-        <img src="${src}" alt="操作示意图原图" />
-      `;
-      overlay.addEventListener("click", (e) => {
-        if (
-          e.target === overlay ||
-          (e.target as HTMLElement).closest(".step-lightbox-close")
-        )
-          close();
-      });
-      onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Escape") close();
-      };
-      window.addEventListener("keydown", onKeyDown);
-      document.body.appendChild(overlay);
-      document.body.style.overflow = "hidden";
-    });
-  });
+function isNativeAsset(value: unknown): value is NativeAsset {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Partial<NativeAsset>;
+  return typeof asset.url === "string" && asset.url.startsWith("https://client.ltsd.ro/native/");
 }
 
-/** 拉取最新 Release 版本号，更新页面上的版本显示。 */
-function refreshLatestRelease(root: HTMLElement): void {
-  const versionEl = root.querySelector<HTMLElement>("[data-latest-version]");
-  if (!versionEl) return;
+function nativeSize(size: unknown): string | null {
+  return typeof size === "number" && Number.isFinite(size) && size > 0
+    ? `${(size / 1_000_000).toFixed(1)} MB`
+    : null;
+}
+
+/** 同步官方 Native 清单；网络不可用时保留已核实的下载快照。 */
+function refreshNativeReleases(root: HTMLElement): void {
   void (async () => {
     try {
-      const response = await fetch(IWA_INFO_URL, {
-        headers: { accept: "application/json" },
+      const [latestResponse, linuxResponse] = await Promise.all([
+        fetch(NATIVE_LATEST_URL, { headers: { accept: "application/json" } }),
+        fetch(NATIVE_LINUX_URL, { headers: { accept: "application/json" } }),
+      ]);
+      if (!latestResponse.ok || !linuxResponse.ok) return;
+      const [latest, linux] = (await Promise.all([
+        latestResponse.json(),
+        linuxResponse.json(),
+      ])) as [NativeManifest, NativeManifest];
+      if (!latest.version || latest.version !== linux.version) return;
+
+      const assets: Record<string, NativeAsset | undefined> = {
+        ...latest.installers,
+        ...linux.platforms,
+      };
+      root.querySelectorAll<HTMLAnchorElement>("[data-native-asset]").forEach((link) => {
+        const asset = assets[link.dataset.nativeAsset ?? ""];
+        if (isNativeAsset(asset)) link.href = asset.url;
       });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { version?: string };
-      if (typeof payload.version === "string" && payload.version.length > 0) {
-        versionEl.textContent = `v${payload.version}`;
-      }
+      root.querySelectorAll<HTMLElement>("[data-native-size]").forEach((element) => {
+        const asset = assets[element.dataset.nativeSize ?? ""];
+        const size = isNativeAsset(asset) ? nativeSize(asset.size) : null;
+        if (size) element.textContent = size;
+      });
+      root.querySelectorAll<HTMLElement>("[data-native-version]").forEach((element) => {
+        element.textContent = `v${latest.version}`;
+      });
     } catch {
-      // 拉取失败时保留占位版本号。
+      // 清单不可用时不阻断下载，继续显示当前快照。
     }
   })();
 }

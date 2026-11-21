@@ -4365,7 +4365,7 @@ mark {
 
 .client-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 380px;
   align-items: end;
   gap: 48px;
   padding: 64px 0 60px;
@@ -4425,6 +4425,56 @@ mark {
   border-radius: 4px;
   box-shadow: 0 22px 46px rgba(23, 42, 35, .28);
   animation: client-enter .45s .08s ease both;
+}
+
+.client-app-identity {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(207, 216, 206, .14);
+}
+
+.client-app-identity img {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .24);
+}
+
+.client-app-identity span {
+  display: grid;
+  gap: 4px;
+  color: #f4efe2;
+  font-size: .9rem;
+  font-weight: 800;
+}
+
+.client-app-identity small {
+  color: #9fb0a4;
+  font-size: .65rem;
+  font-weight: 500;
+  letter-spacing: .12em;
+}
+
+.download-alternatives {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+  color: #8a9a8f;
+  font-size: .66rem;
+}
+
+.download-alternatives a {
+  color: #f0d9a8;
+  border-bottom: 1px solid rgba(240, 217, 168, .4);
+}
+
+.download-alternatives a:hover {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
 }
 
 .download-kicker {
@@ -4517,210 +4567,196 @@ mark {
   padding-top: 72px;
 }
 
-.install-steps {
+.native-download-section {
+  scroll-margin-top: 24px;
+}
+
+.native-download-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
 }
 
-.install-step {
-  position: relative;
-  padding: 24px 20px 22px;
+.native-platform-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 24px 22px 20px;
   background: #f7f3ea;
   border: 1px solid var(--line);
+  border-top: 3px solid var(--red);
   border-radius: 3px;
   box-shadow: 0 12px 26px rgba(74, 57, 35, .08);
-  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
 }
 
-.install-step:hover {
-  border-color: var(--line-light);
-  box-shadow: 0 18px 34px rgba(74, 57, 35, .13);
-  transform: translateY(-3px);
+.native-platform-header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--line);
 }
 
-.install-step::before {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  left: -1px;
-  height: 3px;
-  content: "";
-  background: var(--red);
-  opacity: 0;
-  transition: opacity .25s ease;
+.native-platform-header>.ph {
+  flex: 0 0 auto;
+  color: var(--red);
+  font-size: 1.75rem;
 }
 
-.install-step:hover::before {
-  opacity: 1;
-}
-
-.step-number {
-  display: block;
-  margin-bottom: 14px;
-  color: var(--gold);
-  font-family: Georgia, "Microsoft YaHei", serif;
-  font-size: 2.1rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.install-step h3 {
-  margin: 0 0 9px;
+.native-platform-header h3 {
+  margin: 0 0 3px;
   color: var(--paper);
-  font-size: .95rem;
-  font-weight: 800;
+  font-size: 1.04rem;
 }
 
-.install-step p {
+.native-platform-header p {
   margin: 0;
+  color: #7a867d;
+  font-size: .68rem;
+  line-height: 1.5;
+}
+
+.native-platform-description {
+  flex: 1;
+  margin: 18px 0 20px;
   color: #66746b;
   font-size: .78rem;
   line-height: 1.75;
 }
 
-/* 步骤卡内的截图缩略图 */
-.step-thumb {
-  display: block;
+.native-platform-card .download-button {
   width: 100%;
-  margin: 14px 0 0;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  overflow: hidden;
-  background: #fff;
-  cursor: zoom-in;
-  box-shadow: 0 6px 14px rgba(74, 57, 35, .1);
-  transition: box-shadow .2s ease;
+  margin-top: 4px;
 }
 
-.step-thumb:hover {
-  box-shadow: 0 10px 22px rgba(74, 57, 35, .18);
+.native-platform-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 11px;
+  color: #7c877f;
+  font-size: .65rem;
+  line-height: 1.5;
 }
 
-.step-thumb img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.step-zoom-hint {
-  display: none;
-}
-
-/* 点击缩略图后的全屏 lightbox */
-.step-lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
+.native-download-actions {
   display: grid;
-  place-items: center;
-  padding: 40px;
-  background: rgba(20, 15, 8, .88);
-  backdrop-filter: blur(4px);
-  animation: step-fade-in .18s ease-out;
+  gap: 8px;
+  margin-top: auto;
 }
 
-.step-lightbox img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  border-radius: 6px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
-}
-
-.step-lightbox-close {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  background: rgba(255, 255, 255, .12);
-  border: 1px solid rgba(255, 255, 255, .25);
-  border-radius: 50%;
-  font-size: 1.1rem;
-  cursor: pointer;
-  transition: background .2s ease;
-}
-
-.step-lightbox-close:hover {
-  background: rgba(255, 255, 255, .22);
-}
-
-@keyframes step-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.install-step code {
-  padding: 1px 5px;
-  color: #7b4c22;
-  background: rgba(198, 148, 69, .12);
-  border: 1px solid #ddcda8;
-  border-radius: 2px;
-  font-size: .72rem;
-}
-
-.install-note {
+.native-download-link {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 12px;
+  color: var(--ink);
+  background: rgba(255, 250, 240, .72);
+  border: 1px solid var(--line-light);
+  border-radius: 2px;
+  font-size: .74rem;
+  font-weight: 800;
+  transition: color .2s ease, background .2s ease, border-color .2s ease;
+}
+
+.native-download-link span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.native-download-link small {
+  color: #7c877f;
+  font-size: .62rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.native-download-link:hover {
+  color: var(--red-dark);
+  background: #fffaf0;
+  border-color: var(--red);
+}
+
+.native-download-link.native-download-primary {
+  color: var(--cream);
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.native-download-link.native-download-primary small {
+  color: #f6d9cf;
+}
+
+.native-download-link.native-download-primary:hover {
+  color: var(--cream);
+  background: #ce5847;
+  border-color: #ce5847;
+}
+
+.native-download-note {
+  display: flex;
+  align-items: flex-start;
   gap: 9px;
-  margin: 22px 0 0;
+  margin: 20px 0 0;
   padding: 12px 16px;
-  color: #7a7261;
+  color: #706d60;
   border: 1px dashed var(--line-light);
   border-radius: 3px;
-  font-size: .76rem;
+  font-size: .72rem;
   line-height: 1.7;
 }
 
-.install-note .ph {
+.native-download-note .ph {
   flex: 0 0 auto;
+  margin-top: 2px;
   color: var(--red);
   font-size: 1rem;
 }
 
-/* 点击复制的 chrome:// 地址芯片：chrome:// 协议禁止网页超链接跳转，只能复制 */
-.copy-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-height: auto;
-  margin: 1px 2px;
-  padding: 2px 8px 3px;
+.native-download-note code {
   color: #7b4c22;
-  background: rgba(198, 148, 69, .12);
-  border: 1px dashed #b98a4a;
-  border-radius: 3px;
-  font-size: .72rem;
-  line-height: 1.5;
-  vertical-align: baseline;
-  cursor: pointer;
-  transition: background .2s ease, border-color .2s ease;
-}
-
-.copy-chip:hover:not(:disabled) {
-  color: #5f3719;
-  background: rgba(198, 148, 69, .24);
-  border-color: #a97938;
-}
-
-.copy-chip code {
-  padding: 0;
-  color: inherit;
-  background: none;
-  border: 0;
   overflow-wrap: anywhere;
 }
 
-.copy-chip .copy-hint {
-  flex: 0 0 auto;
-  color: #a97938;
-  font-size: .62rem;
+.native-capabilities {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.native-capability {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 16px;
+  padding: 26px 24px;
+  background: rgba(247, 243, 234, .55);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.native-capability-index {
+  color: var(--gold);
+  font-family: Georgia, "Microsoft YaHei", serif;
+  font-size: 1.65rem;
   font-weight: 700;
+  line-height: 1;
+}
+
+.native-capability h3 {
+  margin: 0 0 8px;
+  color: var(--paper);
+  font-size: .92rem;
+}
+
+.native-capability p {
+  margin: 0;
+  color: #66746b;
+  font-size: .77rem;
+  line-height: 1.75;
 }
 
 .compare-wrap {
@@ -4816,71 +4852,6 @@ mark {
   line-height: 1.7;
 }
 
-.issue-list {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.issue-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 17px 20px;
-  background: #f7f3ea;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--red);
-  border-radius: 3px;
-  box-shadow: 0 10px 22px rgba(74, 57, 35, .07);
-}
-
-.issue-index {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-top: 1px;
-  color: var(--cream);
-  background: var(--red);
-  border-radius: 50%;
-  font-family: Georgia, "Microsoft YaHei", serif;
-  font-size: .8rem;
-  font-weight: 800;
-}
-
-.issue-item h3 {
-  margin: 0 0 5px;
-  color: var(--paper);
-  font-size: .86rem;
-  font-weight: 800;
-}
-
-.issue-item p {
-  margin: 0;
-  color: #66746b;
-  font-size: .78rem;
-  line-height: 1.75;
-}
-
-.issue-status {
-  flex: 0 0 auto;
-  margin-top: 3px;
-  margin-left: auto;
-  padding: 3px 9px;
-  color: #835f18;
-  background: #f5ead0;
-  border: 1px solid #e1cb94;
-  border-radius: 999px;
-  font-size: .62rem;
-  font-weight: 800;
-  letter-spacing: .08em;
-  white-space: nowrap;
-}
-
 .client-feedback {
   display: flex;
   align-items: center;
@@ -4969,14 +4940,10 @@ mark {
     animation: none;
   }
 
-  .install-step,
   .download-button,
+  .native-download-link,
   .compare-table tbody tr,
-  .copy-chip,
-  .qq-copy,
-  .step-thumb,
-  .step-lightbox,
-  .step-lightbox-close {
+  .qq-copy {
     transition: none;
     animation: none;
   }
@@ -4993,8 +4960,8 @@ mark {
     max-width: 420px;
   }
 
-  .install-steps {
-    grid-template-columns: repeat(2, 1fr);
+  .native-download-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -5003,8 +4970,12 @@ mark {
     padding: 44px 0 40px;
   }
 
-  .install-steps {
+  .native-capabilities {
     grid-template-columns: 1fr;
+  }
+
+  .native-capability {
+    padding: 22px 18px;
   }
 
   .client-requirements,
@@ -5013,13 +4984,6 @@ mark {
     flex-direction: column;
   }
 
-  .issue-item {
-    flex-wrap: wrap;
-  }
-
-  .issue-status {
-    margin-left: 0;
-  }
 }
 
 .site-footer {
